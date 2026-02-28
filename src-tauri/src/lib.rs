@@ -90,6 +90,13 @@ pub fn run() {
             commands::voice::transcribe_audio,
             commands::voice::save_audio_temp,
             commands::voice::is_voice_available,
+            // Usage tracking commands
+            commands::usage::record_usage,
+            commands::usage::get_workspace_usage,
+            commands::usage::get_task_usage,
+            commands::usage::get_workspace_usage_summary,
+            commands::usage::get_task_usage_summary,
+            commands::usage::clear_workspace_usage,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
