@@ -70,10 +70,13 @@ function SortableTab({
       transition={{ duration: 0.2, ease: 'easeOut' }}
       className="relative"
     >
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onSelect}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect() }}
         className={`
-          group flex h-8 items-center gap-2 rounded-lg px-3 text-sm font-medium
+          group flex h-8 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm font-medium
           transition-colors duration-150
           ${isActive
             ? 'bg-surface-hover text-text-primary'
@@ -107,7 +110,7 @@ function SortableTab({
             <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" />
           </svg>
         </button>
-      </button>
+      </div>
 
       {/* Active indicator */}
       {isActive && (
@@ -218,9 +221,36 @@ function ChecklistButton() {
   )
 }
 
+// ─── HistoryButton ─────────────────────────────────────────────────────────
+
+function HistoryButton({ onClick }: { onClick: () => void }) {
+  return (
+    <motion.button
+      onClick={onClick}
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.95 }}
+      className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+      title="Session History (Cmd+Shift+H)"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        className="h-4 w-4"
+      >
+        <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13a.75.75 0 0 0-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 0 0 0-1.5h-3.25V5Z" clipRule="evenodd" />
+      </svg>
+    </motion.button>
+  )
+}
+
 // ─── TabBar ─────────────────────────────────────────────────────────────────
 
-export function TabBar() {
+type TabBarProps = {
+  onHistoryClick?: () => void
+}
+
+export function TabBar({ onHistoryClick }: TabBarProps) {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const setActive = useWorkspaceStore((s) => s.setActive)
@@ -392,8 +422,9 @@ export function TabBar() {
           <AddTabButton onClick={() => setShowAddDialog(true)} />
         </div>
 
-        {/* Right: checklist + settings */}
+        {/* Right: history + checklist + settings */}
         <div className="flex items-center gap-1">
+          {onHistoryClick && <HistoryButton onClick={onHistoryClick} />}
           <ChecklistButton />
           <SettingsButton />
         </div>

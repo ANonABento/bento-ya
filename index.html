@@ -1,12 +1,33 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bento-ya</title>
+    <script>
+      // Apply theme immediately to prevent flash
+      (function() {
+        const stored = localStorage.getItem('bento-theme-preference');
+        let theme = 'dark';
+        if (stored === 'light') {
+          theme = 'light';
+        } else if (stored === 'system' || !stored) {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Loading screen shown before React hydrates -->
+      <div id="initial-loader" style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0D0D0D;color:#888888;font-family:system-ui,sans-serif;">
+        <div style="text-align:center;">
+          <div style="font-size:48px;margin-bottom:16px;">🍱</div>
+          <div>Loading Bento-ya...</div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

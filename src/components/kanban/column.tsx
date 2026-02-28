@@ -1,4 +1,4 @@
-import { memo, useState, useCallback } from 'react'
+import { memo, useState, useCallback, useMemo } from 'react'
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { motion } from 'motion/react'
@@ -14,9 +14,17 @@ type ColumnProps = {
 }
 
 export const Column = memo(function Column({ column }: ColumnProps) {
-  const tasks = useTaskStore((s) => s.getByColumn(column.id))
+  const allTasks = useTaskStore((s) => s.tasks)
   const remove = useColumnStore((s) => s.remove)
-  const taskIds = tasks.map((t) => t.id)
+
+  // Memoize filtered tasks to prevent infinite loops
+  const tasks = useMemo(
+    () => allTasks
+      .filter((t) => t.columnId === column.id)
+      .sort((a, b) => a.position - b.position),
+    [allTasks, column.id]
+  )
+  const taskIds = useMemo(() => tasks.map((t) => t.id), [tasks])
 
   const [showConfigDialog, setShowConfigDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)

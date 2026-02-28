@@ -158,3 +158,17 @@ pub fn clone_workspace(
     tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(new_ws)
 }
+
+/// Reorder workspaces by updating their tab_order
+#[tauri::command]
+pub fn reorder_workspaces(state: State<AppState>, ids: Vec<String>) -> Result<(), AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let tx = conn.unchecked_transaction().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    for (i, id) in ids.iter().enumerate() {
+        db::update_workspace(&conn, id, None, None, Some(i as i64), None)?;
+    }
+
+    tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(())
+}

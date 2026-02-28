@@ -79,6 +79,22 @@
   animation: attention-pulse 2s ease-in-out infinite;
 }
 
+/* Default dark theme values as fallback */
+:root {
+  --bg: #0D0D0D;
+  --surface: #1A1A1A;
+  --surface-hover: #242424;
+  --border: #2A2A2A;
+  --text-primary: #E5E5E5;
+  --text-secondary: #888888;
+  --accent: #E8A87C;
+  --success: #4ADE80;
+  --warning: #FBBF24;
+  --error: #F87171;
+  --running: #60A5FA;
+  --attention: #F59E0B;
+}
+
 html,
 body,
 #root {

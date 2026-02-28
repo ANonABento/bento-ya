@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { useTemplatesStore } from '@/stores/templates-store'
+import { CommunityGallery } from '@/components/templates/community-gallery'
 import type { PipelineTemplate } from '@/types/templates'
 
 export function TemplatesTab() {
@@ -13,6 +14,7 @@ export function TemplatesTab() {
 
   const [selectedTemplate, setSelectedTemplate] = useState<PipelineTemplate | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  const [showCommunityGallery, setShowCommunityGallery] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const templates = getAllTemplates()
@@ -62,6 +64,12 @@ export function TemplatesTab() {
             onChange={handleImport}
             className="hidden"
           />
+          <button
+            onClick={() => { setShowCommunityGallery(true) }}
+            className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90"
+          >
+            Browse Community
+          </button>
           <button
             onClick={() => fileInputRef.current?.click()}
             className="rounded-lg border border-border-default px-3 py-1.5 text-xs text-text-secondary transition-colors hover:border-accent hover:text-text-primary"
@@ -183,6 +191,13 @@ export function TemplatesTab() {
           and click "Save as Template".
         </p>
       </div>
+
+      {/* Community Gallery Modal */}
+      <AnimatePresence>
+        {showCommunityGallery && (
+          <CommunityGallery onClose={() => setShowCommunityGallery(false)} />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

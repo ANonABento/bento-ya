@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useCallback } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -23,8 +23,15 @@ export function Board() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const columns = useColumnStore((s) => s.columns)
   const loadColumns = useColumnStore((s) => s.load)
+  const addColumn = useColumnStore((s) => s.add)
   const loadTasks = useTaskStore((s) => s.load)
   const tasks = useTaskStore((s) => s.tasks)
+
+  const handleAddColumn = useCallback(() => {
+    if (!activeWorkspaceId) return
+    const name = `Column ${String(columns.length + 1)}`
+    void addColumn(activeWorkspaceId, name)
+  }, [activeWorkspaceId, columns.length, addColumn])
 
   const { isSplitView, activeTaskId, closeSplitView } = useSplitView()
 
@@ -89,8 +96,12 @@ export function Board() {
             ))}
           </SortableContext>
 
-          {/* Add column placeholder */}
-          <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashed border-border-default text-text-secondary/50 transition-colors hover:border-text-secondary hover:text-text-secondary">
+          {/* Add column button */}
+          <button
+            onClick={handleAddColumn}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashed border-border-default text-text-secondary/50 transition-colors hover:border-text-secondary hover:text-text-secondary"
+            title="Add column"
+          >
             +
           </button>
         </div>
