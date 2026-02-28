@@ -62,6 +62,7 @@ pub fn run() {
             commands::git::get_changes,
             commands::git::get_diff,
             commands::git::get_conflict_matrix,
+            commands::git::get_commits,
             // PTY / Agent commands
             commands::terminal::write_to_pty,
             commands::terminal::resize_pty,

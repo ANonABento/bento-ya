@@ -174,3 +174,71 @@ pub fn get_files_touched(repo_path: &str, branch: &str) -> Result<Vec<String>, S
 
     Ok(files)
 }
+
+/// A single commit on a task branch.
+#[derive(Debug, Serialize)]
+pub struct CommitInfo {
+    pub hash: String,
+    pub short_hash: String,
+    pub message: String,
+    pub author: String,
+    pub timestamp: i64,
+}
+
+/// Return the list of commits on a task branch that are not on the base branch.
+pub fn get_commits(repo_path: &str, branch: &str) -> Result<Vec<CommitInfo>, String> {
+    let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
+
+    let base_name = find_base_branch(&repo).map_err(|e| e.to_string())?;
+
+    let base_branch = repo
+        .find_branch(&base_name, BranchType::Local)
+        .map_err(|e| format!("Base branch '{}' not found: {}", base_name, e))?;
+    let base_commit = base_branch
+        .get()
+        .peel_to_commit()
+        .map_err(|e| e.to_string())?;
+
+    let task_branch = repo
+        .find_branch(branch, BranchType::Local)
+        .map_err(|e| format!("Branch '{}' not found: {}", branch, e))?;
+    let task_commit = task_branch
+        .get()
+        .peel_to_commit()
+        .map_err(|e| e.to_string())?;
+
+    let merge_base = repo
+        .merge_base(base_commit.id(), task_commit.id())
+        .map_err(|e| e.to_string())?;
+
+    let mut revwalk = repo.revwalk().map_err(|e| e.to_string())?;
+    revwalk.push(task_commit.id()).map_err(|e| e.to_string())?;
+    revwalk
+        .hide(merge_base)
+        .map_err(|e| e.to_string())?;
+    revwalk.set_sorting(git2::Sort::TIME).map_err(|e| e.to_string())?;
+
+    let mut commits = Vec::new();
+    for oid in revwalk {
+        let oid = oid.map_err(|e| e.to_string())?;
+        let commit = repo.find_commit(oid).map_err(|e| e.to_string())?;
+        let hash = oid.to_string();
+        let short_hash = hash[..7.min(hash.len())].to_string();
+        let message = commit
+            .summary()
+            .unwrap_or("")
+            .to_string();
+        let author = commit.author().name().unwrap_or("").to_string();
+        let timestamp = commit.time().seconds();
+
+        commits.push(CommitInfo {
+            hash,
+            short_hash,
+            message,
+            author,
+            timestamp,
+        });
+    }
+
+    Ok(commits)
+}

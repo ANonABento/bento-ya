@@ -1,32 +1,54 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { setTheme } from '@/lib/theme'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { Board } from '@/components/layout/board'
+import { WorkspaceSetup } from '@/components/layout/workspace-setup'
 
 function App() {
+  const loaded = useWorkspaceStore((s) => s.loaded)
+  const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const load = useWorkspaceStore((s) => s.load)
+  const [error, setError] = useState<string | null>(null)
+
   useEffect(() => {
     setTheme('dark')
   }, [])
 
+  // Load workspaces on mount
+  useEffect(() => {
+    load().catch((err: unknown) => {
+      setError(err instanceof Error ? err.message : 'Failed to load workspaces')
+    })
+  }, [load])
+
+  const showSetup = loaded && (workspaces.length === 0 || !activeWorkspaceId)
+
   return (
     <div className="flex h-screen flex-col bg-bg">
-      {/* Top bar — tab bar area */}
+      {/* Top bar */}
       <header className="flex h-10 shrink-0 items-center justify-center border-b border-border-default bg-surface">
         <span className="text-sm font-medium text-text-secondary">Bento-ya</span>
       </header>
 
-      {/* Main content — board area */}
+      {/* Main content */}
       <main className="flex-1 overflow-hidden">
-        <Board />
+        {error ? (
+          <div className="flex h-full items-center justify-center">
+            <div className="rounded-lg border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">
+              {error}
+            </div>
+          </div>
+        ) : !loaded ? (
+          <div className="flex h-full items-center justify-center">
+            <span className="text-sm text-text-secondary">Loading...</span>
+          </div>
+        ) : showSetup ? (
+          <WorkspaceSetup />
+        ) : (
+          <Board />
+        )}
       </main>
-
-      {/* Bottom bar — chat input area */}
-      <footer className="flex h-14 shrink-0 items-center gap-2 border-t border-border-default bg-surface px-4">
-        <input
-          type="text"
-          placeholder='Type or speak... "fix the login validation bug"'
-          className="flex-1 rounded-lg border border-border-default bg-bg px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
-        />
-      </footer>
     </div>
   )
 }
