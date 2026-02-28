@@ -1,9 +1,11 @@
 use crate::db::{self, AppState, Task};
 use crate::error::AppError;
-use tauri::State;
+use crate::pipeline;
+use tauri::{AppHandle, State};
 
 #[tauri::command]
 pub fn create_task(
+    app: AppHandle,
     state: State<AppState>,
     workspace_id: String,
     column_id: String,
@@ -15,13 +17,19 @@ pub fn create_task(
     }
 
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    Ok(db::insert_task(
+    let task = db::insert_task(
         &conn,
         &workspace_id,
         &column_id,
         title.trim(),
         description.as_deref(),
-    )?)
+    )?;
+
+    // Fire column trigger for the initial column
+    let column = db::get_column(&conn, &column_id)?;
+    let task = pipeline::fire_trigger(&conn, &app, &task, &column)?;
+
+    Ok(task)
 }
 
 #[tauri::command]
@@ -75,6 +83,7 @@ pub fn update_task(
 
 #[tauri::command]
 pub fn move_task(
+    app: AppHandle,
     state: State<AppState>,
     id: String,
     target_column_id: String,
@@ -85,18 +94,42 @@ pub fn move_task(
     }
 
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    // Get the task's current column to check if it changed
+    let task_before = db::get_task(&conn, &id)?;
+    let column_changed = task_before.column_id != target_column_id;
+
     let tx = conn.unchecked_transaction().map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     // Update column and position atomically
+    // Also reset pipeline state when moving to a new column
     let ts = db::now();
-    conn.execute(
-        "UPDATE tasks SET column_id = ?1, position = ?2, updated_at = ?3 WHERE id = ?4",
-        rusqlite::params![target_column_id, position, ts, id],
-    )
-    .map_err(AppError::from)?;
+    if column_changed {
+        conn.execute(
+            "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = NULL, updated_at = ?3 WHERE id = ?4",
+            rusqlite::params![target_column_id, position, ts, id],
+        )
+        .map_err(AppError::from)?;
+    } else {
+        conn.execute(
+            "UPDATE tasks SET column_id = ?1, position = ?2, updated_at = ?3 WHERE id = ?4",
+            rusqlite::params![target_column_id, position, ts, id],
+        )
+        .map_err(AppError::from)?;
+    }
 
     tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    Ok(db::get_task(&conn, &id)?)
+
+    let task = db::get_task(&conn, &id)?;
+
+    // Fire column trigger if task moved to a new column
+    if column_changed {
+        let target_column = db::get_column(&conn, &target_column_id)?;
+        let task = pipeline::fire_trigger(&conn, &app, &task, &target_column)?;
+        return Ok(task);
+    }
+
+    Ok(task)
 }
 
 #[tauri::command]

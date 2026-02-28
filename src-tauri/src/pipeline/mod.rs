@@ -1,1 +1,452 @@
-// Pipeline engine: column triggers, exit criteria evaluation
+//! Pipeline Engine
+//!
+//! Handles column triggers and exit criteria evaluation.
+//! When a task enters a column, the pipeline fires the column's trigger.
+//! When exit criteria are met, the task auto-advances to the next column.
+
+use crate::db::{self, Column, Task};
+use crate::error::AppError;
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter};
+
+// ─── Pipeline State ─────────────────────────────────────────────────────────
+
+/// Pipeline execution states for a task
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PipelineState {
+    /// Task is idle, no trigger running
+    Idle,
+    /// Trigger has been fired, waiting for execution
+    Triggered,
+    /// Trigger is actively running (agent/script)
+    Running,
+    /// Evaluating exit criteria
+    Evaluating,
+    /// Task is advancing to next column
+    Advancing,
+}
+
+impl PipelineState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PipelineState::Idle => "idle",
+            PipelineState::Triggered => "triggered",
+            PipelineState::Running => "running",
+            PipelineState::Evaluating => "evaluating",
+            PipelineState::Advancing => "advancing",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "triggered" => PipelineState::Triggered,
+            "running" => PipelineState::Running,
+            "evaluating" => PipelineState::Evaluating,
+            "advancing" => PipelineState::Advancing,
+            _ => PipelineState::Idle,
+        }
+    }
+}
+
+// ─── Trigger Config Types ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerConfig {
+    #[serde(rename = "type")]
+    pub trigger_type: String,
+    pub config: TriggerParams,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TriggerParams {
+    pub agent: Option<String>,
+    pub skill: Option<String>,
+    pub script: Option<String>,
+    pub webhook: Option<String>,
+    pub flags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExitConfig {
+    #[serde(rename = "type")]
+    pub exit_type: String,
+    pub config: ExitParams,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ExitParams {
+    pub timeout: Option<u64>,
+    pub retry: Option<bool>,
+    pub max_retry: Option<u32>,
+}
+
+// ─── Pipeline Events ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PipelineEvent {
+    pub task_id: String,
+    pub column_id: String,
+    pub event_type: String,
+    pub state: String,
+    pub message: Option<String>,
+}
+
+// ─── Pipeline Engine ────────────────────────────────────────────────────────
+
+/// Fire the column trigger when a task enters.
+/// Returns the updated task with pipeline state set.
+pub fn fire_trigger(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    column: &Column,
+) -> Result<Task, AppError> {
+    // Parse trigger config
+    let trigger: TriggerConfig = serde_json::from_str(&column.trigger_config)
+        .unwrap_or(TriggerConfig {
+            trigger_type: "none".to_string(),
+            config: TriggerParams::default(),
+        });
+
+    // If no trigger configured, stay idle
+    if trigger.trigger_type == "none" {
+        return Ok(task.clone());
+    }
+
+    let ts = db::now();
+
+    // Set pipeline state to triggered
+    let updated_task = db::update_task_pipeline_state(
+        conn,
+        &task.id,
+        PipelineState::Triggered.as_str(),
+        Some(&ts),
+        None,
+    )?;
+
+    // Emit pipeline event
+    let event = PipelineEvent {
+        task_id: task.id.clone(),
+        column_id: column.id.clone(),
+        event_type: "triggered".to_string(),
+        state: PipelineState::Triggered.as_str().to_string(),
+        message: Some(format!("Trigger type: {}", trigger.trigger_type)),
+    };
+    let _ = app.emit("pipeline:triggered", &event);
+
+    // Execute trigger based on type
+    match trigger.trigger_type.as_str() {
+        "agent" => {
+            // Agent triggers are handled by the agent system
+            // Set state to running since agent will be spawned
+            let task = db::update_task_pipeline_state(
+                conn,
+                &task.id,
+                PipelineState::Running.as_str(),
+                Some(&ts),
+                None,
+            )?;
+            let _ = app.emit("pipeline:running", &PipelineEvent {
+                task_id: task.id.clone(),
+                column_id: column.id.clone(),
+                event_type: "running".to_string(),
+                state: PipelineState::Running.as_str().to_string(),
+                message: Some(format!("Agent: {:?}", trigger.config.agent)),
+            });
+            Ok(task)
+        }
+        "skill" => {
+            // Skills run synchronously for now
+            let task = db::update_task_pipeline_state(
+                conn,
+                &task.id,
+                PipelineState::Running.as_str(),
+                Some(&ts),
+                None,
+            )?;
+            let _ = app.emit("pipeline:running", &PipelineEvent {
+                task_id: task.id.clone(),
+                column_id: column.id.clone(),
+                event_type: "running".to_string(),
+                state: PipelineState::Running.as_str().to_string(),
+                message: Some(format!("Skill: {:?}", trigger.config.skill)),
+            });
+            Ok(task)
+        }
+        "script" => {
+            // Scripts run asynchronously
+            let task = db::update_task_pipeline_state(
+                conn,
+                &task.id,
+                PipelineState::Running.as_str(),
+                Some(&ts),
+                None,
+            )?;
+            let _ = app.emit("pipeline:running", &PipelineEvent {
+                task_id: task.id.clone(),
+                column_id: column.id.clone(),
+                event_type: "running".to_string(),
+                state: PipelineState::Running.as_str().to_string(),
+                message: Some(format!("Script: {:?}", trigger.config.script)),
+            });
+            Ok(task)
+        }
+        "webhook" => {
+            // Webhooks are fire-and-forget
+            Ok(updated_task)
+        }
+        _ => {
+            // Unknown trigger type, stay idle
+            Ok(db::update_task_pipeline_state(
+                conn,
+                &task.id,
+                PipelineState::Idle.as_str(),
+                None,
+                None,
+            )?)
+        }
+    }
+}
+
+/// Evaluate exit criteria for a task.
+/// Returns true if exit criteria are met and task should advance.
+pub fn evaluate_exit_criteria(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    column: &Column,
+) -> Result<bool, AppError> {
+    // Parse exit config
+    let exit: ExitConfig = serde_json::from_str(&column.exit_config)
+        .unwrap_or(ExitConfig {
+            exit_type: "manual".to_string(),
+            config: ExitParams::default(),
+        });
+
+    // Set state to evaluating
+    let _ = db::update_task_pipeline_state(
+        conn,
+        &task.id,
+        PipelineState::Evaluating.as_str(),
+        task.pipeline_triggered_at.as_deref(),
+        None,
+    );
+
+    let _ = app.emit("pipeline:evaluating", &PipelineEvent {
+        task_id: task.id.clone(),
+        column_id: column.id.clone(),
+        event_type: "evaluating".to_string(),
+        state: PipelineState::Evaluating.as_str().to_string(),
+        message: Some(format!("Exit type: {}", exit.exit_type)),
+    });
+
+    let exit_met = match exit.exit_type.as_str() {
+        "manual" => {
+            // Manual exit never auto-advances
+            false
+        }
+        "agent_complete" => {
+            // Check if agent is complete (status = completed)
+            // For now, return false until agent system is integrated
+            false
+        }
+        "script_success" => {
+            // Check if script exited with code 0
+            false
+        }
+        "checklist_done" => {
+            // Check if all checklist items are checked
+            if let Some(ref checklist) = task.checklist {
+                checklist.contains("\"done\":true") && !checklist.contains("\"done\":false")
+            } else {
+                false
+            }
+        }
+        "pr_approved" => {
+            // Check if PR is approved
+            false
+        }
+        _ => false,
+    };
+
+    if exit_met {
+        let _ = app.emit("pipeline:exit_met", &PipelineEvent {
+            task_id: task.id.clone(),
+            column_id: column.id.clone(),
+            event_type: "exit_met".to_string(),
+            state: PipelineState::Evaluating.as_str().to_string(),
+            message: Some(format!("Exit criteria met: {}", exit.exit_type)),
+        });
+    }
+
+    // Reset state to running or idle
+    let new_state = if exit_met {
+        PipelineState::Idle
+    } else if PipelineState::from_str(&task.pipeline_state) == PipelineState::Running {
+        PipelineState::Running
+    } else {
+        PipelineState::Idle
+    };
+
+    let _ = db::update_task_pipeline_state(
+        conn,
+        &task.id,
+        new_state.as_str(),
+        task.pipeline_triggered_at.as_deref(),
+        None,
+    );
+
+    Ok(exit_met)
+}
+
+/// Auto-advance a task to the next column if criteria are met.
+/// Returns the updated task if advanced, or None if no advancement.
+pub fn try_auto_advance(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    current_column: &Column,
+) -> Result<Option<Task>, AppError> {
+    // Check if auto-advance is enabled
+    if !current_column.auto_advance {
+        return Ok(None);
+    }
+
+    // Evaluate exit criteria
+    let exit_met = evaluate_exit_criteria(conn, app, task, current_column)?;
+    if !exit_met {
+        return Ok(None);
+    }
+
+    // Find next column
+    let next_column = db::get_next_column(conn, &task.workspace_id, current_column.position)?;
+
+    match next_column {
+        Some(next_col) => {
+            // Set state to advancing
+            let _ = db::update_task_pipeline_state(
+                conn,
+                &task.id,
+                PipelineState::Advancing.as_str(),
+                None,
+                None,
+            );
+
+            let _ = app.emit("pipeline:advancing", &PipelineEvent {
+                task_id: task.id.clone(),
+                column_id: current_column.id.clone(),
+                event_type: "advancing".to_string(),
+                state: PipelineState::Advancing.as_str().to_string(),
+                message: Some(format!("Moving to column: {}", next_col.name)),
+            });
+
+            // Get next position in target column
+            let max_pos: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
+                    rusqlite::params![next_col.id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(-1);
+
+            // Move task to next column
+            let ts = db::now();
+            conn.execute(
+                "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, updated_at = ?3 WHERE id = ?4",
+                rusqlite::params![next_col.id, max_pos + 1, ts, task.id],
+            ).map_err(AppError::from)?;
+
+            let updated_task = db::get_task(conn, &task.id)?;
+
+            let _ = app.emit("pipeline:advanced", &PipelineEvent {
+                task_id: updated_task.id.clone(),
+                column_id: next_col.id.clone(),
+                event_type: "advanced".to_string(),
+                state: PipelineState::Idle.as_str().to_string(),
+                message: Some(format!("Moved from {} to {}", current_column.name, next_col.name)),
+            });
+
+            // Fire trigger on the new column
+            let _ = fire_trigger(conn, app, &updated_task, &next_col)?;
+
+            Ok(Some(db::get_task(conn, &task.id)?))
+        }
+        None => {
+            // No next column, reset to idle
+            let task = db::update_task_pipeline_state(
+                conn,
+                &task.id,
+                PipelineState::Idle.as_str(),
+                None,
+                None,
+            )?;
+            Ok(Some(task))
+        }
+    }
+}
+
+/// Handle trigger failure - set error state and emit event
+pub fn handle_trigger_failure(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    column: &Column,
+    error_message: &str,
+) -> Result<Task, AppError> {
+    let updated_task = db::update_task_pipeline_state(
+        conn,
+        &task.id,
+        PipelineState::Idle.as_str(),
+        task.pipeline_triggered_at.as_deref(),
+        Some(error_message),
+    )?;
+
+    let _ = app.emit("pipeline:error", &PipelineEvent {
+        task_id: task.id.clone(),
+        column_id: column.id.clone(),
+        event_type: "error".to_string(),
+        state: PipelineState::Idle.as_str().to_string(),
+        message: Some(error_message.to_string()),
+    });
+
+    Ok(updated_task)
+}
+
+/// Mark a pipeline execution as complete (called when agent/script finishes)
+pub fn mark_complete(
+    conn: &Connection,
+    app: &AppHandle,
+    task_id: &str,
+    success: bool,
+) -> Result<Task, AppError> {
+    let task = db::get_task(conn, task_id)?;
+    let column = db::get_column(conn, &task.column_id)?;
+
+    if success {
+        // Try to auto-advance
+        if let Some(advanced_task) = try_auto_advance(conn, app, &task, &column)? {
+            return Ok(advanced_task);
+        }
+    }
+
+    // Reset to idle
+    let updated_task = db::update_task_pipeline_state(
+        conn,
+        task_id,
+        PipelineState::Idle.as_str(),
+        None,
+        if success { None } else { Some("Execution failed") },
+    )?;
+
+    let _ = app.emit("pipeline:complete", &PipelineEvent {
+        task_id: task_id.to_string(),
+        column_id: column.id.clone(),
+        event_type: "complete".to_string(),
+        state: PipelineState::Idle.as_str().to_string(),
+        message: Some(if success { "Success" } else { "Failed" }.to_string()),
+    });
+
+    Ok(updated_task)
+}

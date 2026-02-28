@@ -68,6 +68,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
     let migrations: Vec<(&str, &str)> = vec![
         ("001_initial", include_str!("migrations/001_initial.sql")),
         ("002_column_config", include_str!("migrations/002_column_config.sql")),
+        ("003_pipeline_state", include_str!("migrations/003_pipeline_state.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -140,6 +141,9 @@ pub struct Task {
     pub branch_name: Option<String>,
     pub files_touched: String,
     pub checklist: Option<String>,
+    pub pipeline_state: String,
+    pub pipeline_triggered_at: Option<String>,
+    pub pipeline_error: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -361,7 +365,7 @@ pub fn insert_task(
         )
         .unwrap_or(-1);
     conn.execute(
-        "INSERT INTO tasks (id, workspace_id, column_id, title, description, position, priority, files_touched, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'medium', '[]', ?7, ?8)",
+        "INSERT INTO tasks (id, workspace_id, column_id, title, description, position, priority, files_touched, pipeline_state, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'medium', '[]', 'idle', ?7, ?8)",
         params![id, workspace_id, column_id, title, description, max_pos + 1, ts, ts],
     )?;
     get_task(conn, &id)
@@ -369,7 +373,7 @@ pub fn insert_task(
 
 pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
     conn.query_row(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, created_at, updated_at FROM tasks WHERE id = ?1",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, created_at, updated_at FROM tasks WHERE id = ?1",
         params![id],
         |row| {
             Ok(Task {
@@ -384,8 +388,11 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
                 branch_name: row.get(8)?,
                 files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
                 checklist: row.get(10)?,
-                created_at: row.get(11)?,
-                updated_at: row.get(12)?,
+                pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()),
+                pipeline_triggered_at: row.get(12)?,
+                pipeline_error: row.get(13)?,
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
             })
         },
     )
@@ -393,7 +400,7 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
 
 pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, created_at, updated_at FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, created_at, updated_at FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
     )?;
     let rows = stmt.query_map(params![workspace_id], |row| {
         Ok(Task {
@@ -408,8 +415,11 @@ pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>>
             branch_name: row.get(8)?,
             files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
             checklist: row.get(10)?,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
+            pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()),
+            pipeline_triggered_at: row.get(12)?,
+            pipeline_error: row.get(13)?,
+            created_at: row.get(14)?,
+            updated_at: row.get(15)?,
         })
     })?;
     rows.collect()
@@ -454,6 +464,51 @@ pub fn update_task(
 pub fn delete_task(conn: &Connection, id: &str) -> SqlResult<()> {
     conn.execute("DELETE FROM tasks WHERE id = ?1", params![id])?;
     Ok(())
+}
+
+/// Update pipeline state for a task
+pub fn update_task_pipeline_state(
+    conn: &Connection,
+    id: &str,
+    state: &str,
+    triggered_at: Option<&str>,
+    error: Option<&str>,
+) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET pipeline_state = ?1, pipeline_triggered_at = ?2, pipeline_error = ?3, updated_at = ?4 WHERE id = ?5",
+        params![state, triggered_at, error, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Get next column in workspace by position
+pub fn get_next_column(conn: &Connection, workspace_id: &str, current_position: i64) -> SqlResult<Option<Column>> {
+    let result = conn.query_row(
+        "SELECT id, workspace_id, name, icon, position, color, visible, trigger_config, exit_config, auto_advance, created_at, updated_at FROM columns WHERE workspace_id = ?1 AND position > ?2 ORDER BY position LIMIT 1",
+        params![workspace_id, current_position],
+        |row| {
+            Ok(Column {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                name: row.get(2)?,
+                icon: row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "list".to_string()),
+                position: row.get(4)?,
+                color: row.get(5)?,
+                visible: row.get::<_, i64>(6)? != 0,
+                trigger_config: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| r#"{"type":"none","config":{}}"#.to_string()),
+                exit_config: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| r#"{"type":"manual","config":{}}"#.to_string()),
+                auto_advance: row.get::<_, i64>(9).unwrap_or(0) != 0,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
+            })
+        },
+    );
+    match result {
+        Ok(col) => Ok(Some(col)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 // ─── CRUD helpers: AgentSession ────────────────────────────────────────────
@@ -583,7 +638,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 1);
+        // We have 3 migrations: 001_initial, 002_column_config, 003_pipeline_state
+        assert_eq!(count, 3);
     }
 
     #[test]

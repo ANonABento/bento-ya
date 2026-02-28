@@ -72,6 +72,11 @@ pub fn run() {
             commands::agent::force_stop_agent,
             commands::agent::get_agent_status,
             commands::agent::list_active_agents,
+            // Pipeline commands
+            commands::pipeline::mark_pipeline_complete,
+            commands::pipeline::get_pipeline_state,
+            commands::pipeline::try_advance_task,
+            commands::pipeline::set_pipeline_error,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
