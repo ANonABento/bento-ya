@@ -71,6 +71,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("003_pipeline_state", include_str!("migrations/003_pipeline_state.sql")),
         ("004_chat_messages", include_str!("migrations/004_chat_messages.sql")),
         ("005_checklists", include_str!("migrations/005_checklists.sql")),
+        ("006_session_resume", include_str!("migrations/006_session_resume.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -160,6 +161,10 @@ pub struct AgentSession {
     pub pty_rows: i64,
     pub last_output: Option<String>,
     pub exit_code: Option<i64>,
+    pub agent_type: String,
+    pub working_dir: Option<String>,
+    pub scrollback: Option<String>,
+    pub resumable: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -543,19 +548,24 @@ pub fn get_next_column(conn: &Connection, workspace_id: &str, current_position: 
 
 // ─── CRUD helpers: AgentSession ────────────────────────────────────────────
 
-pub fn insert_agent_session(conn: &Connection, task_id: &str) -> SqlResult<AgentSession> {
+pub fn insert_agent_session(
+    conn: &Connection,
+    task_id: &str,
+    agent_type: &str,
+    working_dir: Option<&str>,
+) -> SqlResult<AgentSession> {
     let id = new_id();
     let ts = now();
     conn.execute(
-        "INSERT INTO agent_sessions (id, task_id, status, pty_cols, pty_rows, created_at, updated_at) VALUES (?1, ?2, 'idle', 80, 24, ?3, ?4)",
-        params![id, task_id, ts, ts],
+        "INSERT INTO agent_sessions (id, task_id, agent_type, working_dir, status, pty_cols, pty_rows, resumable, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 'idle', 80, 24, 0, ?5, ?6)",
+        params![id, task_id, agent_type, working_dir, ts, ts],
     )?;
     get_agent_session(conn, &id)
 }
 
 pub fn get_agent_session(conn: &Connection, id: &str) -> SqlResult<AgentSession> {
     conn.query_row(
-        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, created_at, updated_at FROM agent_sessions WHERE id = ?1",
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, created_at, updated_at FROM agent_sessions WHERE id = ?1",
         params![id],
         |row| {
             Ok(AgentSession {
@@ -567,8 +577,12 @@ pub fn get_agent_session(conn: &Connection, id: &str) -> SqlResult<AgentSession>
                 pty_rows: row.get(5)?,
                 last_output: row.get(6)?,
                 exit_code: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
+                agent_type: row.get(8)?,
+                working_dir: row.get(9)?,
+                scrollback: row.get(10)?,
+                resumable: row.get::<_, i64>(11)? != 0,
+                created_at: row.get(12)?,
+                updated_at: row.get(13)?,
             })
         },
     )
@@ -576,7 +590,7 @@ pub fn get_agent_session(conn: &Connection, id: &str) -> SqlResult<AgentSession>
 
 pub fn list_agent_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<AgentSession>> {
     let mut stmt = conn.prepare(
-        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, created_at, updated_at FROM agent_sessions WHERE task_id = ?1",
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, created_at, updated_at FROM agent_sessions WHERE task_id = ?1 ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map(params![task_id], |row| {
         Ok(AgentSession {
@@ -588,8 +602,38 @@ pub fn list_agent_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<Ag
             pty_rows: row.get(5)?,
             last_output: row.get(6)?,
             exit_code: row.get(7)?,
-            created_at: row.get(8)?,
-            updated_at: row.get(9)?,
+            agent_type: row.get(8)?,
+            working_dir: row.get(9)?,
+            scrollback: row.get(10)?,
+            resumable: row.get::<_, i64>(11)? != 0,
+            created_at: row.get(12)?,
+            updated_at: row.get(13)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// List resumable sessions for a task
+pub fn list_resumable_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<AgentSession>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, created_at, updated_at FROM agent_sessions WHERE task_id = ?1 AND resumable = 1 ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![task_id], |row| {
+        Ok(AgentSession {
+            id: row.get(0)?,
+            task_id: row.get(1)?,
+            pid: row.get(2)?,
+            status: row.get(3)?,
+            pty_cols: row.get(4)?,
+            pty_rows: row.get(5)?,
+            last_output: row.get(6)?,
+            exit_code: row.get(7)?,
+            agent_type: row.get(8)?,
+            working_dir: row.get(9)?,
+            scrollback: row.get(10)?,
+            resumable: row.get::<_, i64>(11)? != 0,
+            created_at: row.get(12)?,
+            updated_at: row.get(13)?,
         })
     })?;
     rows.collect()
@@ -602,6 +646,8 @@ pub fn update_agent_session(
     status: Option<&str>,
     exit_code: Option<Option<i64>>,
     last_output: Option<Option<&str>>,
+    scrollback: Option<Option<&str>>,
+    resumable: Option<bool>,
 ) -> SqlResult<AgentSession> {
     let current = get_agent_session(conn, id)?;
     let ts = now();
@@ -617,13 +663,20 @@ pub fn update_agent_session(
         Some(o) => o.map(|s| s.to_string()),
         None => current.last_output.clone(),
     };
+    let new_scrollback = match scrollback {
+        Some(s) => s.map(|t| t.to_string()),
+        None => current.scrollback.clone(),
+    };
+    let new_resumable = resumable.unwrap_or(current.resumable);
     conn.execute(
-        "UPDATE agent_sessions SET pid = ?1, status = ?2, exit_code = ?3, last_output = ?4, updated_at = ?5 WHERE id = ?6",
+        "UPDATE agent_sessions SET pid = ?1, status = ?2, exit_code = ?3, last_output = ?4, scrollback = ?5, resumable = ?6, updated_at = ?7 WHERE id = ?8",
         params![
             new_pid,
             status.unwrap_or(&current.status),
             new_exit_code,
             new_last_output,
+            new_scrollback,
+            if new_resumable { 1 } else { 0 },
             ts,
             id,
         ],
