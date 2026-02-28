@@ -157,6 +157,20 @@ export async function getCurrentBranch(repoPath: string): Promise<string> {
   return invoke<string>('get_current_branch', { repoPath })
 }
 
+export type ConflictEntry = {
+  file: string
+  branches: string[]
+}
+
+export type ConflictMatrix = {
+  conflicts: ConflictEntry[]
+  hasConflicts: boolean
+}
+
+export async function getConflictMatrix(repoPath: string): Promise<ConflictMatrix> {
+  return invoke<ConflictMatrix>('get_conflict_matrix', { repoPath })
+}
+
 // ─── Agent commands ───────────────────────────────────────────────────────
 
 export type AgentInfo = {
