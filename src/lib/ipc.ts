@@ -1,54 +1,134 @@
-import { invoke } from '@tauri-apps/api/core'
-import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+// Typed invoke() and listen() wrappers for Tauri IPC.
+// Provides type-safe communication between React frontend and Rust backend.
+
+import { invoke as tauriInvoke } from '@tauri-apps/api/core'
+import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { Workspace, Column, Task } from '@/types'
+import type { AppError } from '../types/events'
 
-// Workspace commands
-export const getWorkspaces = () => invoke<Workspace[]>('get_workspaces')
-export const createWorkspace = (name: string, repoPath: string) =>
-  invoke<Workspace>('create_workspace', { name, repoPath })
-export const updateWorkspace = (id: string, updates: Partial<Workspace>) =>
-  invoke<Workspace>('update_workspace', { id, ...updates })
-export const deleteWorkspace = (id: string) =>
-  invoke<undefined>('delete_workspace', { id })
+// ─── Typed invoke wrapper ──────────────────────────────────────────────────
+
+async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  return tauriInvoke<T>(cmd, args)
+}
+
+// ─── Typed listen wrapper ──────────────────────────────────────────────────
+
+function listen<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
+  return tauriListen<T>(event, (e) => handler(e.payload))
+}
+
+// ─── Workspace commands ────────────────────────────────────────────────────
+
+export const getWorkspaces = () => invoke<Workspace[]>('list_workspaces')
+export const listWorkspaces = getWorkspaces
+
+export async function createWorkspace(name: string, repoPath: string): Promise<Workspace> {
+  return invoke<Workspace>('create_workspace', { name, repoPath })
+}
+
+export async function getWorkspace(id: string): Promise<Workspace> {
+  return invoke<Workspace>('get_workspace', { id })
+}
+
+export async function updateWorkspace(
+  id: string,
+  updates: Partial<Workspace>,
+): Promise<Workspace> {
+  return invoke<Workspace>('update_workspace', { id, ...updates })
+}
+
+export async function deleteWorkspace(id: string): Promise<void> {
+  return invoke<void>('delete_workspace', { id })
+}
+
 export const reorderWorkspaces = (ids: string[]) =>
-  invoke<undefined>('reorder_workspaces', { ids })
+  invoke<void>('reorder_workspaces', { ids })
 
-// Column commands
+// ─── Column commands ───────────────────────────────────────────────────────
+
 export const getColumns = (workspaceId: string) =>
-  invoke<Column[]>('get_columns', { workspaceId })
-export const createColumn = (workspaceId: string, name: string, position: number) =>
-  invoke<Column>('create_column', { workspaceId, name, position })
-export const updateColumn = (id: string, updates: Partial<Column>) =>
-  invoke<Column>('update_column', { id, ...updates })
-export const deleteColumn = (id: string) =>
-  invoke<undefined>('delete_column', { id })
-export const reorderColumns = (workspaceId: string, ids: string[]) =>
-  invoke<undefined>('reorder_columns', { workspaceId, ids })
+  invoke<Column[]>('list_columns', { workspaceId })
+export const listColumns = getColumns
 
-// Task commands
+export async function createColumn(
+  workspaceId: string,
+  name: string,
+  position: number,
+): Promise<Column> {
+  return invoke<Column>('create_column', { workspaceId, name, position })
+}
+
+export async function updateColumn(
+  id: string,
+  updates: Partial<Column>,
+): Promise<Column> {
+  return invoke<Column>('update_column', { id, ...updates })
+}
+
+export async function reorderColumns(
+  workspaceId: string,
+  columnIds: string[],
+): Promise<Column[]> {
+  return invoke<Column[]>('reorder_columns', { workspaceId, columnIds })
+}
+
+export async function deleteColumn(id: string): Promise<void> {
+  return invoke<void>('delete_column', { id })
+}
+
+// ─── Task commands ─────────────────────────────────────────────────────────
+
 export const getTasks = (workspaceId: string) =>
-  invoke<Task[]>('get_tasks', { workspaceId })
-export const createTask = (
+  invoke<Task[]>('list_tasks', { workspaceId })
+export const listTasks = getTasks
+
+export async function createTask(
   workspaceId: string,
   columnId: string,
   title: string,
-  description: string,
-) => invoke<Task>('create_task', { workspaceId, columnId, title, description })
-export const updateTask = (id: string, updates: Partial<Task>) =>
-  invoke<Task>('update_task', { id, ...updates })
-export const deleteTask = (id: string) =>
-  invoke<undefined>('delete_task', { id })
-export const moveTask = (id: string, targetColumnId: string, position: number) =>
-  invoke<undefined>('move_task', { id, targetColumnId, position })
-export const reorderTasks = (columnId: string, ids: string[]) =>
-  invoke<undefined>('reorder_tasks', { columnId, ids })
+  description?: string,
+): Promise<Task> {
+  return invoke<Task>('create_task', { workspaceId, columnId, title, description })
+}
 
-// Event listeners
+export async function getTask(id: string): Promise<Task> {
+  return invoke<Task>('get_task', { id })
+}
+
+export async function updateTask(
+  id: string,
+  updates: Partial<Task>,
+): Promise<Task> {
+  return invoke<Task>('update_task', { id, ...updates })
+}
+
+export async function moveTask(
+  id: string,
+  targetColumnId: string,
+  position: number,
+): Promise<Task> {
+  return invoke<Task>('move_task', { id, targetColumnId, position })
+}
+
+export async function reorderTasks(columnId: string, taskIds: string[]): Promise<Task[]> {
+  return invoke<Task[]>('reorder_tasks', { columnId, taskIds })
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  return invoke<void>('delete_task', { id })
+}
+
+// ─── Event listeners ───────────────────────────────────────────────────────
+
 export type EventCallback<T> = (payload: T) => void
 
 export const onTaskUpdated = (cb: EventCallback<Task>): Promise<UnlistenFn> =>
-  listen<Task>('task_updated', (e) => { cb(e.payload) })
+  listen<Task>('task_updated', cb)
 export const onColumnUpdated = (cb: EventCallback<Column>): Promise<UnlistenFn> =>
-  listen<Column>('column_updated', (e) => { cb(e.payload) })
+  listen<Column>('column_updated', cb)
 export const onWorkspaceUpdated = (cb: EventCallback<Workspace>): Promise<UnlistenFn> =>
-  listen<Workspace>('workspace_updated', (e) => { cb(e.payload) })
+  listen<Workspace>('workspace_updated', cb)
+
+export { listen, type UnlistenFn }
+export type { AppError }
