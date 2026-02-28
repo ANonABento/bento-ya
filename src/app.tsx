@@ -5,6 +5,7 @@ import { Board } from '@/components/layout/board'
 import { WorkspaceSetup } from '@/components/layout/workspace-setup'
 import { TabBar } from '@/components/layout/tab-bar'
 import { SettingsPanel } from '@/components/settings/settings-panel'
+import { ChecklistPanel } from '@/components/checklist/checklist-panel'
 
 function App() {
   const loaded = useWorkspaceStore((s) => s.loaded)
@@ -51,8 +52,9 @@ function App() {
         )}
       </main>
 
-      {/* Settings panel (slide-over) */}
+      {/* Slide-over panels */}
       <SettingsPanel />
+      <ChecklistPanel />
     </div>
   )
 }

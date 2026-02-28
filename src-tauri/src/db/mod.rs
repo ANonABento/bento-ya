@@ -70,6 +70,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("002_column_config", include_str!("migrations/002_column_config.sql")),
         ("003_pipeline_state", include_str!("migrations/003_pipeline_state.sql")),
         ("004_chat_messages", include_str!("migrations/004_chat_messages.sql")),
+        ("005_checklists", include_str!("migrations/005_checklists.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -762,6 +763,291 @@ pub fn update_orchestrator_session(
     get_orchestrator_session(conn, id)
 }
 
+// ─── Checklist types ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Checklist {
+    pub id: String,
+    pub workspace_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub progress: i64,
+    pub total_items: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChecklistCategory {
+    pub id: String,
+    pub checklist_id: String,
+    pub name: String,
+    pub icon: String,
+    pub position: i64,
+    pub progress: i64,
+    pub total_items: i64,
+    pub collapsed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChecklistItem {
+    pub id: String,
+    pub category_id: String,
+    pub text: String,
+    pub checked: bool,
+    pub notes: Option<String>,
+    pub position: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+// ─── Checklist CRUD ────────────────────────────────────────────────────────
+
+pub fn insert_checklist(
+    conn: &Connection,
+    workspace_id: &str,
+    name: &str,
+    description: Option<&str>,
+) -> SqlResult<Checklist> {
+    let id = new_id();
+    let ts = now();
+    conn.execute(
+        "INSERT INTO checklists (id, workspace_id, name, description, progress, total_items, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 0, 0, ?5, ?6)",
+        params![id, workspace_id, name, description, ts, ts],
+    )?;
+    get_checklist(conn, &id)
+}
+
+pub fn get_checklist(conn: &Connection, id: &str) -> SqlResult<Checklist> {
+    conn.query_row(
+        "SELECT id, workspace_id, name, description, progress, total_items, created_at, updated_at FROM checklists WHERE id = ?1",
+        params![id],
+        |row| Ok(Checklist {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            name: row.get(2)?,
+            description: row.get(3)?,
+            progress: row.get(4)?,
+            total_items: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
+        }),
+    )
+}
+
+pub fn get_workspace_checklist(conn: &Connection, workspace_id: &str) -> SqlResult<Option<Checklist>> {
+    match conn.query_row(
+        "SELECT id, workspace_id, name, description, progress, total_items, created_at, updated_at FROM checklists WHERE workspace_id = ?1",
+        params![workspace_id],
+        |row| Ok(Checklist {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            name: row.get(2)?,
+            description: row.get(3)?,
+            progress: row.get(4)?,
+            total_items: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
+        }),
+    ) {
+        Ok(c) => Ok(Some(c)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+pub fn delete_checklist(conn: &Connection, id: &str) -> SqlResult<()> {
+    conn.execute("DELETE FROM checklists WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn insert_checklist_category(
+    conn: &Connection,
+    checklist_id: &str,
+    name: &str,
+    icon: &str,
+    position: i64,
+) -> SqlResult<ChecklistCategory> {
+    let id = new_id();
+    conn.execute(
+        "INSERT INTO checklist_categories (id, checklist_id, name, icon, position, progress, total_items, collapsed) VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, 0)",
+        params![id, checklist_id, name, icon, position],
+    )?;
+    // Update checklist total
+    recalculate_checklist_progress(conn, checklist_id)?;
+    get_checklist_category(conn, &id)
+}
+
+pub fn get_checklist_category(conn: &Connection, id: &str) -> SqlResult<ChecklistCategory> {
+    conn.query_row(
+        "SELECT id, checklist_id, name, icon, position, progress, total_items, collapsed FROM checklist_categories WHERE id = ?1",
+        params![id],
+        |row| Ok(ChecklistCategory {
+            id: row.get(0)?,
+            checklist_id: row.get(1)?,
+            name: row.get(2)?,
+            icon: row.get(3)?,
+            position: row.get(4)?,
+            progress: row.get(5)?,
+            total_items: row.get(6)?,
+            collapsed: row.get::<_, i64>(7)? != 0,
+        }),
+    )
+}
+
+pub fn list_checklist_categories(conn: &Connection, checklist_id: &str) -> SqlResult<Vec<ChecklistCategory>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, checklist_id, name, icon, position, progress, total_items, collapsed FROM checklist_categories WHERE checklist_id = ?1 ORDER BY position"
+    )?;
+    let rows = stmt.query_map(params![checklist_id], |row| {
+        Ok(ChecklistCategory {
+            id: row.get(0)?,
+            checklist_id: row.get(1)?,
+            name: row.get(2)?,
+            icon: row.get(3)?,
+            position: row.get(4)?,
+            progress: row.get(5)?,
+            total_items: row.get(6)?,
+            collapsed: row.get::<_, i64>(7)? != 0,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn update_checklist_category(
+    conn: &Connection,
+    id: &str,
+    collapsed: Option<bool>,
+) -> SqlResult<ChecklistCategory> {
+    if let Some(c) = collapsed {
+        conn.execute(
+            "UPDATE checklist_categories SET collapsed = ?1 WHERE id = ?2",
+            params![if c { 1 } else { 0 }, id],
+        )?;
+    }
+    get_checklist_category(conn, id)
+}
+
+pub fn insert_checklist_item(
+    conn: &Connection,
+    category_id: &str,
+    text: &str,
+    position: i64,
+) -> SqlResult<ChecklistItem> {
+    let id = new_id();
+    let ts = now();
+    conn.execute(
+        "INSERT INTO checklist_items (id, category_id, text, checked, notes, position, created_at, updated_at) VALUES (?1, ?2, ?3, 0, NULL, ?4, ?5, ?6)",
+        params![id, category_id, text, position, ts, ts],
+    )?;
+    // Update category and checklist totals
+    let cat = get_checklist_category(conn, category_id)?;
+    recalculate_category_progress(conn, category_id)?;
+    recalculate_checklist_progress(conn, &cat.checklist_id)?;
+    get_checklist_item(conn, &id)
+}
+
+pub fn get_checklist_item(conn: &Connection, id: &str) -> SqlResult<ChecklistItem> {
+    conn.query_row(
+        "SELECT id, category_id, text, checked, notes, position, created_at, updated_at FROM checklist_items WHERE id = ?1",
+        params![id],
+        |row| Ok(ChecklistItem {
+            id: row.get(0)?,
+            category_id: row.get(1)?,
+            text: row.get(2)?,
+            checked: row.get::<_, i64>(3)? != 0,
+            notes: row.get(4)?,
+            position: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
+        }),
+    )
+}
+
+pub fn list_checklist_items(conn: &Connection, category_id: &str) -> SqlResult<Vec<ChecklistItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, category_id, text, checked, notes, position, created_at, updated_at FROM checklist_items WHERE category_id = ?1 ORDER BY position"
+    )?;
+    let rows = stmt.query_map(params![category_id], |row| {
+        Ok(ChecklistItem {
+            id: row.get(0)?,
+            category_id: row.get(1)?,
+            text: row.get(2)?,
+            checked: row.get::<_, i64>(3)? != 0,
+            notes: row.get(4)?,
+            position: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn update_checklist_item(
+    conn: &Connection,
+    id: &str,
+    checked: Option<bool>,
+    notes: Option<Option<&str>>,
+) -> SqlResult<ChecklistItem> {
+    let current = get_checklist_item(conn, id)?;
+    let ts = now();
+
+    let new_checked = checked.unwrap_or(current.checked);
+    let new_notes = match notes {
+        Some(n) => n.map(|s| s.to_string()),
+        None => current.notes.clone(),
+    };
+
+    conn.execute(
+        "UPDATE checklist_items SET checked = ?1, notes = ?2, updated_at = ?3 WHERE id = ?4",
+        params![if new_checked { 1 } else { 0 }, new_notes, ts, id],
+    )?;
+
+    // Update category and checklist progress
+    let cat = get_checklist_category(conn, &current.category_id)?;
+    recalculate_category_progress(conn, &current.category_id)?;
+    recalculate_checklist_progress(conn, &cat.checklist_id)?;
+
+    get_checklist_item(conn, id)
+}
+
+fn recalculate_category_progress(conn: &Connection, category_id: &str) -> SqlResult<()> {
+    let total: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM checklist_items WHERE category_id = ?1",
+        params![category_id],
+        |row| row.get(0),
+    )?;
+    let checked: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM checklist_items WHERE category_id = ?1 AND checked = 1",
+        params![category_id],
+        |row| row.get(0),
+    )?;
+    conn.execute(
+        "UPDATE checklist_categories SET progress = ?1, total_items = ?2 WHERE id = ?3",
+        params![checked, total, category_id],
+    )?;
+    Ok(())
+}
+
+fn recalculate_checklist_progress(conn: &Connection, checklist_id: &str) -> SqlResult<()> {
+    let total: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(total_items), 0) FROM checklist_categories WHERE checklist_id = ?1",
+        params![checklist_id],
+        |row| row.get(0),
+    )?;
+    let checked: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(progress), 0) FROM checklist_categories WHERE checklist_id = ?1",
+        params![checklist_id],
+        |row| row.get(0),
+    )?;
+    let ts = now();
+    conn.execute(
+        "UPDATE checklists SET progress = ?1, total_items = ?2, updated_at = ?3 WHERE id = ?4",
+        params![checked, total, ts, checklist_id],
+    )?;
+    Ok(())
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -794,8 +1080,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 4 migrations: 001_initial, 002_column_config, 003_pipeline_state, 004_chat_messages
-        assert_eq!(count, 4);
+        // We have 5 migrations: 001_initial, 002_column_config, 003_pipeline_state, 004_chat_messages, 005_checklists
+        assert_eq!(count, 5);
     }
 
     #[test]
