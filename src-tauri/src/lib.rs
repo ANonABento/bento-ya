@@ -1,7 +1,7 @@
 #![deny(clippy::all)]
 
-pub mod commands;
 pub mod checklist;
+pub mod commands;
 pub mod config;
 pub mod db;
 pub mod error;
@@ -45,6 +45,15 @@ pub fn run() {
             commands::task::move_task,
             commands::task::reorder_tasks,
             commands::task::delete_task,
+            // Git commands
+            commands::git::create_task_branch,
+            commands::git::switch_branch,
+            commands::git::get_current_branch,
+            commands::git::list_task_branches,
+            commands::git::delete_task_branch,
+            commands::git::get_changes,
+            commands::git::get_diff,
+            commands::git::get_conflict_matrix,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

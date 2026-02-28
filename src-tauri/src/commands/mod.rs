@@ -1,4 +1,5 @@
 pub mod column;
+pub mod git;
 pub mod task;
 pub mod workspace;
 

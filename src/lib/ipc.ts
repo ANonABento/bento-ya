@@ -3,12 +3,8 @@
 
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event'
-import type {
-  AppError,
-  Column,
-  Task,
-  Workspace,
-} from '../types/events'
+import type { Workspace, Column, Task } from '@/types'
+import type { AppError } from '../types/events'
 
 // ─── Typed invoke wrapper ──────────────────────────────────────────────────
 
@@ -24,6 +20,9 @@ function listen<T>(event: string, handler: (payload: T) => void): Promise<Unlist
 
 // ─── Workspace commands ────────────────────────────────────────────────────
 
+export const getWorkspaces = () => invoke<Workspace[]>('list_workspaces')
+export const listWorkspaces = getWorkspaces
+
 export async function createWorkspace(name: string, repoPath: string): Promise<Workspace> {
   return invoke<Workspace>('create_workspace', { name, repoPath })
 }
@@ -32,18 +31,9 @@ export async function getWorkspace(id: string): Promise<Workspace> {
   return invoke<Workspace>('get_workspace', { id })
 }
 
-export async function listWorkspaces(): Promise<Workspace[]> {
-  return invoke<Workspace[]>('list_workspaces')
-}
-
 export async function updateWorkspace(
   id: string,
-  updates: {
-    name?: string
-    repoPath?: string
-    tabOrder?: number
-    isActive?: boolean
-  },
+  updates: Partial<Workspace>,
 ): Promise<Workspace> {
   return invoke<Workspace>('update_workspace', { id, ...updates })
 }
@@ -52,7 +42,14 @@ export async function deleteWorkspace(id: string): Promise<void> {
   return invoke<void>('delete_workspace', { id })
 }
 
+export const reorderWorkspaces = (ids: string[]) =>
+  invoke<void>('reorder_workspaces', { ids })
+
 // ─── Column commands ───────────────────────────────────────────────────────
+
+export const getColumns = (workspaceId: string) =>
+  invoke<Column[]>('list_columns', { workspaceId })
+export const listColumns = getColumns
 
 export async function createColumn(
   workspaceId: string,
@@ -62,18 +59,9 @@ export async function createColumn(
   return invoke<Column>('create_column', { workspaceId, name, position })
 }
 
-export async function listColumns(workspaceId: string): Promise<Column[]> {
-  return invoke<Column[]>('list_columns', { workspaceId })
-}
-
 export async function updateColumn(
   id: string,
-  updates: {
-    name?: string
-    position?: number
-    color?: string | null
-    visible?: boolean
-  },
+  updates: Partial<Column>,
 ): Promise<Column> {
   return invoke<Column>('update_column', { id, ...updates })
 }
@@ -91,6 +79,10 @@ export async function deleteColumn(id: string): Promise<void> {
 
 // ─── Task commands ─────────────────────────────────────────────────────────
 
+export const getTasks = (workspaceId: string) =>
+  invoke<Task[]>('list_tasks', { workspaceId })
+export const listTasks = getTasks
+
 export async function createTask(
   workspaceId: string,
   columnId: string,
@@ -104,20 +96,9 @@ export async function getTask(id: string): Promise<Task> {
   return invoke<Task>('get_task', { id })
 }
 
-export async function listTasks(workspaceId: string): Promise<Task[]> {
-  return invoke<Task[]>('list_tasks', { workspaceId })
-}
-
 export async function updateTask(
   id: string,
-  updates: {
-    title?: string
-    description?: string | null
-    columnId?: string
-    position?: number
-    agentMode?: string | null
-    priority?: string
-  },
+  updates: Partial<Task>,
 ): Promise<Task> {
   return invoke<Task>('update_task', { id, ...updates })
 }
@@ -139,6 +120,15 @@ export async function deleteTask(id: string): Promise<void> {
 }
 
 // ─── Event listeners ───────────────────────────────────────────────────────
+
+export type EventCallback<T> = (payload: T) => void
+
+export const onTaskUpdated = (cb: EventCallback<Task>): Promise<UnlistenFn> =>
+  listen<Task>('task_updated', cb)
+export const onColumnUpdated = (cb: EventCallback<Column>): Promise<UnlistenFn> =>
+  listen<Column>('column_updated', cb)
+export const onWorkspaceUpdated = (cb: EventCallback<Workspace>): Promise<UnlistenFn> =>
+  listen<Workspace>('workspace_updated', cb)
 
 export { listen, type UnlistenFn }
 export type { AppError }
