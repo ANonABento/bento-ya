@@ -119,6 +119,46 @@ export async function deleteTask(id: string): Promise<void> {
   return invoke<void>('delete_task', { id })
 }
 
+// ─── Git commands ─────────────────────────────────────────────────────────
+
+export async function createTaskBranch(
+  repoPath: string,
+  taskSlug: string,
+  baseBranch?: string,
+): Promise<string> {
+  return invoke<string>('create_task_branch', { repoPath, taskSlug, baseBranch })
+}
+
+export async function getCurrentBranch(repoPath: string): Promise<string> {
+  return invoke<string>('get_current_branch', { repoPath })
+}
+
+// ─── Agent commands ───────────────────────────────────────────────────────
+
+export type AgentInfo = {
+  taskId: string
+  agentType: string
+  status: string
+  pid: number | null
+  workingDir: string
+}
+
+export async function startAgent(
+  taskId: string,
+  agentType: string,
+  workingDir: string,
+): Promise<AgentInfo> {
+  return invoke<AgentInfo>('start_agent', { taskId, agentType, workingDir })
+}
+
+export async function stopAgent(taskId: string): Promise<void> {
+  return invoke<void>('stop_agent', { taskId })
+}
+
+export async function getAgentStatus(taskId: string): Promise<AgentInfo> {
+  return invoke<AgentInfo>('get_agent_status', { taskId })
+}
+
 // ─── Event listeners ───────────────────────────────────────────────────────
 
 export type EventCallback<T> = (payload: T) => void

@@ -74,3 +74,13 @@ pub async fn get_conflict_matrix(
         .await
         .map_err(|e| e.to_string())?
 }
+
+#[tauri::command]
+pub async fn get_commits(
+    repo_path: String,
+    branch: String,
+) -> Result<Vec<change_tracker::CommitInfo>, String> {
+    tokio::task::spawn_blocking(move || change_tracker::get_commits(&repo_path, &branch))
+        .await
+        .map_err(|e| e.to_string())?
+}

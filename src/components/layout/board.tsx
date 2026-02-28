@@ -14,7 +14,9 @@ import { useTaskStore } from '@/stores/task-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { Column } from '@/components/kanban/column'
 import { DragOverlayContent } from '@/components/kanban/drag-overlay'
+import { SplitViewWrapper } from '@/components/layout/split-view'
 import { useDnd } from '@/hooks/use-dnd'
+import { useSplitView } from '@/hooks/use-split-view'
 
 export function Board() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -22,6 +24,8 @@ export function Board() {
   const loadColumns = useColumnStore((s) => s.load)
   const loadTasks = useTaskStore((s) => s.load)
   const tasks = useTaskStore((s) => s.tasks)
+
+  const { isSplitView, activeTaskId, closeSplitView } = useSplitView()
 
   const sortedColumns = columns
     .filter((c) => c.visible)
@@ -56,6 +60,16 @@ export function Board() {
       const task = tasks.find((t) => t.id === activeItem.id)
       if (task) overlayContent = <DragOverlayContent item={{ type: 'task', data: task }} />
     }
+  }
+
+  if (isSplitView) {
+    return (
+      <SplitViewWrapper
+        isSplitView={isSplitView}
+        taskId={activeTaskId}
+        onClose={closeSplitView}
+      />
+    )
   }
 
   return (
