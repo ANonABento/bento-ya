@@ -19,6 +19,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAttentionStore } from '@/stores/attention-store'
+import { useSettingsStore } from '@/stores/settings-store'
 import { useSwipeNavigation } from '@/hooks/use-swipe'
 import type { Workspace } from '@/types'
 
@@ -146,6 +147,31 @@ function AddTabButton({ onClick }: { onClick: () => void }) {
         className="h-4 w-4"
       >
         <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
+      </svg>
+    </motion.button>
+  )
+}
+
+// ─── SettingsButton ─────────────────────────────────────────────────────────
+
+function SettingsButton() {
+  const openSettings = useSettingsStore((s) => s.openSettings)
+
+  return (
+    <motion.button
+      onClick={openSettings}
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.95 }}
+      className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+      title="Settings"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        className="h-4 w-4"
+      >
+        <path fillRule="evenodd" d="M8.34 1.804A1 1 0 0 1 9.32 1h1.36a1 1 0 0 1 .98.804l.295 1.473c.497.144.971.342 1.416.587l1.25-.834a1 1 0 0 1 1.262.125l.962.962a1 1 0 0 1 .125 1.262l-.834 1.25c.245.445.443.919.587 1.416l1.473.295a1 1 0 0 1 .804.98v1.36a1 1 0 0 1-.804.98l-1.473.295a6.95 6.95 0 0 1-.587 1.416l.834 1.25a1 1 0 0 1-.125 1.262l-.962.962a1 1 0 0 1-1.262.125l-1.25-.834a6.953 6.953 0 0 1-1.416.587l-.295 1.473a1 1 0 0 1-.98.804H9.32a1 1 0 0 1-.98-.804l-.295-1.473a6.957 6.957 0 0 1-1.416-.587l-1.25.834a1 1 0 0 1-1.262-.125l-.962-.962a1 1 0 0 1-.125-1.262l.834-1.25a6.957 6.957 0 0 1-.587-1.416l-1.473-.295A1 1 0 0 1 1 10.68V9.32a1 1 0 0 1 .804-.98l1.473-.295c.144-.497.342-.971.587-1.416l-.834-1.25a1 1 0 0 1 .125-1.262l.962-.962A1 1 0 0 1 5.38 3.03l1.25.834a6.957 6.957 0 0 1 1.416-.587l.295-1.473ZM13 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" clipRule="evenodd" />
       </svg>
     </motion.button>
   )
@@ -286,38 +312,47 @@ export function TabBar() {
 
   return (
     <>
-      <header className="flex h-10 shrink-0 items-center justify-center gap-1 border-b border-border-default bg-surface px-2">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext items={workspaceIds} strategy={horizontalListSortingStrategy}>
-            <AnimatePresence mode="popLayout">
-              {sortedWorkspaces.map((workspace) => (
-                <SortableTab
-                  key={workspace.id}
-                  workspace={workspace}
-                  isActive={workspace.id === activeWorkspaceId}
-                  notificationCount={getUnviewedCount(workspace.id)}
-                  onSelect={() => setActive(workspace.id)}
-                  onClose={() => {
-                    if (sortedWorkspaces.length > 1) {
-                      remove(workspace.id)
-                    }
-                  }}
-                />
-              ))}
-            </AnimatePresence>
-          </SortableContext>
+      <header className="flex h-10 shrink-0 items-center justify-between border-b border-border-default bg-surface px-2">
+        {/* Left spacer */}
+        <div className="w-8" />
 
-          <DragOverlay>
-            {draggingWorkspace && <TabOverlay workspace={draggingWorkspace} />}
-          </DragOverlay>
-        </DndContext>
+        {/* Center: tabs */}
+        <div className="flex items-center gap-1">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={workspaceIds} strategy={horizontalListSortingStrategy}>
+              <AnimatePresence mode="popLayout">
+                {sortedWorkspaces.map((workspace) => (
+                  <SortableTab
+                    key={workspace.id}
+                    workspace={workspace}
+                    isActive={workspace.id === activeWorkspaceId}
+                    notificationCount={getUnviewedCount(workspace.id)}
+                    onSelect={() => setActive(workspace.id)}
+                    onClose={() => {
+                      if (sortedWorkspaces.length > 1) {
+                        remove(workspace.id)
+                      }
+                    }}
+                  />
+                ))}
+              </AnimatePresence>
+            </SortableContext>
 
-        <AddTabButton onClick={() => setShowAddDialog(true)} />
+            <DragOverlay>
+              {draggingWorkspace && <TabOverlay workspace={draggingWorkspace} />}
+            </DragOverlay>
+          </DndContext>
+
+          <AddTabButton onClick={() => setShowAddDialog(true)} />
+        </div>
+
+        {/* Right: settings */}
+        <SettingsButton />
       </header>
 
       {/* Add workspace dialog - simple placeholder for now */}
