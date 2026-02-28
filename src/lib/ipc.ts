@@ -235,5 +235,106 @@ export const onPipelineComplete = (cb: EventCallback<PipelineEvent>): Promise<Un
 export const onPipelineError = (cb: EventCallback<PipelineEvent>): Promise<UnlistenFn> =>
   listen<PipelineEvent>('pipeline:error', cb)
 
+// ─── Orchestrator commands ──────────────────────────────────────────────────
+
+export type ChatMessage = {
+  id: string
+  workspaceId: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  createdAt: string
+}
+
+export type OrchestratorSession = {
+  id: string
+  workspaceId: string
+  status: 'idle' | 'processing' | 'error'
+  lastError: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type OrchestratorContext = {
+  workspaceId: string
+  workspaceName: string
+  columns: Column[]
+  tasks: Task[]
+  recentMessages: ChatMessage[]
+}
+
+export type OrchestratorAction = {
+  actionType: string
+  title?: string
+  description?: string
+  columnId?: string
+  taskId?: string
+}
+
+export type OrchestratorResponse = {
+  message: string
+  actions: OrchestratorAction[]
+  tasksCreated: Task[]
+}
+
+export type OrchestratorEvent = {
+  workspaceId: string
+  eventType: string
+  message: string | null
+}
+
+export async function getOrchestratorContext(workspaceId: string): Promise<OrchestratorContext> {
+  return invoke<OrchestratorContext>('get_orchestrator_context', { workspaceId })
+}
+
+export async function getOrchestratorSession(workspaceId: string): Promise<OrchestratorSession> {
+  return invoke<OrchestratorSession>('get_orchestrator_session', { workspaceId })
+}
+
+export async function sendOrchestratorMessage(
+  workspaceId: string,
+  message: string,
+): Promise<ChatMessage> {
+  return invoke<ChatMessage>('send_orchestrator_message', { workspaceId, message })
+}
+
+export async function getChatHistory(
+  workspaceId: string,
+  limit?: number,
+): Promise<ChatMessage[]> {
+  return invoke<ChatMessage[]>('get_chat_history', { workspaceId, limit })
+}
+
+export async function clearChatHistory(workspaceId: string): Promise<void> {
+  return invoke<void>('clear_chat_history', { workspaceId })
+}
+
+export async function processOrchestratorResponse(
+  workspaceId: string,
+  responseText: string,
+  actions: OrchestratorAction[],
+): Promise<OrchestratorResponse> {
+  return invoke<OrchestratorResponse>('process_orchestrator_response', {
+    workspaceId,
+    responseText,
+    actions,
+  })
+}
+
+export async function setOrchestratorError(
+  workspaceId: string,
+  errorMessage: string,
+): Promise<OrchestratorSession> {
+  return invoke<OrchestratorSession>('set_orchestrator_error', { workspaceId, errorMessage })
+}
+
+// ─── Orchestrator event listeners ───────────────────────────────────────────
+
+export const onOrchestratorProcessing = (cb: EventCallback<OrchestratorEvent>): Promise<UnlistenFn> =>
+  listen<OrchestratorEvent>('orchestrator:processing', cb)
+export const onOrchestratorComplete = (cb: EventCallback<OrchestratorEvent>): Promise<UnlistenFn> =>
+  listen<OrchestratorEvent>('orchestrator:complete', cb)
+export const onOrchestratorError = (cb: EventCallback<OrchestratorEvent>): Promise<UnlistenFn> =>
+  listen<OrchestratorEvent>('orchestrator:error', cb)
+
 export { listen, type UnlistenFn }
 export type { AppError }

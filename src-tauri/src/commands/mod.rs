@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod column;
 pub mod git;
+pub mod orchestrator;
 pub mod pipeline;
 pub mod task;
 pub mod terminal;

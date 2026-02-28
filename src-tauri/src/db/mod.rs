@@ -69,6 +69,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("001_initial", include_str!("migrations/001_initial.sql")),
         ("002_column_config", include_str!("migrations/002_column_config.sql")),
         ("003_pipeline_state", include_str!("migrations/003_pipeline_state.sql")),
+        ("004_chat_messages", include_str!("migrations/004_chat_messages.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -606,6 +607,161 @@ pub fn delete_agent_session(conn: &Connection, id: &str) -> SqlResult<()> {
     Ok(())
 }
 
+// ─── Data models: ChatMessage ───────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub id: String,
+    pub workspace_id: String,
+    pub role: String,
+    pub content: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrchestratorSession {
+    pub id: String,
+    pub workspace_id: String,
+    pub status: String,
+    pub last_error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+// ─── CRUD helpers: ChatMessage ──────────────────────────────────────────────
+
+pub fn insert_chat_message(
+    conn: &Connection,
+    workspace_id: &str,
+    role: &str,
+    content: &str,
+) -> SqlResult<ChatMessage> {
+    let id = new_id();
+    let ts = now();
+    conn.execute(
+        "INSERT INTO chat_messages (id, workspace_id, role, content, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, workspace_id, role, content, ts],
+    )?;
+    get_chat_message(conn, &id)
+}
+
+pub fn get_chat_message(conn: &Connection, id: &str) -> SqlResult<ChatMessage> {
+    conn.query_row(
+        "SELECT id, workspace_id, role, content, created_at FROM chat_messages WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(ChatMessage {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                role: row.get(2)?,
+                content: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        },
+    )
+}
+
+pub fn list_chat_messages(conn: &Connection, workspace_id: &str, limit: Option<i64>) -> SqlResult<Vec<ChatMessage>> {
+    let limit_val = limit.unwrap_or(100);
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, role, content, created_at FROM chat_messages WHERE workspace_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![workspace_id, limit_val], |row| {
+        Ok(ChatMessage {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            role: row.get(2)?,
+            content: row.get(3)?,
+            created_at: row.get(4)?,
+        })
+    })?;
+    let mut messages: Vec<ChatMessage> = rows.collect::<SqlResult<Vec<_>>>()?;
+    // Reverse to get chronological order
+    messages.reverse();
+    Ok(messages)
+}
+
+pub fn delete_chat_messages(conn: &Connection, workspace_id: &str) -> SqlResult<()> {
+    conn.execute("DELETE FROM chat_messages WHERE workspace_id = ?1", params![workspace_id])?;
+    Ok(())
+}
+
+// ─── CRUD helpers: OrchestratorSession ──────────────────────────────────────
+
+pub fn get_or_create_orchestrator_session(conn: &Connection, workspace_id: &str) -> SqlResult<OrchestratorSession> {
+    // Try to get existing session
+    let existing = conn.query_row(
+        "SELECT id, workspace_id, status, last_error, created_at, updated_at FROM orchestrator_sessions WHERE workspace_id = ?1",
+        params![workspace_id],
+        |row| {
+            Ok(OrchestratorSession {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                status: row.get(2)?,
+                last_error: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        },
+    );
+
+    match existing {
+        Ok(session) => Ok(session),
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            // Create new session
+            let id = new_id();
+            let ts = now();
+            conn.execute(
+                "INSERT INTO orchestrator_sessions (id, workspace_id, status, created_at, updated_at) VALUES (?1, ?2, 'idle', ?3, ?4)",
+                params![id, workspace_id, ts, ts],
+            )?;
+            get_orchestrator_session(conn, &id)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn get_orchestrator_session(conn: &Connection, id: &str) -> SqlResult<OrchestratorSession> {
+    conn.query_row(
+        "SELECT id, workspace_id, status, last_error, created_at, updated_at FROM orchestrator_sessions WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(OrchestratorSession {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                status: row.get(2)?,
+                last_error: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        },
+    )
+}
+
+pub fn update_orchestrator_session(
+    conn: &Connection,
+    id: &str,
+    status: Option<&str>,
+    last_error: Option<Option<&str>>,
+) -> SqlResult<OrchestratorSession> {
+    let current = get_orchestrator_session(conn, id)?;
+    let ts = now();
+    let new_error = match last_error {
+        Some(e) => e.map(|s| s.to_string()),
+        None => current.last_error.clone(),
+    };
+    conn.execute(
+        "UPDATE orchestrator_sessions SET status = ?1, last_error = ?2, updated_at = ?3 WHERE id = ?4",
+        params![
+            status.unwrap_or(&current.status),
+            new_error,
+            ts,
+            id,
+        ],
+    )?;
+    get_orchestrator_session(conn, id)
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -638,8 +794,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 3 migrations: 001_initial, 002_column_config, 003_pipeline_state
-        assert_eq!(count, 3);
+        // We have 4 migrations: 001_initial, 002_column_config, 003_pipeline_state, 004_chat_messages
+        assert_eq!(count, 4);
     }
 
     #[test]

@@ -15,6 +15,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { Column } from '@/components/kanban/column'
 import { DragOverlayContent } from '@/components/kanban/drag-overlay'
 import { SplitViewWrapper } from '@/components/layout/split-view'
+import { ChatInput } from '@/components/chat/chat-input'
 import { useDnd } from '@/hooks/use-dnd'
 import { useSplitView } from '@/hooks/use-split-view'
 
@@ -80,17 +81,26 @@ export function Board() {
       onDragOver={onDragOver}
       onDragEnd={onDragEnd}
     >
-      <div className="flex h-full items-start gap-4 overflow-x-auto p-4">
-        <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
-          {sortedColumns.map((col) => (
-            <Column key={col.id} column={col} />
-          ))}
-        </SortableContext>
+      <div className="flex h-full flex-col">
+        <div className="flex flex-1 items-start gap-4 overflow-x-auto p-4">
+          <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
+            {sortedColumns.map((col) => (
+              <Column key={col.id} column={col} />
+            ))}
+          </SortableContext>
 
-        {/* Add column placeholder */}
-        <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashed border-border-default text-text-secondary/50 transition-colors hover:border-text-secondary hover:text-text-secondary">
-          +
-        </button>
+          {/* Add column placeholder */}
+          <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashed border-border-default text-text-secondary/50 transition-colors hover:border-text-secondary hover:text-text-secondary">
+            +
+          </button>
+        </div>
+
+        {/* Orchestrator chat input */}
+        {activeWorkspaceId && (
+          <div className="shrink-0 border-t border-border-default bg-bg p-4">
+            <ChatInput workspaceId={activeWorkspaceId} />
+          </div>
+        )}
       </div>
       <DragOverlay dropAnimation={null}>
         {overlayContent}
