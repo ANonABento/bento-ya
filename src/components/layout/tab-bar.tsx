@@ -18,6 +18,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useAttentionStore } from '@/stores/attention-store'
 import { useSwipeNavigation } from '@/hooks/use-swipe'
 import type { Workspace } from '@/types'
 
@@ -159,6 +160,8 @@ export function TabBar() {
   const reorder = useWorkspaceStore((s) => s.reorder)
   const remove = useWorkspaceStore((s) => s.remove)
 
+  const getUnviewedCount = useAttentionStore((s) => s.getUnviewedCount)
+
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
 
@@ -297,7 +300,7 @@ export function TabBar() {
                   key={workspace.id}
                   workspace={workspace}
                   isActive={workspace.id === activeWorkspaceId}
-                  notificationCount={0} // TODO: Wire up attention system
+                  notificationCount={getUnviewedCount(workspace.id)}
                   onSelect={() => setActive(workspace.id)}
                   onClose={() => {
                     if (sortedWorkspaces.length > 1) {
