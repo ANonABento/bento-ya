@@ -468,6 +468,34 @@ pub fn delete_task(conn: &Connection, id: &str) -> SqlResult<()> {
     Ok(())
 }
 
+/// List tasks by column ID
+pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec<Task>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, created_at, updated_at FROM tasks WHERE column_id = ?1 ORDER BY position",
+    )?;
+    let rows = stmt.query_map(params![column_id], |row| {
+        Ok(Task {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            column_id: row.get(2)?,
+            title: row.get(3)?,
+            description: row.get(4)?,
+            position: row.get(5)?,
+            priority: row.get(6)?,
+            agent_mode: row.get(7)?,
+            branch_name: row.get(8)?,
+            files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
+            checklist: row.get(10)?,
+            pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()),
+            pipeline_triggered_at: row.get(12)?,
+            pipeline_error: row.get(13)?,
+            created_at: row.get(14)?,
+            updated_at: row.get(15)?,
+        })
+    })?;
+    rows.collect()
+}
+
 /// Update pipeline state for a task
 pub fn update_task_pipeline_state(
     conn: &Connection,

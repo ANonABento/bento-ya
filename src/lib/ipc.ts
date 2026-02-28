@@ -42,6 +42,10 @@ export async function deleteWorkspace(id: string): Promise<void> {
   return invoke<void>('delete_workspace', { id })
 }
 
+export async function cloneWorkspace(sourceId: string, newName: string): Promise<Workspace> {
+  return invoke<Workspace>('clone_workspace', { sourceId, newName })
+}
+
 export const reorderWorkspaces = (ids: string[]) =>
   invoke<void>('reorder_workspaces', { ids })
 

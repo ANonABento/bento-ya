@@ -85,3 +85,76 @@ pub fn get_default_columns(
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::list_columns(&conn, workspace_id)?)
 }
+
+/// Clone an existing workspace with all its columns and tasks
+#[tauri::command]
+pub fn clone_workspace(
+    state: State<AppState>,
+    source_id: String,
+    new_name: String,
+) -> Result<Workspace, AppError> {
+    if new_name.trim().is_empty() {
+        return Err(AppError::InvalidInput("New workspace name cannot be empty".to_string()));
+    }
+
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let tx = conn.unchecked_transaction().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    // Get source workspace
+    let source = db::get_workspace(&conn, &source_id)?;
+
+    // Create new workspace with same repo path
+    let new_ws = db::insert_workspace(&conn, new_name.trim(), &source.repo_path)?;
+
+    // Copy columns
+    let columns = db::list_columns(&conn, &source_id)?;
+    let mut column_id_map = std::collections::HashMap::new();
+
+    for col in &columns {
+        let new_col = db::insert_column(&conn, &new_ws.id, &col.name, col.position)?;
+        // Update the column with all properties
+        db::update_column(
+            &conn,
+            &new_col.id,
+            Some(&col.name),
+            Some(&col.icon),
+            Some(col.position),
+            Some(col.color.as_deref()),
+            Some(col.visible),
+            Some(&col.trigger_config),
+            Some(&col.exit_config),
+            Some(col.auto_advance),
+        )?;
+        column_id_map.insert(col.id.clone(), new_col.id);
+    }
+
+    // Copy tasks
+    for col in &columns {
+        let tasks = db::list_tasks_by_column(&conn, &col.id)?;
+        let new_col_id = column_id_map.get(&col.id).unwrap();
+
+        for task in tasks {
+            let new_task = db::insert_task(
+                &conn,
+                &new_ws.id,
+                new_col_id,
+                &task.title,
+                task.description.as_deref(),
+            )?;
+            // Update task position and priority
+            db::update_task(
+                &conn,
+                &new_task.id,
+                Some(&task.title),
+                Some(task.description.as_deref()),
+                None, // column_id stays the same
+                Some(task.position),
+                Some(task.agent_mode.as_deref()),
+                Some(&task.priority),
+            )?;
+        }
+    }
+
+    tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(new_ws)
+}
