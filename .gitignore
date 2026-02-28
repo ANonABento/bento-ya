@@ -29,3 +29,4 @@ src-tauri/Frameworks/
 
 # Context (agent workspace)
 .context/
+.claude/worktrees/
