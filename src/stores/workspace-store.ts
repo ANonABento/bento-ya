@@ -1,0 +1,75 @@
+import { create } from 'zustand'
+import { devtools } from 'zustand/middleware'
+import type { Workspace } from '@/types'
+import * as ipc from '@/lib/ipc'
+
+type WorkspaceState = {
+  workspaces: Workspace[]
+  activeWorkspaceId: string | null
+  loaded: boolean
+
+  load: () => Promise<void>
+  setActive: (id: string) => void
+  add: (name: string, repoPath: string) => Promise<void>
+  remove: (id: string) => Promise<void>
+  reorder: (ids: string[]) => Promise<void>
+}
+
+export const useWorkspaceStore = create<WorkspaceState>()(
+  devtools(
+    (set, get) => ({
+      workspaces: [],
+      activeWorkspaceId: null,
+      loaded: false,
+
+      load: async () => {
+        const workspaces = await ipc.getWorkspaces()
+        const active = workspaces.find((w) => w.isActive) ?? workspaces[0]
+        set({ workspaces, activeWorkspaceId: active?.id ?? null, loaded: true })
+      },
+
+      setActive: (id) => {
+        set({ activeWorkspaceId: id })
+      },
+
+      add: async (name, repoPath) => {
+        const workspace = await ipc.createWorkspace(name, repoPath)
+        set((s) => ({ workspaces: [...s.workspaces, workspace] }))
+      },
+
+      remove: async (id) => {
+        const prev = get().workspaces
+        set((s) => ({
+          workspaces: s.workspaces.filter((w) => w.id !== id),
+          activeWorkspaceId:
+            s.activeWorkspaceId === id
+              ? (s.workspaces.find((w) => w.id !== id)?.id ?? null)
+              : s.activeWorkspaceId,
+        }))
+        try {
+          await ipc.deleteWorkspace(id)
+        } catch {
+          set({ workspaces: prev })
+        }
+      },
+
+      reorder: async (ids) => {
+        const prev = get().workspaces
+        set((s) => ({
+          workspaces: ids
+            .map((id, i) => {
+              const w = s.workspaces.find((ws) => ws.id === id)
+              return w ? { ...w, tabOrder: i } : undefined
+            })
+            .filter((w): w is Workspace => w !== undefined),
+        }))
+        try {
+          await ipc.reorderWorkspaces(ids)
+        } catch {
+          set({ workspaces: prev })
+        }
+      },
+    }),
+    { name: 'workspace-store' },
+  ),
+)
