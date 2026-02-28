@@ -1,5 +1,7 @@
 #![deny(clippy::all)]
 
+use std::sync::{Arc, Mutex};
+
 pub mod checklist;
 pub mod commands;
 pub mod config;
@@ -11,7 +13,8 @@ pub mod pipeline;
 pub mod process;
 
 use db::AppState;
-use std::sync::Mutex;
+use process::agent_runner::AgentRunner;
+use process::pty_manager::PtyManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -20,9 +23,14 @@ pub fn run() {
         db: Mutex::new(conn),
     };
 
+    let pty_manager = Arc::new(Mutex::new(PtyManager::new()));
+    let agent_runner = Arc::new(Mutex::new(AgentRunner::new(Arc::clone(&pty_manager))));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(state)
+        .manage(pty_manager)
+        .manage(agent_runner)
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             // Workspace CRUD
@@ -54,6 +62,15 @@ pub fn run() {
             commands::git::get_changes,
             commands::git::get_diff,
             commands::git::get_conflict_matrix,
+            // PTY / Agent commands
+            commands::terminal::write_to_pty,
+            commands::terminal::resize_pty,
+            commands::terminal::get_pty_scrollback,
+            commands::agent::start_agent,
+            commands::agent::stop_agent,
+            commands::agent::force_stop_agent,
+            commands::agent::get_agent_status,
+            commands::agent::list_active_agents,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
