@@ -1,0 +1,35 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicholasrice/tauri/v2/crates/tauri-config-schema/schema.json",
+  "productName": "Bento-ya",
+  "version": "0.1.0",
+  "identifier": "com.bento-ya.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Bento-ya",
+        "width": 1280,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png"
+    ]
+  }
+}
