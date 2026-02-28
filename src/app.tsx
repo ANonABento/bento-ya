@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { setTheme } from '@/lib/theme'
+import { initializeTheme } from '@/lib/theme'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { Board } from '@/components/layout/board'
 import { WorkspaceSetup } from '@/components/layout/workspace-setup'
 import { TabBar } from '@/components/layout/tab-bar'
+import { ThemeToggle } from '@/components/ui/theme-toggle'
 
 function App() {
   const loaded = useWorkspaceStore((s) => s.loaded)
@@ -13,7 +14,8 @@ function App() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setTheme('dark')
+    const cleanup = initializeTheme()
+    return cleanup
   }, [])
 
   // Load workspaces on mount
@@ -29,6 +31,11 @@ function App() {
     <div className="flex h-screen flex-col bg-bg">
       {/* Tab bar (replaces simple header) */}
       <TabBar />
+
+      {/* Theme toggle (temporary placement until settings panel) */}
+      <div className="absolute right-4 top-2 z-50">
+        <ThemeToggle />
+      </div>
 
       {/* Main content */}
       <main className="flex-1 overflow-hidden">
