@@ -97,6 +97,13 @@ pub fn run() {
             commands::usage::get_workspace_usage_summary,
             commands::usage::get_task_usage_summary,
             commands::usage::clear_workspace_usage,
+            // History commands
+            commands::history::create_snapshot,
+            commands::history::get_snapshot,
+            commands::history::get_session_history,
+            commands::history::get_workspace_history,
+            commands::history::get_task_history,
+            commands::history::clear_session_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

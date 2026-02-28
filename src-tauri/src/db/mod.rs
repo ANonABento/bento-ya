@@ -73,6 +73,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("005_checklists", include_str!("migrations/005_checklists.sql")),
         ("006_session_resume", include_str!("migrations/006_session_resume.sql")),
         ("007_cost_tracking", include_str!("migrations/007_cost_tracking.sql")),
+        ("008_session_history", include_str!("migrations/008_session_history.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -1271,6 +1272,133 @@ pub fn delete_workspace_usage(conn: &Connection, workspace_id: &str) -> SqlResul
     Ok(())
 }
 
+// ─── Session history types ─────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSnapshot {
+    pub id: String,
+    pub session_id: String,
+    pub workspace_id: String,
+    pub task_id: Option<String>,
+    pub snapshot_type: String,
+    pub scrollback_snapshot: Option<String>,
+    pub command_history: String,
+    pub files_modified: String,
+    pub duration_ms: i64,
+    pub created_at: String,
+}
+
+// ─── Session history CRUD ──────────────────────────────────────────────────
+
+pub fn insert_session_snapshot(
+    conn: &Connection,
+    session_id: &str,
+    workspace_id: &str,
+    task_id: Option<&str>,
+    snapshot_type: &str,
+    scrollback_snapshot: Option<&str>,
+    command_history: &str,
+    files_modified: &str,
+    duration_ms: i64,
+) -> SqlResult<SessionSnapshot> {
+    let id = new_id();
+    let ts = now();
+    conn.execute(
+        "INSERT INTO session_snapshots (id, session_id, workspace_id, task_id, snapshot_type, scrollback_snapshot, command_history, files_modified, duration_ms, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![id, session_id, workspace_id, task_id, snapshot_type, scrollback_snapshot, command_history, files_modified, duration_ms, ts],
+    )?;
+    get_session_snapshot(conn, &id)
+}
+
+pub fn get_session_snapshot(conn: &Connection, id: &str) -> SqlResult<SessionSnapshot> {
+    conn.query_row(
+        "SELECT id, session_id, workspace_id, task_id, snapshot_type, scrollback_snapshot, command_history, files_modified, duration_ms, created_at FROM session_snapshots WHERE id = ?1",
+        params![id],
+        |row| Ok(SessionSnapshot {
+            id: row.get(0)?,
+            session_id: row.get(1)?,
+            workspace_id: row.get(2)?,
+            task_id: row.get(3)?,
+            snapshot_type: row.get(4)?,
+            scrollback_snapshot: row.get(5)?,
+            command_history: row.get(6)?,
+            files_modified: row.get(7)?,
+            duration_ms: row.get(8)?,
+            created_at: row.get(9)?,
+        }),
+    )
+}
+
+pub fn list_session_snapshots(conn: &Connection, session_id: &str) -> SqlResult<Vec<SessionSnapshot>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, session_id, workspace_id, task_id, snapshot_type, scrollback_snapshot, command_history, files_modified, duration_ms, created_at FROM session_snapshots WHERE session_id = ?1 ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![session_id], |row| {
+        Ok(SessionSnapshot {
+            id: row.get(0)?,
+            session_id: row.get(1)?,
+            workspace_id: row.get(2)?,
+            task_id: row.get(3)?,
+            snapshot_type: row.get(4)?,
+            scrollback_snapshot: row.get(5)?,
+            command_history: row.get(6)?,
+            files_modified: row.get(7)?,
+            duration_ms: row.get(8)?,
+            created_at: row.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn list_workspace_history(conn: &Connection, workspace_id: &str, limit: Option<i64>) -> SqlResult<Vec<SessionSnapshot>> {
+    let limit_val = limit.unwrap_or(50);
+    let mut stmt = conn.prepare(
+        "SELECT id, session_id, workspace_id, task_id, snapshot_type, scrollback_snapshot, command_history, files_modified, duration_ms, created_at FROM session_snapshots WHERE workspace_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![workspace_id, limit_val], |row| {
+        Ok(SessionSnapshot {
+            id: row.get(0)?,
+            session_id: row.get(1)?,
+            workspace_id: row.get(2)?,
+            task_id: row.get(3)?,
+            snapshot_type: row.get(4)?,
+            scrollback_snapshot: row.get(5)?,
+            command_history: row.get(6)?,
+            files_modified: row.get(7)?,
+            duration_ms: row.get(8)?,
+            created_at: row.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn list_task_history(conn: &Connection, task_id: &str) -> SqlResult<Vec<SessionSnapshot>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, session_id, workspace_id, task_id, snapshot_type, scrollback_snapshot, command_history, files_modified, duration_ms, created_at FROM session_snapshots WHERE task_id = ?1 ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![task_id], |row| {
+        Ok(SessionSnapshot {
+            id: row.get(0)?,
+            session_id: row.get(1)?,
+            workspace_id: row.get(2)?,
+            task_id: row.get(3)?,
+            snapshot_type: row.get(4)?,
+            scrollback_snapshot: row.get(5)?,
+            command_history: row.get(6)?,
+            files_modified: row.get(7)?,
+            duration_ms: row.get(8)?,
+            created_at: row.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn delete_session_snapshots(conn: &Connection, session_id: &str) -> SqlResult<()> {
+    conn.execute("DELETE FROM session_snapshots WHERE session_id = ?1", params![session_id])?;
+    Ok(())
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1303,8 +1431,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 7 migrations: 001-007
-        assert_eq!(count, 7);
+        // We have 8 migrations: 001-008
+        assert_eq!(count, 8);
     }
 
     #[test]
