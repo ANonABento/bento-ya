@@ -5,10 +5,12 @@ import { AgentTab } from './tabs/agent-tab'
 import { GitTab } from './tabs/git-tab'
 import { VoiceTab } from './tabs/voice-tab'
 import { ShortcutsTab } from './tabs/shortcuts-tab'
+import { TemplatesTab } from './tabs/templates-tab'
 
 const TABS = [
   { id: 'appearance', label: 'Appearance', icon: '🎨' },
   { id: 'agent', label: 'Agent', icon: '🤖' },
+  { id: 'templates', label: 'Templates', icon: '📋' },
   { id: 'git', label: 'Git', icon: '🔀' },
   { id: 'voice', label: 'Voice', icon: '🎤' },
   { id: 'shortcuts', label: 'Shortcuts', icon: '⌨️' },
@@ -26,6 +28,8 @@ export function SettingsPanel() {
         return <AppearanceTab />
       case 'agent':
         return <AgentTab />
+      case 'templates':
+        return <TemplatesTab />
       case 'git':
         return <GitTab />
       case 'voice':
