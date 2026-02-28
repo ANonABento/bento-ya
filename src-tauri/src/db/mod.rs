@@ -67,6 +67,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
 
     let migrations: Vec<(&str, &str)> = vec![
         ("001_initial", include_str!("migrations/001_initial.sql")),
+        ("002_column_config", include_str!("migrations/002_column_config.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -115,9 +116,13 @@ pub struct Column {
     pub id: String,
     pub workspace_id: String,
     pub name: String,
+    pub icon: String,
     pub position: i64,
     pub color: Option<String>,
     pub visible: bool,
+    pub trigger_config: String,
+    pub exit_config: String,
+    pub auto_advance: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -240,27 +245,33 @@ pub fn insert_column(
 ) -> SqlResult<Column> {
     let id = new_id();
     let ts = now();
+    let default_trigger = r#"{"type":"none","config":{}}"#;
+    let default_exit = r#"{"type":"manual","config":{}}"#;
     conn.execute(
-        "INSERT INTO columns (id, workspace_id, name, position, visible, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)",
-        params![id, workspace_id, name, position, ts, ts],
+        "INSERT INTO columns (id, workspace_id, name, icon, position, visible, trigger_config, exit_config, auto_advance, created_at, updated_at) VALUES (?1, ?2, ?3, 'list', ?4, 1, ?5, ?6, 0, ?7, ?8)",
+        params![id, workspace_id, name, position, default_trigger, default_exit, ts, ts],
     )?;
     get_column(conn, &id)
 }
 
 pub fn get_column(conn: &Connection, id: &str) -> SqlResult<Column> {
     conn.query_row(
-        "SELECT id, workspace_id, name, position, color, visible, created_at, updated_at FROM columns WHERE id = ?1",
+        "SELECT id, workspace_id, name, icon, position, color, visible, trigger_config, exit_config, auto_advance, created_at, updated_at FROM columns WHERE id = ?1",
         params![id],
         |row| {
             Ok(Column {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
                 name: row.get(2)?,
-                position: row.get(3)?,
-                color: row.get(4)?,
-                visible: row.get::<_, i64>(5)? != 0,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
+                icon: row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "list".to_string()),
+                position: row.get(4)?,
+                color: row.get(5)?,
+                visible: row.get::<_, i64>(6)? != 0,
+                trigger_config: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| r#"{"type":"none","config":{}}"#.to_string()),
+                exit_config: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| r#"{"type":"manual","config":{}}"#.to_string()),
+                auto_advance: row.get::<_, i64>(9).unwrap_or(0) != 0,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         },
     )
@@ -268,18 +279,22 @@ pub fn get_column(conn: &Connection, id: &str) -> SqlResult<Column> {
 
 pub fn list_columns(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Column>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, name, position, color, visible, created_at, updated_at FROM columns WHERE workspace_id = ?1 ORDER BY position",
+        "SELECT id, workspace_id, name, icon, position, color, visible, trigger_config, exit_config, auto_advance, created_at, updated_at FROM columns WHERE workspace_id = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map(params![workspace_id], |row| {
         Ok(Column {
             id: row.get(0)?,
             workspace_id: row.get(1)?,
             name: row.get(2)?,
-            position: row.get(3)?,
-            color: row.get(4)?,
-            visible: row.get::<_, i64>(5)? != 0,
-            created_at: row.get(6)?,
-            updated_at: row.get(7)?,
+            icon: row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "list".to_string()),
+            position: row.get(4)?,
+            color: row.get(5)?,
+            visible: row.get::<_, i64>(6)? != 0,
+            trigger_config: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| r#"{"type":"none","config":{}}"#.to_string()),
+            exit_config: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| r#"{"type":"manual","config":{}}"#.to_string()),
+            auto_advance: row.get::<_, i64>(9).unwrap_or(0) != 0,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
         })
     })?;
     rows.collect()
@@ -289,9 +304,13 @@ pub fn update_column(
     conn: &Connection,
     id: &str,
     name: Option<&str>,
+    icon: Option<&str>,
     position: Option<i64>,
     color: Option<Option<&str>>,
     visible: Option<bool>,
+    trigger_config: Option<&str>,
+    exit_config: Option<&str>,
+    auto_advance: Option<bool>,
 ) -> SqlResult<Column> {
     let current = get_column(conn, id)?;
     let ts = now();
@@ -300,12 +319,16 @@ pub fn update_column(
         None => current.color.clone(),
     };
     conn.execute(
-        "UPDATE columns SET name = ?1, position = ?2, color = ?3, visible = ?4, updated_at = ?5 WHERE id = ?6",
+        "UPDATE columns SET name = ?1, icon = ?2, position = ?3, color = ?4, visible = ?5, trigger_config = ?6, exit_config = ?7, auto_advance = ?8, updated_at = ?9 WHERE id = ?10",
         params![
             name.unwrap_or(&current.name),
+            icon.unwrap_or(&current.icon),
             position.unwrap_or(current.position),
             new_color,
             visible.unwrap_or(current.visible) as i64,
+            trigger_config.unwrap_or(&current.trigger_config),
+            exit_config.unwrap_or(&current.exit_config),
+            auto_advance.unwrap_or(current.auto_advance) as i64,
             ts,
             id,
         ],

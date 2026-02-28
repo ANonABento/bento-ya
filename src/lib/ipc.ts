@@ -61,9 +61,29 @@ export async function createColumn(
 
 export async function updateColumn(
   id: string,
-  updates: Partial<Column>,
+  updates: {
+    name?: string
+    icon?: string
+    position?: number
+    color?: string | null
+    visible?: boolean
+    triggerConfig?: string
+    exitConfig?: string
+    autoAdvance?: boolean
+  },
 ): Promise<Column> {
-  return invoke<Column>('update_column', { id, ...updates })
+  // Map frontend field names to Rust snake_case
+  return invoke<Column>('update_column', {
+    id,
+    name: updates.name,
+    icon: updates.icon,
+    position: updates.position,
+    color: updates.color,
+    visible: updates.visible,
+    trigger_config: updates.triggerConfig,
+    exit_config: updates.exitConfig,
+    auto_advance: updates.autoAdvance,
+  })
 }
 
 export async function reorderColumns(
