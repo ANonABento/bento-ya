@@ -336,5 +336,28 @@ export const onOrchestratorComplete = (cb: EventCallback<OrchestratorEvent>): Pr
 export const onOrchestratorError = (cb: EventCallback<OrchestratorEvent>): Promise<UnlistenFn> =>
   listen<OrchestratorEvent>('orchestrator:error', cb)
 
+// ─── Voice commands ─────────────────────────────────────────────────────────
+
+export type TranscriptionResult = {
+  text: string
+  durationMs: number
+}
+
+export async function isVoiceAvailable(): Promise<boolean> {
+  return invoke<boolean>('is_voice_available')
+}
+
+export async function saveAudioTemp(audioData: number[]): Promise<string> {
+  return invoke<string>('save_audio_temp', { audioData })
+}
+
+export async function transcribeAudio(
+  audioPath: string,
+  language?: string,
+  model?: string,
+): Promise<TranscriptionResult> {
+  return invoke<TranscriptionResult>('transcribe_audio', { audioPath, language, model })
+}
+
 export { listen, type UnlistenFn }
 export type { AppError }

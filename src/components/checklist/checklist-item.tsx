@@ -65,7 +65,7 @@ export function ChecklistItemRow({ item, categoryId }: Props) {
 
           {/* Notes indicator / toggle */}
           <button
-            onClick={() => setShowNotes(!showNotes)}
+            onClick={() => { setShowNotes(!showNotes) }}
             className={`ml-2 inline-flex items-center gap-1 text-xs transition-colors ${
               item.notes
                 ? 'text-accent hover:text-accent-hover'
@@ -96,7 +96,7 @@ export function ChecklistItemRow({ item, categoryId }: Props) {
         >
           <textarea
             value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            onChange={(e) => { setNotes(e.target.value) }}
             onBlur={handleNotesBlur}
             placeholder="Add notes..."
             className="w-full resize-none rounded-md border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"

@@ -19,7 +19,7 @@ export function ChecklistCategorySection({ category }: Props) {
     <div className="overflow-hidden rounded-lg border border-border-default bg-surface">
       {/* Category Header */}
       <button
-        onClick={() => toggleCategory(category.id)}
+        onClick={() => { toggleCategory(category.id) }}
         className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-bg"
       >
         <div className="flex items-center gap-3">
@@ -39,7 +39,7 @@ export function ChecklistCategorySection({ category }: Props) {
                     ? 'bg-accent'
                     : 'bg-text-secondary'
               }`}
-              style={{ width: `${percentage}%` }}
+              style={{ width: `${String(percentage)}%` }}
             />
           </div>
           <svg

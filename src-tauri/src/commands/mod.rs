@@ -5,6 +5,7 @@ pub mod orchestrator;
 pub mod pipeline;
 pub mod task;
 pub mod terminal;
+pub mod voice;
 pub mod workspace;
 
 #[tauri::command]

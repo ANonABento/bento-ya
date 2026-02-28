@@ -85,6 +85,10 @@ pub fn run() {
             commands::orchestrator::clear_chat_history,
             commands::orchestrator::process_orchestrator_response,
             commands::orchestrator::set_orchestrator_error,
+            // Voice commands
+            commands::voice::transcribe_audio,
+            commands::voice::save_audio_temp,
+            commands::voice::is_voice_available,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

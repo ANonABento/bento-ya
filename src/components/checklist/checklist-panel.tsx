@@ -64,7 +64,7 @@ export function ChecklistPanel() {
                 <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface">
                   <motion.div
                     initial={{ width: 0 }}
-                    animate={{ width: `${percentage}%` }}
+                    animate={{ width: `${String(percentage)}%` }}
                     transition={{ duration: 0.3 }}
                     className={`h-full rounded-full ${
                       percentage === 100
