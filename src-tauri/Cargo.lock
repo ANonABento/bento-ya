@@ -111,6 +111,7 @@ name = "bento-ya"
 version = "0.1.0"
 dependencies = [
  "git2",
+ "log",
  "portable-pty",
  "rusqlite",
  "serde",
@@ -118,7 +119,9 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-shell",
+ "thiserror 1.0.69",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
