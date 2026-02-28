@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { setTheme } from '@/lib/theme'
+import { Board } from '@/components/layout/board'
 
 function App() {
   useEffect(() => {
@@ -14,8 +15,8 @@ function App() {
       </header>
 
       {/* Main content — board area */}
-      <main className="flex flex-1 items-center justify-center overflow-hidden">
-        <p className="text-text-secondary text-sm">Board area</p>
+      <main className="flex-1 overflow-hidden">
+        <Board />
       </main>
 
       {/* Bottom bar — chat input area */}

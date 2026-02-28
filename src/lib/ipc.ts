@@ -9,9 +9,9 @@ export const createWorkspace = (name: string, repoPath: string) =>
 export const updateWorkspace = (id: string, updates: Partial<Workspace>) =>
   invoke<Workspace>('update_workspace', { id, ...updates })
 export const deleteWorkspace = (id: string) =>
-  invoke<void>('delete_workspace', { id })
+  invoke<undefined>('delete_workspace', { id })
 export const reorderWorkspaces = (ids: string[]) =>
-  invoke<void>('reorder_workspaces', { ids })
+  invoke<undefined>('reorder_workspaces', { ids })
 
 // Column commands
 export const getColumns = (workspaceId: string) =>
@@ -21,9 +21,9 @@ export const createColumn = (workspaceId: string, name: string, position: number
 export const updateColumn = (id: string, updates: Partial<Column>) =>
   invoke<Column>('update_column', { id, ...updates })
 export const deleteColumn = (id: string) =>
-  invoke<void>('delete_column', { id })
+  invoke<undefined>('delete_column', { id })
 export const reorderColumns = (workspaceId: string, ids: string[]) =>
-  invoke<void>('reorder_columns', { workspaceId, ids })
+  invoke<undefined>('reorder_columns', { workspaceId, ids })
 
 // Task commands
 export const getTasks = (workspaceId: string) =>
@@ -37,18 +37,18 @@ export const createTask = (
 export const updateTask = (id: string, updates: Partial<Task>) =>
   invoke<Task>('update_task', { id, ...updates })
 export const deleteTask = (id: string) =>
-  invoke<void>('delete_task', { id })
+  invoke<undefined>('delete_task', { id })
 export const moveTask = (id: string, targetColumnId: string, position: number) =>
-  invoke<void>('move_task', { id, targetColumnId, position })
+  invoke<undefined>('move_task', { id, targetColumnId, position })
 export const reorderTasks = (columnId: string, ids: string[]) =>
-  invoke<void>('reorder_tasks', { columnId, ids })
+  invoke<undefined>('reorder_tasks', { columnId, ids })
 
 // Event listeners
 export type EventCallback<T> = (payload: T) => void
 
 export const onTaskUpdated = (cb: EventCallback<Task>): Promise<UnlistenFn> =>
-  listen<Task>('task_updated', (e) => cb(e.payload))
+  listen<Task>('task_updated', (e) => { cb(e.payload) })
 export const onColumnUpdated = (cb: EventCallback<Column>): Promise<UnlistenFn> =>
-  listen<Column>('column_updated', (e) => cb(e.payload))
+  listen<Column>('column_updated', (e) => { cb(e.payload) })
 export const onWorkspaceUpdated = (cb: EventCallback<Workspace>): Promise<UnlistenFn> =>
-  listen<Workspace>('workspace_updated', (e) => cb(e.payload))
+  listen<Workspace>('workspace_updated', (e) => { cb(e.payload) })
