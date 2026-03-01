@@ -61,9 +61,29 @@ export async function createColumn(
 
 export async function updateColumn(
   id: string,
-  updates: Partial<Column>,
+  updates: {
+    name?: string
+    icon?: string
+    position?: number
+    color?: string | null
+    visible?: boolean
+    triggerConfig?: string
+    exitConfig?: string
+    autoAdvance?: boolean
+  },
 ): Promise<Column> {
-  return invoke<Column>('update_column', { id, ...updates })
+  // Map frontend field names to Rust snake_case
+  return invoke<Column>('update_column', {
+    id,
+    name: updates.name,
+    icon: updates.icon,
+    position: updates.position,
+    color: updates.color,
+    visible: updates.visible,
+    trigger_config: updates.triggerConfig,
+    exit_config: updates.exitConfig,
+    auto_advance: updates.autoAdvance,
+  })
 }
 
 export async function reorderColumns(
@@ -169,6 +189,152 @@ export const onColumnUpdated = (cb: EventCallback<Column>): Promise<UnlistenFn> 
   listen<Column>('column_updated', cb)
 export const onWorkspaceUpdated = (cb: EventCallback<Workspace>): Promise<UnlistenFn> =>
   listen<Workspace>('workspace_updated', cb)
+
+// ─── Pipeline commands ─────────────────────────────────────────────────────
+
+export type PipelineEvent = {
+  taskId: string
+  columnId: string
+  eventType: string
+  state: string
+  message: string | null
+}
+
+export async function markPipelineComplete(
+  taskId: string,
+  success: boolean,
+): Promise<Task> {
+  return invoke<Task>('mark_pipeline_complete', { taskId, success })
+}
+
+export async function getPipelineState(taskId: string): Promise<string> {
+  return invoke<string>('get_pipeline_state', { taskId })
+}
+
+export async function tryAdvanceTask(taskId: string): Promise<Task | null> {
+  return invoke<Task | null>('try_advance_task', { taskId })
+}
+
+export async function setPipelineError(
+  taskId: string,
+  errorMessage: string,
+): Promise<Task> {
+  return invoke<Task>('set_pipeline_error', { taskId, errorMessage })
+}
+
+// ─── Pipeline event listeners ───────────────────────────────────────────────
+
+export const onPipelineTriggered = (cb: EventCallback<PipelineEvent>): Promise<UnlistenFn> =>
+  listen<PipelineEvent>('pipeline:triggered', cb)
+export const onPipelineRunning = (cb: EventCallback<PipelineEvent>): Promise<UnlistenFn> =>
+  listen<PipelineEvent>('pipeline:running', cb)
+export const onPipelineAdvanced = (cb: EventCallback<PipelineEvent>): Promise<UnlistenFn> =>
+  listen<PipelineEvent>('pipeline:advanced', cb)
+export const onPipelineComplete = (cb: EventCallback<PipelineEvent>): Promise<UnlistenFn> =>
+  listen<PipelineEvent>('pipeline:complete', cb)
+export const onPipelineError = (cb: EventCallback<PipelineEvent>): Promise<UnlistenFn> =>
+  listen<PipelineEvent>('pipeline:error', cb)
+
+// ─── Orchestrator commands ──────────────────────────────────────────────────
+
+export type ChatMessage = {
+  id: string
+  workspaceId: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  createdAt: string
+}
+
+export type OrchestratorSession = {
+  id: string
+  workspaceId: string
+  status: 'idle' | 'processing' | 'error'
+  lastError: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type OrchestratorContext = {
+  workspaceId: string
+  workspaceName: string
+  columns: Column[]
+  tasks: Task[]
+  recentMessages: ChatMessage[]
+}
+
+export type OrchestratorAction = {
+  actionType: string
+  title?: string
+  description?: string
+  columnId?: string
+  taskId?: string
+}
+
+export type OrchestratorResponse = {
+  message: string
+  actions: OrchestratorAction[]
+  tasksCreated: Task[]
+}
+
+export type OrchestratorEvent = {
+  workspaceId: string
+  eventType: string
+  message: string | null
+}
+
+export async function getOrchestratorContext(workspaceId: string): Promise<OrchestratorContext> {
+  return invoke<OrchestratorContext>('get_orchestrator_context', { workspaceId })
+}
+
+export async function getOrchestratorSession(workspaceId: string): Promise<OrchestratorSession> {
+  return invoke<OrchestratorSession>('get_orchestrator_session', { workspaceId })
+}
+
+export async function sendOrchestratorMessage(
+  workspaceId: string,
+  message: string,
+): Promise<ChatMessage> {
+  return invoke<ChatMessage>('send_orchestrator_message', { workspaceId, message })
+}
+
+export async function getChatHistory(
+  workspaceId: string,
+  limit?: number,
+): Promise<ChatMessage[]> {
+  return invoke<ChatMessage[]>('get_chat_history', { workspaceId, limit })
+}
+
+export async function clearChatHistory(workspaceId: string): Promise<void> {
+  return invoke<void>('clear_chat_history', { workspaceId })
+}
+
+export async function processOrchestratorResponse(
+  workspaceId: string,
+  responseText: string,
+  actions: OrchestratorAction[],
+): Promise<OrchestratorResponse> {
+  return invoke<OrchestratorResponse>('process_orchestrator_response', {
+    workspaceId,
+    responseText,
+    actions,
+  })
+}
+
+export async function setOrchestratorError(
+  workspaceId: string,
+  errorMessage: string,
+): Promise<OrchestratorSession> {
+  return invoke<OrchestratorSession>('set_orchestrator_error', { workspaceId, errorMessage })
+}
+
+// ─── Orchestrator event listeners ───────────────────────────────────────────
+
+export const onOrchestratorProcessing = (cb: EventCallback<OrchestratorEvent>): Promise<UnlistenFn> =>
+  listen<OrchestratorEvent>('orchestrator:processing', cb)
+export const onOrchestratorComplete = (cb: EventCallback<OrchestratorEvent>): Promise<UnlistenFn> =>
+  listen<OrchestratorEvent>('orchestrator:complete', cb)
+export const onOrchestratorError = (cb: EventCallback<OrchestratorEvent>): Promise<UnlistenFn> =>
+  listen<OrchestratorEvent>('orchestrator:error', cb)
 
 export { listen, type UnlistenFn }
 export type { AppError }

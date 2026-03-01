@@ -3,6 +3,7 @@ import { setTheme } from '@/lib/theme'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { Board } from '@/components/layout/board'
 import { WorkspaceSetup } from '@/components/layout/workspace-setup'
+import { TabBar } from '@/components/layout/tab-bar'
 
 function App() {
   const loaded = useWorkspaceStore((s) => s.loaded)
@@ -26,10 +27,8 @@ function App() {
 
   return (
     <div className="flex h-screen flex-col bg-bg">
-      {/* Top bar */}
-      <header className="flex h-10 shrink-0 items-center justify-center border-b border-border-default bg-surface">
-        <span className="text-sm font-medium text-text-secondary">Bento-ya</span>
-      </header>
+      {/* Tab bar (replaces simple header) */}
+      <TabBar />
 
       {/* Main content */}
       <main className="flex-1 overflow-hidden">

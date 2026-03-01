@@ -3,6 +3,17 @@ import { devtools } from 'zustand/middleware'
 import type { Column } from '@/types'
 import * as ipc from '@/lib/ipc'
 
+type ColumnUpdates = {
+  name?: string
+  icon?: string
+  position?: number
+  color?: string | null
+  visible?: boolean
+  triggerConfig?: string
+  exitConfig?: string
+  autoAdvance?: boolean
+}
+
 type ColumnState = {
   columns: Column[]
   loaded: boolean
@@ -12,6 +23,7 @@ type ColumnState = {
   remove: (id: string) => Promise<void>
   reorder: (workspaceId: string, ids: string[]) => Promise<void>
   updateColumn: (id: string, updates: Partial<Column>) => void
+  updateColumnAsync: (id: string, updates: ColumnUpdates) => Promise<void>
 }
 
 export const useColumnStore = create<ColumnState>()(
@@ -62,6 +74,33 @@ export const useColumnStore = create<ColumnState>()(
         set((s) => ({
           columns: s.columns.map((c) => (c.id === id ? { ...c, ...updates } : c)),
         }))
+      },
+
+      updateColumnAsync: async (id, updates) => {
+        const prev = get().columns
+        // Optimistically update
+        set((s) => ({
+          columns: s.columns.map((c) =>
+            c.id === id
+              ? {
+                  ...c,
+                  ...(updates.name !== undefined && { name: updates.name }),
+                  ...(updates.icon !== undefined && { icon: updates.icon }),
+                  ...(updates.color !== undefined && { color: updates.color ?? '' }),
+                  ...(updates.visible !== undefined && { visible: updates.visible }),
+                  ...(updates.autoAdvance !== undefined && { autoAdvance: updates.autoAdvance }),
+                }
+              : c
+          ),
+        }))
+        try {
+          const updated = await ipc.updateColumn(id, updates)
+          set((s) => ({
+            columns: s.columns.map((c) => (c.id === id ? updated : c)),
+          }))
+        } catch {
+          set({ columns: prev })
+        }
       },
     }),
     { name: 'column-store' },

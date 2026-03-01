@@ -67,6 +67,9 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
 
     let migrations: Vec<(&str, &str)> = vec![
         ("001_initial", include_str!("migrations/001_initial.sql")),
+        ("002_column_config", include_str!("migrations/002_column_config.sql")),
+        ("003_pipeline_state", include_str!("migrations/003_pipeline_state.sql")),
+        ("004_chat_messages", include_str!("migrations/004_chat_messages.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -115,9 +118,13 @@ pub struct Column {
     pub id: String,
     pub workspace_id: String,
     pub name: String,
+    pub icon: String,
     pub position: i64,
     pub color: Option<String>,
     pub visible: bool,
+    pub trigger_config: String,
+    pub exit_config: String,
+    pub auto_advance: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -135,6 +142,9 @@ pub struct Task {
     pub branch_name: Option<String>,
     pub files_touched: String,
     pub checklist: Option<String>,
+    pub pipeline_state: String,
+    pub pipeline_triggered_at: Option<String>,
+    pub pipeline_error: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -240,27 +250,33 @@ pub fn insert_column(
 ) -> SqlResult<Column> {
     let id = new_id();
     let ts = now();
+    let default_trigger = r#"{"type":"none","config":{}}"#;
+    let default_exit = r#"{"type":"manual","config":{}}"#;
     conn.execute(
-        "INSERT INTO columns (id, workspace_id, name, position, visible, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)",
-        params![id, workspace_id, name, position, ts, ts],
+        "INSERT INTO columns (id, workspace_id, name, icon, position, visible, trigger_config, exit_config, auto_advance, created_at, updated_at) VALUES (?1, ?2, ?3, 'list', ?4, 1, ?5, ?6, 0, ?7, ?8)",
+        params![id, workspace_id, name, position, default_trigger, default_exit, ts, ts],
     )?;
     get_column(conn, &id)
 }
 
 pub fn get_column(conn: &Connection, id: &str) -> SqlResult<Column> {
     conn.query_row(
-        "SELECT id, workspace_id, name, position, color, visible, created_at, updated_at FROM columns WHERE id = ?1",
+        "SELECT id, workspace_id, name, icon, position, color, visible, trigger_config, exit_config, auto_advance, created_at, updated_at FROM columns WHERE id = ?1",
         params![id],
         |row| {
             Ok(Column {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
                 name: row.get(2)?,
-                position: row.get(3)?,
-                color: row.get(4)?,
-                visible: row.get::<_, i64>(5)? != 0,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
+                icon: row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "list".to_string()),
+                position: row.get(4)?,
+                color: row.get(5)?,
+                visible: row.get::<_, i64>(6)? != 0,
+                trigger_config: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| r#"{"type":"none","config":{}}"#.to_string()),
+                exit_config: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| r#"{"type":"manual","config":{}}"#.to_string()),
+                auto_advance: row.get::<_, i64>(9).unwrap_or(0) != 0,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         },
     )
@@ -268,18 +284,22 @@ pub fn get_column(conn: &Connection, id: &str) -> SqlResult<Column> {
 
 pub fn list_columns(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Column>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, name, position, color, visible, created_at, updated_at FROM columns WHERE workspace_id = ?1 ORDER BY position",
+        "SELECT id, workspace_id, name, icon, position, color, visible, trigger_config, exit_config, auto_advance, created_at, updated_at FROM columns WHERE workspace_id = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map(params![workspace_id], |row| {
         Ok(Column {
             id: row.get(0)?,
             workspace_id: row.get(1)?,
             name: row.get(2)?,
-            position: row.get(3)?,
-            color: row.get(4)?,
-            visible: row.get::<_, i64>(5)? != 0,
-            created_at: row.get(6)?,
-            updated_at: row.get(7)?,
+            icon: row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "list".to_string()),
+            position: row.get(4)?,
+            color: row.get(5)?,
+            visible: row.get::<_, i64>(6)? != 0,
+            trigger_config: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| r#"{"type":"none","config":{}}"#.to_string()),
+            exit_config: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| r#"{"type":"manual","config":{}}"#.to_string()),
+            auto_advance: row.get::<_, i64>(9).unwrap_or(0) != 0,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
         })
     })?;
     rows.collect()
@@ -289,9 +309,13 @@ pub fn update_column(
     conn: &Connection,
     id: &str,
     name: Option<&str>,
+    icon: Option<&str>,
     position: Option<i64>,
     color: Option<Option<&str>>,
     visible: Option<bool>,
+    trigger_config: Option<&str>,
+    exit_config: Option<&str>,
+    auto_advance: Option<bool>,
 ) -> SqlResult<Column> {
     let current = get_column(conn, id)?;
     let ts = now();
@@ -300,12 +324,16 @@ pub fn update_column(
         None => current.color.clone(),
     };
     conn.execute(
-        "UPDATE columns SET name = ?1, position = ?2, color = ?3, visible = ?4, updated_at = ?5 WHERE id = ?6",
+        "UPDATE columns SET name = ?1, icon = ?2, position = ?3, color = ?4, visible = ?5, trigger_config = ?6, exit_config = ?7, auto_advance = ?8, updated_at = ?9 WHERE id = ?10",
         params![
             name.unwrap_or(&current.name),
+            icon.unwrap_or(&current.icon),
             position.unwrap_or(current.position),
             new_color,
             visible.unwrap_or(current.visible) as i64,
+            trigger_config.unwrap_or(&current.trigger_config),
+            exit_config.unwrap_or(&current.exit_config),
+            auto_advance.unwrap_or(current.auto_advance) as i64,
             ts,
             id,
         ],
@@ -338,7 +366,7 @@ pub fn insert_task(
         )
         .unwrap_or(-1);
     conn.execute(
-        "INSERT INTO tasks (id, workspace_id, column_id, title, description, position, priority, files_touched, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'medium', '[]', ?7, ?8)",
+        "INSERT INTO tasks (id, workspace_id, column_id, title, description, position, priority, files_touched, pipeline_state, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'medium', '[]', 'idle', ?7, ?8)",
         params![id, workspace_id, column_id, title, description, max_pos + 1, ts, ts],
     )?;
     get_task(conn, &id)
@@ -346,7 +374,7 @@ pub fn insert_task(
 
 pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
     conn.query_row(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, created_at, updated_at FROM tasks WHERE id = ?1",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, created_at, updated_at FROM tasks WHERE id = ?1",
         params![id],
         |row| {
             Ok(Task {
@@ -361,8 +389,11 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
                 branch_name: row.get(8)?,
                 files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
                 checklist: row.get(10)?,
-                created_at: row.get(11)?,
-                updated_at: row.get(12)?,
+                pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()),
+                pipeline_triggered_at: row.get(12)?,
+                pipeline_error: row.get(13)?,
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
             })
         },
     )
@@ -370,7 +401,7 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
 
 pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, created_at, updated_at FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, created_at, updated_at FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
     )?;
     let rows = stmt.query_map(params![workspace_id], |row| {
         Ok(Task {
@@ -385,8 +416,11 @@ pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>>
             branch_name: row.get(8)?,
             files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
             checklist: row.get(10)?,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
+            pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()),
+            pipeline_triggered_at: row.get(12)?,
+            pipeline_error: row.get(13)?,
+            created_at: row.get(14)?,
+            updated_at: row.get(15)?,
         })
     })?;
     rows.collect()
@@ -431,6 +465,51 @@ pub fn update_task(
 pub fn delete_task(conn: &Connection, id: &str) -> SqlResult<()> {
     conn.execute("DELETE FROM tasks WHERE id = ?1", params![id])?;
     Ok(())
+}
+
+/// Update pipeline state for a task
+pub fn update_task_pipeline_state(
+    conn: &Connection,
+    id: &str,
+    state: &str,
+    triggered_at: Option<&str>,
+    error: Option<&str>,
+) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET pipeline_state = ?1, pipeline_triggered_at = ?2, pipeline_error = ?3, updated_at = ?4 WHERE id = ?5",
+        params![state, triggered_at, error, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Get next column in workspace by position
+pub fn get_next_column(conn: &Connection, workspace_id: &str, current_position: i64) -> SqlResult<Option<Column>> {
+    let result = conn.query_row(
+        "SELECT id, workspace_id, name, icon, position, color, visible, trigger_config, exit_config, auto_advance, created_at, updated_at FROM columns WHERE workspace_id = ?1 AND position > ?2 ORDER BY position LIMIT 1",
+        params![workspace_id, current_position],
+        |row| {
+            Ok(Column {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                name: row.get(2)?,
+                icon: row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "list".to_string()),
+                position: row.get(4)?,
+                color: row.get(5)?,
+                visible: row.get::<_, i64>(6)? != 0,
+                trigger_config: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| r#"{"type":"none","config":{}}"#.to_string()),
+                exit_config: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| r#"{"type":"manual","config":{}}"#.to_string()),
+                auto_advance: row.get::<_, i64>(9).unwrap_or(0) != 0,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
+            })
+        },
+    );
+    match result {
+        Ok(col) => Ok(Some(col)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 // ─── CRUD helpers: AgentSession ────────────────────────────────────────────
@@ -528,6 +607,161 @@ pub fn delete_agent_session(conn: &Connection, id: &str) -> SqlResult<()> {
     Ok(())
 }
 
+// ─── Data models: ChatMessage ───────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub id: String,
+    pub workspace_id: String,
+    pub role: String,
+    pub content: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrchestratorSession {
+    pub id: String,
+    pub workspace_id: String,
+    pub status: String,
+    pub last_error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+// ─── CRUD helpers: ChatMessage ──────────────────────────────────────────────
+
+pub fn insert_chat_message(
+    conn: &Connection,
+    workspace_id: &str,
+    role: &str,
+    content: &str,
+) -> SqlResult<ChatMessage> {
+    let id = new_id();
+    let ts = now();
+    conn.execute(
+        "INSERT INTO chat_messages (id, workspace_id, role, content, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, workspace_id, role, content, ts],
+    )?;
+    get_chat_message(conn, &id)
+}
+
+pub fn get_chat_message(conn: &Connection, id: &str) -> SqlResult<ChatMessage> {
+    conn.query_row(
+        "SELECT id, workspace_id, role, content, created_at FROM chat_messages WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(ChatMessage {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                role: row.get(2)?,
+                content: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        },
+    )
+}
+
+pub fn list_chat_messages(conn: &Connection, workspace_id: &str, limit: Option<i64>) -> SqlResult<Vec<ChatMessage>> {
+    let limit_val = limit.unwrap_or(100);
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, role, content, created_at FROM chat_messages WHERE workspace_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![workspace_id, limit_val], |row| {
+        Ok(ChatMessage {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            role: row.get(2)?,
+            content: row.get(3)?,
+            created_at: row.get(4)?,
+        })
+    })?;
+    let mut messages: Vec<ChatMessage> = rows.collect::<SqlResult<Vec<_>>>()?;
+    // Reverse to get chronological order
+    messages.reverse();
+    Ok(messages)
+}
+
+pub fn delete_chat_messages(conn: &Connection, workspace_id: &str) -> SqlResult<()> {
+    conn.execute("DELETE FROM chat_messages WHERE workspace_id = ?1", params![workspace_id])?;
+    Ok(())
+}
+
+// ─── CRUD helpers: OrchestratorSession ──────────────────────────────────────
+
+pub fn get_or_create_orchestrator_session(conn: &Connection, workspace_id: &str) -> SqlResult<OrchestratorSession> {
+    // Try to get existing session
+    let existing = conn.query_row(
+        "SELECT id, workspace_id, status, last_error, created_at, updated_at FROM orchestrator_sessions WHERE workspace_id = ?1",
+        params![workspace_id],
+        |row| {
+            Ok(OrchestratorSession {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                status: row.get(2)?,
+                last_error: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        },
+    );
+
+    match existing {
+        Ok(session) => Ok(session),
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            // Create new session
+            let id = new_id();
+            let ts = now();
+            conn.execute(
+                "INSERT INTO orchestrator_sessions (id, workspace_id, status, created_at, updated_at) VALUES (?1, ?2, 'idle', ?3, ?4)",
+                params![id, workspace_id, ts, ts],
+            )?;
+            get_orchestrator_session(conn, &id)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn get_orchestrator_session(conn: &Connection, id: &str) -> SqlResult<OrchestratorSession> {
+    conn.query_row(
+        "SELECT id, workspace_id, status, last_error, created_at, updated_at FROM orchestrator_sessions WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(OrchestratorSession {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                status: row.get(2)?,
+                last_error: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        },
+    )
+}
+
+pub fn update_orchestrator_session(
+    conn: &Connection,
+    id: &str,
+    status: Option<&str>,
+    last_error: Option<Option<&str>>,
+) -> SqlResult<OrchestratorSession> {
+    let current = get_orchestrator_session(conn, id)?;
+    let ts = now();
+    let new_error = match last_error {
+        Some(e) => e.map(|s| s.to_string()),
+        None => current.last_error.clone(),
+    };
+    conn.execute(
+        "UPDATE orchestrator_sessions SET status = ?1, last_error = ?2, updated_at = ?3 WHERE id = ?4",
+        params![
+            status.unwrap_or(&current.status),
+            new_error,
+            ts,
+            id,
+        ],
+    )?;
+    get_orchestrator_session(conn, id)
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -560,7 +794,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 1);
+        // We have 4 migrations: 001_initial, 002_column_config, 003_pipeline_state, 004_chat_messages
+        assert_eq!(count, 4);
     }
 
     #[test]

@@ -72,6 +72,19 @@ pub fn run() {
             commands::agent::force_stop_agent,
             commands::agent::get_agent_status,
             commands::agent::list_active_agents,
+            // Pipeline commands
+            commands::pipeline::mark_pipeline_complete,
+            commands::pipeline::get_pipeline_state,
+            commands::pipeline::try_advance_task,
+            commands::pipeline::set_pipeline_error,
+            // Orchestrator commands
+            commands::orchestrator::get_orchestrator_context,
+            commands::orchestrator::get_orchestrator_session,
+            commands::orchestrator::send_orchestrator_message,
+            commands::orchestrator::get_chat_history,
+            commands::orchestrator::clear_chat_history,
+            commands::orchestrator::process_orchestrator_response,
+            commands::orchestrator::set_orchestrator_error,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
