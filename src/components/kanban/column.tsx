@@ -1,10 +1,11 @@
-import { memo, useState, useCallback, useMemo } from 'react'
+import { memo, useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { motion } from 'motion/react'
+import { motion, AnimatePresence } from 'motion/react'
 import type { Column as ColumnType } from '@/types'
 import { useTaskStore } from '@/stores/task-store'
 import { useColumnStore } from '@/stores/column-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
@@ -14,7 +15,9 @@ type ColumnProps = {
 }
 
 export const Column = memo(function Column({ column }: ColumnProps) {
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
+  const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
 
   // Memoize filtered tasks to prevent infinite loops
@@ -28,6 +31,9 @@ export const Column = memo(function Column({ column }: ColumnProps) {
 
   const [showConfigDialog, setShowConfigDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showAddTask, setShowAddTask] = useState(false)
+  const [newTaskTitle, setNewTaskTitle] = useState('')
+  const addTaskInputRef = useRef<HTMLInputElement>(null)
 
   const {
     attributes,
@@ -46,6 +52,13 @@ export const Column = memo(function Column({ column }: ColumnProps) {
     transition,
   }
 
+  // Focus input when add task is shown
+  useEffect(() => {
+    if (showAddTask) {
+      addTaskInputRef.current?.focus()
+    }
+  }, [showAddTask])
+
   const handleConfigure = useCallback(() => {
     setShowConfigDialog(true)
   }, [])
@@ -62,6 +75,22 @@ export const Column = memo(function Column({ column }: ColumnProps) {
     remove(column.id)
     setShowDeleteConfirm(false)
   }, [column.id, remove])
+
+  const handleAddTask = useCallback(() => {
+    setShowAddTask(true)
+  }, [])
+
+  const handleSubmitTask = useCallback(async () => {
+    if (!newTaskTitle.trim() || !activeWorkspaceId) return
+    await addTask(activeWorkspaceId, column.id, newTaskTitle.trim(), '')
+    setNewTaskTitle('')
+    setShowAddTask(false)
+  }, [newTaskTitle, activeWorkspaceId, column.id, addTask])
+
+  const handleCancelAddTask = useCallback(() => {
+    setNewTaskTitle('')
+    setShowAddTask(false)
+  }, [])
 
   return (
     <>
@@ -81,15 +110,58 @@ export const Column = memo(function Column({ column }: ColumnProps) {
             color={column.color}
             onConfigure={handleConfigure}
             onDelete={handleDelete}
+            onAddTask={handleAddTask}
           />
         </div>
 
         <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
           <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
-            {tasks.length === 0 ? (
-              <p className="py-8 text-center text-xs text-text-secondary/50">
-                No tasks
-              </p>
+            {/* Inline add task input */}
+            <AnimatePresence>
+              {showAddTask && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="rounded-lg border border-accent bg-surface p-2">
+                    <input
+                      ref={addTaskInputRef}
+                      type="text"
+                      value={newTaskTitle}
+                      onChange={(e) => setNewTaskTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void handleSubmitTask()
+                        if (e.key === 'Escape') handleCancelAddTask()
+                      }}
+                      placeholder="Task title..."
+                      className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none"
+                    />
+                    <div className="mt-2 flex justify-end gap-1">
+                      <button
+                        onClick={handleCancelAddTask}
+                        className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => void handleSubmitTask()}
+                        disabled={!newTaskTitle.trim()}
+                        className="rounded bg-accent px-2 py-1 text-xs font-medium text-bg disabled:opacity-50"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {tasks.length === 0 && !showAddTask ? (
+              <div className="flex flex-1 items-center justify-center">
+                <p className="text-xs text-text-secondary/50">No tasks yet</p>
+              </div>
             ) : (
               tasks.map((task) => <TaskCard key={task.id} task={task} />)
             )}

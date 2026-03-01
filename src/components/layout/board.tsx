@@ -89,7 +89,7 @@ export function Board() {
       onDragEnd={onDragEnd}
     >
       <div className="flex h-full flex-col">
-        <div className="flex flex-1 items-start overflow-x-auto">
+        <div className="flex flex-1 overflow-x-auto">
           <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
             {sortedColumns.map((col) => (
               <Column key={col.id} column={col} />
