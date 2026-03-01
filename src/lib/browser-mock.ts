@@ -1,0 +1,353 @@
+/**
+ * Browser mock data for E2E testing and development without Tauri.
+ * This module provides mock implementations of Tauri IPC commands.
+ */
+
+import type { Workspace, Column, Task, TriggerConfig, ExitConfig, AgentMode, AgentStatus, PipelineState } from '@/types'
+
+// Check if we're running in Tauri or in a test environment
+export const isTauri = (): boolean => {
+  // In Vitest, we want to use the mocked @tauri-apps/api, not our browser mocks
+  // Check for import.meta.env which Vite uses
+  if (typeof import.meta !== 'undefined' && (import.meta as { env?: { MODE?: string } }).env?.MODE === 'test') {
+    return true // Let Vitest mocks handle it
+  }
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+// ─── Mock Data Store ────────────────────────────────────────────────────────
+
+const defaultTrigger: TriggerConfig = { type: 'none', config: {} }
+const defaultExit: ExitConfig = { type: 'manual', config: {} }
+
+let mockWorkspaces: Workspace[] = [
+  {
+    id: 'ws-demo',
+    name: 'Demo Workspace',
+    repoPath: '/tmp/demo-repo',
+    tabOrder: 0,
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+]
+
+let mockColumns: Column[] = [
+  { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: '📋', position: 0, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: '🔨', position: 1, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: '🔍', position: 2, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: '✅', position: 3, color: '#4ADE80', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+]
+
+let mockTasks: Task[] = [
+  {
+    id: 'task-1',
+    workspaceId: 'ws-demo',
+    columnId: 'col-1',
+    title: 'Sample Task',
+    description: 'This is a demo task for testing',
+    branch: null,
+    agentType: null,
+    agentMode: null,
+    agentStatus: null,
+    pipelineState: 'idle',
+    pipelineTriggeredAt: null,
+    pipelineError: null,
+    position: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+]
+
+let idCounter = 100
+
+const generateId = (prefix: string) => `${prefix}-${++idCounter}`
+
+// ─── Mock Command Handlers ──────────────────────────────────────────────────
+
+type CommandHandler = (args?: Record<string, unknown>) => unknown
+
+const mockCommands: Record<string, CommandHandler> = {
+  // Workspace commands
+  list_workspaces: () => mockWorkspaces,
+  get_workspace: (args) => mockWorkspaces.find(w => w.id === args?.id),
+  create_workspace: (args) => {
+    const ws: Workspace = {
+      id: generateId('ws'),
+      name: args?.name as string || 'New Workspace',
+      repoPath: args?.repoPath as string || '/tmp/repo',
+      tabOrder: mockWorkspaces.length,
+      isActive: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    mockWorkspaces.push(ws)
+    return ws
+  },
+  update_workspace: (args) => {
+    const existing = mockWorkspaces.find(w => w.id === args?.id)
+    if (existing) {
+      existing.name = (args?.name as string) ?? existing.name
+      existing.repoPath = (args?.repoPath as string) ?? existing.repoPath
+      existing.tabOrder = (args?.tabOrder as number) ?? existing.tabOrder
+      existing.isActive = (args?.isActive as boolean) ?? existing.isActive
+      existing.updatedAt = new Date().toISOString()
+      return existing
+    }
+    throw new Error('Workspace not found')
+  },
+  delete_workspace: (args) => {
+    mockWorkspaces = mockWorkspaces.filter(w => w.id !== args?.id)
+    mockColumns = mockColumns.filter(c => c.workspaceId !== args?.id)
+    mockTasks = mockTasks.filter(t => t.workspaceId !== args?.id)
+  },
+  reorder_workspaces: (args) => {
+    const ids = args?.ids as string[]
+    ids.forEach((id, idx) => {
+      const ws = mockWorkspaces.find(w => w.id === id)
+      if (ws) ws.tabOrder = idx
+    })
+  },
+
+  // Column commands
+  list_columns: (args) => mockColumns.filter(c => c.workspaceId === args?.workspaceId),
+  create_column: (args) => {
+    const col: Column = {
+      id: generateId('col'),
+      workspaceId: args?.workspaceId as string,
+      name: args?.name as string || 'New Column',
+      icon: '📋',
+      position: args?.position as number || mockColumns.length,
+      color: '',
+      visible: true,
+      trigger: defaultTrigger,
+      exitCriteria: defaultExit,
+      autoAdvance: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    mockColumns.push(col)
+    return col
+  },
+  update_column: (args) => {
+    const existing = mockColumns.find(c => c.id === args?.id)
+    if (existing) {
+      existing.name = (args?.name as string) ?? existing.name
+      existing.icon = (args?.icon as string) ?? existing.icon
+      existing.position = (args?.position as number) ?? existing.position
+      existing.color = (args?.color as string) ?? existing.color
+      existing.visible = (args?.visible as boolean) ?? existing.visible
+      existing.trigger = (args?.trigger as TriggerConfig) ?? existing.trigger
+      existing.exitCriteria = (args?.exitCriteria as ExitConfig) ?? existing.exitCriteria
+      existing.autoAdvance = (args?.autoAdvance as boolean) ?? existing.autoAdvance
+      existing.updatedAt = new Date().toISOString()
+      return existing
+    }
+    throw new Error('Column not found')
+  },
+  delete_column: (args) => {
+    mockColumns = mockColumns.filter(c => c.id !== args?.id)
+    mockTasks = mockTasks.filter(t => t.columnId !== args?.id)
+  },
+  reorder_columns: (args) => {
+    const columnIds = args?.columnIds as string[]
+    columnIds.forEach((id, idx) => {
+      const col = mockColumns.find(c => c.id === id)
+      if (col) col.position = idx
+    })
+    return mockColumns.filter(c => c.workspaceId === args?.workspaceId)
+  },
+
+  // Task commands
+  list_tasks: (args) => mockTasks.filter(t => t.workspaceId === args?.workspaceId),
+  get_task: (args) => mockTasks.find(t => t.id === args?.id),
+  create_task: (args) => {
+    const task: Task = {
+      id: generateId('task'),
+      workspaceId: args?.workspaceId as string,
+      columnId: args?.columnId as string,
+      title: args?.title as string || 'New Task',
+      description: args?.description as string || '',
+      branch: null,
+      agentType: null,
+      agentMode: null,
+      agentStatus: null,
+      pipelineState: 'idle',
+      pipelineTriggeredAt: null,
+      pipelineError: null,
+      position: mockTasks.filter(t => t.columnId === args?.columnId).length,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    mockTasks.push(task)
+    return task
+  },
+  update_task: (args) => {
+    const existing = mockTasks.find(t => t.id === args?.id)
+    if (existing) {
+      existing.title = (args?.title as string) ?? existing.title
+      existing.description = (args?.description as string) ?? existing.description
+      existing.columnId = (args?.columnId as string) ?? existing.columnId
+      existing.branch = (args?.branch as string | null) ?? existing.branch
+      existing.agentType = (args?.agentType as string | null) ?? existing.agentType
+      existing.agentMode = (args?.agentMode as AgentMode | null) ?? existing.agentMode
+      existing.agentStatus = (args?.agentStatus as AgentStatus | null) ?? existing.agentStatus
+      existing.pipelineState = (args?.pipelineState as PipelineState) ?? existing.pipelineState
+      existing.pipelineTriggeredAt = (args?.pipelineTriggeredAt as string | null) ?? existing.pipelineTriggeredAt
+      existing.pipelineError = (args?.pipelineError as string | null) ?? existing.pipelineError
+      existing.position = (args?.position as number) ?? existing.position
+      existing.updatedAt = new Date().toISOString()
+      return existing
+    }
+    throw new Error('Task not found')
+  },
+  move_task: (args) => {
+    const task = mockTasks.find(t => t.id === args?.id)
+    if (task) {
+      task.columnId = args?.targetColumnId as string
+      task.position = args?.position as number
+      task.updatedAt = new Date().toISOString()
+      return task
+    }
+    throw new Error('Task not found')
+  },
+  delete_task: (args) => {
+    mockTasks = mockTasks.filter(t => t.id !== args?.id)
+  },
+  reorder_tasks: (args) => {
+    const taskIds = args?.taskIds as string[]
+    taskIds.forEach((id, idx) => {
+      const task = mockTasks.find(t => t.id === id)
+      if (task) task.position = idx
+    })
+    return mockTasks.filter(t => t.columnId === args?.columnId)
+  },
+
+  // Settings
+  get_settings: () => ({ theme: 'dark', defaultTemplate: 'standard' }),
+  update_settings: () => undefined,
+
+  // Git commands (stubs)
+  get_current_branch: () => 'main',
+  list_task_branches: () => [],
+  create_task_branch: () => 'task/new-branch',
+  switch_branch: () => undefined,
+  delete_task_branch: () => true,
+  get_changes: () => ({ files: [], totalAdditions: 0, totalDeletions: 0, totalFiles: 0 }),
+  get_diff: () => '',
+  get_commits: () => [],
+  get_conflict_matrix: () => ({ conflicts: [], hasConflicts: false }),
+
+  // Agent commands (stubs)
+  start_agent: () => ({ taskId: '', agentType: '', status: 'idle', pid: null, workingDir: '' }),
+  stop_agent: () => undefined,
+  get_agent_status: () => ({ taskId: '', agentType: '', status: 'idle', pid: null, workingDir: '' }),
+
+  // Pipeline commands (stubs)
+  mark_pipeline_complete: (args) => mockTasks.find(t => t.id === args?.taskId),
+  get_pipeline_state: () => 'idle',
+  try_advance_task: () => null,
+  set_pipeline_error: (args) => mockTasks.find(t => t.id === args?.taskId),
+
+  // Orchestrator commands (stubs)
+  get_orchestrator_context: () => ({ workspaceId: '', workspaceName: '', columns: [], tasks: [], recentMessages: [] }),
+  get_orchestrator_session: () => ({ id: '', workspaceId: '', status: 'idle', lastError: null, createdAt: '', updatedAt: '' }),
+  send_orchestrator_message: () => ({ id: '', workspaceId: '', role: 'user', content: '', createdAt: '' }),
+  get_chat_history: () => [],
+  clear_chat_history: () => undefined,
+  process_orchestrator_response: () => ({ message: '', actions: [], tasksCreated: [] }),
+  set_orchestrator_error: () => ({ id: '', workspaceId: '', status: 'error', lastError: '', createdAt: '', updatedAt: '' }),
+
+  // Voice commands (stubs)
+  is_voice_available: () => false,
+  save_audio_temp: () => '/tmp/audio.wav',
+  transcribe_audio: () => ({ text: '', durationMs: 0 }),
+
+  // Usage tracking (stubs)
+  record_usage: () => ({ id: '', workspaceId: '', taskId: null, sessionId: null, provider: '', model: '', inputTokens: 0, outputTokens: 0, costUsd: 0, createdAt: '' }),
+  get_workspace_usage: () => [],
+  get_task_usage: () => [],
+  get_workspace_usage_summary: () => ({ totalInputTokens: 0, totalOutputTokens: 0, totalCostUsd: 0, recordCount: 0 }),
+  get_task_usage_summary: () => ({ totalInputTokens: 0, totalOutputTokens: 0, totalCostUsd: 0, recordCount: 0 }),
+  clear_workspace_usage: () => undefined,
+
+  // Session history (stubs)
+  create_snapshot: () => ({ id: '', sessionId: '', workspaceId: '', taskId: null, snapshotType: 'checkpoint', scrollbackSnapshot: null, commandHistory: '', filesModified: '', durationMs: 0, createdAt: '' }),
+  get_snapshot: () => ({ id: '', sessionId: '', workspaceId: '', taskId: null, snapshotType: 'checkpoint', scrollbackSnapshot: null, commandHistory: '', filesModified: '', durationMs: 0, createdAt: '' }),
+  get_session_history: () => [],
+  get_workspace_history: () => [],
+  get_task_history: () => [],
+  clear_session_history: () => undefined,
+}
+
+// ─── Mock invoke function ───────────────────────────────────────────────────
+
+export async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  // Simulate network delay
+  await new Promise(resolve => setTimeout(resolve, 10))
+
+  const handler = mockCommands[cmd]
+  if (handler) {
+    return handler(args) as T
+  }
+
+  console.warn(`[Browser Mock] Unhandled command: ${cmd}`, args)
+  throw new Error(`Unhandled mock command: ${cmd}`)
+}
+
+// ─── Mock listen function ───────────────────────────────────────────────────
+
+type UnlistenFn = () => void
+
+export function mockListen<T>(
+  _event: string,
+  _handler: (payload: T) => void
+): Promise<UnlistenFn> {
+  // In browser mode, events are not supported
+  return Promise.resolve(() => {})
+}
+
+// ─── Reset mock data (for testing) ──────────────────────────────────────────
+
+export function resetMockData() {
+  mockWorkspaces = [
+    {
+      id: 'ws-demo',
+      name: 'Demo Workspace',
+      repoPath: '/tmp/demo-repo',
+      tabOrder: 0,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  ]
+
+  mockColumns = [
+    { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: '📋', position: 0, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: '🔨', position: 1, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: '🔍', position: 2, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: '✅', position: 3, color: '#4ADE80', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  ]
+
+  mockTasks = [
+    {
+      id: 'task-1',
+      workspaceId: 'ws-demo',
+      columnId: 'col-1',
+      title: 'Sample Task',
+      description: 'This is a demo task for testing',
+      branch: null,
+      agentType: null,
+      agentMode: null,
+      agentStatus: null,
+      pipelineState: 'idle',
+      pipelineTriggeredAt: null,
+      pipelineError: null,
+      position: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  ]
+
+  idCounter = 100
+}
