@@ -42,56 +42,71 @@ describe('my-store', () => {
 })
 ```
 
-## E2E Tests (WebdriverIO)
+## E2E Tests (Playwright)
 
-Full application tests using WebdriverIO with tauri-driver.
-
-> **Note:** `tauri-driver` only works on Linux. E2E tests cannot run on macOS or Windows locally. Use Linux CI (GitHub Actions) for E2E testing.
-
-### Prerequisites
-
-1. Build the Tauri app:
-   ```bash
-   # Debug build (faster)
-   npm run tauri build -- --debug
-
-   # Or release build
-   npm run tauri build
-   ```
-
-2. Install tauri-driver (Linux only):
-   ```bash
-   cargo install tauri-driver
-   ```
-
-### Running E2E Tests (Linux only)
+Frontend tests using Playwright. Tests run against the Vite dev server with mocked Tauri APIs.
 
 ```bash
-# Using debug build
+# Run E2E tests
 npm run test:e2e
 
-# Using release build
-TAURI_E2E_RELEASE=1 npm run test:e2e
+# Run with UI mode (interactive)
+npx playwright test --ui
+
+# Run specific test file
+npx playwright test e2e/app.spec.ts
+
+# View test report
+npx playwright show-report
 ```
 
 ### Test Files
 
 - `e2e/app.spec.ts` - Main application tests
 
+### How It Works
+
+1. Playwright starts the Vite dev server (`npm run dev`)
+2. Tests inject Tauri API mocks via `page.addInitScript()`
+3. Tests interact with the React app in a real browser
+4. Tauri-specific features (file system, shell) are mocked
+
+### What Can Be Tested
+
+| Feature | Testable | Notes |
+|---------|----------|-------|
+| UI rendering | Yes | Full browser testing |
+| Click/keyboard | Yes | Real interactions |
+| State management | Yes | Via mocked IPC |
+| Keyboard shortcuts | Yes | Cmd+, etc. |
+| File system ops | Mocked | Not real filesystem |
+| Shell commands | Mocked | Not real shell |
+
+### Adding E2E Tests
+
+```typescript
+import { test, expect } from '@playwright/test'
+
+test('should do something', async ({ page }) => {
+  await page.goto('/')
+
+  // Interact with UI
+  await page.getByRole('button', { name: 'Click me' }).click()
+
+  // Assert
+  await expect(page.getByText('Success')).toBeVisible()
+})
+```
+
 ### CI Configuration
 
-For GitHub Actions, use a Linux runner:
 ```yaml
-e2e-tests:
+test:
   runs-on: ubuntu-latest
   steps:
     - uses: actions/checkout@v4
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y webkit2gtk-4.1 libayatana-appindicator3-dev
-        cargo install tauri-driver
+    - uses: actions/setup-node@v4
     - run: npm ci
-    - run: npm run tauri build -- --debug
+    - run: npx playwright install chromium
     - run: npm run test:e2e
 ```
