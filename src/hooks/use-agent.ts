@@ -16,9 +16,10 @@ interface UseAgentOptions {
   taskId: string
   agentType?: string
   workingDir?: string
+  cliPath?: string
 }
 
-export function useAgent({ taskId, agentType = 'claude', workingDir }: UseAgentOptions) {
+export function useAgent({ taskId, agentType = 'claude', workingDir, cliPath }: UseAgentOptions) {
   const [status, setStatus] = useState<AgentStatus>('idle')
   const [pid, setPid] = useState<number | null>(null)
   const unlistenRef = useRef<(() => void) | null>(null)
@@ -40,7 +41,7 @@ export function useAgent({ taskId, agentType = 'claude', workingDir }: UseAgentO
       }
     }
 
-    setupListener()
+    void setupListener()
 
     return () => {
       cancelled = true
@@ -56,12 +57,13 @@ export function useAgent({ taskId, agentType = 'claude', workingDir }: UseAgentO
       taskId,
       agentType,
       workingDir,
+      cliPath,
     })
 
     setStatus('running')
     setPid(info.pid)
     return info
-  }, [taskId, agentType, workingDir])
+  }, [taskId, agentType, workingDir, cliPath])
 
   const stopAgent = useCallback(async () => {
     await invoke('stop_agent', { taskId })

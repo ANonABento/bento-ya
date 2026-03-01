@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { useTaskStore } from '@/stores/task-store'
 import { TaskDetailPanel } from '@/components/task-detail/task-detail-panel'
@@ -5,6 +6,7 @@ import { TerminalView } from '@/components/terminal/terminal-view'
 import { TerminalInput } from '@/components/terminal/terminal-input'
 import { useAgent } from '@/hooks/use-agent'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useSettingsStore } from '@/stores/settings-store'
 
 const SPRING = { type: 'spring' as const, stiffness: 300, damping: 28 }
 
@@ -21,10 +23,39 @@ export function SplitView({ taskId, onClose }: SplitViewProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const workspace = workspaces.find((w) => w.id === activeWorkspaceId)
 
-  const { status: agentStatus, stopAgent, forceStopAgent } = useAgent({
+  // Get settings to determine which CLI to use
+  const settings = useSettingsStore((s) => s.getEffective(activeWorkspaceId ?? ''))
+
+  // Find enabled provider that uses CLI mode
+  const cliProvider = settings.model.providers.find(
+    (p) => p.enabled && p.connectionMode === 'cli'
+  )
+  const cliPath = cliProvider?.cliPath ?? cliProvider?.id
+
+  const hasStartedRef = useRef(false)
+  const prevTaskIdRef = useRef(taskId)
+  const { status: agentStatus, startAgent, stopAgent, forceStopAgent } = useAgent({
     taskId,
+    agentType: cliProvider?.id ?? 'claude',
     workingDir: workspace?.repoPath,
+    cliPath,
   })
+
+  // Reset start flag when taskId changes
+  useEffect(() => {
+    if (prevTaskIdRef.current !== taskId) {
+      hasStartedRef.current = false
+      prevTaskIdRef.current = taskId
+    }
+  }, [taskId])
+
+  // Auto-start agent when split view opens
+  useEffect(() => {
+    if (!hasStartedRef.current && workspace?.repoPath && cliPath) {
+      hasStartedRef.current = true
+      void startAgent()
+    }
+  }, [workspace?.repoPath, cliPath, startAgent])
 
   if (!task) return null
 
