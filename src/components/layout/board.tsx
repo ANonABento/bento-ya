@@ -80,6 +80,9 @@ export function Board() {
     )
   }
 
+  // Debug logging
+  console.log('[Board] workspace:', activeWorkspaceId, 'columns:', columns.length, 'tasks:', tasks.length)
+
   return (
     <DndContext
       sensors={sensors}
@@ -89,6 +92,12 @@ export function Board() {
       onDragEnd={onDragEnd}
     >
       <div className="flex h-full flex-col">
+        {/* Debug bar - remove after testing */}
+        <div className="shrink-0 bg-yellow-900/50 px-3 py-1 text-xs text-yellow-300 flex gap-4">
+          <span>Workspace: {activeWorkspaceId?.slice(0, 8) ?? 'none'}</span>
+          <span>Columns: {columns.length}</span>
+          <span>Tasks: {tasks.length}</span>
+        </div>
         <div className="flex flex-1 overflow-x-auto">
           <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
             {sortedColumns.map((col) => (

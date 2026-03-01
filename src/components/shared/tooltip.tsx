@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
 
 type TooltipProps = {
@@ -8,9 +9,17 @@ type TooltipProps = {
   delay?: number
 }
 
+type Position = {
+  top: number
+  left: number
+}
+
 export function Tooltip({ content, children, side = 'top', delay = 100 }: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false)
+  const [position, setPosition] = useState<Position>({ top: 0, left: 0 })
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const triggerRef = useRef<HTMLDivElement>(null)
+  const tooltipRef = useRef<HTMLDivElement>(null)
 
   const showTooltip = () => {
     timeoutRef.current = setTimeout(() => {
@@ -33,12 +42,55 @@ export function Tooltip({ content, children, side = 'top', delay = 100 }: Toolti
     }
   }, [])
 
-  const positionClasses = {
-    top: 'bottom-full left-1/2 -translate-x-1/2 mb-2',
-    bottom: 'top-full left-1/2 -translate-x-1/2 mt-2',
-    left: 'right-full top-1/2 -translate-y-1/2 mr-2',
-    right: 'left-full top-1/2 -translate-y-1/2 ml-2',
-  }
+  // Calculate and adjust position after tooltip renders
+  useLayoutEffect(() => {
+    if (!isVisible || !tooltipRef.current || !triggerRef.current) return
+
+    const trigger = triggerRef.current.getBoundingClientRect()
+    const tooltip = tooltipRef.current.getBoundingClientRect()
+    const padding = 8
+
+    let top = 0
+    let left = 0
+
+    // Calculate base position
+    switch (side) {
+      case 'top':
+        top = trigger.top - tooltip.height - 8
+        left = trigger.left + trigger.width / 2 - tooltip.width / 2
+        break
+      case 'bottom':
+        top = trigger.bottom + 8
+        left = trigger.left + trigger.width / 2 - tooltip.width / 2
+        break
+      case 'left':
+        top = trigger.top + trigger.height / 2 - tooltip.height / 2
+        left = trigger.left - tooltip.width - 8
+        break
+      case 'right':
+        top = trigger.top + trigger.height / 2 - tooltip.height / 2
+        left = trigger.right + 8
+        break
+    }
+
+    // Adjust horizontal overflow
+    if (left + tooltip.width > window.innerWidth - padding) {
+      left = window.innerWidth - tooltip.width - padding
+    }
+    if (left < padding) {
+      left = padding
+    }
+
+    // Adjust vertical overflow
+    if (top + tooltip.height > window.innerHeight - padding) {
+      top = window.innerHeight - tooltip.height - padding
+    }
+    if (top < padding) {
+      top = padding
+    }
+
+    setPosition({ top, left })
+  }, [isVisible, side])
 
   const animationOrigin = {
     top: { initial: { opacity: 0, y: 4 }, animate: { opacity: 1, y: 0 } },
@@ -49,26 +101,36 @@ export function Tooltip({ content, children, side = 'top', delay = 100 }: Toolti
 
   return (
     <div
-      className="relative inline-flex"
+      ref={triggerRef}
+      className="inline-flex"
       onMouseEnter={showTooltip}
       onMouseLeave={hideTooltip}
       onFocus={showTooltip}
       onBlur={hideTooltip}
     >
       {children}
-      <AnimatePresence>
-        {isVisible && (
-          <motion.div
-            initial={animationOrigin[side].initial}
-            animate={animationOrigin[side].animate}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className={`absolute z-50 whitespace-nowrap rounded-md bg-text-primary px-2 py-1 text-xs font-medium text-bg shadow-lg ${positionClasses[side]}`}
-          >
-            {content}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {createPortal(
+        <AnimatePresence>
+          {isVisible && (
+            <motion.div
+              ref={tooltipRef}
+              initial={animationOrigin[side].initial}
+              animate={animationOrigin[side].animate}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              style={{
+                position: 'fixed',
+                top: position.top,
+                left: position.left,
+              }}
+              className="z-[9999] whitespace-nowrap rounded-md bg-text-primary px-2 py-1 text-xs font-medium text-bg shadow-lg"
+            >
+              {content}
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   )
 }

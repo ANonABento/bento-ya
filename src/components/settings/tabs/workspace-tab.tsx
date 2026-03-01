@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
-import { useSettingsStore } from '@/stores/settings-store'
 import * as ipc from '@/lib/ipc'
 
 export function WorkspaceTab() {
@@ -13,7 +12,6 @@ export function WorkspaceTab() {
   const removeWorkspace = useWorkspaceStore((s) => s.remove)
   const loadColumns = useColumnStore((s) => s.load)
   const loadTasks = useTaskStore((s) => s.load)
-  const closeSettings = useSettingsStore((s) => s.closeSettings)
 
   const workspace = workspaces.find((w) => w.id === activeWorkspaceId)
 
@@ -54,12 +52,12 @@ export function WorkspaceTab() {
       setActive(newWorkspace.id)
       await loadColumns(newWorkspace.id)
       await loadTasks(newWorkspace.id)
-      setMessage({ type: 'success', text: `Created "${newWorkspace.name}" - closing settings...` })
+      setMessage({ type: 'success', text: `Created "${newWorkspace.name}" - reloading...` })
       setSeedPath('')
-      // Auto-close settings after a brief delay
+      // Force full page reload to ensure all stores are synced
       setTimeout(() => {
-        closeSettings()
-      }, 800)
+        window.location.reload()
+      }, 500)
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to seed demo data' })
     } finally {
