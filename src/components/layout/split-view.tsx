@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { useTaskStore } from '@/stores/task-store'
 import { TaskDetailPanel } from '@/components/task-detail/task-detail-panel'
@@ -34,6 +34,7 @@ export function SplitView({ taskId, onClose }: SplitViewProps) {
 
   const hasStartedRef = useRef(false)
   const prevTaskIdRef = useRef(taskId)
+  const [agentError, setAgentError] = useState<string | null>(null)
   const { status: agentStatus, startAgent, stopAgent, forceStopAgent } = useAgent({
     taskId,
     agentType: cliProvider?.id ?? 'claude',
@@ -53,7 +54,12 @@ export function SplitView({ taskId, onClose }: SplitViewProps) {
   useEffect(() => {
     if (!hasStartedRef.current && workspace?.repoPath && cliPath) {
       hasStartedRef.current = true
-      void startAgent()
+      setAgentError(null)
+      startAgent().catch((err: unknown) => {
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        console.error('[SplitView] Failed to start agent:', errorMsg)
+        setAgentError(errorMsg)
+      })
     }
   }, [workspace?.repoPath, cliPath, startAgent])
 
@@ -82,6 +88,17 @@ export function SplitView({ taskId, onClose }: SplitViewProps) {
         transition={SPRING}
         className="flex flex-1 flex-col overflow-hidden"
       >
+        {/* Status/Error bar */}
+        {!cliPath && (
+          <div className="shrink-0 border-b border-border-default bg-yellow-900/20 px-4 py-2 text-xs text-yellow-400">
+            No CLI provider configured. Go to Settings → Agent to configure a provider with CLI mode.
+          </div>
+        )}
+        {agentError && (
+          <div className="shrink-0 border-b border-border-default bg-red-900/20 px-4 py-2 text-xs text-red-400">
+            Failed to start agent: {agentError}
+          </div>
+        )}
         <div className="flex-1 overflow-hidden">
           <TerminalView
             taskId={taskId}

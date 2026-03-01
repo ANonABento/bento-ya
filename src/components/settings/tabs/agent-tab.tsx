@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
 import type { AgentConfig, ProviderConfig } from '@/types/settings'
 import { detectSingleCli, type DetectedCli } from '@/lib/ipc'
-import { SettingSection, SettingRow, SettingCard, SettingInput, SettingSlider } from '@/components/shared/setting-components'
+import { SettingSection, SettingRow, SettingInput, SettingSlider } from '@/components/shared/setting-components'
 import { Dropdown } from '@/components/shared/dropdown'
 
 const PROVIDER_INFO: Record<string, { name: string; description: string; models: string[]; cliId: string }> = {
@@ -36,19 +36,22 @@ export function AgentTab() {
   const [detectedClis, setDetectedClis] = useState<Record<string, DetectedCli>>({})
   const [detecting, setDetecting] = useState<Record<string, boolean>>({})
 
-  // Persist collapsed state in localStorage
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+  // Track expanded state (separate from enabled)
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+
+  // Persist coming-soon collapsed state (default to collapsed/hidden)
+  const [comingSoonCollapsed, setComingSoonCollapsed] = useState(() => {
     try {
-      const saved = localStorage.getItem('agent-tab-collapsed')
-      return saved ? (JSON.parse(saved) as Record<string, boolean>) : {}
+      const saved = localStorage.getItem('agent-tab-coming-soon-collapsed')
+      return saved === null ? true : saved === 'true'
     } catch {
-      return {}
+      return true
     }
   })
 
   useEffect(() => {
-    localStorage.setItem('agent-tab-collapsed', JSON.stringify(collapsed))
-  }, [collapsed])
+    localStorage.setItem('agent-tab-coming-soon-collapsed', String(comingSoonCollapsed))
+  }, [comingSoonCollapsed])
 
   const updateAgent = (updates: Partial<AgentConfig>) => {
     updateGlobal('agent', { ...agent, ...updates })
@@ -61,14 +64,24 @@ export function AgentTab() {
     updateGlobal('model', { ...model, providers })
   }
 
-  const toggleCollapsed = (key: string) => {
-    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }))
-  }
-
   // Get all available models from enabled providers
   const availableModels = model.providers
     .filter((p) => p.enabled)
     .flatMap((p) => PROVIDER_INFO[p.id]?.models ?? [])
+
+  // Toggle provider enabled state
+  const handleToggleProvider = (providerId: string, enabled: boolean) => {
+    updateProvider(providerId, { enabled })
+    // Auto-expand when enabling, collapse when disabling
+    setExpanded((prev) => ({ ...prev, [providerId]: enabled }))
+  }
+
+  // Toggle expanded state (only when enabled)
+  const handleToggleExpanded = (providerId: string) => {
+    const provider = model.providers.find((p) => p.id === providerId)
+    if (!provider?.enabled) return
+    setExpanded((prev) => ({ ...prev, [providerId]: !prev[providerId] }))
+  }
 
   // Auto-detect CLI when switching to CLI mode
   const handleCliModeSelect = async (providerId: string) => {
@@ -111,55 +124,70 @@ export function AgentTab() {
           {model.providers.map((provider) => {
             const info = PROVIDER_INFO[provider.id]
             if (!info) return null
+            const isExpanded = expanded[provider.id] && provider.enabled
 
             return (
               <div
                 key={provider.id}
-                className={`rounded-lg border transition-colors ${
+                className={`rounded-lg border transition-all ${
                   provider.enabled
                     ? 'border-accent bg-accent/5'
-                    : 'border-border-default'
+                    : 'border-border-default hover:border-border-default/80'
                 }`}
               >
                 {/* Provider Header */}
-                <button
-                  onClick={() => { toggleCollapsed(provider.id) }}
-                  className="flex w-full items-center justify-between p-3"
+                <div
+                  className={`flex items-center justify-between p-3 ${
+                    provider.enabled ? 'cursor-pointer' : ''
+                  }`}
+                  onClick={() => { handleToggleExpanded(provider.id) }}
                 >
                   <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={provider.enabled}
-                      onChange={(e) => {
-                        e.stopPropagation()
-                        updateProvider(provider.id, { enabled: e.target.checked })
-                      }}
-                      onClick={(e) => { e.stopPropagation() }}
-                      className="h-4 w-4 rounded border-border-default accent-accent"
-                    />
+                    {/* Chevron (only when enabled) */}
+                    {provider.enabled && (
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        className={`h-4 w-4 text-text-secondary transition-transform ${
+                          isExpanded ? 'rotate-90' : ''
+                        }`}
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    )}
                     <div className="text-left">
-                      <span className="text-sm font-medium text-text-primary">{info.name}</span>
+                      <span className={`text-sm font-medium ${provider.enabled ? 'text-text-primary' : 'text-text-secondary'}`}>
+                        {info.name}
+                      </span>
                       <p className="text-xs text-text-secondary">{info.description}</p>
                     </div>
                   </div>
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    className={`h-5 w-5 text-text-secondary transition-transform ${
-                      collapsed[provider.id] ? '' : 'rotate-180'
+
+                  {/* Toggle Switch */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleToggleProvider(provider.id, !provider.enabled)
+                    }}
+                    className={`relative h-6 w-11 rounded-full transition-colors ${
+                      provider.enabled ? 'bg-accent' : 'bg-surface-hover'
                     }`}
                   >
-                    <path
-                      fillRule="evenodd"
-                      d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-                      clipRule="evenodd"
+                    <span
+                      className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all ${
+                        provider.enabled ? 'left-6' : 'left-1'
+                      }`}
                     />
-                  </svg>
-                </button>
+                  </button>
+                </div>
 
-                {/* Provider Details */}
-                {!collapsed[provider.id] && (
+                {/* Provider Details (expanded) */}
+                {isExpanded && (
                   <div className="border-t border-border-default p-3 space-y-4">
                     {/* Connection Mode */}
                     <div>
@@ -247,14 +275,6 @@ export function AgentTab() {
                         />
                       </div>
                     )}
-
-                    {/* Default Model */}
-                    <Dropdown
-                      label="Default Model"
-                      options={info.models.map((m) => ({ value: m, label: m }))}
-                      value={provider.defaultModel}
-                      onChange={(value) => { updateProvider(provider.id, { defaultModel: value }) }}
-                    />
                   </div>
                 )}
               </div>
@@ -266,16 +286,18 @@ export function AgentTab() {
       {/* Coming Soon */}
       <SettingSection title="Coming Soon">
         <button
-          onClick={() => { toggleCollapsed('coming-soon') }}
+          onClick={() => { setComingSoonCollapsed(!comingSoonCollapsed) }}
           className="flex w-full items-center justify-between mb-2 -mt-2"
         >
-          <span className="text-xs text-text-secondary">Show/hide upcoming providers</span>
+          <span className="text-xs text-text-secondary">
+            {comingSoonCollapsed ? 'Show upcoming providers' : 'Hide upcoming providers'}
+          </span>
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 20 20"
             fill="currentColor"
             className={`h-4 w-4 text-text-secondary transition-transform ${
-              collapsed['coming-soon'] ? '' : 'rotate-180'
+              comingSoonCollapsed ? '' : 'rotate-180'
             }`}
           >
             <path
@@ -285,13 +307,16 @@ export function AgentTab() {
             />
           </svg>
         </button>
-        {!collapsed['coming-soon'] && (
+        {!comingSoonCollapsed && (
           <div className="space-y-2">
             {COMING_SOON.map((item) => (
-              <SettingCard key={item.name} className="opacity-50">
+              <div
+                key={item.name}
+                className="rounded-lg border border-border-default p-3 opacity-50"
+              >
                 <span className="text-sm font-medium text-text-secondary">{item.name}</span>
-                <span className="text-xs text-text-secondary">{item.description}</span>
-              </SettingCard>
+                <p className="text-xs text-text-secondary">{item.description}</p>
+              </div>
             ))}
           </div>
         )}
@@ -322,14 +347,6 @@ export function AgentTab() {
             />
           </SettingRow>
 
-          {/* Instructions File */}
-          <SettingRow label="Instructions File" description="Custom instructions file loaded for all agents" vertical>
-            <SettingInput
-              value={agent.instructionsFile}
-              onChange={(value) => { updateAgent({ instructionsFile: value }) }}
-              placeholder="Path to CLAUDE.md or instructions file"
-            />
-          </SettingRow>
         </div>
       </SettingSection>
     </div>

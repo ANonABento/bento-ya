@@ -97,7 +97,7 @@ export type WorkspaceSettings = Partial<Settings>
 
 export const DEFAULT_SETTINGS: Settings = {
   agent: {
-    maxConcurrentAgents: 3,
+    maxConcurrentAgents: 10,
     envVars: {},
     instructionsFile: '',
     modelSelection: 'auto',

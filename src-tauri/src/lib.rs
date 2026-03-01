@@ -106,6 +106,10 @@ pub fn run() {
             commands::history::get_workspace_history,
             commands::history::get_task_history,
             commands::history::clear_session_history,
+            // CLI detection commands
+            commands::cli_detect::detect_clis,
+            commands::cli_detect::detect_single_cli,
+            commands::cli_detect::verify_cli_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

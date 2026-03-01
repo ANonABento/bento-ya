@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod cli_detect;
 pub mod column;
 pub mod git;
 pub mod history;

@@ -266,6 +266,28 @@ export async function getAgentStatus(taskId: string): Promise<AgentInfo> {
   return invoke<AgentInfo>('get_agent_status', { taskId })
 }
 
+// ─── CLI detection ──────────────────────────────────────────────────────────
+
+export type DetectedCli = {
+  id: string
+  name: string
+  path: string
+  version: string | null
+  isAvailable: boolean
+}
+
+export async function detectClis(): Promise<DetectedCli[]> {
+  return invoke<DetectedCli[]>('detect_clis')
+}
+
+export async function detectSingleCli(cliId: string): Promise<DetectedCli> {
+  return invoke<DetectedCli>('detect_single_cli', { cliId })
+}
+
+export async function verifyCliPath(path: string): Promise<DetectedCli> {
+  return invoke<DetectedCli>('verify_cli_path', { path })
+}
+
 // ─── Event listeners ───────────────────────────────────────────────────────
 
 export type EventCallback<T> = (payload: T) => void
