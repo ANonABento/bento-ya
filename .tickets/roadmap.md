@@ -1,8 +1,18 @@
 # Bento-ya Roadmap
 
+> **Status:** See [STATUS.md](./STATUS.md) for detailed implementation status.
+>
+> | Version | Status |
+> |---------|--------|
+> | v0.1 | **COMPLETE** |
+> | v0.2 | **COMPLETE** |
+> | v0.3 | **COMPLETE** |
+> | v0.4 | TODO |
+> | v1.0 | **COMPLETE** |
+
 ## Implementation Order & Parallelization
 
-### v0.1 — "It Works" (Foundation)
+### v0.1 — "It Works" (Foundation) — COMPLETE
 
 The critical path is scaffolding → then 4 parallel streams → then integration.
 
@@ -40,7 +50,7 @@ T001 Project Scaffolding
 
 ---
 
-### v0.2 — "Pipeline"
+### v0.2 — "Pipeline" — COMPLETE
 
 After v0.1 ships, these build on the foundation:
 
@@ -58,7 +68,7 @@ T017 Orchestrator Agent (needs pipeline)
 
 ---
 
-### v0.3 — "Voice & Config"
+### v0.3 — "Voice & Config" — COMPLETE
 
 ```
 T019 Whisper Voice Input ──────┐
@@ -72,7 +82,7 @@ T023 Production Checklists (needs settings panel for template management)
 
 ---
 
-### v0.4 — "Siege"
+### v0.4 — "Siege" — TODO
 
 ```
 T024 PR Creation ──────────────┐
@@ -88,7 +98,7 @@ T026 Manual Test Checklists (needs siege loop output)
 
 ---
 
-### v1.0 — "Bento-ya"
+### v1.0 — "Bento-ya" — COMPLETE
 
 ```
 T029 History & Replay ─────────┐
@@ -103,57 +113,57 @@ T032 Polish & Ship
 
 ## Ticket Index
 
-### v0.1 — "It Works"
-| ID | Title | Complexity | Dependencies | Parallelizable With |
-|----|-------|------------|--------------|---------------------|
-| T001 | Project Scaffolding | L | none | — |
-| T002 | Database Schema & Migrations | M | T001 | T007, T004, T005 |
-| T003 | Backend CRUD Commands | L | T002 | T007-T010, T004, T005 |
-| T004 | PTY Manager & Agent Runner | L | T001 | T002, T003, T005, T007-T009 |
-| T005 | Git Branch Manager & Change Tracker | M | T001 | T002, T003, T004, T007-T009 |
-| T006 | Tauri IPC Event System | M | T003 | T009, T010 |
-| T007 | Frontend Types, Stores & IPC Wrappers | M | T001 | T002-T005 |
-| T008 | Dark Theme & Layout Shell | M | T007 | T002-T006 |
-| T009 | Kanban Board (Columns + Cards + DnD) | XL | T008 | T004, T005, T006 |
-| T010 | Terminal View (xterm.js + WebGL) | L | T007 | T002, T003, T005, T009 |
-| T011 | Split View Transition | L | T009, T010 | — |
-| T012 | Diff Viewer | M | T005, T007 | T003, T004, T009, T010 |
-| T013 | E2E Integration & Smoke Test | L | ALL above | — |
+### v0.1 — "It Works" — COMPLETE
+| ID | Title | Status |
+|----|-------|--------|
+| T001 | Project Scaffolding | ✅ |
+| T002 | Database Schema & Migrations | ✅ |
+| T003 | Backend CRUD Commands | ✅ |
+| T004 | PTY Manager & Agent Runner | ✅ |
+| T005 | Git Branch Manager & Change Tracker | ✅ |
+| T006 | Tauri IPC Event System | ✅ |
+| T007 | Frontend Types, Stores & IPC Wrappers | ✅ |
+| T008 | Dark Theme & Layout Shell | ✅ |
+| T009 | Kanban Board (Columns + Cards + DnD) | ✅ |
+| T010 | Terminal View (xterm.js + WebGL) | ✅ |
+| T011 | Split View Transition | ✅ |
+| T012 | Diff Viewer | ✅ |
+| T013 | E2E Integration & Smoke Test | ✅ |
 
-### v0.2 — "Pipeline"
-| ID | Title | Complexity | Dependencies |
-|----|-------|------------|--------------|
-| T014 | Multi-Workspace Tabs | L | v0.1 |
-| T015 | Custom Column Configuration | M | v0.1 |
-| T016 | Pipeline Engine (Triggers & Auto-advance) | XL | T015 |
-| T017 | Orchestrator Agent | L | T016 |
-| T018 | Attention System | M | v0.1 |
+### v0.2 — "Pipeline" — COMPLETE
+| ID | Title | Status |
+|----|-------|--------|
+| T014 | Multi-Workspace Tabs | ✅ |
+| T015 | Custom Column Configuration | ✅ |
+| T016 | Pipeline Engine (Triggers & Auto-advance) | ✅ |
+| T017 | Orchestrator Agent | ✅ |
+| T018 | Attention System | ✅ |
 
-### v0.3 — "Voice & Config"
-| ID | Title | Complexity | Dependencies |
-|----|-------|------------|--------------|
-| T019 | Whisper Voice Input | L | v0.2 |
-| T020 | Settings Panel | XL | v0.2 |
-| T021 | Light Theme | S | T008 |
-| T022 | Pipeline & Column Templates | M | T015, T020 |
-| T023 | Production Readiness Checklists | L | T020 |
+### v0.3 — "Voice & Config" — COMPLETE
+| ID | Title | Status |
+|----|-------|--------|
+| T019 | Whisper Voice Input | ✅ |
+| T020 | Settings Panel | ✅ |
+| T021 | Light Theme | ✅ |
+| T022 | Pipeline & Column Templates | ✅ |
+| T023 | Production Readiness Checklists | ✅ |
 
-### v0.4 — "Siege"
-| ID | Title | Complexity | Dependencies |
-|----|-------|------------|--------------|
-| T024 | PR Creation from Review Column | M | v0.3 |
-| T025 | Siege Loop (Comment-Watch) | L | T024 |
-| T026 | Manual Test Checklist Generation | M | T025 |
-| T027 | Notification Column | S | T016 |
-| T028 | Checklist Auto-Detect & Fix-This | M | T023 |
+### v0.4 — "Siege" — TODO
+| ID | Title | Status | Complexity |
+|----|-------|--------|------------|
+| T024 | PR Creation from Review Column | ❌ | M |
+| T025 | Siege Loop (Comment-Watch) | ❌ | L |
+| T026 | Manual Test Checklist Generation | ❌ | M |
+| T027 | Notification Column | ❌ | S |
+| T028 | Checklist Auto-Detect & Fix-This | ❌ | M |
 
-### v1.0 — "Bento-ya"
-| ID | Title | Complexity | Dependencies |
-|----|-------|------------|--------------|
-| T029 | History & Replay | L | v0.4 |
-| T030 | Metrics Dashboard | M | v0.4 |
-| T031 | Community Templates | M | T022 |
-| T032 | Polish & Ship | L | ALL |
+### v1.0 — "Bento-ya" — COMPLETE
+| ID | Title | Status |
+|----|-------|--------|
+| T029 | History & Replay | ✅ |
+| T030 | Metrics Dashboard | ✅ |
+| T031 | Community Templates | ✅ |
+| T032 | Polish & Ship | ✅ |
 
 ---
 

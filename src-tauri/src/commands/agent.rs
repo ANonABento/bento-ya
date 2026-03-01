@@ -46,6 +46,7 @@ pub fn start_agent(
     agent_type: String,
     working_dir: String,
     env_vars: Option<HashMap<String, String>>,
+    cli_path: Option<String>,
     app_handle: AppHandle,
     agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
 ) -> Result<AgentInfo, String> {
@@ -58,6 +59,7 @@ pub fn start_agent(
         &agent_type,
         &working_dir,
         env_vars,
+        cli_path,
         app_handle,
     )?;
 

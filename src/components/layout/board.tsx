@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useCallback } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -23,8 +23,15 @@ export function Board() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const columns = useColumnStore((s) => s.columns)
   const loadColumns = useColumnStore((s) => s.load)
+  const addColumn = useColumnStore((s) => s.add)
   const loadTasks = useTaskStore((s) => s.load)
   const tasks = useTaskStore((s) => s.tasks)
+
+  const handleAddColumn = useCallback(() => {
+    if (!activeWorkspaceId) return
+    const name = `Column ${String(columns.length + 1)}`
+    void addColumn(activeWorkspaceId, name)
+  }, [activeWorkspaceId, columns.length, addColumn])
 
   const { isSplitView, activeTaskId, closeSplitView } = useSplitView()
 
@@ -82,16 +89,22 @@ export function Board() {
       onDragEnd={onDragEnd}
     >
       <div className="flex h-full flex-col">
-        <div className="flex flex-1 items-start gap-4 overflow-x-auto p-4">
+        <div className="flex flex-1 overflow-x-auto">
           <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
             {sortedColumns.map((col) => (
               <Column key={col.id} column={col} />
             ))}
           </SortableContext>
 
-          {/* Add column placeholder */}
-          <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashed border-border-default text-text-secondary/50 transition-colors hover:border-text-secondary hover:text-text-secondary">
-            +
+          {/* Add column button */}
+          <button
+            onClick={handleAddColumn}
+            className="flex h-full w-12 shrink-0 items-center justify-center border-r border-dashed border-border-default text-text-secondary/30 transition-colors hover:bg-surface/50 hover:text-text-secondary"
+            title="Add column"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+              <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
+            </svg>
           </button>
         </div>
 

@@ -6,7 +6,8 @@ import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { xtermDarkTheme } from '@/lib/xterm-theme'
+import { getXtermTheme } from '@/lib/xterm-theme'
+import { useThemeStore } from '@/stores/theme-store'
 import '@xterm/xterm/css/xterm.css'
 
 interface TerminalViewProps {
@@ -20,6 +21,7 @@ export function TerminalView({ taskId, isActive, onExit }: TerminalViewProps) {
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const cleanupRef = useRef<(() => void) | null>(null)
+  const resolvedTheme = useThemeStore((s) => s.resolved)
 
   const initTerminal = useCallback(async () => {
     if (!containerRef.current || terminalRef.current) return
@@ -27,7 +29,7 @@ export function TerminalView({ taskId, isActive, onExit }: TerminalViewProps) {
     const term = new Terminal({
       fontFamily: 'JetBrains Mono, monospace',
       fontSize: 14,
-      theme: xtermDarkTheme,
+      theme: getXtermTheme(resolvedTheme),
       scrollback: 5000,
       cursorBlink: true,
       cursorStyle: 'bar',
@@ -131,7 +133,7 @@ export function TerminalView({ taskId, isActive, onExit }: TerminalViewProps) {
       cols: term.cols,
       rows: term.rows,
     }).catch(() => {})
-  }, [taskId, onExit])
+  }, [taskId, onExit, resolvedTheme])
 
   useEffect(() => {
     initTerminal()
@@ -158,10 +160,17 @@ export function TerminalView({ taskId, isActive, onExit }: TerminalViewProps) {
     }
   }, [isActive])
 
+  // Update theme when it changes
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.options.theme = getXtermTheme(resolvedTheme)
+    }
+  }, [resolvedTheme])
+
   return (
     <div
       ref={containerRef}
-      className="h-full w-full bg-[#0D0D0D]"
+      className="h-full w-full bg-bg"
       style={{ padding: '4px' }}
     />
   )

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { invoke } from '@tauri-apps/api/core'
+import { VoiceInputButton } from './voice-input-button'
 
 type ChatInputProps = {
   workspaceId: string
@@ -11,6 +12,11 @@ export function ChatInput({ workspaceId }: ChatInputProps) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  const handleTranscript = useCallback((text: string) => {
+    setMessage((prev) => (prev ? `${prev} ${text}` : text))
+    inputRef.current?.focus()
+  }, [])
 
   const handleSubmit = useCallback(async () => {
     if (!message.trim() || isProcessing) return
@@ -81,13 +87,19 @@ export function ChatInput({ workspaceId }: ChatInputProps) {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleSubmit}
-                disabled={!message.trim() || isProcessing}
-                className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-bg disabled:opacity-50"
-              >
-                {isProcessing ? 'Processing...' : 'Create Tasks'}
-              </button>
+              <div className="flex items-center gap-2">
+                <VoiceInputButton
+                  onTranscript={handleTranscript}
+                  disabled={isProcessing}
+                />
+                <button
+                  onClick={handleSubmit}
+                  disabled={!message.trim() || isProcessing}
+                  className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-bg disabled:opacity-50"
+                >
+                  {isProcessing ? 'Processing...' : 'Create Tasks'}
+                </button>
+              </div>
             </div>
           </motion.div>
         )}

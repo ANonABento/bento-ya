@@ -11,6 +11,7 @@ type WorkspaceState = {
   load: () => Promise<void>
   setActive: (id: string) => void
   add: (name: string, repoPath: string) => Promise<void>
+  clone: (sourceId: string, newName: string) => Promise<void>
   remove: (id: string) => Promise<void>
   reorder: (ids: string[]) => Promise<void>
 }
@@ -35,6 +36,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       add: async (name, repoPath) => {
         const workspace = await ipc.createWorkspace(name, repoPath)
         set((s) => ({ workspaces: [...s.workspaces, workspace] }))
+      },
+
+      clone: async (sourceId, newName) => {
+        const workspace = await ipc.cloneWorkspace(sourceId, newName)
+        set((s) => ({
+          workspaces: [...s.workspaces, workspace],
+          activeWorkspaceId: workspace.id,
+        }))
       },
 
       remove: async (id) => {

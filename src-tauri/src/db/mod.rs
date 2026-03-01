@@ -70,6 +70,10 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("002_column_config", include_str!("migrations/002_column_config.sql")),
         ("003_pipeline_state", include_str!("migrations/003_pipeline_state.sql")),
         ("004_chat_messages", include_str!("migrations/004_chat_messages.sql")),
+        ("005_checklists", include_str!("migrations/005_checklists.sql")),
+        ("006_session_resume", include_str!("migrations/006_session_resume.sql")),
+        ("007_cost_tracking", include_str!("migrations/007_cost_tracking.sql")),
+        ("008_session_history", include_str!("migrations/008_session_history.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -159,6 +163,10 @@ pub struct AgentSession {
     pub pty_rows: i64,
     pub last_output: Option<String>,
     pub exit_code: Option<i64>,
+    pub agent_type: String,
+    pub working_dir: Option<String>,
+    pub scrollback: Option<String>,
+    pub resumable: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -467,6 +475,34 @@ pub fn delete_task(conn: &Connection, id: &str) -> SqlResult<()> {
     Ok(())
 }
 
+/// List tasks by column ID
+pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec<Task>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, created_at, updated_at FROM tasks WHERE column_id = ?1 ORDER BY position",
+    )?;
+    let rows = stmt.query_map(params![column_id], |row| {
+        Ok(Task {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            column_id: row.get(2)?,
+            title: row.get(3)?,
+            description: row.get(4)?,
+            position: row.get(5)?,
+            priority: row.get(6)?,
+            agent_mode: row.get(7)?,
+            branch_name: row.get(8)?,
+            files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
+            checklist: row.get(10)?,
+            pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()),
+            pipeline_triggered_at: row.get(12)?,
+            pipeline_error: row.get(13)?,
+            created_at: row.get(14)?,
+            updated_at: row.get(15)?,
+        })
+    })?;
+    rows.collect()
+}
+
 /// Update pipeline state for a task
 pub fn update_task_pipeline_state(
     conn: &Connection,
@@ -514,19 +550,24 @@ pub fn get_next_column(conn: &Connection, workspace_id: &str, current_position: 
 
 // ─── CRUD helpers: AgentSession ────────────────────────────────────────────
 
-pub fn insert_agent_session(conn: &Connection, task_id: &str) -> SqlResult<AgentSession> {
+pub fn insert_agent_session(
+    conn: &Connection,
+    task_id: &str,
+    agent_type: &str,
+    working_dir: Option<&str>,
+) -> SqlResult<AgentSession> {
     let id = new_id();
     let ts = now();
     conn.execute(
-        "INSERT INTO agent_sessions (id, task_id, status, pty_cols, pty_rows, created_at, updated_at) VALUES (?1, ?2, 'idle', 80, 24, ?3, ?4)",
-        params![id, task_id, ts, ts],
+        "INSERT INTO agent_sessions (id, task_id, agent_type, working_dir, status, pty_cols, pty_rows, resumable, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 'idle', 80, 24, 0, ?5, ?6)",
+        params![id, task_id, agent_type, working_dir, ts, ts],
     )?;
     get_agent_session(conn, &id)
 }
 
 pub fn get_agent_session(conn: &Connection, id: &str) -> SqlResult<AgentSession> {
     conn.query_row(
-        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, created_at, updated_at FROM agent_sessions WHERE id = ?1",
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, created_at, updated_at FROM agent_sessions WHERE id = ?1",
         params![id],
         |row| {
             Ok(AgentSession {
@@ -538,8 +579,12 @@ pub fn get_agent_session(conn: &Connection, id: &str) -> SqlResult<AgentSession>
                 pty_rows: row.get(5)?,
                 last_output: row.get(6)?,
                 exit_code: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
+                agent_type: row.get(8)?,
+                working_dir: row.get(9)?,
+                scrollback: row.get(10)?,
+                resumable: row.get::<_, i64>(11)? != 0,
+                created_at: row.get(12)?,
+                updated_at: row.get(13)?,
             })
         },
     )
@@ -547,7 +592,7 @@ pub fn get_agent_session(conn: &Connection, id: &str) -> SqlResult<AgentSession>
 
 pub fn list_agent_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<AgentSession>> {
     let mut stmt = conn.prepare(
-        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, created_at, updated_at FROM agent_sessions WHERE task_id = ?1",
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, created_at, updated_at FROM agent_sessions WHERE task_id = ?1 ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map(params![task_id], |row| {
         Ok(AgentSession {
@@ -559,8 +604,38 @@ pub fn list_agent_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<Ag
             pty_rows: row.get(5)?,
             last_output: row.get(6)?,
             exit_code: row.get(7)?,
-            created_at: row.get(8)?,
-            updated_at: row.get(9)?,
+            agent_type: row.get(8)?,
+            working_dir: row.get(9)?,
+            scrollback: row.get(10)?,
+            resumable: row.get::<_, i64>(11)? != 0,
+            created_at: row.get(12)?,
+            updated_at: row.get(13)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// List resumable sessions for a task
+pub fn list_resumable_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<AgentSession>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, created_at, updated_at FROM agent_sessions WHERE task_id = ?1 AND resumable = 1 ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![task_id], |row| {
+        Ok(AgentSession {
+            id: row.get(0)?,
+            task_id: row.get(1)?,
+            pid: row.get(2)?,
+            status: row.get(3)?,
+            pty_cols: row.get(4)?,
+            pty_rows: row.get(5)?,
+            last_output: row.get(6)?,
+            exit_code: row.get(7)?,
+            agent_type: row.get(8)?,
+            working_dir: row.get(9)?,
+            scrollback: row.get(10)?,
+            resumable: row.get::<_, i64>(11)? != 0,
+            created_at: row.get(12)?,
+            updated_at: row.get(13)?,
         })
     })?;
     rows.collect()
@@ -573,6 +648,8 @@ pub fn update_agent_session(
     status: Option<&str>,
     exit_code: Option<Option<i64>>,
     last_output: Option<Option<&str>>,
+    scrollback: Option<Option<&str>>,
+    resumable: Option<bool>,
 ) -> SqlResult<AgentSession> {
     let current = get_agent_session(conn, id)?;
     let ts = now();
@@ -588,13 +665,20 @@ pub fn update_agent_session(
         Some(o) => o.map(|s| s.to_string()),
         None => current.last_output.clone(),
     };
+    let new_scrollback = match scrollback {
+        Some(s) => s.map(|t| t.to_string()),
+        None => current.scrollback.clone(),
+    };
+    let new_resumable = resumable.unwrap_or(current.resumable);
     conn.execute(
-        "UPDATE agent_sessions SET pid = ?1, status = ?2, exit_code = ?3, last_output = ?4, updated_at = ?5 WHERE id = ?6",
+        "UPDATE agent_sessions SET pid = ?1, status = ?2, exit_code = ?3, last_output = ?4, scrollback = ?5, resumable = ?6, updated_at = ?7 WHERE id = ?8",
         params![
             new_pid,
             status.unwrap_or(&current.status),
             new_exit_code,
             new_last_output,
+            new_scrollback,
+            if new_resumable { 1 } else { 0 },
             ts,
             id,
         ],
@@ -762,6 +846,559 @@ pub fn update_orchestrator_session(
     get_orchestrator_session(conn, id)
 }
 
+// ─── Checklist types ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Checklist {
+    pub id: String,
+    pub workspace_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub progress: i64,
+    pub total_items: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChecklistCategory {
+    pub id: String,
+    pub checklist_id: String,
+    pub name: String,
+    pub icon: String,
+    pub position: i64,
+    pub progress: i64,
+    pub total_items: i64,
+    pub collapsed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChecklistItem {
+    pub id: String,
+    pub category_id: String,
+    pub text: String,
+    pub checked: bool,
+    pub notes: Option<String>,
+    pub position: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+// ─── Checklist CRUD ────────────────────────────────────────────────────────
+
+pub fn insert_checklist(
+    conn: &Connection,
+    workspace_id: &str,
+    name: &str,
+    description: Option<&str>,
+) -> SqlResult<Checklist> {
+    let id = new_id();
+    let ts = now();
+    conn.execute(
+        "INSERT INTO checklists (id, workspace_id, name, description, progress, total_items, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 0, 0, ?5, ?6)",
+        params![id, workspace_id, name, description, ts, ts],
+    )?;
+    get_checklist(conn, &id)
+}
+
+pub fn get_checklist(conn: &Connection, id: &str) -> SqlResult<Checklist> {
+    conn.query_row(
+        "SELECT id, workspace_id, name, description, progress, total_items, created_at, updated_at FROM checklists WHERE id = ?1",
+        params![id],
+        |row| Ok(Checklist {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            name: row.get(2)?,
+            description: row.get(3)?,
+            progress: row.get(4)?,
+            total_items: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
+        }),
+    )
+}
+
+pub fn get_workspace_checklist(conn: &Connection, workspace_id: &str) -> SqlResult<Option<Checklist>> {
+    match conn.query_row(
+        "SELECT id, workspace_id, name, description, progress, total_items, created_at, updated_at FROM checklists WHERE workspace_id = ?1",
+        params![workspace_id],
+        |row| Ok(Checklist {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            name: row.get(2)?,
+            description: row.get(3)?,
+            progress: row.get(4)?,
+            total_items: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
+        }),
+    ) {
+        Ok(c) => Ok(Some(c)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+pub fn delete_checklist(conn: &Connection, id: &str) -> SqlResult<()> {
+    conn.execute("DELETE FROM checklists WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn insert_checklist_category(
+    conn: &Connection,
+    checklist_id: &str,
+    name: &str,
+    icon: &str,
+    position: i64,
+) -> SqlResult<ChecklistCategory> {
+    let id = new_id();
+    conn.execute(
+        "INSERT INTO checklist_categories (id, checklist_id, name, icon, position, progress, total_items, collapsed) VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, 0)",
+        params![id, checklist_id, name, icon, position],
+    )?;
+    // Update checklist total
+    recalculate_checklist_progress(conn, checklist_id)?;
+    get_checklist_category(conn, &id)
+}
+
+pub fn get_checklist_category(conn: &Connection, id: &str) -> SqlResult<ChecklistCategory> {
+    conn.query_row(
+        "SELECT id, checklist_id, name, icon, position, progress, total_items, collapsed FROM checklist_categories WHERE id = ?1",
+        params![id],
+        |row| Ok(ChecklistCategory {
+            id: row.get(0)?,
+            checklist_id: row.get(1)?,
+            name: row.get(2)?,
+            icon: row.get(3)?,
+            position: row.get(4)?,
+            progress: row.get(5)?,
+            total_items: row.get(6)?,
+            collapsed: row.get::<_, i64>(7)? != 0,
+        }),
+    )
+}
+
+pub fn list_checklist_categories(conn: &Connection, checklist_id: &str) -> SqlResult<Vec<ChecklistCategory>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, checklist_id, name, icon, position, progress, total_items, collapsed FROM checklist_categories WHERE checklist_id = ?1 ORDER BY position"
+    )?;
+    let rows = stmt.query_map(params![checklist_id], |row| {
+        Ok(ChecklistCategory {
+            id: row.get(0)?,
+            checklist_id: row.get(1)?,
+            name: row.get(2)?,
+            icon: row.get(3)?,
+            position: row.get(4)?,
+            progress: row.get(5)?,
+            total_items: row.get(6)?,
+            collapsed: row.get::<_, i64>(7)? != 0,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn update_checklist_category(
+    conn: &Connection,
+    id: &str,
+    collapsed: Option<bool>,
+) -> SqlResult<ChecklistCategory> {
+    if let Some(c) = collapsed {
+        conn.execute(
+            "UPDATE checklist_categories SET collapsed = ?1 WHERE id = ?2",
+            params![if c { 1 } else { 0 }, id],
+        )?;
+    }
+    get_checklist_category(conn, id)
+}
+
+pub fn insert_checklist_item(
+    conn: &Connection,
+    category_id: &str,
+    text: &str,
+    position: i64,
+) -> SqlResult<ChecklistItem> {
+    let id = new_id();
+    let ts = now();
+    conn.execute(
+        "INSERT INTO checklist_items (id, category_id, text, checked, notes, position, created_at, updated_at) VALUES (?1, ?2, ?3, 0, NULL, ?4, ?5, ?6)",
+        params![id, category_id, text, position, ts, ts],
+    )?;
+    // Update category and checklist totals
+    let cat = get_checklist_category(conn, category_id)?;
+    recalculate_category_progress(conn, category_id)?;
+    recalculate_checklist_progress(conn, &cat.checklist_id)?;
+    get_checklist_item(conn, &id)
+}
+
+pub fn get_checklist_item(conn: &Connection, id: &str) -> SqlResult<ChecklistItem> {
+    conn.query_row(
+        "SELECT id, category_id, text, checked, notes, position, created_at, updated_at FROM checklist_items WHERE id = ?1",
+        params![id],
+        |row| Ok(ChecklistItem {
+            id: row.get(0)?,
+            category_id: row.get(1)?,
+            text: row.get(2)?,
+            checked: row.get::<_, i64>(3)? != 0,
+            notes: row.get(4)?,
+            position: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
+        }),
+    )
+}
+
+pub fn list_checklist_items(conn: &Connection, category_id: &str) -> SqlResult<Vec<ChecklistItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, category_id, text, checked, notes, position, created_at, updated_at FROM checklist_items WHERE category_id = ?1 ORDER BY position"
+    )?;
+    let rows = stmt.query_map(params![category_id], |row| {
+        Ok(ChecklistItem {
+            id: row.get(0)?,
+            category_id: row.get(1)?,
+            text: row.get(2)?,
+            checked: row.get::<_, i64>(3)? != 0,
+            notes: row.get(4)?,
+            position: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn update_checklist_item(
+    conn: &Connection,
+    id: &str,
+    checked: Option<bool>,
+    notes: Option<Option<&str>>,
+) -> SqlResult<ChecklistItem> {
+    let current = get_checklist_item(conn, id)?;
+    let ts = now();
+
+    let new_checked = checked.unwrap_or(current.checked);
+    let new_notes = match notes {
+        Some(n) => n.map(|s| s.to_string()),
+        None => current.notes.clone(),
+    };
+
+    conn.execute(
+        "UPDATE checklist_items SET checked = ?1, notes = ?2, updated_at = ?3 WHERE id = ?4",
+        params![if new_checked { 1 } else { 0 }, new_notes, ts, id],
+    )?;
+
+    // Update category and checklist progress
+    let cat = get_checklist_category(conn, &current.category_id)?;
+    recalculate_category_progress(conn, &current.category_id)?;
+    recalculate_checklist_progress(conn, &cat.checklist_id)?;
+
+    get_checklist_item(conn, id)
+}
+
+fn recalculate_category_progress(conn: &Connection, category_id: &str) -> SqlResult<()> {
+    let total: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM checklist_items WHERE category_id = ?1",
+        params![category_id],
+        |row| row.get(0),
+    )?;
+    let checked: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM checklist_items WHERE category_id = ?1 AND checked = 1",
+        params![category_id],
+        |row| row.get(0),
+    )?;
+    conn.execute(
+        "UPDATE checklist_categories SET progress = ?1, total_items = ?2 WHERE id = ?3",
+        params![checked, total, category_id],
+    )?;
+    Ok(())
+}
+
+fn recalculate_checklist_progress(conn: &Connection, checklist_id: &str) -> SqlResult<()> {
+    let total: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(total_items), 0) FROM checklist_categories WHERE checklist_id = ?1",
+        params![checklist_id],
+        |row| row.get(0),
+    )?;
+    let checked: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(progress), 0) FROM checklist_categories WHERE checklist_id = ?1",
+        params![checklist_id],
+        |row| row.get(0),
+    )?;
+    let ts = now();
+    conn.execute(
+        "UPDATE checklists SET progress = ?1, total_items = ?2, updated_at = ?3 WHERE id = ?4",
+        params![checked, total, ts, checklist_id],
+    )?;
+    Ok(())
+}
+
+// ─── Usage tracking types ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageRecord {
+    pub id: String,
+    pub workspace_id: String,
+    pub task_id: Option<String>,
+    pub session_id: Option<String>,
+    pub provider: String,
+    pub model: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cost_usd: f64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSummary {
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub total_cost_usd: f64,
+    pub record_count: i64,
+}
+
+// ─── Usage tracking CRUD ───────────────────────────────────────────────────
+
+pub fn insert_usage_record(
+    conn: &Connection,
+    workspace_id: &str,
+    task_id: Option<&str>,
+    session_id: Option<&str>,
+    provider: &str,
+    model: &str,
+    input_tokens: i64,
+    output_tokens: i64,
+    cost_usd: f64,
+) -> SqlResult<UsageRecord> {
+    let id = new_id();
+    let ts = now();
+    conn.execute(
+        "INSERT INTO usage_records (id, workspace_id, task_id, session_id, provider, model, input_tokens, output_tokens, cost_usd, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![id, workspace_id, task_id, session_id, provider, model, input_tokens, output_tokens, cost_usd, ts],
+    )?;
+    get_usage_record(conn, &id)
+}
+
+pub fn get_usage_record(conn: &Connection, id: &str) -> SqlResult<UsageRecord> {
+    conn.query_row(
+        "SELECT id, workspace_id, task_id, session_id, provider, model, input_tokens, output_tokens, cost_usd, created_at FROM usage_records WHERE id = ?1",
+        params![id],
+        |row| Ok(UsageRecord {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            task_id: row.get(2)?,
+            session_id: row.get(3)?,
+            provider: row.get(4)?,
+            model: row.get(5)?,
+            input_tokens: row.get(6)?,
+            output_tokens: row.get(7)?,
+            cost_usd: row.get(8)?,
+            created_at: row.get(9)?,
+        }),
+    )
+}
+
+pub fn list_usage_records(conn: &Connection, workspace_id: &str, limit: Option<i64>) -> SqlResult<Vec<UsageRecord>> {
+    let limit_val = limit.unwrap_or(100);
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, task_id, session_id, provider, model, input_tokens, output_tokens, cost_usd, created_at FROM usage_records WHERE workspace_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![workspace_id, limit_val], |row| {
+        Ok(UsageRecord {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            task_id: row.get(2)?,
+            session_id: row.get(3)?,
+            provider: row.get(4)?,
+            model: row.get(5)?,
+            input_tokens: row.get(6)?,
+            output_tokens: row.get(7)?,
+            cost_usd: row.get(8)?,
+            created_at: row.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn list_task_usage(conn: &Connection, task_id: &str) -> SqlResult<Vec<UsageRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, task_id, session_id, provider, model, input_tokens, output_tokens, cost_usd, created_at FROM usage_records WHERE task_id = ?1 ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![task_id], |row| {
+        Ok(UsageRecord {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            task_id: row.get(2)?,
+            session_id: row.get(3)?,
+            provider: row.get(4)?,
+            model: row.get(5)?,
+            input_tokens: row.get(6)?,
+            output_tokens: row.get(7)?,
+            cost_usd: row.get(8)?,
+            created_at: row.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn get_workspace_usage_summary(conn: &Connection, workspace_id: &str) -> SqlResult<UsageSummary> {
+    conn.query_row(
+        "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COALESCE(SUM(cost_usd), 0.0), COUNT(*) FROM usage_records WHERE workspace_id = ?1",
+        params![workspace_id],
+        |row| Ok(UsageSummary {
+            total_input_tokens: row.get(0)?,
+            total_output_tokens: row.get(1)?,
+            total_cost_usd: row.get(2)?,
+            record_count: row.get(3)?,
+        }),
+    )
+}
+
+pub fn get_task_usage_summary(conn: &Connection, task_id: &str) -> SqlResult<UsageSummary> {
+    conn.query_row(
+        "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COALESCE(SUM(cost_usd), 0.0), COUNT(*) FROM usage_records WHERE task_id = ?1",
+        params![task_id],
+        |row| Ok(UsageSummary {
+            total_input_tokens: row.get(0)?,
+            total_output_tokens: row.get(1)?,
+            total_cost_usd: row.get(2)?,
+            record_count: row.get(3)?,
+        }),
+    )
+}
+
+pub fn delete_workspace_usage(conn: &Connection, workspace_id: &str) -> SqlResult<()> {
+    conn.execute("DELETE FROM usage_records WHERE workspace_id = ?1", params![workspace_id])?;
+    Ok(())
+}
+
+// ─── Session history types ─────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSnapshot {
+    pub id: String,
+    pub session_id: String,
+    pub workspace_id: String,
+    pub task_id: Option<String>,
+    pub snapshot_type: String,
+    pub scrollback_snapshot: Option<String>,
+    pub command_history: String,
+    pub files_modified: String,
+    pub duration_ms: i64,
+    pub created_at: String,
+}
+
+// ─── Session history CRUD ──────────────────────────────────────────────────
+
+pub fn insert_session_snapshot(
+    conn: &Connection,
+    session_id: &str,
+    workspace_id: &str,
+    task_id: Option<&str>,
+    snapshot_type: &str,
+    scrollback_snapshot: Option<&str>,
+    command_history: &str,
+    files_modified: &str,
+    duration_ms: i64,
+) -> SqlResult<SessionSnapshot> {
+    let id = new_id();
+    let ts = now();
+    conn.execute(
+        "INSERT INTO session_snapshots (id, session_id, workspace_id, task_id, snapshot_type, scrollback_snapshot, command_history, files_modified, duration_ms, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![id, session_id, workspace_id, task_id, snapshot_type, scrollback_snapshot, command_history, files_modified, duration_ms, ts],
+    )?;
+    get_session_snapshot(conn, &id)
+}
+
+pub fn get_session_snapshot(conn: &Connection, id: &str) -> SqlResult<SessionSnapshot> {
+    conn.query_row(
+        "SELECT id, session_id, workspace_id, task_id, snapshot_type, scrollback_snapshot, command_history, files_modified, duration_ms, created_at FROM session_snapshots WHERE id = ?1",
+        params![id],
+        |row| Ok(SessionSnapshot {
+            id: row.get(0)?,
+            session_id: row.get(1)?,
+            workspace_id: row.get(2)?,
+            task_id: row.get(3)?,
+            snapshot_type: row.get(4)?,
+            scrollback_snapshot: row.get(5)?,
+            command_history: row.get(6)?,
+            files_modified: row.get(7)?,
+            duration_ms: row.get(8)?,
+            created_at: row.get(9)?,
+        }),
+    )
+}
+
+pub fn list_session_snapshots(conn: &Connection, session_id: &str) -> SqlResult<Vec<SessionSnapshot>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, session_id, workspace_id, task_id, snapshot_type, scrollback_snapshot, command_history, files_modified, duration_ms, created_at FROM session_snapshots WHERE session_id = ?1 ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![session_id], |row| {
+        Ok(SessionSnapshot {
+            id: row.get(0)?,
+            session_id: row.get(1)?,
+            workspace_id: row.get(2)?,
+            task_id: row.get(3)?,
+            snapshot_type: row.get(4)?,
+            scrollback_snapshot: row.get(5)?,
+            command_history: row.get(6)?,
+            files_modified: row.get(7)?,
+            duration_ms: row.get(8)?,
+            created_at: row.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn list_workspace_history(conn: &Connection, workspace_id: &str, limit: Option<i64>) -> SqlResult<Vec<SessionSnapshot>> {
+    let limit_val = limit.unwrap_or(50);
+    let mut stmt = conn.prepare(
+        "SELECT id, session_id, workspace_id, task_id, snapshot_type, scrollback_snapshot, command_history, files_modified, duration_ms, created_at FROM session_snapshots WHERE workspace_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![workspace_id, limit_val], |row| {
+        Ok(SessionSnapshot {
+            id: row.get(0)?,
+            session_id: row.get(1)?,
+            workspace_id: row.get(2)?,
+            task_id: row.get(3)?,
+            snapshot_type: row.get(4)?,
+            scrollback_snapshot: row.get(5)?,
+            command_history: row.get(6)?,
+            files_modified: row.get(7)?,
+            duration_ms: row.get(8)?,
+            created_at: row.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn list_task_history(conn: &Connection, task_id: &str) -> SqlResult<Vec<SessionSnapshot>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, session_id, workspace_id, task_id, snapshot_type, scrollback_snapshot, command_history, files_modified, duration_ms, created_at FROM session_snapshots WHERE task_id = ?1 ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![task_id], |row| {
+        Ok(SessionSnapshot {
+            id: row.get(0)?,
+            session_id: row.get(1)?,
+            workspace_id: row.get(2)?,
+            task_id: row.get(3)?,
+            snapshot_type: row.get(4)?,
+            scrollback_snapshot: row.get(5)?,
+            command_history: row.get(6)?,
+            files_modified: row.get(7)?,
+            duration_ms: row.get(8)?,
+            created_at: row.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn delete_session_snapshots(conn: &Connection, session_id: &str) -> SqlResult<()> {
+    conn.execute("DELETE FROM session_snapshots WHERE session_id = ?1", params![session_id])?;
+    Ok(())
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -794,8 +1431,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 4 migrations: 001_initial, 002_column_config, 003_pipeline_state, 004_chat_messages
-        assert_eq!(count, 4);
+        // We have 8 migrations: 001-008
+        assert_eq!(count, 8);
     }
 
     #[test]
@@ -875,12 +1512,14 @@ mod tests {
         let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
         let col = insert_column(&conn, &ws.id, "Working", 0).unwrap();
         let task = insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
-        let session = insert_agent_session(&conn, &task.id).unwrap();
+        let session = insert_agent_session(&conn, &task.id, "claude", Some("/tmp")).unwrap();
         assert_eq!(session.status, "idle");
         assert_eq!(session.pty_cols, 80);
         assert_eq!(session.pty_rows, 24);
+        assert_eq!(session.agent_type, "claude");
+        assert_eq!(session.working_dir, Some("/tmp".to_string()));
 
-        let updated = update_agent_session(&conn, &session.id, Some(Some(12345)), Some("running"), None, None).unwrap();
+        let updated = update_agent_session(&conn, &session.id, Some(Some(12345)), Some("running"), None, None, None, None).unwrap();
         assert_eq!(updated.pid, Some(12345));
         assert_eq!(updated.status, "running");
 
@@ -898,7 +1537,7 @@ mod tests {
         let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
         let col = insert_column(&conn, &ws.id, "Backlog", 0).unwrap();
         let task = insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
-        insert_agent_session(&conn, &task.id).unwrap();
+        insert_agent_session(&conn, &task.id, "claude", None).unwrap();
 
         // Deleting workspace should cascade to columns, tasks, sessions
         delete_workspace(&conn, &ws.id).unwrap();
