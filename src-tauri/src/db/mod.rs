@@ -107,6 +107,7 @@ pub fn now() -> String {
 // ─── Data models ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Workspace {
     pub id: String,
     pub name: String,
@@ -118,6 +119,7 @@ pub struct Workspace {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Column {
     pub id: String,
     pub workspace_id: String,
@@ -134,6 +136,7 @@ pub struct Column {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Task {
     pub id: String,
     pub workspace_id: String,
@@ -154,6 +157,7 @@ pub struct Task {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentSession {
     pub id: String,
     pub task_id: String,
@@ -694,6 +698,7 @@ pub fn delete_agent_session(conn: &Connection, id: &str) -> SqlResult<()> {
 // ─── Data models: ChatMessage ───────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
     pub id: String,
     pub workspace_id: String,
@@ -703,6 +708,7 @@ pub struct ChatMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OrchestratorSession {
     pub id: String,
     pub workspace_id: String,
@@ -849,6 +855,7 @@ pub fn update_orchestrator_session(
 // ─── Checklist types ──────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Checklist {
     pub id: String,
     pub workspace_id: String,
@@ -861,6 +868,7 @@ pub struct Checklist {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChecklistCategory {
     pub id: String,
     pub checklist_id: String,
@@ -873,6 +881,7 @@ pub struct ChecklistCategory {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChecklistItem {
     pub id: String,
     pub category_id: String,

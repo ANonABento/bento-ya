@@ -2,24 +2,20 @@ import { useState } from 'react'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
-import * as ipc from '@/lib/ipc'
 
 export function WorkspaceTab() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const setActive = useWorkspaceStore((s) => s.setActive)
-  const loadWorkspaces = useWorkspaceStore((s) => s.load)
   const removeWorkspace = useWorkspaceStore((s) => s.remove)
   const loadColumns = useColumnStore((s) => s.load)
   const loadTasks = useTaskStore((s) => s.load)
 
   const workspace = workspaces.find((w) => w.id === activeWorkspaceId)
 
-  const [isSeeding, setIsSeeding] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSwitching, setIsSwitching] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [seedPath, setSeedPath] = useState('')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const handleSwitchWorkspace = async (workspaceId: string) => {
@@ -37,31 +33,6 @@ export function WorkspaceTab() {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to switch workspace' })
     } finally {
       setIsSwitching(null)
-    }
-  }
-
-  const handleSeedDemo = async () => {
-    const path = seedPath.trim() || '/Users/bentomac/bento-ya'
-    setIsSeeding(true)
-    setMessage(null)
-
-    try {
-      const newWorkspace = await ipc.seedDemoData(path)
-      await loadWorkspaces()
-      // Switch to the new workspace
-      setActive(newWorkspace.id)
-      await loadColumns(newWorkspace.id)
-      await loadTasks(newWorkspace.id)
-      setMessage({ type: 'success', text: `Created "${newWorkspace.name}" - reloading...` })
-      setSeedPath('')
-      // Force full page reload to ensure all stores are synced
-      setTimeout(() => {
-        window.location.reload()
-      }, 500)
-    } catch (err) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to seed demo data' })
-    } finally {
-      setIsSeeding(false)
     }
   }
 
@@ -131,7 +102,7 @@ export function WorkspaceTab() {
         ) : (
           <div className="rounded-lg border border-dashed border-border-default p-6 text-center">
             <p className="text-sm text-text-secondary">No workspace selected</p>
-            <p className="mt-1 text-xs text-text-secondary/70">Create a demo workspace below to get started</p>
+            <p className="mt-1 text-xs text-text-secondary/70">Create a new workspace from the tab bar</p>
           </div>
         )}
       </section>
@@ -178,45 +149,6 @@ export function WorkspaceTab() {
           </div>
         </section>
       )}
-
-      {/* Seed Demo Data */}
-      <section className="border-t border-border-default pt-6">
-        <h3 className="mb-4 text-sm font-medium text-text-primary">Create Demo Workspace</h3>
-        <p className="mb-4 text-xs text-text-secondary">
-          Create a workspace with sample columns (Backlog, Working, Review, Done) and 8 demo tasks for testing.
-        </p>
-        <div className="space-y-3">
-          <input
-            type="text"
-            value={seedPath}
-            onChange={(e) => { setSeedPath(e.target.value) }}
-            placeholder="/Users/bentomac/bento-ya"
-            className="w-full rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none font-mono"
-          />
-          <button
-            onClick={() => { void handleSeedDemo() }}
-            disabled={isSeeding}
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
-          >
-            {isSeeding ? (
-              <>
-                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                Creating...
-              </>
-            ) : (
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                  <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
-                </svg>
-                Create Demo Workspace
-              </>
-            )}
-          </button>
-        </div>
-      </section>
 
       {/* Delete Workspace */}
       {workspace && (
