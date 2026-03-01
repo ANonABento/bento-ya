@@ -37,35 +37,20 @@ export function useSwipe(callback: SwipeCallback, enabled = true) {
     [callback],
   )
 
-  // Trackpad scroll (wheel event with deltaX)
-  const handleWheel = useCallback(
-    (e: WheelEvent) => {
-      // Detect horizontal scroll from trackpad (two-finger swipe)
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > SWIPE_THRESHOLD) {
-        // Debounce: only trigger once per gesture
-        e.preventDefault()
-        callback(e.deltaX > 0 ? 'left' : 'right')
-      }
-    },
-    [callback],
-  )
-
   useEffect(() => {
     if (!enabled) return
 
     const el = document.documentElement
 
+    // Only touch events - trackpad scroll should work normally for content
     el.addEventListener('touchstart', handleTouchStart, { passive: true })
     el.addEventListener('touchend', handleTouchEnd, { passive: true })
-    // Use passive: false to allow preventDefault on wheel
-    el.addEventListener('wheel', handleWheel, { passive: false })
 
     return () => {
       el.removeEventListener('touchstart', handleTouchStart)
       el.removeEventListener('touchend', handleTouchEnd)
-      el.removeEventListener('wheel', handleWheel)
     }
-  }, [enabled, handleTouchStart, handleTouchEnd, handleWheel])
+  }, [enabled, handleTouchStart, handleTouchEnd])
 }
 
 export function useSwipeNavigation(

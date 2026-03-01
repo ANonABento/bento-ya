@@ -59,6 +59,9 @@ export async function cloneWorkspace(sourceId: string, newName: string): Promise
 export const reorderWorkspaces = (ids: string[]) =>
   invoke<void>('reorder_workspaces', { ids })
 
+export const seedDemoData = (repoPath: string) =>
+  invoke<Workspace>('seed_demo_data', { repoPath })
+
 // ─── Column commands ───────────────────────────────────────────────────────
 
 export const getColumns = (workspaceId: string) =>

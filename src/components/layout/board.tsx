@@ -96,15 +96,17 @@ export function Board() {
             ))}
           </SortableContext>
 
-          {/* Add column button */}
+          {/* Add column button - styled like a column */}
           <button
             onClick={handleAddColumn}
-            className="flex h-full w-12 shrink-0 items-center justify-center border-r border-dashed border-border-default text-text-secondary/30 transition-colors hover:bg-surface/50 hover:text-text-secondary"
-            title="Add column"
+            className="group flex h-full w-[280px] min-w-[200px] shrink-0 flex-col items-center justify-center gap-2 border-r border-dashed border-border-default bg-surface/10 text-text-secondary/40 transition-all hover:border-accent/50 hover:bg-accent/10 hover:text-accent"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
-              <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
+            {/* View columns plus icon */}
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-8 w-8">
+              <path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4M9 3v18M9 3h6m-6 18h6m0-18h4a2 2 0 0 1 2 2v6m-6-8v10" strokeLinecap="round"/>
+              <path d="M19 15v3m0 3v-3m0 0h-3m3 0h3" strokeLinecap="round"/>
             </svg>
+            <span className="text-xs font-medium">Add Column</span>
           </button>
         </div>
 

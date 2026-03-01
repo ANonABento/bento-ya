@@ -41,6 +41,7 @@ pub fn run() {
             commands::workspace::delete_workspace,
             commands::workspace::clone_workspace,
             commands::workspace::reorder_workspaces,
+            commands::workspace::seed_demo_data,
             // Column CRUD
             commands::column::create_column,
             commands::column::list_columns,

@@ -172,3 +172,43 @@ pub fn reorder_workspaces(state: State<AppState>, ids: Vec<String>) -> Result<()
     tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(())
 }
+
+/// Seed demo workspace with sample tasks for testing
+#[tauri::command]
+pub fn seed_demo_data(state: State<AppState>, repo_path: String) -> Result<Workspace, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let tx = conn.unchecked_transaction().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    // Create demo workspace
+    let ws = db::insert_workspace(&conn, "Demo Workspace", &repo_path)?;
+
+    // Create default columns
+    let mut columns = Vec::new();
+    for (i, col_name) in DEFAULT_COLUMNS.iter().enumerate() {
+        let col = db::insert_column(&conn, &ws.id, col_name, i as i64)?;
+        columns.push(col);
+    }
+
+    // Sample tasks for Backlog
+    let backlog_id = &columns[0].id;
+    db::insert_task(&conn, &ws.id, backlog_id, "Add dark mode toggle", Some("Implement theme switching in settings"))?;
+    db::insert_task(&conn, &ws.id, backlog_id, "Refactor auth flow", Some("Simplify the authentication logic"))?;
+    db::insert_task(&conn, &ws.id, backlog_id, "Write unit tests", Some("Add tests for core utilities"))?;
+
+    // Sample tasks for Working
+    let working_id = &columns[1].id;
+    db::insert_task(&conn, &ws.id, working_id, "Implement CLI agent spawning", Some("Wire up settings to spawn correct CLI"))?;
+    db::insert_task(&conn, &ws.id, working_id, "Fix terminal scrolling", Some("Terminal output should auto-scroll"))?;
+
+    // Sample tasks for Review
+    let review_id = &columns[2].id;
+    db::insert_task(&conn, &ws.id, review_id, "PR: Add keyboard shortcuts", Some("Review PR #12 for hotkey support"))?;
+
+    // Sample tasks for Done
+    let done_id = &columns[3].id;
+    db::insert_task(&conn, &ws.id, done_id, "Setup project structure", Some("Initial Tauri + React setup complete"))?;
+    db::insert_task(&conn, &ws.id, done_id, "Design settings UI", Some("Settings panel with tabs working"))?;
+
+    tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(ws)
+}

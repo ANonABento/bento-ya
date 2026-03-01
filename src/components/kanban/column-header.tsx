@@ -1,5 +1,6 @@
 import { memo, useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
+import { IconButton } from '@/components/shared/icon-button'
 
 type ColumnHeaderProps = {
   name: string
@@ -109,26 +110,29 @@ export const ColumnHeader = memo(function ColumnHeader({
 
       <div className="ml-auto flex items-center gap-0.5">
         {/* Add task button */}
-        <button
+        <IconButton
+          icon={
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+              <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
+            </svg>
+          }
           onClick={onAddTask}
-          className="flex h-5 w-5 items-center justify-center rounded text-text-secondary/50 transition-colors hover:bg-surface-hover hover:text-text-secondary"
-          title="Add task"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-            <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
-          </svg>
-        </button>
+          tooltip="Add task"
+          tooltipSide="bottom"
+        />
 
         {/* Menu button */}
         <div className="relative" ref={menuRef}>
-          <button
+          <IconButton
+            icon={
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
+                <path d="M8 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM9.5 12.5a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0Z" />
+              </svg>
+            }
             onClick={() => setShowMenu(!showMenu)}
-            className="flex h-5 w-5 items-center justify-center rounded text-text-secondary/50 transition-colors hover:bg-surface-hover hover:text-text-secondary"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
-              <path d="M8 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM9.5 12.5a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0Z" />
-            </svg>
-          </button>
+            tooltip="Column options"
+            tooltipSide="bottom"
+          />
 
           <AnimatePresence>
             {showMenu && (
