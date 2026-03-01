@@ -10,6 +10,7 @@ import { SettingsPanel } from '@/components/settings/settings-panel'
 import { ChecklistPanel } from '@/components/checklist/checklist-panel'
 import { AboutModal } from '@/components/about/about-modal'
 import { HistoryPanel } from '@/components/history/history-panel'
+import { SkeletonLoader } from '@/components/shared/skeleton-loader'
 
 function App() {
   const loaded = useWorkspaceStore((s) => s.loaded)
@@ -56,9 +57,7 @@ function App() {
             </div>
           </div>
         ) : !loaded ? (
-          <div className="flex h-full items-center justify-center">
-            <span className="text-sm text-text-secondary">Loading...</span>
-          </div>
+          <SkeletonLoader />
         ) : showSetup ? (
           <WorkspaceSetup />
         ) : (

@@ -17,14 +17,91 @@
         document.documentElement.dataset.theme = theme;
       })();
     </script>
+    <style>
+      /* Minimal reset - only what's needed before React loads */
+      html, body, #root { margin: 0; padding: 0; height: 100%; }
+
+      /* Theme-aware colors */
+      [data-theme="dark"] body,
+      [data-theme="dark"] #initial-loader { background: #0D0D0D; }
+      [data-theme="dark"] .boot-square { border-color: #2A2A2A; }
+      [data-theme="dark"] .boot-active { background: #E8A87C; }
+
+      [data-theme="light"] body,
+      [data-theme="light"] #initial-loader { background: #F5F5F5; }
+      [data-theme="light"] .boot-square { border-color: #D4D4D4; }
+      [data-theme="light"] .boot-active { background: #D4874C; }
+
+      /* Boot loader styles */
+      #initial-loader {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+      }
+      .boot-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 12px);
+        gap: 4px;
+        position: relative;
+      }
+      .boot-square {
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+        border: 1px solid;
+      }
+      .boot-active {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+        animation: boot-move 2.4s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+      }
+      @keyframes boot-move {
+        /* Start at TL, idle */
+        0% { transform: translate(0, 0) scaleX(1) scaleY(1); }
+
+        /* Arrive TR + squash & stretch */
+        10% { transform: translate(16px, 0) scaleX(1.4) scaleY(0.75); transform-origin: 0% 50%; }
+        20% { transform: translate(16px, 0) scaleX(1) scaleY(1); }
+
+        /* Arrive BR + squash & stretch */
+        35% { transform: translate(16px, 16px) scaleX(0.75) scaleY(1.4); transform-origin: 50% 0%; }
+        45% { transform: translate(16px, 16px) scaleX(1) scaleY(1); }
+
+        /* Arrive BL + squash & stretch */
+        60% { transform: translate(0, 16px) scaleX(1.4) scaleY(0.75); transform-origin: 100% 50%; }
+        70% { transform: translate(0, 16px) scaleX(1) scaleY(1); }
+
+        /* Arrive TL + squash & stretch */
+        85% { transform: translate(0, 0) scaleX(0.75) scaleY(1.4); transform-origin: 50% 100%; }
+        95% { transform: translate(0, 0) scaleX(1) scaleY(1); }
+        100% { transform: translate(0, 0) scaleX(1) scaleY(1); }
+      }
+
+      /* Reduced motion: gentle pulse instead of movement */
+      @media (prefers-reduced-motion: reduce) {
+        .boot-active {
+          animation: boot-pulse 1.5s ease-in-out infinite;
+        }
+        @keyframes boot-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="root">
-      <!-- Loading screen shown before React hydrates -->
-      <div id="initial-loader" style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0D0D0D;color:#888888;font-family:system-ui,sans-serif;">
-        <div style="text-align:center;">
-          <div style="font-size:48px;margin-bottom:16px;">🍱</div>
-          <div>Loading Bento-ya...</div>
+      <!-- Boot loader shown before React hydrates -->
+      <div id="initial-loader">
+        <div class="boot-grid">
+          <div class="boot-square"></div>
+          <div class="boot-square"></div>
+          <div class="boot-square"></div>
+          <div class="boot-square"></div>
+          <div class="boot-active"></div>
         </div>
       </div>
     </div>
