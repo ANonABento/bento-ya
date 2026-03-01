@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
+import { SettingSection } from '@/components/shared/setting-components'
 
 export function WorkspaceTab() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
@@ -62,7 +63,7 @@ export function WorkspaceTab() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Status Message - at top for visibility */}
       {message && (
         <div
@@ -77,8 +78,7 @@ export function WorkspaceTab() {
       )}
 
       {/* Current Workspace Info */}
-      <section>
-        <h3 className="mb-4 text-sm font-medium text-text-primary">Current Workspace</h3>
+      <SettingSection title="Current Workspace">
         {workspace ? (
           <div className="rounded-lg border border-accent bg-accent/5 p-4 space-y-3">
             <div className="flex items-start justify-between">
@@ -105,12 +105,11 @@ export function WorkspaceTab() {
             <p className="mt-1 text-xs text-text-secondary/70">Create a new workspace from the tab bar</p>
           </div>
         )}
-      </section>
+      </SettingSection>
 
       {/* Switch Workspace */}
       {workspaces.length > 1 && (
-        <section>
-          <h3 className="mb-4 text-sm font-medium text-text-primary">Switch Workspace</h3>
+        <SettingSection title="Switch Workspace">
           <div className="space-y-2">
             {workspaces
               .filter((ws) => ws.id !== activeWorkspaceId)
@@ -147,13 +146,12 @@ export function WorkspaceTab() {
                 </button>
               ))}
           </div>
-        </section>
+        </SettingSection>
       )}
 
       {/* Delete Workspace */}
       {workspace && (
-        <section className="border-t border-border-default pt-6">
-          <h3 className="mb-4 text-sm font-medium text-red-500">Danger Zone</h3>
+        <SettingSection title="Danger Zone" border>
           {!showDeleteConfirm ? (
             <button
               onClick={() => { setShowDeleteConfirm(true) }}
@@ -186,7 +184,7 @@ export function WorkspaceTab() {
               </div>
             </div>
           )}
-        </section>
+        </SettingSection>
       )}
     </div>
   )

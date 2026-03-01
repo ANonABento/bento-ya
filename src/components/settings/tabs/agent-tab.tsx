@@ -1,17 +1,22 @@
 import { useState, useEffect } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
 import type { AgentConfig, ProviderConfig } from '@/types/settings'
+import { detectSingleCli, type DetectedCli } from '@/lib/ipc'
+import { SettingSection, SettingRow, SettingCard, SettingInput, SettingSlider } from '@/components/shared/setting-components'
+import { Dropdown } from '@/components/shared/dropdown'
 
-const PROVIDER_INFO: Record<string, { name: string; description: string; models: string[] }> = {
+const PROVIDER_INFO: Record<string, { name: string; description: string; models: string[]; cliId: string }> = {
   anthropic: {
     name: 'Anthropic',
     description: 'Claude models via CLI or API',
     models: ['claude-haiku-4-5-20251115', 'claude-sonnet-4-6-20260217', 'claude-opus-4-6-20260217'],
+    cliId: 'claude',
   },
   openai: {
     name: 'OpenAI',
     description: 'Codex models via CLI or API',
     models: ['codex-5.2', 'codex-5.3', 'codex-5.3-spark'],
+    cliId: 'codex',
   },
 }
 
@@ -26,6 +31,10 @@ export function AgentTab() {
   const updateGlobal = useSettingsStore((s) => s.updateGlobal)
   const agent = global.agent
   const model = global.model
+
+  // CLI detection state per provider
+  const [detectedClis, setDetectedClis] = useState<Record<string, DetectedCli>>({})
+  const [detecting, setDetecting] = useState<Record<string, boolean>>({})
 
   // Persist collapsed state in localStorage
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
@@ -61,11 +70,43 @@ export function AgentTab() {
     .filter((p) => p.enabled)
     .flatMap((p) => PROVIDER_INFO[p.id]?.models ?? [])
 
+  // Auto-detect CLI when switching to CLI mode
+  const handleCliModeSelect = async (providerId: string) => {
+    const cliId = PROVIDER_INFO[providerId]?.cliId
+    if (!cliId) return
+
+    // Set mode first
+    updateProvider(providerId, { connectionMode: 'cli' })
+
+    // Check if we already have a path set
+    const provider = model.providers.find((p) => p.id === providerId)
+    if (provider?.cliPath) return
+
+    // Check if already detected
+    if (detectedClis[cliId]?.isAvailable) {
+      updateProvider(providerId, { cliPath: detectedClis[cliId].path })
+      return
+    }
+
+    // Detect the CLI
+    setDetecting((prev) => ({ ...prev, [providerId]: true }))
+    try {
+      const detected = await detectSingleCli(cliId)
+      setDetectedClis((prev) => ({ ...prev, [cliId]: detected }))
+      if (detected.isAvailable) {
+        updateProvider(providerId, { cliPath: detected.path })
+      }
+    } catch (err) {
+      console.error('Failed to detect CLI:', err)
+    } finally {
+      setDetecting((prev) => ({ ...prev, [providerId]: false }))
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Providers */}
-      <section>
-        <h3 className="mb-4 text-sm font-medium text-text-primary">Providers</h3>
+      <SettingSection title="Providers">
         <div className="space-y-3">
           {model.providers.map((provider) => {
             const info = PROVIDER_INFO[provider.id]
@@ -118,7 +159,7 @@ export function AgentTab() {
                 </button>
 
                 {/* Provider Details */}
-                {!collapsed[provider.id] && provider.enabled && (
+                {!collapsed[provider.id] && (
                   <div className="border-t border-border-default p-3 space-y-4">
                     {/* Connection Mode */}
                     <div>
@@ -127,14 +168,25 @@ export function AgentTab() {
                       </label>
                       <div className="flex gap-2">
                         <button
-                          onClick={() => { updateProvider(provider.id, { connectionMode: 'cli' }) }}
+                          onClick={() => { void handleCliModeSelect(provider.id) }}
+                          disabled={detecting[provider.id]}
                           className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
                             provider.connectionMode === 'cli'
                               ? 'border-accent bg-accent/10 text-text-primary'
                               : 'border-border-default text-text-secondary hover:border-accent/50'
-                          }`}
+                          } disabled:opacity-50`}
                         >
-                          CLI
+                          {detecting[provider.id] ? (
+                            <span className="flex items-center justify-center gap-2">
+                              <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                              </svg>
+                              Detecting...
+                            </span>
+                          ) : (
+                            'CLI'
+                          )}
                         </button>
                         <button
                           onClick={() => { updateProvider(provider.id, { connectionMode: 'api' }) }}
@@ -152,19 +204,28 @@ export function AgentTab() {
                     {/* CLI Path (only for CLI mode) */}
                     {provider.connectionMode === 'cli' && (
                       <div>
-                        <label className="mb-2 block text-xs font-medium text-text-secondary">
+                        <label className="mb-2 flex items-center gap-2 text-xs font-medium text-text-secondary">
                           CLI Path
+                          {provider.cliPath && (
+                            <span className="flex items-center gap-1 text-green-500">
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                                <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
+                              </svg>
+                              Auto-detected
+                            </span>
+                          )}
                         </label>
-                        <input
-                          type="text"
+                        <SettingInput
                           value={provider.cliPath ?? ''}
-                          onChange={(e) => { updateProvider(provider.id, { cliPath: e.target.value }) }}
+                          onChange={(value) => { updateProvider(provider.id, { cliPath: value }) }}
                           placeholder={provider.id === 'anthropic' ? 'claude' : 'codex'}
-                          className="w-full rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
+                          mono
                         />
-                        <p className="mt-1 text-xs text-text-secondary">
-                          Leave empty to use default: {provider.id === 'anthropic' ? 'claude' : 'codex'}
-                        </p>
+                        {!provider.cliPath && (
+                          <p className="mt-1 text-xs text-yellow-500">
+                            CLI not found. Install or enter path manually.
+                          </p>
+                        )}
                       </div>
                     )}
 
@@ -174,50 +235,41 @@ export function AgentTab() {
                         <label className="mb-2 block text-xs font-medium text-text-secondary">
                           API Key (env var: {provider.apiKeyEnvVar})
                         </label>
-                        <input
-                          type="password"
+                        <SettingInput
                           value={agent.envVars[provider.apiKeyEnvVar] ?? ''}
-                          onChange={(e) => {
+                          onChange={(value) => {
                             updateAgent({
-                              envVars: { ...agent.envVars, [provider.apiKeyEnvVar]: e.target.value },
+                              envVars: { ...agent.envVars, [provider.apiKeyEnvVar]: value },
                             })
                           }}
                           placeholder="sk-..."
-                          className="w-full rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
+                          type="password"
                         />
                       </div>
                     )}
 
                     {/* Default Model */}
-                    <div>
-                      <label className="mb-2 block text-xs font-medium text-text-secondary">
-                        Default Model
-                      </label>
-                      <select
-                        value={provider.defaultModel}
-                        onChange={(e) => { updateProvider(provider.id, { defaultModel: e.target.value }) }}
-                        className="w-full rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
-                      >
-                        {info.models.map((m) => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
-                    </div>
+                    <Dropdown
+                      label="Default Model"
+                      options={info.models.map((m) => ({ value: m, label: m }))}
+                      value={provider.defaultModel}
+                      onChange={(value) => { updateProvider(provider.id, { defaultModel: value }) }}
+                    />
                   </div>
                 )}
               </div>
             )
           })}
         </div>
-      </section>
+      </SettingSection>
 
       {/* Coming Soon */}
-      <section>
+      <SettingSection title="Coming Soon">
         <button
           onClick={() => { toggleCollapsed('coming-soon') }}
-          className="flex w-full items-center justify-between mb-2"
+          className="flex w-full items-center justify-between mb-2 -mt-2"
         >
-          <h3 className="text-sm font-medium text-text-secondary">Coming Soon</h3>
+          <span className="text-xs text-text-secondary">Show/hide upcoming providers</span>
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 20 20"
@@ -236,79 +288,50 @@ export function AgentTab() {
         {!collapsed['coming-soon'] && (
           <div className="space-y-2">
             {COMING_SOON.map((item) => (
-              <div
-                key={item.name}
-                className="rounded-lg border border-border-default p-3 opacity-50"
-              >
+              <SettingCard key={item.name} className="opacity-50">
                 <span className="text-sm font-medium text-text-secondary">{item.name}</span>
-                <p className="text-xs text-text-secondary">{item.description}</p>
-              </div>
+                <span className="text-xs text-text-secondary">{item.description}</span>
+              </SettingCard>
             ))}
           </div>
         )}
-      </section>
+      </SettingSection>
 
       {/* Orchestrator Settings */}
-      <section className="border-t border-border-default pt-6">
-        <h3 className="mb-4 text-sm font-medium text-text-primary">Orchestrator</h3>
+      <SettingSection title="Orchestrator" border>
+        <div className="space-y-4">
+          {/* Model Selection */}
+          <SettingRow label="Model Selection" description="Auto lets the orchestrator choose the best model per task" vertical>
+            <Dropdown
+              options={[
+                { value: 'auto', label: 'Auto', description: 'Orchestrator chooses best model per task' },
+                ...availableModels.map((m) => ({ value: m, label: m })),
+              ]}
+              value={agent.modelSelection}
+              onChange={(value) => { updateAgent({ modelSelection: value }) }}
+            />
+          </SettingRow>
 
-        {/* Model Selection */}
-        <div className="mb-4">
-          <label className="mb-2 block text-xs font-medium text-text-secondary">
-            Model Selection
-          </label>
-          <select
-            value={agent.modelSelection}
-            onChange={(e) => { updateAgent({ modelSelection: e.target.value }) }}
-            className="w-full rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
-          >
-            <option value="auto">Auto (orchestrator decides)</option>
-            {availableModels.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-          <p className="mt-1 text-xs text-text-secondary">
-            Auto lets the orchestrator choose the best model per task
-          </p>
-        </div>
-
-        {/* Max Concurrent Agents */}
-        <div className="mb-4">
-          <label className="mb-2 block text-xs font-medium text-text-secondary">
-            Max Concurrent Agents
-          </label>
-          <div className="flex items-center gap-4">
-            <input
-              type="range"
+          {/* Max Concurrent Agents */}
+          <SettingRow label="Max Concurrent Agents" vertical>
+            <SettingSlider
+              value={agent.maxConcurrentAgents}
+              onChange={(value) => { updateAgent({ maxConcurrentAgents: value }) }}
               min={1}
               max={50}
-              value={agent.maxConcurrentAgents}
-              onChange={(e) => { updateAgent({ maxConcurrentAgents: parseInt(e.target.value, 10) }) }}
-              className="flex-1"
             />
-            <span className="w-8 text-center text-sm text-text-primary">
-              {agent.maxConcurrentAgents}
-            </span>
-          </div>
-        </div>
+          </SettingRow>
 
-        {/* Instructions File */}
-        <div>
-          <label className="mb-2 block text-xs font-medium text-text-secondary">
-            Instructions File
-          </label>
-          <input
-            type="text"
-            value={agent.instructionsFile}
-            onChange={(e) => { updateAgent({ instructionsFile: e.target.value }) }}
-            placeholder="Path to CLAUDE.md or instructions file"
-            className="w-full rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
-          />
-          <p className="mt-1 text-xs text-text-secondary">
-            Custom instructions file loaded for all agents
-          </p>
+          {/* Instructions File */}
+          <SettingRow label="Instructions File" description="Custom instructions file loaded for all agents" vertical>
+            <SettingInput
+              value={agent.instructionsFile}
+              onChange={(value) => { updateAgent({ instructionsFile: value }) }}
+              placeholder="Path to CLAUDE.md or instructions file"
+            />
+          </SettingRow>
         </div>
-      </section>
+      </SettingSection>
     </div>
   )
 }

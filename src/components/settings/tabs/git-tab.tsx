@@ -1,5 +1,7 @@
 import { useSettingsStore } from '@/stores/settings-store'
 import type { GitConfig } from '@/types/settings'
+import { SettingSection, SettingRow, SettingCard, SettingInput, SettingTextarea } from '@/components/shared/setting-components'
+import { Toggle } from '@/components/shared/toggle'
 
 const MERGE_STRATEGIES = [
   { id: 'merge', label: 'Merge', description: 'Create a merge commit' },
@@ -17,80 +19,60 @@ export function GitTab() {
   }
 
   return (
-    <div className="space-y-8">
-      <section>
-        <h3 className="mb-4 text-sm font-medium text-text-primary">Branch Prefix</h3>
-        <input
-          type="text"
+    <div className="space-y-6">
+      <SettingSection title="Branch Prefix" description="Prefix for auto-generated branch names (e.g., feat/, fix/, task/)">
+        <SettingInput
           value={git.branchPrefix}
-          onChange={(e) => updateGit({ branchPrefix: e.target.value })}
+          onChange={(value) => updateGit({ branchPrefix: value })}
           placeholder="feat/"
-          className="w-full rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
+          mono
         />
-        <p className="mt-2 text-xs text-text-secondary">
-          Prefix for auto-generated branch names (e.g., feat/, fix/, task/)
-        </p>
-      </section>
+      </SettingSection>
 
-      <section>
-        <h3 className="mb-4 text-sm font-medium text-text-primary">Base Branch</h3>
-        <input
-          type="text"
+      <SettingSection title="Base Branch" description="Default branch to create feature branches from">
+        <SettingInput
           value={git.baseBranch}
-          onChange={(e) => updateGit({ baseBranch: e.target.value })}
+          onChange={(value) => updateGit({ baseBranch: value })}
           placeholder="main"
-          className="w-full rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
+          mono
         />
-        <p className="mt-2 text-xs text-text-secondary">
-          Default branch to create feature branches from
-        </p>
-      </section>
+      </SettingSection>
 
-      <section>
-        <h3 className="mb-4 text-sm font-medium text-text-primary">Merge Strategy</h3>
-        <div className="grid gap-2">
+      <SettingSection title="Merge Strategy">
+        <div className="space-y-2">
           {MERGE_STRATEGIES.map((strategy) => (
-            <button
+            <SettingCard
               key={strategy.id}
+              active={git.mergeStrategy === strategy.id}
               onClick={() => updateGit({ mergeStrategy: strategy.id })}
-              className={`flex flex-col items-start rounded-lg border p-3 text-left transition-colors ${
-                git.mergeStrategy === strategy.id
-                  ? 'border-accent bg-accent/10'
-                  : 'border-border-default hover:border-accent/50'
-              }`}
             >
               <span className="text-sm font-medium text-text-primary">{strategy.label}</span>
               <span className="text-xs text-text-secondary">{strategy.description}</span>
-            </button>
+            </SettingCard>
           ))}
         </div>
-      </section>
+      </SettingSection>
 
-      <section>
-        <h3 className="mb-4 text-sm font-medium text-text-primary">Auto-Create PR</h3>
-        <label className="flex cursor-pointer items-center gap-3">
-          <input
-            type="checkbox"
+      <SettingSection title="Automation">
+        <SettingRow
+          label="Auto-create PR"
+          description="Automatically create PR when task reaches Review column"
+        >
+          <Toggle
             checked={git.autoPr}
-            onChange={(e) => updateGit({ autoPr: e.target.checked })}
-            className="h-4 w-4 rounded border-border-default text-accent focus:ring-accent"
+            onChange={(checked) => updateGit({ autoPr: checked })}
           />
-          <span className="text-sm text-text-secondary">
-            Automatically create PR when task reaches Review column
-          </span>
-        </label>
-      </section>
+        </SettingRow>
+      </SettingSection>
 
-      <section>
-        <h3 className="mb-4 text-sm font-medium text-text-primary">PR Template</h3>
-        <textarea
+      <SettingSection title="PR Template" description="Default template for pull request descriptions">
+        <SettingTextarea
           value={git.prTemplate}
-          onChange={(e) => updateGit({ prTemplate: e.target.value })}
-          placeholder="## Summary\n\n## Changes\n\n## Testing"
+          onChange={(value) => updateGit({ prTemplate: value })}
+          placeholder="## Summary&#10;&#10;## Changes&#10;&#10;## Testing"
           rows={6}
-          className="w-full resize-none rounded-lg border border-border-default bg-surface px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
         />
-      </section>
+      </SettingSection>
     </div>
   )
 }
