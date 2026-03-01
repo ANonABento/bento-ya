@@ -39,6 +39,8 @@ pub fn run() {
             commands::workspace::list_workspaces,
             commands::workspace::update_workspace,
             commands::workspace::delete_workspace,
+            commands::workspace::clone_workspace,
+            commands::workspace::reorder_workspaces,
             // Column CRUD
             commands::column::create_column,
             commands::column::list_columns,
@@ -85,6 +87,24 @@ pub fn run() {
             commands::orchestrator::clear_chat_history,
             commands::orchestrator::process_orchestrator_response,
             commands::orchestrator::set_orchestrator_error,
+            // Voice commands
+            commands::voice::transcribe_audio,
+            commands::voice::save_audio_temp,
+            commands::voice::is_voice_available,
+            // Usage tracking commands
+            commands::usage::record_usage,
+            commands::usage::get_workspace_usage,
+            commands::usage::get_task_usage,
+            commands::usage::get_workspace_usage_summary,
+            commands::usage::get_task_usage_summary,
+            commands::usage::clear_workspace_usage,
+            // History commands
+            commands::history::create_snapshot,
+            commands::history::get_snapshot,
+            commands::history::get_session_history,
+            commands::history::get_workspace_history,
+            commands::history::get_task_history,
+            commands::history::clear_session_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

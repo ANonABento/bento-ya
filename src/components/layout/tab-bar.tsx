@@ -19,6 +19,8 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAttentionStore } from '@/stores/attention-store'
+import { useSettingsStore } from '@/stores/settings-store'
+import { useChecklistStore } from '@/stores/checklist-store'
 import { useSwipeNavigation } from '@/hooks/use-swipe'
 import type { Workspace } from '@/types'
 
@@ -39,8 +41,7 @@ function SortableTab({
   isActive,
   notificationCount = 0,
   onSelect,
-  onClose,
-}: TabProps) {
+}: Omit<TabProps, 'onClose'>) {
   const {
     attributes,
     listeners,
@@ -68,44 +69,29 @@ function SortableTab({
       transition={{ duration: 0.2, ease: 'easeOut' }}
       className="relative"
     >
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onSelect}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect() }}
         className={`
-          group flex h-8 items-center gap-2 rounded-lg px-3 text-sm font-medium
+          group flex h-8 cursor-pointer items-center justify-center px-3 text-sm
           transition-colors duration-150
           ${isActive
-            ? 'bg-surface-hover text-text-primary'
-            : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+            ? 'font-medium text-text-primary'
+            : 'font-normal text-text-secondary hover:text-text-primary'
           }
         `}
       >
-        <span className="max-w-[120px] truncate">{workspace.name}</span>
+        <span className="max-w-[120px] truncate text-center">{workspace.name}</span>
 
         {/* Notification badge */}
         {notificationCount > 0 && (
-          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-attention px-1 text-[10px] font-bold text-bg">
+          <span className="ml-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-attention px-1 text-[10px] font-bold text-bg">
             {notificationCount > 9 ? '9+' : notificationCount}
           </span>
         )}
-
-        {/* Close button */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onClose()
-          }}
-          className="ml-1 flex h-4 w-4 items-center justify-center rounded opacity-0 transition-opacity hover:bg-error/20 group-hover:opacity-100"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 16 16"
-            fill="currentColor"
-            className="h-3 w-3"
-          >
-            <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" />
-          </svg>
-        </button>
-      </button>
+      </div>
 
       {/* Active indicator */}
       {isActive && (
@@ -150,6 +136,72 @@ function AddTabButton({ onClick }: { onClick: () => void }) {
     </motion.button>
   )
 }
+
+// ─── SettingsButton ─────────────────────────────────────────────────────────
+
+function SettingsButton() {
+  const openSettings = useSettingsStore((s) => s.openSettings)
+
+  return (
+    <motion.button
+      onClick={openSettings}
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.95 }}
+      className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+      title="Settings"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        className="h-4 w-4"
+      >
+        <path fillRule="evenodd" d="M8.34 1.804A1 1 0 0 1 9.32 1h1.36a1 1 0 0 1 .98.804l.295 1.473c.497.144.971.342 1.416.587l1.25-.834a1 1 0 0 1 1.262.125l.962.962a1 1 0 0 1 .125 1.262l-.834 1.25c.245.445.443.919.587 1.416l1.473.295a1 1 0 0 1 .804.98v1.36a1 1 0 0 1-.804.98l-1.473.295a6.95 6.95 0 0 1-.587 1.416l.834 1.25a1 1 0 0 1-.125 1.262l-.962.962a1 1 0 0 1-1.262.125l-1.25-.834a6.953 6.953 0 0 1-1.416.587l-.295 1.473a1 1 0 0 1-.98.804H9.32a1 1 0 0 1-.98-.804l-.295-1.473a6.957 6.957 0 0 1-1.416-.587l-1.25.834a1 1 0 0 1-1.262-.125l-.962-.962a1 1 0 0 1-.125-1.262l.834-1.25a6.957 6.957 0 0 1-.587-1.416l-1.473-.295A1 1 0 0 1 1 10.68V9.32a1 1 0 0 1 .804-.98l1.473-.295c.144-.497.342-.971.587-1.416l-.834-1.25a1 1 0 0 1 .125-1.262l.962-.962A1 1 0 0 1 5.38 3.03l1.25.834a6.957 6.957 0 0 1 1.416-.587l.295-1.473ZM13 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" clipRule="evenodd" />
+      </svg>
+    </motion.button>
+  )
+}
+
+// ─── ChecklistButton ─────────────────────────────────────────────────────────
+
+function ChecklistButton() {
+  const openChecklist = useChecklistStore((s) => s.openChecklist)
+  const getProgress = useChecklistStore((s) => s.getProgress)
+
+  const { progress, total } = getProgress()
+  const hasItems = total > 0
+  const allComplete = hasItems && progress === total
+
+  return (
+    <motion.button
+      onClick={openChecklist}
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.95 }}
+      className="relative flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+      title="Production Checklist"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        className={`h-4 w-4 ${allComplete ? 'text-success' : ''}`}
+      >
+        <path fillRule="evenodd" d="M6 4.75A.75.75 0 0 1 6.75 4h10.5a.75.75 0 0 1 0 1.5H6.75A.75.75 0 0 1 6 4.75ZM6 10a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H6.75A.75.75 0 0 1 6 10Zm0 5.25a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H6.75a.75.75 0 0 1-.75-.75ZM1.99 4.75a1 1 0 0 1 1-1H3a1 1 0 0 1 1 1v.01a1 1 0 0 1-1 1h-.01a1 1 0 0 1-1-1v-.01ZM1.99 15.25a1 1 0 0 1 1-1H3a1 1 0 0 1 1 1v.01a1 1 0 0 1-1 1h-.01a1 1 0 0 1-1-1v-.01ZM1.99 10a1 1 0 0 1 1-1H3a1 1 0 0 1 1 1v.01a1 1 0 0 1-1 1h-.01a1 1 0 0 1-1-1V10Z" clipRule="evenodd" />
+      </svg>
+      {hasItems && !allComplete && (
+        <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[8px] font-bold text-bg">
+          {total - progress}
+        </span>
+      )}
+      {allComplete && (
+        <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-success text-[8px] text-white">
+          ✓
+        </span>
+      )}
+    </motion.button>
+  )
+}
+
 
 // ─── TabBar ─────────────────────────────────────────────────────────────────
 
@@ -286,38 +338,41 @@ export function TabBar() {
 
   return (
     <>
-      <header className="flex h-10 shrink-0 items-center justify-center gap-1 border-b border-border-default bg-surface px-2">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext items={workspaceIds} strategy={horizontalListSortingStrategy}>
-            <AnimatePresence mode="popLayout">
-              {sortedWorkspaces.map((workspace) => (
-                <SortableTab
-                  key={workspace.id}
-                  workspace={workspace}
-                  isActive={workspace.id === activeWorkspaceId}
-                  notificationCount={getUnviewedCount(workspace.id)}
-                  onSelect={() => setActive(workspace.id)}
-                  onClose={() => {
-                    if (sortedWorkspaces.length > 1) {
-                      remove(workspace.id)
-                    }
-                  }}
-                />
-              ))}
-            </AnimatePresence>
-          </SortableContext>
+      <header className="relative flex h-10 shrink-0 items-center bg-surface px-2 shadow-sm">
+        {/* Center: tabs - absolutely positioned for true centering */}
+        <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={workspaceIds} strategy={horizontalListSortingStrategy}>
+              <AnimatePresence mode="popLayout">
+                {sortedWorkspaces.map((workspace) => (
+                  <SortableTab
+                    key={workspace.id}
+                    workspace={workspace}
+                    isActive={workspace.id === activeWorkspaceId}
+                    notificationCount={getUnviewedCount(workspace.id)}
+                    onSelect={() => setActive(workspace.id)}
+                  />
+                ))}
+              </AnimatePresence>
+            </SortableContext>
 
-          <DragOverlay>
-            {draggingWorkspace && <TabOverlay workspace={draggingWorkspace} />}
-          </DragOverlay>
-        </DndContext>
+            <DragOverlay>
+              {draggingWorkspace && <TabOverlay workspace={draggingWorkspace} />}
+            </DragOverlay>
+          </DndContext>
+        </div>
 
-        <AddTabButton onClick={() => setShowAddDialog(true)} />
+        {/* Right: add workspace + checklist + settings */}
+        <div className="ml-auto flex items-center gap-1">
+          <AddTabButton onClick={() => setShowAddDialog(true)} />
+          <ChecklistButton />
+          <SettingsButton />
+        </div>
       </header>
 
       {/* Add workspace dialog - simple placeholder for now */}

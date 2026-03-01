@@ -1,9 +1,15 @@
-import { useEffect, useState } from 'react'
-import { setTheme } from '@/lib/theme'
+import { useEffect, useState, useCallback } from 'react'
+import { AnimatePresence } from 'motion/react'
+import { initializeTheme } from '@/lib/theme'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { Board } from '@/components/layout/board'
 import { WorkspaceSetup } from '@/components/layout/workspace-setup'
 import { TabBar } from '@/components/layout/tab-bar'
+import { SettingsPanel } from '@/components/settings/settings-panel'
+import { ChecklistPanel } from '@/components/checklist/checklist-panel'
+import { AboutModal } from '@/components/about/about-modal'
+import { SkeletonLoader } from '@/components/shared/skeleton-loader'
 
 function App() {
   const loaded = useWorkspaceStore((s) => s.loaded)
@@ -11,9 +17,17 @@ function App() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const load = useWorkspaceStore((s) => s.load)
   const [error, setError] = useState<string | null>(null)
+  const [showAbout, setShowAbout] = useState(false)
+
+  // Keyboard shortcuts
+  const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
+  useKeyboardShortcuts([
+    { key: '/', meta: true, handler: toggleAbout },
+  ])
 
   useEffect(() => {
-    setTheme('dark')
+    const cleanup = initializeTheme()
+    return cleanup
   }, [])
 
   // Load workspaces on mount
@@ -27,7 +41,7 @@ function App() {
 
   return (
     <div className="flex h-screen flex-col bg-bg">
-      {/* Tab bar (replaces simple header) */}
+      {/* Tab bar */}
       <TabBar />
 
       {/* Main content */}
@@ -39,15 +53,22 @@ function App() {
             </div>
           </div>
         ) : !loaded ? (
-          <div className="flex h-full items-center justify-center">
-            <span className="text-sm text-text-secondary">Loading...</span>
-          </div>
+          <SkeletonLoader />
         ) : showSetup ? (
           <WorkspaceSetup />
         ) : (
           <Board />
         )}
       </main>
+
+      {/* Slide-over panels */}
+      <SettingsPanel />
+      <ChecklistPanel />
+
+      {/* Modals */}
+      <AnimatePresence>
+        {showAbout && <AboutModal onClose={() => { setShowAbout(false) }} />}
+      </AnimatePresence>
     </div>
   )
 }

@@ -43,13 +43,16 @@ impl AgentRunner {
         agent_type: &str,
         working_dir: &str,
         env_vars: Option<HashMap<String, String>>,
+        cli_path: Option<String>,
         app_handle: AppHandle,
     ) -> Result<AgentSession, String> {
         if self.sessions.contains_key(task_id) {
             return Err(format!("Agent already running for task: {}", task_id));
         }
 
-        let (command, args) = agent_command(agent_type);
+        // Use provided cli_path, or fall back to agent_type as command name
+        let command = cli_path.unwrap_or_else(|| agent_type.to_string());
+        let args: Vec<String> = Vec::new();
 
         let pid = {
             let mut pty = self
@@ -136,8 +139,3 @@ impl AgentRunner {
     }
 }
 
-fn agent_command(agent_type: &str) -> (String, Vec<String>) {
-    match agent_type {
-        "claude" | _ => ("claude".to_string(), Vec::new()),
-    }
-}

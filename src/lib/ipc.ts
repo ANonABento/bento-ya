@@ -1,21 +1,31 @@
 // Typed invoke() and listen() wrappers for Tauri IPC.
 // Provides type-safe communication between React frontend and Rust backend.
+// Falls back to browser mocks when Tauri is not available (E2E testing).
 
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event'
+import { isTauri, mockInvoke, mockListen } from './browser-mock'
 import type { Workspace, Column, Task } from '@/types'
 import type { AppError } from '../types/events'
 
 // ─── Typed invoke wrapper ──────────────────────────────────────────────────
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  return tauriInvoke<T>(cmd, args)
+  if (isTauri()) {
+    return tauriInvoke<T>(cmd, args)
+  }
+  // Browser mode - use mocks
+  return mockInvoke<T>(cmd, args)
 }
 
 // ─── Typed listen wrapper ──────────────────────────────────────────────────
 
 function listen<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
-  return tauriListen<T>(event, (e) => handler(e.payload))
+  if (isTauri()) {
+    return tauriListen<T>(event, (e) => handler(e.payload))
+  }
+  // Browser mode - events not supported
+  return mockListen<T>(event, handler)
 }
 
 // ─── Workspace commands ────────────────────────────────────────────────────
@@ -40,6 +50,10 @@ export async function updateWorkspace(
 
 export async function deleteWorkspace(id: string): Promise<void> {
   return invoke<void>('delete_workspace', { id })
+}
+
+export async function cloneWorkspace(sourceId: string, newName: string): Promise<Workspace> {
+  return invoke<Workspace>('clone_workspace', { sourceId, newName })
 }
 
 export const reorderWorkspaces = (ids: string[]) =>
@@ -149,8 +163,78 @@ export async function createTaskBranch(
   return invoke<string>('create_task_branch', { repoPath, taskSlug, baseBranch })
 }
 
+export async function switchBranch(repoPath: string, branch: string): Promise<void> {
+  return invoke<void>('switch_branch', { repoPath, branch })
+}
+
 export async function getCurrentBranch(repoPath: string): Promise<string> {
   return invoke<string>('get_current_branch', { repoPath })
+}
+
+export type BranchInfo = {
+  name: string
+  isHead: boolean
+  upstream: string | null
+}
+
+export async function listTaskBranches(repoPath: string): Promise<BranchInfo[]> {
+  return invoke<BranchInfo[]>('list_task_branches', { repoPath })
+}
+
+export async function deleteTaskBranch(repoPath: string, branch: string): Promise<boolean> {
+  return invoke<boolean>('delete_task_branch', { repoPath, branch })
+}
+
+export type FileChange = {
+  path: string
+  status: string
+  additions: number
+  deletions: number
+}
+
+export type ChangeSummary = {
+  files: FileChange[]
+  totalAdditions: number
+  totalDeletions: number
+  totalFiles: number
+}
+
+export async function getChanges(repoPath: string, branch: string): Promise<ChangeSummary> {
+  return invoke<ChangeSummary>('get_changes', { repoPath, branch })
+}
+
+export async function getDiff(
+  repoPath: string,
+  branch: string,
+  filePath?: string,
+): Promise<string> {
+  return invoke<string>('get_diff', { repoPath, branch, filePath })
+}
+
+export type CommitInfo = {
+  hash: string
+  shortHash: string
+  message: string
+  author: string
+  timestamp: number
+}
+
+export async function getCommits(repoPath: string, branch: string): Promise<CommitInfo[]> {
+  return invoke<CommitInfo[]>('get_commits', { repoPath, branch })
+}
+
+export type ConflictEntry = {
+  file: string
+  branches: string[]
+}
+
+export type ConflictMatrix = {
+  conflicts: ConflictEntry[]
+  hasConflicts: boolean
+}
+
+export async function getConflictMatrix(repoPath: string): Promise<ConflictMatrix> {
+  return invoke<ConflictMatrix>('get_conflict_matrix', { repoPath })
 }
 
 // ─── Agent commands ───────────────────────────────────────────────────────
@@ -335,6 +419,158 @@ export const onOrchestratorComplete = (cb: EventCallback<OrchestratorEvent>): Pr
   listen<OrchestratorEvent>('orchestrator:complete', cb)
 export const onOrchestratorError = (cb: EventCallback<OrchestratorEvent>): Promise<UnlistenFn> =>
   listen<OrchestratorEvent>('orchestrator:error', cb)
+
+// ─── Voice commands ─────────────────────────────────────────────────────────
+
+export type TranscriptionResult = {
+  text: string
+  durationMs: number
+}
+
+export async function isVoiceAvailable(): Promise<boolean> {
+  return invoke<boolean>('is_voice_available')
+}
+
+export async function saveAudioTemp(audioData: number[]): Promise<string> {
+  return invoke<string>('save_audio_temp', { audioData })
+}
+
+export async function transcribeAudio(
+  audioPath: string,
+  language?: string,
+  model?: string,
+): Promise<TranscriptionResult> {
+  return invoke<TranscriptionResult>('transcribe_audio', { audioPath, language, model })
+}
+
+// ─── Usage tracking commands ─────────────────────────────────────────────────
+
+export type UsageRecord = {
+  id: string
+  workspaceId: string
+  taskId: string | null
+  sessionId: string | null
+  provider: string
+  model: string
+  inputTokens: number
+  outputTokens: number
+  costUsd: number
+  createdAt: string
+}
+
+export type UsageSummary = {
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalCostUsd: number
+  recordCount: number
+}
+
+export async function recordUsage(
+  workspaceId: string,
+  provider: string,
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+  costUsd: number,
+  taskId?: string,
+  sessionId?: string,
+): Promise<UsageRecord> {
+  return invoke<UsageRecord>('record_usage', {
+    workspaceId,
+    taskId,
+    sessionId,
+    provider,
+    model,
+    inputTokens,
+    outputTokens,
+    costUsd,
+  })
+}
+
+export async function getWorkspaceUsage(
+  workspaceId: string,
+  limit?: number,
+): Promise<UsageRecord[]> {
+  return invoke<UsageRecord[]>('get_workspace_usage', { workspaceId, limit })
+}
+
+export async function getTaskUsage(taskId: string): Promise<UsageRecord[]> {
+  return invoke<UsageRecord[]>('get_task_usage', { taskId })
+}
+
+export async function getWorkspaceUsageSummary(
+  workspaceId: string,
+): Promise<UsageSummary> {
+  return invoke<UsageSummary>('get_workspace_usage_summary', { workspaceId })
+}
+
+export async function getTaskUsageSummary(taskId: string): Promise<UsageSummary> {
+  return invoke<UsageSummary>('get_task_usage_summary', { taskId })
+}
+
+export async function clearWorkspaceUsage(workspaceId: string): Promise<void> {
+  return invoke<void>('clear_workspace_usage', { workspaceId })
+}
+
+// ─── Session history commands ────────────────────────────────────────────────
+
+export type SessionSnapshot = {
+  id: string
+  sessionId: string
+  workspaceId: string
+  taskId: string | null
+  snapshotType: 'checkpoint' | 'complete' | 'error'
+  scrollbackSnapshot: string | null
+  commandHistory: string
+  filesModified: string
+  durationMs: number
+  createdAt: string
+}
+
+export async function createSnapshot(
+  sessionId: string,
+  workspaceId: string,
+  snapshotType: string,
+  commandHistory: string,
+  filesModified: string,
+  durationMs: number,
+  taskId?: string,
+  scrollbackSnapshot?: string,
+): Promise<SessionSnapshot> {
+  return invoke<SessionSnapshot>('create_snapshot', {
+    sessionId,
+    workspaceId,
+    taskId,
+    snapshotType,
+    scrollbackSnapshot,
+    commandHistory,
+    filesModified,
+    durationMs,
+  })
+}
+
+export async function getSnapshot(id: string): Promise<SessionSnapshot> {
+  return invoke<SessionSnapshot>('get_snapshot', { id })
+}
+
+export async function getSessionHistory(sessionId: string): Promise<SessionSnapshot[]> {
+  return invoke<SessionSnapshot[]>('get_session_history', { sessionId })
+}
+
+export async function getWorkspaceHistory(
+  workspaceId: string,
+  limit?: number,
+): Promise<SessionSnapshot[]> {
+  return invoke<SessionSnapshot[]>('get_workspace_history', { workspaceId, limit })
+}
+
+export async function getTaskHistory(taskId: string): Promise<SessionSnapshot[]> {
+  return invoke<SessionSnapshot[]>('get_task_history', { taskId })
+}
+
+export async function clearSessionHistory(sessionId: string): Promise<void> {
+  return invoke<void>('clear_session_history', { sessionId })
+}
 
 export { listen, type UnlistenFn }
 export type { AppError }

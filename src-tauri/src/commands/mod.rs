@@ -1,10 +1,13 @@
 pub mod agent;
 pub mod column;
 pub mod git;
+pub mod history;
 pub mod orchestrator;
 pub mod pipeline;
 pub mod task;
 pub mod terminal;
+pub mod usage;
+pub mod voice;
 pub mod workspace;
 
 #[tauri::command]
