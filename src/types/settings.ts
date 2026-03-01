@@ -1,11 +1,20 @@
 // Settings types for global and per-workspace configuration
 
+export type ProviderConfig = {
+  id: string
+  name: string
+  apiKeyEnvVar: string
+  enabled: boolean
+  connectionMode: 'api' | 'cli'
+  cliPath?: string
+  defaultModel: string
+}
+
 export type AgentConfig = {
-  defaultCli: 'claude' | 'codex' | 'aider' | 'custom'
-  customCliPath: string
   maxConcurrentAgents: number
   envVars: Record<string, string>
   instructionsFile: string
+  modelSelection: 'auto' | string // 'auto' = orchestrator decides, or specific model ID
 }
 
 export type AgentMode = {
@@ -18,17 +27,8 @@ export type AgentMode = {
 }
 
 export type ModelConfig = {
-  defaultModel: string
-  defaultEffort: 'low' | 'medium' | 'high' | 'max'
   showCostEstimates: boolean
   providers: ProviderConfig[]
-}
-
-export type ProviderConfig = {
-  id: string
-  name: string
-  apiKeyEnvVar: string
-  enabled: boolean
 }
 
 export type McpServer = {
@@ -97,24 +97,37 @@ export type WorkspaceSettings = Partial<Settings>
 
 export const DEFAULT_SETTINGS: Settings = {
   agent: {
-    defaultCli: 'claude',
-    customCliPath: '',
     maxConcurrentAgents: 3,
     envVars: {},
     instructionsFile: '',
+    modelSelection: 'auto',
   },
   modes: [
-    { id: 'code', name: 'Code', icon: '💻', prompt: 'Write clean, maintainable code', tools: ['read', 'write', 'bash'], isBuiltIn: true },
-    { id: 'plan', name: 'Plan', icon: '📋', prompt: 'Create detailed implementation plans', tools: ['read', 'search'], isBuiltIn: true },
-    { id: 'review', name: 'Review', icon: '🔍', prompt: 'Review code for issues and improvements', tools: ['read', 'search'], isBuiltIn: true },
+    { id: 'code', name: 'Code', icon: 'code', prompt: 'Write clean, maintainable code', tools: ['read', 'write', 'bash'], isBuiltIn: true },
+    { id: 'plan', name: 'Plan', icon: 'plan', prompt: 'Create detailed implementation plans', tools: ['read', 'search'], isBuiltIn: true },
+    { id: 'review', name: 'Review', icon: 'review', prompt: 'Review code for issues and improvements', tools: ['read', 'search'], isBuiltIn: true },
   ],
   model: {
-    defaultModel: 'claude-sonnet-4-20250514',
-    defaultEffort: 'medium',
     showCostEstimates: true,
     providers: [
-      { id: 'anthropic', name: 'Anthropic', apiKeyEnvVar: 'ANTHROPIC_API_KEY', enabled: true },
-      { id: 'openai', name: 'OpenAI', apiKeyEnvVar: 'OPENAI_API_KEY', enabled: false },
+      {
+        id: 'anthropic',
+        name: 'Anthropic',
+        apiKeyEnvVar: 'ANTHROPIC_API_KEY',
+        enabled: true,
+        connectionMode: 'cli',
+        cliPath: 'claude',
+        defaultModel: 'claude-sonnet-4-6-20260217',
+      },
+      {
+        id: 'openai',
+        name: 'OpenAI',
+        apiKeyEnvVar: 'OPENAI_API_KEY',
+        enabled: false,
+        connectionMode: 'cli',
+        cliPath: 'codex',
+        defaultModel: 'codex-5.3',
+      },
     ],
   },
   mcpServers: [],

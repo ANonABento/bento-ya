@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 import type { Settings, WorkspaceSettings } from '@/types/settings'
 import { DEFAULT_SETTINGS } from '@/types/settings'
+import { applyAppearance } from '@/lib/appearance'
 
 type SettingsState = {
   global: Settings
@@ -36,6 +37,10 @@ export const useSettingsStore = create<SettingsState>()(
           set((state) => ({
             global: { ...state.global, [key]: value },
           }))
+          // Apply appearance changes to DOM immediately
+          if (key === 'appearance') {
+            applyAppearance(value as Settings['appearance'])
+          }
         },
 
         updateWorkspace: (workspaceId, settings) => {
