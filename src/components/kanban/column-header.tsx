@@ -101,7 +101,7 @@ export const ColumnHeader = memo(function ColumnHeader({
       <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary truncate">
         {name}
       </h3>
-      <span className="ml-auto shrink-0 rounded-full bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
+      <span className="ml-auto shrink-0 rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
         {taskCount}
       </span>
 
@@ -123,7 +123,7 @@ export const ColumnHeader = memo(function ColumnHeader({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: -5 }}
               transition={{ duration: 0.1 }}
-              className="absolute right-0 top-full z-50 mt-1 w-40 rounded-lg border border-border-default bg-surface py-1 shadow-lg"
+              className="absolute right-0 top-full z-50 mt-1 w-40 rounded border border-border-default bg-surface py-1 shadow-lg"
             >
               <button
                 onClick={() => {

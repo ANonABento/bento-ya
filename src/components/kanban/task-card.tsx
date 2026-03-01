@@ -87,7 +87,7 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
       whileHover={{ y: -2, boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}
       transition={{ type: 'spring', stiffness: 400, damping: 28 }}
       onClick={handleClick}
-      className={`relative cursor-grab rounded-xl border bg-surface p-3 active:cursor-grabbing ${borderClass}`}
+      className={`relative cursor-grab rounded border bg-surface p-3 active:cursor-grabbing ${borderClass}`}
     >
       {/* Attention badge */}
       {needsAttention && attention && (

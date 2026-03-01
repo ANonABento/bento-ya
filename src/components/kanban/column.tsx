@@ -69,7 +69,7 @@ export const Column = memo(function Column({ column }: ColumnProps) {
         ref={setNodeRef}
         style={style}
         layout
-        className={`flex w-[300px] min-w-[280px] max-w-[360px] shrink-0 flex-col rounded-xl bg-surface/50 ${
+        className={`flex w-[300px] min-w-[280px] max-w-[360px] shrink-0 flex-col border-r border-border-default bg-surface/30 ${
           isDragging ? 'opacity-50' : ''
         }`}
       >
@@ -115,7 +115,7 @@ export const Column = memo(function Column({ column }: ColumnProps) {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm rounded-xl border border-border-default bg-surface p-6 shadow-xl"
+            className="w-full max-w-sm rounded border border-border-default bg-surface p-6 shadow-xl"
           >
             <h3 className="mb-2 text-lg font-semibold text-text-primary">
               Delete Column?
@@ -126,13 +126,13 @@ export const Column = memo(function Column({ column }: ColumnProps) {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="rounded-lg px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
+                className="rounded px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmDelete}
-                className="rounded-lg bg-error px-4 py-2 text-sm font-medium text-white"
+                className="rounded bg-error px-4 py-2 text-sm font-medium text-white"
               >
                 Delete
               </button>

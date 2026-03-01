@@ -33,10 +33,10 @@ let mockWorkspaces: Workspace[] = [
 ]
 
 let mockColumns: Column[] = [
-  { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: '📋', position: 0, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: '🔨', position: 1, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: '🔍', position: 2, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: '✅', position: 3, color: '#4ADE80', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: 'inbox', position: 0, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: 'code', position: 1, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: 'eye', position: 2, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: 'check', position: 3, color: '#4ADE80', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
 ]
 
 let mockTasks: Task[] = [
@@ -116,7 +116,7 @@ const mockCommands: Record<string, CommandHandler> = {
       id: generateId('col'),
       workspaceId: args?.workspaceId as string,
       name: args?.name as string || 'New Column',
-      icon: '📋',
+      icon: 'list',
       position: args?.position as number || mockColumns.length,
       color: '',
       visible: true,
@@ -323,10 +323,10 @@ export function resetMockData() {
   ]
 
   mockColumns = [
-    { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: '📋', position: 0, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: '🔨', position: 1, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: '🔍', position: 2, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: '✅', position: 3, color: '#4ADE80', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: 'inbox', position: 0, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: 'code', position: 1, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: 'eye', position: 2, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: 'check', position: 3, color: '#4ADE80', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
   ]
 
   mockTasks = [
