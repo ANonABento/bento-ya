@@ -9,7 +9,6 @@ import { TabBar } from '@/components/layout/tab-bar'
 import { SettingsPanel } from '@/components/settings/settings-panel'
 import { ChecklistPanel } from '@/components/checklist/checklist-panel'
 import { AboutModal } from '@/components/about/about-modal'
-import { HistoryPanel } from '@/components/history/history-panel'
 import { SkeletonLoader } from '@/components/shared/skeleton-loader'
 
 function App() {
@@ -19,14 +18,11 @@ function App() {
   const load = useWorkspaceStore((s) => s.load)
   const [error, setError] = useState<string | null>(null)
   const [showAbout, setShowAbout] = useState(false)
-  const [showHistory, setShowHistory] = useState(false)
 
   // Keyboard shortcuts
   const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
-  const toggleHistory = useCallback(() => { setShowHistory((prev) => !prev) }, [])
   useKeyboardShortcuts([
     { key: '/', meta: true, handler: toggleAbout },
-    { key: 'h', meta: true, shift: true, handler: toggleHistory },
   ])
 
   useEffect(() => {
@@ -46,7 +42,7 @@ function App() {
   return (
     <div className="flex h-screen flex-col bg-bg">
       {/* Tab bar */}
-      <TabBar onHistoryClick={() => { setShowHistory(true) }} />
+      <TabBar />
 
       {/* Main content */}
       <main className="flex-1 overflow-hidden">
@@ -72,14 +68,6 @@ function App() {
       {/* Modals */}
       <AnimatePresence>
         {showAbout && <AboutModal onClose={() => { setShowAbout(false) }} />}
-      </AnimatePresence>
-      <AnimatePresence>
-        {showHistory && activeWorkspaceId && (
-          <HistoryPanel
-            workspaceId={activeWorkspaceId}
-            onClose={() => { setShowHistory(false) }}
-          />
-        )}
       </AnimatePresence>
     </div>
   )

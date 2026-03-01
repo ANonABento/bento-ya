@@ -41,8 +41,7 @@ function SortableTab({
   isActive,
   notificationCount = 0,
   onSelect,
-  onClose,
-}: TabProps) {
+}: Omit<TabProps, 'onClose'>) {
   const {
     attributes,
     listeners,
@@ -76,40 +75,22 @@ function SortableTab({
         onClick={onSelect}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect() }}
         className={`
-          group flex h-8 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm font-medium
+          group flex h-8 cursor-pointer items-center justify-center px-3 text-sm
           transition-colors duration-150
           ${isActive
-            ? 'bg-surface-hover text-text-primary'
-            : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+            ? 'font-medium text-text-primary'
+            : 'font-normal text-text-secondary hover:text-text-primary'
           }
         `}
       >
-        <span className="max-w-[120px] truncate">{workspace.name}</span>
+        <span className="max-w-[120px] truncate text-center">{workspace.name}</span>
 
         {/* Notification badge */}
         {notificationCount > 0 && (
-          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-attention px-1 text-[10px] font-bold text-bg">
+          <span className="ml-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-attention px-1 text-[10px] font-bold text-bg">
             {notificationCount > 9 ? '9+' : notificationCount}
           </span>
         )}
-
-        {/* Close button */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onClose()
-          }}
-          className="ml-1 flex h-4 w-4 items-center justify-center rounded opacity-0 transition-opacity hover:bg-error/20 group-hover:opacity-100"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 16 16"
-            fill="currentColor"
-            className="h-3 w-3"
-          >
-            <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" />
-          </svg>
-        </button>
       </div>
 
       {/* Active indicator */}
@@ -221,36 +202,10 @@ function ChecklistButton() {
   )
 }
 
-// ─── HistoryButton ─────────────────────────────────────────────────────────
-
-function HistoryButton({ onClick }: { onClick: () => void }) {
-  return (
-    <motion.button
-      onClick={onClick}
-      whileHover={{ scale: 1.05 }}
-      whileTap={{ scale: 0.95 }}
-      className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-      title="Session History (Cmd+Shift+H)"
-    >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 20 20"
-        fill="currentColor"
-        className="h-4 w-4"
-      >
-        <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13a.75.75 0 0 0-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 0 0 0-1.5h-3.25V5Z" clipRule="evenodd" />
-      </svg>
-    </motion.button>
-  )
-}
 
 // ─── TabBar ─────────────────────────────────────────────────────────────────
 
-type TabBarProps = {
-  onHistoryClick?: () => void
-}
-
-export function TabBar({ onHistoryClick }: TabBarProps) {
+export function TabBar() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const setActive = useWorkspaceStore((s) => s.setActive)
@@ -383,12 +338,9 @@ export function TabBar({ onHistoryClick }: TabBarProps) {
 
   return (
     <>
-      <header className="flex h-10 shrink-0 items-center justify-between border-b border-border-default bg-surface px-2">
-        {/* Left spacer */}
-        <div className="w-8" />
-
-        {/* Center: tabs */}
-        <div className="flex items-center gap-1">
+      <header className="relative flex h-10 shrink-0 items-center bg-surface px-2 shadow-sm">
+        {/* Center: tabs - absolutely positioned for true centering */}
+        <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -404,11 +356,6 @@ export function TabBar({ onHistoryClick }: TabBarProps) {
                     isActive={workspace.id === activeWorkspaceId}
                     notificationCount={getUnviewedCount(workspace.id)}
                     onSelect={() => setActive(workspace.id)}
-                    onClose={() => {
-                      if (sortedWorkspaces.length > 1) {
-                        remove(workspace.id)
-                      }
-                    }}
                   />
                 ))}
               </AnimatePresence>
@@ -418,13 +365,11 @@ export function TabBar({ onHistoryClick }: TabBarProps) {
               {draggingWorkspace && <TabOverlay workspace={draggingWorkspace} />}
             </DragOverlay>
           </DndContext>
-
-          <AddTabButton onClick={() => setShowAddDialog(true)} />
         </div>
 
-        {/* Right: history + checklist + settings */}
-        <div className="flex items-center gap-1">
-          {onHistoryClick && <HistoryButton onClick={onHistoryClick} />}
+        {/* Right: add workspace + checklist + settings */}
+        <div className="ml-auto flex items-center gap-1">
+          <AddTabButton onClick={() => setShowAddDialog(true)} />
           <ChecklistButton />
           <SettingsButton />
         </div>
