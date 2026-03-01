@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="dark" style="background:#0D0D0D">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -15,7 +15,6 @@
           theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
         document.documentElement.dataset.theme = theme;
-        document.documentElement.style.background = theme === 'dark' ? '#0D0D0D' : '#F5F5F5';
       })();
     </script>
     <style>
