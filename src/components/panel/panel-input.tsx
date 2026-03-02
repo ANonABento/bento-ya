@@ -160,13 +160,14 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
 
         <textarea
           ref={inputRef}
-          value={message}
+          value={voice.state === 'recording' ? voice.liveText : message}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder={voice.state === 'recording' ? 'Recording...' : voice.state === 'processing' ? 'Transcribing...' : 'Ask me to create tasks...'}
+          placeholder={voice.state === 'recording' ? 'Listening...' : voice.state === 'processing' ? 'Transcribing...' : 'Ask me to create tasks...'}
           rows={1}
-          disabled={disabled || voice.state === 'recording' || voice.state === 'processing'}
-          className="flex-1 resize-none rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50"
+          readOnly={voice.state === 'recording'}
+          disabled={disabled || voice.state === 'processing'}
+          className={`flex-1 resize-none rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50 ${voice.state === 'recording' ? 'italic text-text-secondary' : ''}`}
           style={{ minHeight: '38px', maxHeight: '120px' }}
         />
 

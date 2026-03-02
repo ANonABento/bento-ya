@@ -171,28 +171,5 @@ body,
   transition-duration: var(--transition-duration);
 }
 
-/* Cursor overrides for drag handles */
-body.cursor-ns-resize,
-body.cursor-ns-resize * {
-  cursor: ns-resize !important;
-}
-
-body.cursor-ew-resize,
-body.cursor-ew-resize * {
-  cursor: ew-resize !important;
-}
-
-body.cursor-pointer-override,
-body.cursor-pointer-override * {
-  cursor: pointer !important;
-}
-
-/* Direct cursor styles for resize handles */
-[data-resize-cursor="ew"] {
-  cursor: ew-resize !important;
-}
-
-[data-resize-cursor="ns"] {
-  cursor: ns-resize !important;
-}
+/* Cursor during drag is set via document.body.style.cursor in JS */
 

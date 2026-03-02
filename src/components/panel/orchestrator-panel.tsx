@@ -275,6 +275,10 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   useEffect(() => {
     if (!isDragging) return
 
+    // Set cursor on body during drag
+    if (!isPanelCollapsed) {
+      document.body.style.cursor = 'ns-resize'
+    }
     document.body.style.userSelect = 'none'
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -291,6 +295,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
     const handleMouseUp = () => {
       setIsDragging(false)
+      document.body.style.cursor = ''
       document.body.style.userSelect = ''
 
       // If didn't drag, treat as click to toggle
@@ -305,6 +310,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
   }, [isDragging, isPanelCollapsed, setPanelHeight, togglePanel])
@@ -471,9 +477,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       {/* Header - clickable to toggle, draggable to resize */}
       <div
         onMouseDown={handleHeaderMouseDown}
-        className={`relative flex items-center justify-between px-3 py-1.5 select-none ${
-          isPanelCollapsed ? 'cursor-pointer' : 'cursor-ns-resize'
-        }`}
+        className="relative flex items-center justify-between px-3 py-1.5 select-none"
+        style={{ cursor: isPanelCollapsed ? 'pointer' : 'row-resize' }}
       >
         {/* Left: History + Files buttons */}
         <div className="flex items-center gap-1" style={{ cursor: 'inherit' }}>

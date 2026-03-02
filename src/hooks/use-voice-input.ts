@@ -11,7 +11,7 @@ import { useSettingsStore } from '@/stores/settings-store'
 
 export type VoiceInputState = 'idle' | 'recording' | 'processing' | 'error'
 
-const CHUNK_INTERVAL_MS = 1000 // Transcribe every 1 second for snappy feedback
+const CHUNK_INTERVAL_MS = 2000 // Transcribe every 2 seconds (Whisper needs ~1.5s minimum)
 
 export function useVoiceInput(onTranscript: (text: string) => void) {
   const [state, setState] = useState<VoiceInputState>('idle')
@@ -74,7 +74,7 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
     }
   }, [])
 
-  // Transcribe a chunk while recording
+  // Transcribe a chunk while recording - shows preview only (no accumulation)
   const transcribeChunk = useCallback(async () => {
     if (stateRef.current !== 'recording') return
 
@@ -86,19 +86,21 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       )
 
       if (result.text && result.text.trim()) {
-        console.log('[Voice] Chunk transcribed:', result.text)
-        // Append to accumulated text
-        const newText = accumulatedTextRef.current
-          ? accumulatedTextRef.current + ' ' + result.text.trim()
-          : result.text.trim()
-        accumulatedTextRef.current = newText
-        setLiveText(newText)
-        // Send to parent immediately for live updates
-        onTranscriptRef.current(newText)
+        // Filter out [BLANK_AUDIO] markers
+        const cleanText = result.text
+          .replace(/\[BLANK_AUDIO\]/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+
+        if (cleanText) {
+          console.log('[Voice] Chunk preview:', cleanText)
+          // Just show latest chunk as preview - don't accumulate
+          // Final transcription when stopping will have complete text
+          setLiveText(cleanText)
+        }
       }
     } catch (err) {
       console.error('[Voice] Chunk transcription error:', err)
-      // Don't stop on chunk errors, just log
     }
   }, [])
 
@@ -176,11 +178,17 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
         config.model,
       )
 
-      console.log('[Voice] Final transcription:', result.text)
+      // Clean up any [BLANK_AUDIO] markers from final transcription
+      const cleanText = result.text
+        ?.replace(/\[BLANK_AUDIO\]/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+      console.log('[Voice] Final transcription:', cleanText)
 
       // Use the final full transcription (more accurate than chunks)
-      if (result.text && result.text.trim()) {
-        onTranscriptRef.current(result.text.trim())
+      if (cleanText) {
+        onTranscriptRef.current(cleanText)
       }
 
       setState('idle')
