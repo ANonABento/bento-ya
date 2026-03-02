@@ -260,36 +260,36 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     }
   }, [isProcessing, messageQueue, activeSession, workspaceId, failedMessage])
 
-  // Header click/drag handlers - simplified
-  const handleHeaderMouseDown = useCallback((e: React.MouseEvent) => {
-    // Ignore if clicking on a button
-    if ((e.target as HTMLElement).closest('button')) return
-
+  // Resize handle drag handler (top edge only)
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    if (isPanelCollapsed) return // Can't resize when collapsed
     e.preventDefault()
+    e.stopPropagation()
     hasDragged.current = false
     dragStartY.current = e.clientY
     dragStartHeight.current = panelHeight
     setIsDragging(true)
-  }, [panelHeight])
+  }, [panelHeight, isPanelCollapsed])
+
+  // Header click handler (toggle panel)
+  const handleHeaderClick = useCallback((e: React.MouseEvent) => {
+    // Ignore if clicking on a button
+    if ((e.target as HTMLElement).closest('button')) return
+    togglePanel()
+  }, [togglePanel])
 
   useEffect(() => {
     if (!isDragging) return
 
-    // Set cursor on body during drag
-    if (!isPanelCollapsed) {
-      document.body.style.cursor = 'ns-resize'
-    }
+    document.body.style.cursor = 'ns-resize'
     document.body.style.userSelect = 'none'
 
     const handleMouseMove = (e: MouseEvent) => {
       const deltaY = dragStartY.current - e.clientY
       if (Math.abs(deltaY) > 3) {
         hasDragged.current = true
-        // Only resize if expanded
-        if (!isPanelCollapsed) {
-          const newHeight = dragStartHeight.current + deltaY
-          setPanelHeight(newHeight)
-        }
+        const newHeight = dragStartHeight.current + deltaY
+        setPanelHeight(newHeight)
       }
     }
 
@@ -297,11 +297,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       setIsDragging(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
-
-      // If didn't drag, treat as click to toggle
-      if (!hasDragged.current) {
-        togglePanel()
-      }
     }
 
     document.addEventListener('mousemove', handleMouseMove)
@@ -313,7 +308,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
-  }, [isDragging, isPanelCollapsed, setPanelHeight, togglePanel])
+  }, [isDragging, setPanelHeight])
 
   // Process a single message (internal helper)
   const processMessage = useCallback(async (params: SendMessageParams) => {
@@ -474,14 +469,25 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       className="flex flex-col border-t border-border-default bg-surface"
       style={{ minHeight: COLLAPSED_HEIGHT }}
     >
-      {/* Header - clickable to toggle, draggable to resize */}
+      {/* Resize handle - top edge only */}
+      {!isPanelCollapsed && (
+        <div
+          onMouseDown={handleResizeMouseDown}
+          className="absolute -top-1 left-0 right-0 h-3 z-10 group"
+          style={{ cursor: 'ns-resize' }}
+        >
+          {/* Visual indicator line */}
+          <div className="absolute bottom-0 left-0 right-0 h-px bg-transparent group-hover:bg-accent/50 transition-colors" />
+        </div>
+      )}
+
+      {/* Header - clickable to toggle */}
       <div
-        onMouseDown={handleHeaderMouseDown}
-        className="relative flex items-center justify-between px-3 py-1.5 select-none"
-        style={{ cursor: isPanelCollapsed ? 'pointer' : 'row-resize' }}
+        onClick={handleHeaderClick}
+        className="relative flex items-center justify-between px-3 py-1.5 select-none cursor-pointer"
       >
         {/* Left: History + Files buttons */}
-        <div className="flex items-center gap-1" style={{ cursor: 'inherit' }}>
+        <div className="flex items-center gap-1">
           {!isPanelCollapsed && (
             <>
               {/* History button */}
@@ -518,15 +524,15 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
         </div>
 
         {/* Center: Chef title + processing indicator */}
-        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2" style={{ cursor: 'inherit' }}>
-          <span className="text-sm font-medium text-text-primary" style={{ cursor: 'inherit' }}>Chef</span>
+        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
+          <span className="text-sm font-medium text-text-primary">Chef</span>
           {isProcessing && (
             <ProcessingIndicator startTime={processingStartTime} />
           )}
         </div>
 
         {/* Right: New chat + collapse */}
-        <div className="flex items-center gap-2" style={{ cursor: 'inherit' }}>
+        <div className="flex items-center gap-2">
           {/* New Chat button */}
           {!isPanelCollapsed && (
             <button
@@ -541,7 +547,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               New
             </button>
           )}
-          <span className="text-xs text-text-secondary" style={{ cursor: 'inherit' }}>
+          <span className="text-xs text-text-secondary">
             {isPanelCollapsed ? 'Cmd+J to expand' : 'Cmd+J'}
           </span>
           <button
@@ -655,8 +661,8 @@ function ProcessingIndicator({ startTime }: { startTime: number | null }) {
   }, [startTime])
 
   return (
-    <span className="flex items-center gap-1 text-xs text-accent" style={{ cursor: 'inherit' }}>
-      <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" style={{ cursor: 'inherit' }}>
+    <span className="flex items-center gap-1 text-xs text-accent">
+      <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
       </svg>

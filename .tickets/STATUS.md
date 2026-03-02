@@ -100,14 +100,16 @@ These tickets track work needed to connect existing UI to functional backends:
 | ID | Title | Status | Complexity |
 |----|-------|--------|------------|
 | T033 | LLM Integration (Anthropic/OpenAI) | ✅ **COMPLETE** | XL |
-| T034 | Pipeline Exit Criteria Evaluation | ❌ Not Started | M |
-| T035 | History Replay Backend | ❌ Not Started | M |
-| T036 | Metrics Data Collection | ❌ Not Started | S |
-| T037 | Checklist Persistence | ❌ Not Started | M |
-| T038 | Settings Backend Sync | ❌ Not Started | M |
+| T034 | Pipeline Exit Criteria Evaluation | ❌ Stub returns `false` | M |
+| T035 | History Replay Backend | ❌ Missing `restore_snapshot` | M |
+| T036 | Metrics Data Collection | ✅ **COMPLETE** | S |
+| T037 | Checklist Persistence | ❌ Store is local-only | M |
+| T038 | Settings Backend Sync | ❌ localStorage only | M |
 | T039 | Orchestrator Intelligence | ✅ **COMPLETE** | M |
+| T040 | Files Sidebar | ❌ Placeholder "Coming soon" | M |
+| T041 | Review Actions (Approve/Reject) | ❌ Buttons do nothing | S |
 
-**Next Priority**: T034 (Pipeline Exit Criteria) or T036 (Metrics).
+**Verified 2025-03-02**: T036 is wired - `insert_usage_record()` called in orchestrator.rs:632.
 
 ---
 
@@ -163,10 +165,20 @@ These tickets track work needed to connect existing UI to functional backends:
 
 ---
 
-## Next Steps
+## Next Steps (Priority Order)
 
-1. **Implement v0.4** - PR workflow and siege loop for automated development
-2. **T034: Pipeline Exit Criteria** - Evaluate exit conditions to auto-advance tasks
-3. **T036: Metrics Data Collection** - Track usage/costs from orchestrator calls
-4. **Files Sidebar** - Implement plans/md/checklists viewer in Chef sidebar
-5. **E2E Tests** - Add Playwright/Tauri tests for critical paths
+### Core Wiring (Must Have)
+
+1. **T037: Checklist Persistence** - Sync checklist state to backend on toggle/notes change
+2. **T038: Settings Backend Sync** - Store workspace settings in DB, not just localStorage
+3. **T034: Pipeline Exit Criteria** - Implement `agent_complete`, `script_success`, `pr_approved` checks
+4. **T040: Files Sidebar** - Scan workspace for .md files, display in Chef sidebar
+
+### Nice to Have
+
+5. **T035: History Replay** - Add `restore_snapshot` command to actually restore board state
+6. **T041: Review Actions** - Wire approve/reject to pipeline state machine
+
+### Future (v0.4 Siege)
+
+7. **T024-T028** - PR workflow, siege loop, comment watching
