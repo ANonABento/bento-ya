@@ -171,11 +171,3 @@ body,
   transition-duration: var(--transition-duration);
 }
 
-/* Panel drag cursor */
-.cursor-drag {
-  cursor: ns-resize !important;
-}
-
-.cursor-drag * {
-  cursor: ns-resize !important;
-}

@@ -165,17 +165,16 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       {/* Header - clickable to toggle, draggable to resize */}
       <div
         onMouseDown={handleHeaderMouseDown}
-        onClick={handleHeaderClick}
-        className={`flex items-center justify-between px-3 py-2 select-none ${
-          !isPanelCollapsed ? 'cursor-drag' : 'cursor-pointer'
-        }`}
+        className="flex items-center justify-between px-3 py-2 select-none"
+        style={{ cursor: isPanelCollapsed ? 'pointer' : 'row-resize' }}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" style={{ cursor: 'inherit' }}>
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 20 20"
             fill="currentColor"
             className="h-4 w-4 text-accent"
+            style={{ cursor: 'inherit' }}
           >
             <path
               fillRule="evenodd"
@@ -183,10 +182,10 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               clipRule="evenodd"
             />
           </svg>
-          <span className="text-sm font-medium text-text-primary">Orchestrator</span>
+          <span className="text-sm font-medium text-text-primary" style={{ cursor: 'inherit' }}>Orchestrator</span>
           {isProcessing && (
-            <span className="flex items-center gap-1 text-xs text-accent">
-              <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+            <span className="flex items-center gap-1 text-xs text-accent" style={{ cursor: 'inherit' }}>
+              <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" style={{ cursor: 'inherit' }}>
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
@@ -195,8 +194,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-text-secondary">
+        <div className="flex items-center gap-2" style={{ cursor: 'inherit' }}>
+          <span className="text-xs text-text-secondary" style={{ cursor: 'inherit' }}>
             {isPanelCollapsed ? 'Cmd+J to expand' : 'Cmd+J'}
           </span>
           <button
