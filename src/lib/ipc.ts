@@ -173,6 +173,18 @@ export async function rejectTask(id: string, reason?: string): Promise<Task> {
   return invoke<Task>('reject_task', { id, reason })
 }
 
+// ─── PR creation ─────────────────────────────────────────────────────────────
+
+import type { CreatePrResult } from '@/types/task'
+
+export async function createPr(
+  taskId: string,
+  repoPath: string,
+  baseBranch?: string,
+): Promise<CreatePrResult> {
+  return invoke<CreatePrResult>('create_pr', { taskId, repoPath, baseBranch })
+}
+
 // ─── Git commands ─────────────────────────────────────────────────────────
 
 export async function createTaskBranch(

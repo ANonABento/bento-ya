@@ -11,6 +11,9 @@ pub enum AppError {
 
     #[error("Database error: {0}")]
     DatabaseError(String),
+
+    #[error("Command error: {0}")]
+    CommandError(String),
 }
 
 impl From<rusqlite::Error> for AppError {
@@ -36,6 +39,7 @@ impl Serialize for AppError {
             AppError::NotFound(msg) => ("NotFound", msg.as_str()),
             AppError::InvalidInput(msg) => ("InvalidInput", msg.as_str()),
             AppError::DatabaseError(msg) => ("DatabaseError", msg.as_str()),
+            AppError::CommandError(msg) => ("CommandError", msg.as_str()),
         };
         state.serialize_field("kind", kind)?;
         state.serialize_field("message", message)?;

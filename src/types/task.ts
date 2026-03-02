@@ -19,7 +19,15 @@ export type Task = {
   pipelineError: string | null
   lastScriptExitCode: number | null
   reviewStatus: ReviewStatus | null
+  prNumber: number | null
+  prUrl: string | null
   position: number
   createdAt: string
   updatedAt: string
+}
+
+export type CreatePrResult = {
+  prNumber: number
+  prUrl: string
+  task: Task
 }

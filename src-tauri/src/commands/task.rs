@@ -1,6 +1,8 @@
 use crate::db::{self, AppState, Task};
 use crate::error::AppError;
 use crate::pipeline;
+use serde::{Deserialize, Serialize};
+use std::process::Command;
 use tauri::{AppHandle, State};
 
 #[tauri::command]
@@ -197,10 +199,10 @@ pub fn reject_task(
     reason: Option<String>,
 ) -> Result<Task, AppError> {
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    
+
     // Set review_status to rejected
     let mut task = db::update_task_review_status(&conn, &id, Some("rejected"))?;
-    
+
     // Set pipeline_error with rejection reason if provided
     if let Some(ref reason_text) = reason {
         task = db::update_task_pipeline_state(
@@ -211,6 +213,96 @@ pub fn reject_task(
             Some(reason_text),
         )?;
     }
-    
+
     Ok(task)
+}
+
+/// Result of creating a GitHub PR
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePrResult {
+    pub pr_number: i64,
+    pub pr_url: String,
+    pub task: Task,
+}
+
+/// Create a GitHub PR for a task using the gh CLI
+#[tauri::command]
+pub async fn create_pr(
+    state: State<'_, AppState>,
+    task_id: String,
+    repo_path: String,
+    base_branch: Option<String>,
+) -> Result<CreatePrResult, AppError> {
+    // Get the task to retrieve title, description, and branch
+    let task = {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        db::get_task(&conn, &task_id)?
+    };
+
+    // Verify task has a branch
+    let branch_name = task.branch_name.clone().ok_or_else(|| {
+        AppError::InvalidInput("Task has no associated branch".to_string())
+    })?;
+
+    // Check if PR already exists
+    if task.pr_number.is_some() {
+        return Err(AppError::InvalidInput(format!(
+            "Task already has PR #{}",
+            task.pr_number.unwrap()
+        )));
+    }
+
+    // Build PR title and body
+    let pr_title = task.title.clone();
+    let pr_body = task.description.clone().unwrap_or_default();
+    let base = base_branch.unwrap_or_else(|| "main".to_string());
+
+    // Run gh pr create command
+    let (pr_number, pr_url) = tokio::task::spawn_blocking(move || -> Result<(i64, String), AppError> {
+        let output = Command::new("gh")
+            .args([
+                "pr", "create",
+                "--title", &pr_title,
+                "--body", &pr_body,
+                "--base", &base,
+                "--head", &branch_name,
+            ])
+            .current_dir(&repo_path)
+            .output()
+            .map_err(|e| AppError::CommandError(format!("Failed to run gh CLI: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(AppError::CommandError(format!("gh pr create failed: {}", stderr)));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let pr_url = stdout.trim().to_string();
+
+        // Parse PR number from URL (e.g., https://github.com/owner/repo/pull/123)
+        let pr_number = pr_url
+            .rsplit('/')
+            .next()
+            .and_then(|s| s.parse::<i64>().ok())
+            .ok_or_else(|| AppError::CommandError(format!(
+                "Failed to parse PR number from URL: {}", pr_url
+            )))?;
+
+        Ok((pr_number, pr_url))
+    })
+    .await
+    .map_err(|e| AppError::CommandError(format!("Task join error: {}", e)))??;
+
+    // Update task with PR info
+    let updated_task = {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        db::update_task_pr_info(&conn, &task_id, Some(pr_number), Some(&pr_url))?
+    };
+
+    Ok(CreatePrResult {
+        pr_number,
+        pr_url,
+        task: updated_task,
+    })
 }

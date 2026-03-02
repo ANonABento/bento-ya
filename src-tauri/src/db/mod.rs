@@ -80,6 +80,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("012_task_agent_session", include_str!("migrations/012_task_agent_session.sql")),
         ("013_task_script_exit_code", include_str!("migrations/013_task_script_exit_code.sql")),
         ("014_review_status", include_str!("migrations/014_review_status.sql")),
+        ("015_pr_fields", include_str!("migrations/015_pr_fields.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -162,6 +163,8 @@ pub struct Task {
     pub agent_session_id: Option<String>,
     pub last_script_exit_code: Option<i64>,
     pub review_status: Option<String>,
+    pub pr_number: Option<i64>,
+    pub pr_url: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -400,7 +403,7 @@ pub fn insert_task(
 
 pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
     conn.query_row(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, created_at, updated_at FROM tasks WHERE id = ?1",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, created_at, updated_at FROM tasks WHERE id = ?1",
         params![id],
         |row| {
             Ok(Task {
@@ -421,8 +424,10 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
                 agent_session_id: row.get(14)?,
                 last_script_exit_code: row.get(15)?,
                 review_status: row.get(16)?,
-                created_at: row.get(17)?,
-                updated_at: row.get(18)?,
+                pr_number: row.get(17)?,
+                pr_url: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             })
         },
     )
@@ -430,7 +435,7 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
 
 pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, created_at, updated_at FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, created_at, updated_at FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
     )?;
     let rows = stmt.query_map(params![workspace_id], |row| {
         Ok(Task {
@@ -451,8 +456,10 @@ pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>>
             agent_session_id: row.get(14)?,
             last_script_exit_code: row.get(15)?,
             review_status: row.get(16)?,
-            created_at: row.get(17)?,
-            updated_at: row.get(18)?,
+            pr_number: row.get(17)?,
+            pr_url: row.get(18)?,
+            created_at: row.get(19)?,
+            updated_at: row.get(20)?,
         })
     })?;
     rows.collect()
@@ -502,7 +509,7 @@ pub fn delete_task(conn: &Connection, id: &str) -> SqlResult<()> {
 /// List tasks by column ID
 pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, created_at, updated_at FROM tasks WHERE column_id = ?1 ORDER BY position",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, created_at, updated_at FROM tasks WHERE column_id = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map(params![column_id], |row| {
         Ok(Task {
@@ -523,8 +530,10 @@ pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec
             agent_session_id: row.get(14)?,
             last_script_exit_code: row.get(15)?,
             review_status: row.get(16)?,
-            created_at: row.get(17)?,
-            updated_at: row.get(18)?,
+            pr_number: row.get(17)?,
+            pr_url: row.get(18)?,
+            created_at: row.get(19)?,
+            updated_at: row.get(20)?,
         })
     })?;
     rows.collect()
@@ -584,6 +593,21 @@ pub fn update_task_review_status(
     conn.execute(
         "UPDATE tasks SET review_status = ?1, updated_at = ?2 WHERE id = ?3",
         params![review_status, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Update PR info for a task (pr_number and pr_url)
+pub fn update_task_pr_info(
+    conn: &Connection,
+    id: &str,
+    pr_number: Option<i64>,
+    pr_url: Option<&str>,
+) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET pr_number = ?1, pr_url = ?2, updated_at = ?3 WHERE id = ?4",
+        params![pr_number, pr_url, ts, id],
     )?;
     get_task(conn, id)
 }
@@ -1622,8 +1646,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 14 migrations: 001-014
-        assert_eq!(count, 14);
+        // We have 15 migrations: 001-015
+        assert_eq!(count, 15);
     }
 
     #[test]

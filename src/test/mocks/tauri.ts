@@ -50,6 +50,8 @@ export const mockTask = (overrides: Partial<Task> = {}): Task => ({
   pipelineError: null,
   lastScriptExitCode: null,
   reviewStatus: null,
+  prNumber: null,
+  prUrl: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   ...overrides,
