@@ -93,6 +93,17 @@ pub struct PipelineEvent {
     pub message: Option<String>,
 }
 
+/// Event emitted when pipeline needs to spawn an agent
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpawnAgentEvent {
+    pub task_id: String,
+    pub column_id: String,
+    pub workspace_id: String,
+    pub agent_type: String,
+    pub flags: Option<Vec<String>>,
+}
+
 // ─── Pipeline Engine ────────────────────────────────────────────────────────
 
 /// Fire the column trigger when a task enters.
@@ -139,23 +150,21 @@ pub fn fire_trigger(
     // Execute trigger based on type
     match trigger.trigger_type.as_str() {
         "agent" => {
-            // Agent triggers are handled by the agent system
-            // Set state to running since agent will be spawned
-            let task = db::update_task_pipeline_state(
-                conn,
-                &task.id,
-                PipelineState::Running.as_str(),
-                Some(&ts),
-                None,
-            )?;
-            let _ = app.emit("pipeline:running", &PipelineEvent {
+            // Agent triggers emit spawn_agent event for frontend to call fire_agent_trigger
+            // Keep state as triggered until agent actually spawns
+            let agent_type = trigger.config.agent.clone().unwrap_or_else(|| "claude".to_string());
+
+            // Emit spawn_agent event with task/column info for frontend
+            let spawn_event = SpawnAgentEvent {
                 task_id: task.id.clone(),
                 column_id: column.id.clone(),
-                event_type: "running".to_string(),
-                state: PipelineState::Running.as_str().to_string(),
-                message: Some(format!("Agent: {:?}", trigger.config.agent)),
-            });
-            Ok(task)
+                workspace_id: task.workspace_id.clone(),
+                agent_type,
+                flags: trigger.config.flags.clone(),
+            };
+            let _ = app.emit("pipeline:spawn_agent", &spawn_event);
+
+            Ok(updated_task)
         }
         "skill" => {
             // Skills run synchronously for now
@@ -248,9 +257,20 @@ pub fn evaluate_exit_criteria(
             false
         }
         "agent_complete" => {
-            // Check if agent is complete (status = completed)
-            // For now, return false until agent system is integrated
-            false
+            // Check if agent linked to this task has completed successfully
+            if let Some(ref session_id) = task.agent_session_id {
+                // Look up the agent session in the database
+                match db::get_agent_session(conn, session_id) {
+                    Ok(session) => {
+                        // Agent is complete if status is "completed" or "stopped" with exit_code 0
+                        session.status == "completed"
+                            || (session.status == "stopped" && session.exit_code == Some(0))
+                    }
+                    Err(_) => false,
+                }
+            } else {
+                false
+            }
         }
         "script_success" => {
             // Check if script exited with code 0
