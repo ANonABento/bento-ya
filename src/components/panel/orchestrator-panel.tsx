@@ -37,7 +37,7 @@ type FailedMessage = {
   error: string
 }
 
-const COLLAPSED_HEIGHT = 44
+const COLLAPSED_HEIGHT = 40
 
 export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const panelHeight = useUIStore((s) => s.panelHeight)
@@ -477,7 +477,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       {/* Header - clickable to toggle, draggable to resize */}
       <div
         onMouseDown={handleHeaderMouseDown}
-        className="relative flex items-center justify-between px-3 py-2 select-none"
+        className="relative flex items-center justify-between px-3 py-1.5 select-none"
         style={{ cursor: isPanelCollapsed ? 'pointer' : 'row-resize' }}
       >
         {/* Left: History + Files buttons */}

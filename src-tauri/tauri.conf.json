@@ -33,9 +33,7 @@
     ],
     "macOS": {
       "entitlements": "Entitlements.plist",
-      "infoPlist": {
-        "NSMicrophoneUsageDescription": "Bento-ya needs microphone access for voice input transcription."
-      }
+      "infoPlist": "Info.plist"
     }
   }
 }

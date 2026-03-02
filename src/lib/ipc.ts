@@ -622,6 +622,24 @@ export function onWhisperDownloadComplete(
   return listen<{ model: string }>('whisper:download-complete', cb)
 }
 
+// ─── Native Audio Recording (bypasses webview limitations) ──────────────────
+
+export async function startNativeRecording(): Promise<void> {
+  return invoke<void>('start_native_recording')
+}
+
+export async function stopNativeRecording(): Promise<string> {
+  return invoke<string>('stop_native_recording')
+}
+
+export async function cancelNativeRecording(): Promise<void> {
+  return invoke<void>('cancel_native_recording')
+}
+
+export async function isNativeRecording(): Promise<boolean> {
+  return invoke<boolean>('is_native_recording')
+}
+
 // ─── Usage tracking commands ─────────────────────────────────────────────────
 
 export type UsageRecord = {

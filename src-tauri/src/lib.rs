@@ -14,10 +14,12 @@ pub mod pipeline;
 pub mod process;
 pub mod whisper;
 
+use commands::voice::RecorderState;
 use db::AppState;
 use process::agent_runner::AgentRunner;
 use process::cli_session::new_shared_cli_session_manager;
 use process::pty_manager::PtyManager;
+use whisper::AudioRecorder;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -29,6 +31,7 @@ pub fn run() {
     let pty_manager = Arc::new(Mutex::new(PtyManager::new()));
     let agent_runner = Arc::new(Mutex::new(AgentRunner::new(Arc::clone(&pty_manager))));
     let cli_session_manager = new_shared_cli_session_manager();
+    let recorder_state = RecorderState(Mutex::new(AudioRecorder::new()));
 
     // Clone for shutdown handler
     let cli_manager_for_shutdown = Arc::clone(&cli_session_manager);
@@ -39,6 +42,7 @@ pub fn run() {
         .manage(pty_manager)
         .manage(agent_runner)
         .manage(cli_session_manager)
+        .manage(recorder_state)
         .on_window_event(move |_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 // Kill all CLI sessions on window close
@@ -121,6 +125,11 @@ pub fn run() {
             commands::voice::download_whisper_model,
             commands::voice::delete_whisper_model,
             commands::voice::get_whisper_model_info,
+            // Native audio recording (bypasses webview limitations)
+            commands::voice::start_native_recording,
+            commands::voice::stop_native_recording,
+            commands::voice::cancel_native_recording,
+            commands::voice::is_native_recording,
             // Usage tracking commands
             commands::usage::record_usage,
             commands::usage::get_workspace_usage,

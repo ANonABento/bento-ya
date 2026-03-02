@@ -1,5 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { isVoiceAvailable, saveAudioTemp, transcribeAudio, onWhisperDownloadComplete } from '@/lib/ipc'
+import {
+  isVoiceAvailable,
+  transcribeAudio,
+  onWhisperDownloadComplete,
+  startNativeRecording,
+  stopNativeRecording,
+  cancelNativeRecording,
+} from '@/lib/ipc'
 import { useSettingsStore } from '@/stores/settings-store'
 
 export type VoiceInputState = 'idle' | 'recording' | 'processing' | 'error'
@@ -10,10 +17,7 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
   const [isAvailable, setIsAvailable] = useState(false)
   const [duration, setDuration] = useState(0)
 
-  const mediaRecorder = useRef<MediaRecorder | null>(null)
-  const audioChunks = useRef<Blob[]>([])
   const timerRef = useRef<number | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
 
   const voiceConfig = useSettingsStore((s) => s.global.voice)
 
@@ -62,14 +66,11 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       if (timerRef.current) {
         clearInterval(timerRef.current)
       }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => { track.stop() })
-      }
     }
   }, [])
 
   const startRecording = useCallback(async () => {
-    console.log('[Voice] Starting recording...', { enabled: voiceConfig.enabled, available: isAvailable })
+    console.log('[Voice] Starting native recording...', { enabled: voiceConfig.enabled, available: isAvailable })
     if (!voiceConfig.enabled || !isAvailable) {
       setError('Voice input is not enabled or available')
       setState('error')
@@ -79,66 +80,11 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
 
     try {
       setError(null)
-      audioChunks.current = []
       setDuration(0)
 
-      // Check if mediaDevices is available (requires secure context)
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Microphone access not available. This may be a browser/webview limitation.')
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 16000,
-        },
-      })
-
-      streamRef.current = stream
-
-      // Try to use webm/opus, fallback to default if not supported
-      let mimeType = 'audio/webm;codecs=opus'
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        console.log('[Voice] webm/opus not supported, trying webm')
-        mimeType = 'audio/webm'
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-          console.log('[Voice] webm not supported, using default')
-          mimeType = ''
-        }
-      }
-      console.log('[Voice] Using mimeType:', mimeType || 'default')
-
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          audioChunks.current.push(e.data)
-        }
-      }
-
-      recorder.onstop = async () => {
-        // Stop the timer
-        if (timerRef.current) {
-          clearInterval(timerRef.current)
-          timerRef.current = null
-        }
-
-        // Stop the stream
-        stream.getTracks().forEach((track) => { track.stop() })
-        streamRef.current = null
-
-        // Process the audio
-        if (audioChunks.current.length > 0) {
-          setState('processing')
-          await processAudio()
-        } else {
-          setState('idle')
-        }
-      }
-
-      mediaRecorder.current = recorder
-      recorder.start(100) // Collect data every 100ms
+      // Start native recording via Tauri command
+      await startNativeRecording()
+      console.log('[Voice] Native recording started')
 
       // Start duration timer
       timerRef.current = window.setInterval(() => {
@@ -147,53 +93,29 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
 
       setState('recording')
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to start recording'
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('[Voice] Failed to start recording:', message)
       setError(message)
       setState('error')
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [voiceConfig.enabled, isAvailable])
 
-  const stopRecording = useCallback(() => {
-    if (mediaRecorder.current && state === 'recording') {
-      mediaRecorder.current.stop()
-    }
-  }, [state])
+  const stopRecording = useCallback(async () => {
+    if (state !== 'recording') return
 
-  const cancelRecording = useCallback(() => {
-    if (mediaRecorder.current && state === 'recording') {
-      // Clear chunks before stopping to prevent processing
-      audioChunks.current = []
-      mediaRecorder.current.stop()
-    }
-    setState('idle')
-    setDuration(0)
-  }, [state])
-
-  const processAudio = async () => {
     try {
-      console.log('[Voice] Processing audio...')
-
-      if (!audioChunks.current || audioChunks.current.length === 0) {
-        console.log('[Voice] No audio chunks to process')
-        setState('idle')
-        return
+      // Stop the timer
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
       }
 
-      const audioBlob = new Blob(audioChunks.current, { type: 'audio/webm' })
-      const arrayBuffer = await audioBlob.arrayBuffer()
-      const audioData = Array.from(new Uint8Array(arrayBuffer))
-      console.log('[Voice] Audio size:', audioData.length, 'bytes')
+      setState('processing')
 
-      if (audioData.length === 0) {
-        console.log('[Voice] Empty audio data')
-        setState('idle')
-        return
-      }
-
-      // Save to temp file
-      const audioPath = await saveAudioTemp(audioData)
-      console.log('[Voice] Saved to:', audioPath)
+      // Stop native recording and get the audio file path
+      console.log('[Voice] Stopping native recording...')
+      const audioPath = await stopNativeRecording()
+      console.log('[Voice] Recording saved to:', audioPath)
 
       // Use ref to get current config (avoids stale closure)
       const config = voiceConfigRef.current
@@ -201,6 +123,7 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
         throw new Error('Voice config not available')
       }
 
+      // Transcribe the audio
       console.log('[Voice] Transcribing with model:', config.model)
       const result = await transcribeAudio(
         audioPath,
@@ -221,7 +144,34 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       setError(message)
       setState('error')
     }
-  }
+  }, [state])
+
+  const cancelRecording = useCallback(async () => {
+    if (state !== 'recording') {
+      setState('idle')
+      setDuration(0)
+      return
+    }
+
+    try {
+      // Stop the timer
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
+      }
+
+      // Cancel native recording
+      await cancelNativeRecording()
+      console.log('[Voice] Recording cancelled')
+
+      setState('idle')
+      setDuration(0)
+    } catch (err) {
+      console.error('[Voice] Failed to cancel recording:', err)
+      setState('idle')
+      setDuration(0)
+    }
+  }, [state])
 
   return {
     state,

@@ -1,10 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tauri::{command, AppHandle, Manager, Runtime};
+use std::sync::Mutex;
+use tauri::{command, AppHandle, Manager, Runtime, State};
 
 use crate::whisper::{
-    self, WhisperModel, WhisperModelInfo, WhisperModelStatus,
+    self, AudioRecorder, WhisperModel, WhisperModelInfo, WhisperModelStatus,
 };
+
+/// Managed state for the audio recorder
+pub struct RecorderState(pub Mutex<AudioRecorder>);
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -146,4 +150,49 @@ pub fn get_whisper_model_info<R: Runtime>(
         .ok_or_else(|| format!("Invalid model: {}", model))?;
 
     Ok(whisper::get_model_info(&app, model_size))
+}
+
+// ============ Native Audio Recording Commands ============
+
+/// Start native audio recording (bypasses webview limitations)
+#[command]
+pub fn start_native_recording(
+    recorder_state: State<'_, RecorderState>,
+) -> Result<(), String> {
+    log::info!("[Voice] Starting native recording...");
+    let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    recorder.start()
+}
+
+/// Stop native recording and return the audio file path
+#[command]
+pub fn stop_native_recording(
+    recorder_state: State<'_, RecorderState>,
+) -> Result<String, String> {
+    log::info!("[Voice] Stopping native recording...");
+    let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let path = recorder.stop()?;
+    path.to_str()
+        .map(String::from)
+        .ok_or_else(|| "Invalid path".to_string())
+}
+
+/// Cancel native recording without saving
+#[command]
+pub fn cancel_native_recording(
+    recorder_state: State<'_, RecorderState>,
+) -> Result<(), String> {
+    log::info!("[Voice] Cancelling native recording...");
+    let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    recorder.cancel();
+    Ok(())
+}
+
+/// Check if currently recording
+#[command]
+pub fn is_native_recording(
+    recorder_state: State<'_, RecorderState>,
+) -> Result<bool, String> {
+    let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    Ok(recorder.is_recording())
 }
