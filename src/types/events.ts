@@ -100,6 +100,11 @@ export interface Task {
   branch_name: string | null
   files_touched: string
   checklist: string | null
+  pipeline_state: string
+  pipeline_triggered_at: string | null
+  pipeline_error: string | null
+  agent_session_id: string | null
+  last_script_exit_code: number | null
   created_at: string
   updated_at: string
 }

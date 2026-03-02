@@ -7,6 +7,7 @@ use crate::db::{self, AppState, Task};
 use crate::error::AppError;
 use crate::pipeline::{self, PipelineState};
 use crate::process::agent_runner::AgentRunner;
+use crate::process::pty_manager::PtyManager;
 use tauri::{AppHandle, Emitter, State};
 
 /// Mark a pipeline execution as complete
@@ -133,4 +134,114 @@ pub async fn fire_agent_trigger(
     );
 
     Ok(updated_task)
+}
+
+/// Fire script trigger - spawns script via PTY and tracks exit code
+/// Called by frontend after receiving pipeline:spawn_script event
+#[tauri::command(rename_all = "camelCase")]
+pub async fn fire_script_trigger(
+    task_id: String,
+    script_path: String,
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    pty_manager: State<'_, Arc<Mutex<PtyManager>>>,
+) -> Result<Task, String> {
+    // Get task and workspace to find working directory
+    let (task, workspace, column) = {
+        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+        let task = db::get_task(&conn, &task_id).map_err(|e| format!("Task not found: {}", e))?;
+        let workspace = db::get_workspace(&conn, &task.workspace_id)
+            .map_err(|e| format!("Workspace not found: {}", e))?;
+        let column = db::get_column(&conn, &task.column_id)
+            .map_err(|e| format!("Column not found: {}", e))?;
+        (task, workspace, column)
+    };
+
+    let working_dir = workspace.repo_path.clone();
+
+    // Build environment variables for the script
+    let mut env_vars = HashMap::new();
+    env_vars.insert("TASK_ID".to_string(), task_id.clone());
+    env_vars.insert("WORKSPACE_PATH".to_string(), working_dir.clone());
+    env_vars.insert("TASK_TITLE".to_string(), task.title.clone());
+
+    // Parse the script path - could be a command with args
+    let parts: Vec<&str> = script_path.split_whitespace().collect();
+    let (command, args): (&str, Vec<String>) = if parts.is_empty() {
+        return Err("Empty script path".to_string());
+    } else {
+        (parts[0], parts[1..].iter().map(|s| s.to_string()).collect())
+    };
+
+    // Spawn the script via PTY (use script_<task_id> as session key to avoid collision with agents)
+    let session_key = format!("script_{}", task_id);
+    let pid = {
+        let mut mgr = pty_manager
+            .lock()
+            .map_err(|e| format!("PTY manager lock error: {}", e))?;
+
+        mgr.spawn(
+            &session_key,
+            command,
+            &args,
+            Some(&working_dir),
+            Some(&env_vars),
+            120,
+            40,
+            app_handle.clone(),
+        )
+        .map_err(|e| format!("Failed to spawn script: {}", e))?
+    };
+
+    // Update task: set pipeline state to running and clear previous exit code
+    let updated_task = {
+        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+        let ts = db::now();
+
+        // Clear previous exit code
+        db::update_task_script_exit_code(&conn, &task_id, None)
+            .map_err(|e| format!("Failed to clear exit code: {}", e))?;
+
+        // Update pipeline state to running
+        db::update_task_pipeline_state(
+            &conn,
+            &task_id,
+            PipelineState::Running.as_str(),
+            Some(&ts),
+            None,
+        )
+        .map_err(|e| format!("Failed to update pipeline state: {}", e))?
+    };
+
+    // Emit running event
+    let _ = app_handle.emit(
+        "pipeline:running",
+        &pipeline::PipelineEvent {
+            task_id: task_id.clone(),
+            column_id: column.id.clone(),
+            event_type: "running".to_string(),
+            state: PipelineState::Running.as_str().to_string(),
+            message: Some(format!("Script spawned: {} (pid: {})", script_path, pid)),
+        },
+    );
+
+    Ok(updated_task)
+}
+
+/// Update script exit code for a task (called when script PTY exits)
+#[tauri::command(rename_all = "camelCase")]
+pub fn update_script_exit_code(
+    app: AppHandle,
+    state: State<AppState>,
+    task_id: String,
+    exit_code: i64,
+) -> Result<Task, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    // Update the exit code
+    db::update_task_script_exit_code(&conn, &task_id, Some(exit_code))?;
+
+    // Mark pipeline as complete with success based on exit code
+    let success = exit_code == 0;
+    pipeline::mark_complete(&conn, &app, &task_id, success)
 }

@@ -104,6 +104,17 @@ pub struct SpawnAgentEvent {
     pub flags: Option<Vec<String>>,
 }
 
+/// Event emitted when pipeline needs to spawn a script
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpawnScriptEvent {
+    pub task_id: String,
+    pub column_id: String,
+    pub workspace_id: String,
+    pub script_path: String,
+    pub task_title: String,
+}
+
 // ─── Pipeline Engine ────────────────────────────────────────────────────────
 
 /// Fire the column trigger when a task enters.
@@ -185,22 +196,21 @@ pub fn fire_trigger(
             Ok(task)
         }
         "script" => {
-            // Scripts run asynchronously
-            let task = db::update_task_pipeline_state(
-                conn,
-                &task.id,
-                PipelineState::Running.as_str(),
-                Some(&ts),
-                None,
-            )?;
-            let _ = app.emit("pipeline:running", &PipelineEvent {
+            // Script triggers emit spawn_script event for frontend to call fire_script_trigger
+            // Keep state as triggered until script actually spawns
+            let script_path = trigger.config.script.clone().unwrap_or_default();
+
+            // Emit spawn_script event with task/column info for frontend
+            let spawn_event = SpawnScriptEvent {
                 task_id: task.id.clone(),
                 column_id: column.id.clone(),
-                event_type: "running".to_string(),
-                state: PipelineState::Running.as_str().to_string(),
-                message: Some(format!("Script: {:?}", trigger.config.script)),
-            });
-            Ok(task)
+                workspace_id: task.workspace_id.clone(),
+                script_path,
+                task_title: task.title.clone(),
+            };
+            let _ = app.emit("pipeline:spawn_script", &spawn_event);
+
+            Ok(updated_task)
         }
         "webhook" => {
             // Webhooks are fire-and-forget
@@ -274,7 +284,7 @@ pub fn evaluate_exit_criteria(
         }
         "script_success" => {
             // Check if script exited with code 0
-            false
+            task.last_script_exit_code == Some(0)
         }
         "checklist_done" => {
             // Check if all checklist items are checked

@@ -48,6 +48,7 @@ export const mockTask = (overrides: Partial<Task> = {}): Task => ({
   pipelineState: 'idle',
   pipelineTriggeredAt: null,
   pipelineError: null,
+  lastScriptExitCode: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   ...overrides,
