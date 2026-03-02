@@ -71,7 +71,6 @@ export function PanelSidebar({
     if (!isDragging || !mode) return
 
     const currentConfig = SIDEBAR_CONFIG[mode]
-    document.body.classList.add('cursor-ew-resize')
     document.body.style.userSelect = 'none'
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -86,7 +85,6 @@ export function PanelSidebar({
 
     const handleMouseUp = () => {
       setIsDragging(false)
-      document.body.classList.remove('cursor-ew-resize')
       document.body.style.userSelect = ''
     }
 
@@ -96,7 +94,6 @@ export function PanelSidebar({
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
-      document.body.classList.remove('cursor-ew-resize')
       document.body.style.userSelect = ''
     }
   }, [isDragging, mode])
@@ -137,16 +134,8 @@ export function PanelSidebar({
           {/* Resize handle - outside overflow container */}
           <div
             onMouseDown={handleResizeMouseDown}
-            onMouseEnter={() => {
-              document.body.classList.add('cursor-ew-resize')
-            }}
-            onMouseLeave={() => {
-              if (!isDragging) {
-                document.body.classList.remove('cursor-ew-resize')
-              }
-            }}
             data-resize-cursor="ew"
-            className="absolute -right-1 top-0 bottom-0 w-3"
+            className="absolute -right-1 top-0 bottom-0 w-4 cursor-ew-resize"
           />
         </motion.div>
       )}

@@ -1,8 +1,15 @@
 //! Native audio recording with streaming support using cpal
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::Stream;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+
+/// Wrapper to make Stream Send+Sync (safe because we only access from Tauri's async runtime)
+#[allow(dead_code)]
+struct StreamHandle(Stream);
+unsafe impl Send for StreamHandle {}
+unsafe impl Sync for StreamHandle {}
 
 /// Audio recorder with streaming transcription support
 pub struct AudioRecorder {
@@ -12,6 +19,8 @@ pub struct AudioRecorder {
     target_sample_rate: u32,
     /// Track how many samples have been transcribed (for incremental chunks)
     transcribed_offset: Arc<AtomicUsize>,
+    /// Keep the stream alive while recording
+    stream: Mutex<Option<StreamHandle>>,
 }
 
 impl AudioRecorder {
@@ -22,6 +31,7 @@ impl AudioRecorder {
             input_sample_rate: Arc::new(AtomicU32::new(48000)),
             target_sample_rate: 16000, // Whisper requires 16kHz
             transcribed_offset: Arc::new(AtomicUsize::new(0)),
+            stream: Mutex::new(None),
         }
     }
 
@@ -121,14 +131,10 @@ impl AudioRecorder {
 
         stream.play().map_err(|e| format!("Failed to start recording: {}", e))?;
 
-        let is_rec = Arc::clone(&self.is_recording);
-        std::thread::spawn(move || {
-            while is_rec.load(Ordering::SeqCst) {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-            log::info!("Recording stream stopped");
-        });
+        // Store stream in struct to keep it alive while recording
+        *self.stream.lock().unwrap() = Some(StreamHandle(stream));
 
+        log::info!("[Recorder] Recording started successfully");
         Ok(())
     }
 
@@ -181,7 +187,9 @@ impl AudioRecorder {
         }
 
         self.is_recording.store(false, Ordering::SeqCst);
-        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        // Drop the stream to stop recording
+        *self.stream.lock().unwrap() = None;
 
         log::info!("[Recorder] Stopped, total samples: {}", self.samples.lock().unwrap().len());
         Ok(())
@@ -195,6 +203,7 @@ impl AudioRecorder {
     /// Cancel recording without saving
     pub fn cancel(&self) {
         self.is_recording.store(false, Ordering::SeqCst);
+        *self.stream.lock().unwrap() = None;
         self.samples.lock().unwrap().clear();
         self.transcribed_offset.store(0, Ordering::SeqCst);
     }
