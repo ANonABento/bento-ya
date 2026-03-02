@@ -1,6 +1,6 @@
 # Bento-ya Implementation Status
 
-> Last updated: 2025-03-01
+> Last updated: 2025-03-02
 >
 > See also: [ARCHITECTURE.md](./ARCHITECTURE.md) for system overview
 
@@ -99,18 +99,33 @@ These tickets track work needed to connect existing UI to functional backends:
 
 | ID | Title | Status | Complexity |
 |----|-------|--------|------------|
-| T033 | LLM Integration (Anthropic/OpenAI) | ❌ Plan Ready | XL |
+| T033 | LLM Integration (Anthropic/OpenAI) | ✅ **COMPLETE** | XL |
 | T034 | Pipeline Exit Criteria Evaluation | ❌ Not Started | M |
 | T035 | History Replay Backend | ❌ Not Started | M |
 | T036 | Metrics Data Collection | ❌ Not Started | S |
 | T037 | Checklist Persistence | ❌ Not Started | M |
 | T038 | Settings Backend Sync | ❌ Not Started | M |
+| T039 | Orchestrator Intelligence | ✅ **COMPLETE** | M |
 
-**Priority**: T033 (LLM) is the core blocker — enables orchestrator, metrics, and pipeline agent_complete trigger.
+**Next Priority**: T034 (Pipeline Exit Criteria) or T036 (Metrics).
 
 ---
 
 ## Recent Work (March 2025)
+
+### Orchestrator Intelligence - T033 & T039 (2025-03-02)
+- **LLM Streaming**: Both API mode (direct Anthropic) and CLI mode (Claude CLI subprocess)
+- **Tool Use**: create_task, update_task, move_task, delete_task, list_tasks
+- **Persistent CLI Sessions**: Reuse CLI process across messages for conversation context
+- **Thinking Display**: Show Claude's extended thinking in collapsible blocks
+- **Message Queue**: Queue messages while processing, with cancel support
+- **Voice Input**: Whisper transcription integrated into chat input
+- **UI Improvements**: Renamed to "Chef", added History/Files sidebar, resizable panels
+
+### macOS Tauri Pitfall Documented (2025-03-02)
+- CSS cursor classes don't work on macOS WKWebView
+- **Fix**: Use inline `style={{ cursor: 'row-resize' }}` instead of Tailwind classes
+- Added CLAUDE.md documenting this for future reference
 
 ### Terminal/Agent IPC Fix (2025-03-01)
 - Fixed parameter naming mismatch between JS (camelCase) and Rust (snake_case)
@@ -151,5 +166,7 @@ These tickets track work needed to connect existing UI to functional backends:
 ## Next Steps
 
 1. **Implement v0.4** - PR workflow and siege loop for automated development
-2. **E2E Tests** - Add Playwright/Tauri tests for critical paths
-3. **Documentation** - User guide and API docs
+2. **T034: Pipeline Exit Criteria** - Evaluate exit conditions to auto-advance tasks
+3. **T036: Metrics Data Collection** - Track usage/costs from orchestrator calls
+4. **Files Sidebar** - Implement plans/md/checklists viewer in Chef sidebar
+5. **E2E Tests** - Add Playwright/Tauri tests for critical paths
