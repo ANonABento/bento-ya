@@ -339,6 +339,10 @@ pub fn evaluate_exit_criteria(
             // Would query GitHub API for PR associated with task.branch_name
             false
         }
+        "manual_approval" => {
+            // Check if review_status is "approved"
+            task.review_status.as_deref() == Some("approved")
+        }
         _ => false,
     };
 

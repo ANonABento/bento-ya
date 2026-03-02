@@ -1,48 +1,54 @@
+import type { ReviewStatus } from '@/types'
+
 export interface ReviewActionsProps {
-  onApprove?: () => void
-  onReject?: () => void
+  reviewStatus: ReviewStatus | null
+  onApprove: () => void
+  onReject: () => void
   disabled?: boolean
 }
 
-/** Placeholder approve/reject buttons for v0.1 — full pipeline integration in v0.2. */
-export function ReviewActions({ onApprove, onReject, disabled = false }: ReviewActionsProps) {
+/** Approve/reject buttons for manual review workflow */
+export function ReviewActions({ reviewStatus, onApprove, onReject, disabled = false }: ReviewActionsProps) {
+  const isApproved = reviewStatus === 'approved'
+  const isRejected = reviewStatus === 'rejected'
+  
   return (
-    <div style={{ display: 'flex', gap: 8, padding: '12px 0' }}>
+    <div style={{ display: 'flex', gap: 8, padding: '12px 0', alignItems: 'center' }}>
       <button
         type="button"
         onClick={onApprove}
-        disabled={disabled}
+        disabled={disabled || isApproved}
         style={{
           padding: '6px 16px',
           borderRadius: 6,
-          border: '1px solid #4ADE80',
-          background: 'rgba(74, 222, 128, 0.1)',
+          border: isApproved ? '1px solid #4ADE80' : '1px solid rgba(74, 222, 128, 0.5)',
+          background: isApproved ? 'rgba(74, 222, 128, 0.25)' : 'rgba(74, 222, 128, 0.1)',
           color: '#4ADE80',
           fontFamily: 'var(--font-mono)',
           fontSize: 13,
-          cursor: disabled ? 'not-allowed' : 'pointer',
+          cursor: disabled || isApproved ? 'not-allowed' : 'pointer',
           opacity: disabled ? 0.5 : 1,
         }}
       >
-        Approve
+        {isApproved ? 'Approved' : 'Approve'}
       </button>
       <button
         type="button"
         onClick={onReject}
-        disabled={disabled}
+        disabled={disabled || isRejected}
         style={{
           padding: '6px 16px',
           borderRadius: 6,
-          border: '1px solid #F87171',
-          background: 'rgba(248, 113, 113, 0.1)',
+          border: isRejected ? '1px solid #F87171' : '1px solid rgba(248, 113, 113, 0.5)',
+          background: isRejected ? 'rgba(248, 113, 113, 0.25)' : 'rgba(248, 113, 113, 0.1)',
           color: '#F87171',
           fontFamily: 'var(--font-mono)',
           fontSize: 13,
-          cursor: disabled ? 'not-allowed' : 'pointer',
+          cursor: disabled || isRejected ? 'not-allowed' : 'pointer',
           opacity: disabled ? 0.5 : 1,
         }}
       >
-        Reject
+        {isRejected ? 'Rejected' : 'Reject'}
       </button>
     </div>
   )

@@ -163,3 +163,54 @@ pub fn delete_task(state: State<AppState>, id: String) -> Result<(), AppError> {
     db::delete_task(&conn, &id)?;
     Ok(())
 }
+
+/// Approve a task - sets review_status to "approved" and triggers auto-advance if exit_type is manual_approval
+#[tauri::command]
+pub fn approve_task(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<Task, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    
+    // Set review_status to approved
+    let task = db::update_task_review_status(&conn, &id, Some("approved"))?;
+    
+    // Get the column to check if we should try auto-advance
+    let column = db::get_column(&conn, &task.column_id)?;
+    
+    // Try to auto-advance if the column has auto_advance enabled
+    if column.auto_advance {
+        if let Some(advanced_task) = pipeline::try_auto_advance(&conn, &app, &task, &column)? {
+            return Ok(advanced_task);
+        }
+    }
+    
+    Ok(task)
+}
+
+/// Reject a task - sets review_status to "rejected" and optionally sets pipeline_error
+#[tauri::command]
+pub fn reject_task(
+    state: State<AppState>,
+    id: String,
+    reason: Option<String>,
+) -> Result<Task, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    
+    // Set review_status to rejected
+    let mut task = db::update_task_review_status(&conn, &id, Some("rejected"))?;
+    
+    // Set pipeline_error with rejection reason if provided
+    if let Some(ref reason_text) = reason {
+        task = db::update_task_pipeline_state(
+            &conn,
+            &id,
+            &task.pipeline_state,
+            task.pipeline_triggered_at.as_deref(),
+            Some(reason_text),
+        )?;
+    }
+    
+    Ok(task)
+}

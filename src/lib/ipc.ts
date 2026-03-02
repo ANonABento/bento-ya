@@ -163,6 +163,16 @@ export async function deleteTask(id: string): Promise<void> {
   return invoke<void>('delete_task', { id })
 }
 
+// ─── Review actions ─────────────────────────────────────────────────────────
+
+export async function approveTask(id: string): Promise<Task> {
+  return invoke<Task>('approve_task', { id })
+}
+
+export async function rejectTask(id: string, reason?: string): Promise<Task> {
+  return invoke<Task>('reject_task', { id, reason })
+}
+
 // ─── Git commands ─────────────────────────────────────────────────────────
 
 export async function createTaskBranch(
