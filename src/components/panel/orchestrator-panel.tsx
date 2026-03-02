@@ -60,6 +60,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([])
   const [failedMessage, setFailedMessage] = useState<FailedMessage | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  // Ref for synchronous processing check (avoids stale closure issues)
+  const isProcessingRef = useRef(false)
   const dragStartY = useRef(0)
   const dragStartHeight = useRef(0)
   const hasDragged = useRef(false)
@@ -108,6 +110,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             setMessages(newMessages)
             setSessions(newSessions)
             // Clear streaming state AFTER messages are loaded
+            isProcessingRef.current = false
             setIsProcessing(false)
             setProcessingStartTime(null)
             setStreamingContent('')
@@ -120,6 +123,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
       const unsubError = await listen<OrchestratorEvent>('orchestrator:error', (event) => {
         if (event.payload.workspaceId === workspaceId) {
+          isProcessingRef.current = false
           setIsProcessing(false)
           setProcessingStartTime(null)
           setStreamingContent('')
@@ -221,12 +225,13 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
   // Process queue when current request completes
   useEffect(() => {
-    if (!isProcessing && messageQueue.length > 0 && activeSession && !failedMessage) {
+    if (!isProcessing && !isProcessingRef.current && messageQueue.length > 0 && activeSession && !failedMessage) {
       const [next, ...rest] = messageQueue
       if (!next) return
       setMessageQueue(rest)
 
-      // Set processing state immediately
+      // Set ref and state
+      isProcessingRef.current = true
       setIsProcessing(true)
       setProcessingStartTime(Date.now())
 
@@ -361,19 +366,20 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     }
     setMessages((prev) => [...prev, optimisticMessage])
 
-    // If already processing, queue the message
-    if (isProcessing) {
+    // Use ref for synchronous check (avoids stale closure when clicking fast)
+    if (isProcessingRef.current) {
       setMessageQueue((prev) => [...prev, { ...params, id: `queued-${Date.now()}` }])
       return
     }
 
-    // Set processing immediately to prevent race conditions
+    // Set ref synchronously, then state for UI
+    isProcessingRef.current = true
     setIsProcessing(true)
     setProcessingStartTime(Date.now())
 
     // Process the message
     void processMessage(params)
-  }, [activeSession, workspaceId, isProcessing, processMessage])
+  }, [activeSession, workspaceId, processMessage])
 
   // Handle cancel
   const handleCancel = useCallback(async () => {
