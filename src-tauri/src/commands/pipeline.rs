@@ -228,6 +228,86 @@ pub async fn fire_script_trigger(
     Ok(updated_task)
 }
 
+/// Fire skill trigger - spawns Claude CLI and sends skill command
+/// Called by frontend after receiving pipeline:spawn_skill event
+#[tauri::command(rename_all = "camelCase")]
+pub async fn fire_skill_trigger(
+    task_id: String,
+    skill_name: String,
+    env_vars: Option<HashMap<String, String>>,
+    cli_path: Option<String>,
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+) -> Result<Task, String> {
+    // Get task and workspace to find working directory
+    let (_task, workspace, column) = {
+        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+        let task = db::get_task(&conn, &task_id).map_err(|e| format!("Task not found: {}", e))?;
+        let workspace = db::get_workspace(&conn, &task.workspace_id)
+            .map_err(|e| format!("Workspace not found: {}", e))?;
+        let column = db::get_column(&conn, &task.column_id)
+            .map_err(|e| format!("Column not found: {}", e))?;
+        (task, workspace, column)
+    };
+
+    let working_dir = workspace.repo_path.clone();
+
+    // Build the skill prompt: /<skill_name>
+    let skill_prompt = format!("/{}", skill_name);
+
+    // Spawn the agent with initial skill prompt
+    let session = {
+        let mut runner = agent_runner
+            .lock()
+            .map_err(|e| format!("Agent runner lock error: {}", e))?;
+
+        runner.start_agent_with_prompt(
+            &task_id,
+            "skill", // agent_type - mark as skill
+            &working_dir,
+            env_vars,
+            cli_path,
+            &skill_prompt,
+            app_handle.clone(),
+        )?
+    };
+
+    // Update task: set pipeline state to running and link agent session
+    let updated_task = {
+        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+        let ts = db::now();
+
+        // Update pipeline state to running
+        db::update_task_pipeline_state(
+            &conn,
+            &task_id,
+            PipelineState::Running.as_str(),
+            Some(&ts),
+            None,
+        )
+        .map_err(|e| format!("Failed to update pipeline state: {}", e))?;
+
+        // Link agent session to task (reuse agent session tracking for skills)
+        db::update_task_agent_session(&conn, &task_id, Some(&session.task_id))
+            .map_err(|e| format!("Failed to link agent session: {}", e))?
+    };
+
+    // Emit running event
+    let _ = app_handle.emit(
+        "pipeline:running",
+        &pipeline::PipelineEvent {
+            task_id: task_id.clone(),
+            column_id: column.id.clone(),
+            event_type: "running".to_string(),
+            state: PipelineState::Running.as_str().to_string(),
+            message: Some(format!("Skill spawned: {} (pid: {:?})", skill_name, session.pid)),
+        },
+    );
+
+    Ok(updated_task)
+}
+
 /// Update script exit code for a task (called when script PTY exits)
 #[tauri::command(rename_all = "camelCase")]
 pub fn update_script_exit_code(

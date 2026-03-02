@@ -115,6 +115,17 @@ pub struct SpawnScriptEvent {
     pub task_title: String,
 }
 
+/// Event emitted when pipeline needs to spawn a skill
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpawnSkillEvent {
+    pub task_id: String,
+    pub column_id: String,
+    pub workspace_id: String,
+    pub skill_name: String,
+    pub flags: Option<Vec<String>>,
+}
+
 // ─── Pipeline Engine ────────────────────────────────────────────────────────
 
 /// Fire the column trigger when a task enters.
@@ -178,22 +189,21 @@ pub fn fire_trigger(
             Ok(updated_task)
         }
         "skill" => {
-            // Skills run synchronously for now
-            let task = db::update_task_pipeline_state(
-                conn,
-                &task.id,
-                PipelineState::Running.as_str(),
-                Some(&ts),
-                None,
-            )?;
-            let _ = app.emit("pipeline:running", &PipelineEvent {
+            // Skill triggers emit spawn_skill event for frontend to call fire_skill_trigger
+            // Keep state as triggered until skill actually spawns (same pattern as agent)
+            let skill_name = trigger.config.skill.clone().unwrap_or_else(|| "code-check".to_string());
+
+            // Emit spawn_skill event with task/column info for frontend
+            let spawn_event = SpawnSkillEvent {
                 task_id: task.id.clone(),
                 column_id: column.id.clone(),
-                event_type: "running".to_string(),
-                state: PipelineState::Running.as_str().to_string(),
-                message: Some(format!("Skill: {:?}", trigger.config.skill)),
-            });
-            Ok(task)
+                workspace_id: task.workspace_id.clone(),
+                skill_name,
+                flags: trigger.config.flags.clone(),
+            };
+            let _ = app.emit("pipeline:spawn_skill", &spawn_event);
+
+            Ok(updated_task)
         }
         "script" => {
             // Script triggers emit spawn_script event for frontend to call fire_script_trigger

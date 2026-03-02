@@ -104,6 +104,7 @@ pub fn run() {
             commands::pipeline::set_pipeline_error,
             commands::pipeline::fire_agent_trigger,
             commands::pipeline::fire_script_trigger,
+            commands::pipeline::fire_skill_trigger,
             commands::pipeline::update_script_exit_code,
             // Orchestrator commands
             commands::orchestrator::get_orchestrator_context,
