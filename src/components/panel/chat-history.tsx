@@ -9,6 +9,8 @@ type ChatHistoryProps = {
   processingStartTime?: number | null
   thinkingContent?: string
   toolCalls?: ToolCallEvent[]
+  onCancel?: () => void
+  queueCount?: number
 }
 
 export function ChatHistory({
@@ -18,6 +20,8 @@ export function ChatHistory({
   processingStartTime = null,
   thinkingContent = '',
   toolCalls = [],
+  onCancel,
+  queueCount = 0,
 }: ChatHistoryProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -68,6 +72,8 @@ export function ChatHistory({
           startTime={processingStartTime}
           thinkingContent={thinkingContent}
           toolCalls={toolCalls}
+          onCancel={onCancel}
+          queueCount={queueCount}
         />
       )}
     </div>
@@ -77,6 +83,50 @@ export function ChatHistory({
 type MessageBubbleProps = {
   message: ChatMessage
   isLatest: boolean
+}
+
+// Parse action blocks from message content and extract display text + actions
+function parseMessageContent(content: string): { displayText: string; actions: Array<{ action: string; title?: string; column?: string; task_id?: string }> } {
+  const actions: Array<{ action: string; title?: string; column?: string; task_id?: string }> = []
+  let displayText = content
+
+  // Find and extract all ```action blocks
+  const actionBlockRegex = /```action\s*\n?([\s\S]*?)```/g
+  let match
+
+  while ((match = actionBlockRegex.exec(content)) !== null) {
+    try {
+      const captured = match[1]
+      if (!captured) continue
+      const parsed = JSON.parse(captured.trim())
+      if (Array.isArray(parsed)) {
+        actions.push(...parsed)
+      }
+    } catch {
+      // Invalid JSON, ignore
+    }
+  }
+
+  // Remove action blocks from display text
+  displayText = content.replace(actionBlockRegex, '').trim()
+
+  return { displayText, actions }
+}
+
+// Format action for display
+function formatAction(action: { action: string; title?: string; column?: string; task_id?: string }): string {
+  switch (action.action) {
+    case 'create_task':
+      return `Created "${action.title}"${action.column ? ` in ${action.column}` : ''}`
+    case 'update_task':
+      return `Updated task${action.title ? `: "${action.title}"` : ''}`
+    case 'move_task':
+      return `Moved task to ${action.column ?? 'column'}`
+    case 'delete_task':
+      return `Deleted task`
+    default:
+      return action.action
+  }
 }
 
 function MessageBubble({ message, isLatest }: MessageBubbleProps) {
@@ -97,6 +147,9 @@ function MessageBubble({ message, isLatest }: MessageBubbleProps) {
     )
   }
 
+  // Parse action blocks for assistant messages
+  const { displayText, actions } = isUser ? { displayText: message.content, actions: [] } : parseMessageContent(message.content)
+
   return (
     <motion.div
       initial={isLatest ? { opacity: 0, y: 5 } : false}
@@ -110,7 +163,20 @@ function MessageBubble({ message, isLatest }: MessageBubbleProps) {
             : 'bg-surface-hover text-text-primary'
         }`}
       >
-        <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+        {/* Show executed actions with checkmarks */}
+        {actions.length > 0 && (
+          <div className="mb-2 space-y-1">
+            {actions.map((action, idx) => (
+              <div key={idx} className="flex items-center gap-2 text-xs rounded bg-bg/50 px-2 py-1">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-green-400 shrink-0">
+                  <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
+                </svg>
+                <span className="text-text-secondary">{formatAction(action)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {displayText && <p className="text-sm whitespace-pre-wrap">{displayText}</p>}
       </div>
     </motion.div>
   )
@@ -121,9 +187,11 @@ type StreamingBubbleProps = {
   startTime?: number | null
   thinkingContent?: string
   toolCalls?: ToolCallEvent[]
+  onCancel?: () => void
+  queueCount?: number
 }
 
-function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls = [] }: StreamingBubbleProps) {
+function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls = [], onCancel, queueCount = 0 }: StreamingBubbleProps) {
   const [elapsed, setElapsed] = useState(0)
   const [isThinkingExpanded, setIsThinkingExpanded] = useState(false)
 
@@ -224,11 +292,25 @@ function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls =
           <TypingDots />
         ) : null}
 
-        {/* Status line */}
-        <p className="text-xs text-text-secondary flex items-center gap-1.5">
-          {hasContent ? 'Typing' : hasToolCalls ? 'Using tools' : hasThinking ? 'Thinking' : 'Processing'}
-          {elapsed > 0 ? ` · ${elapsed}s` : ''}
-        </p>
+        {/* Status line with cancel button */}
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-text-secondary flex items-center gap-1.5">
+            {hasContent ? 'Typing' : hasToolCalls ? 'Using tools' : hasThinking ? 'Thinking' : 'Processing'}
+            {elapsed > 0 ? ` · ${elapsed}s` : ''}
+            {queueCount > 0 && (
+              <span className="text-accent"> · {queueCount} queued</span>
+            )}
+          </p>
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="text-xs text-text-secondary hover:text-red-400 transition-colors"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </div>
     </motion.div>
   )

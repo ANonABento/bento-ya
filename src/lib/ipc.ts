@@ -541,6 +541,10 @@ export async function streamOrchestratorChat(
   })
 }
 
+export async function cancelOrchestratorChat(workspaceId: string): Promise<void> {
+  return invoke<void>('cancel_orchestrator_chat', { workspaceId })
+}
+
 // ─── Voice commands ─────────────────────────────────────────────────────────
 
 export type TranscriptionResult = {

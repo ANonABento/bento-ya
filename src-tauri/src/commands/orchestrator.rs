@@ -16,6 +16,12 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use once_cell::sync::Lazy;
+
+// Global state for tracking active CLI processes per workspace
+static ACTIVE_PROCESSES: Lazy<Mutex<HashMap<String, u32>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -409,6 +415,55 @@ pub async fn stream_orchestrator_chat(
     }
 }
 
+/// Cancel an ongoing orchestrator chat (kills the CLI process)
+#[tauri::command(rename_all = "camelCase")]
+pub async fn cancel_orchestrator_chat(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    workspace_id: String,
+) -> Result<(), AppError> {
+    // Get and remove the process ID
+    let pid = {
+        let mut processes = ACTIVE_PROCESSES.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        processes.remove(&workspace_id)
+    };
+
+    if let Some(pid) = pid {
+        // Kill the process
+        #[cfg(unix)]
+        {
+            use std::process::Command as StdCommand;
+            let _ = StdCommand::new("kill")
+                .arg("-9")
+                .arg(pid.to_string())
+                .output();
+        }
+        #[cfg(windows)]
+        {
+            use std::process::Command as StdCommand;
+            let _ = StdCommand::new("taskkill")
+                .args(["/F", "/PID", &pid.to_string()])
+                .output();
+        }
+
+        // Update orchestrator session to idle
+        {
+            let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            let session = db::get_or_create_orchestrator_session(&conn, &workspace_id)?;
+            let _ = db::update_orchestrator_session(&conn, &session.id, Some("idle"), None);
+        }
+
+        // Emit cancelled event
+        let _ = app.emit("orchestrator:complete", &OrchestratorEvent {
+            workspace_id: workspace_id.clone(),
+            event_type: "cancelled".to_string(),
+            message: Some("Request cancelled".to_string()),
+        });
+    }
+
+    Ok(())
+}
+
 async fn stream_via_api(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -647,6 +702,13 @@ async fn stream_via_cli(
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| AppError::InvalidInput(format!("Failed to spawn CLI '{}': {}", cli_path, e)))?;
+
+    // Track process ID for cancellation
+    if let Some(pid) = child.id() {
+        if let Ok(mut processes) = ACTIVE_PROCESSES.lock() {
+            processes.insert(workspace_id.to_string(), pid);
+        }
+    }
 
     let stdout = child.stdout.take()
         .ok_or_else(|| AppError::InvalidInput("Failed to capture CLI stdout".to_string()))?;
