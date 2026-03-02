@@ -9,6 +9,7 @@ pub mod db;
 pub mod error;
 pub mod events;
 pub mod git;
+pub mod llm;
 pub mod pipeline;
 pub mod process;
 
@@ -88,6 +89,7 @@ pub fn run() {
             commands::orchestrator::clear_chat_history,
             commands::orchestrator::process_orchestrator_response,
             commands::orchestrator::set_orchestrator_error,
+            commands::orchestrator::stream_orchestrator_chat,
             // Voice commands
             commands::voice::transcribe_audio,
             commands::voice::save_audio_temp,

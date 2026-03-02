@@ -21,8 +21,10 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 thiserror = "1"
 chrono = { version = "0.4", features = ["serde"] }
-reqwest = { version = "0.12", features = ["json", "multipart"] }
+reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
 portable-pty = "0.8"
+futures = "0.3"
+async-stream = "0.3"
 git2 = "0.19"
 log = "0.4"
 

@@ -1476,7 +1476,7 @@ mod tests {
         assert_eq!(col.position, 0);
         assert!(col.visible);
 
-        let updated = update_column(&conn, &col.id, Some("Todo"), Some(1), None, None).unwrap();
+        let updated = update_column(&conn, &col.id, Some("Todo"), None, Some(1), None, None, None, None, None).unwrap();
         assert_eq!(updated.name, "Todo");
         assert_eq!(updated.position, 1);
 

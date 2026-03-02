@@ -5,17 +5,18 @@ import type { ChatMessage } from '@/lib/ipc'
 type ChatHistoryProps = {
   messages: ChatMessage[]
   isLoading?: boolean
+  streamingContent?: string
 }
 
-export function ChatHistory({ messages, isLoading = false }: ChatHistoryProps) {
+export function ChatHistory({ messages, isLoading = false, streamingContent = '' }: ChatHistoryProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages or streaming content
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [messages])
+  }, [messages, streamingContent])
 
   if (isLoading) {
     return (
@@ -47,8 +48,9 @@ export function ChatHistory({ messages, isLoading = false }: ChatHistoryProps) {
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
       {messages.map((msg, index) => (
-        <MessageBubble key={msg.id} message={msg} isLatest={index === messages.length - 1} />
+        <MessageBubble key={msg.id} message={msg} isLatest={index === messages.length - 1 && !streamingContent} />
       ))}
+      {streamingContent && <StreamingBubble content={streamingContent} />}
     </div>
   )
 }
@@ -90,15 +92,30 @@ function MessageBubble({ message, isLatest }: MessageBubbleProps) {
         }`}
       >
         <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-        <p className={`mt-1 text-xs ${isUser ? 'text-bg/70' : 'text-text-secondary'}`}>
-          {formatTime(message.createdAt)}
+      </div>
+    </motion.div>
+  )
+}
+
+type StreamingBubbleProps = {
+  content: string
+}
+
+function StreamingBubble({ content }: StreamingBubbleProps) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 5 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex justify-start"
+    >
+      <div className="max-w-[80%] rounded-xl px-3 py-2 bg-surface-hover text-text-primary">
+        <p className="text-sm whitespace-pre-wrap">{content}</p>
+        <p className="mt-1 text-xs text-text-secondary flex items-center gap-1">
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+          Typing...
         </p>
       </div>
     </motion.div>
   )
 }
 
-function formatTime(isoString: string): string {
-  const date = new Date(isoString)
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}

@@ -257,6 +257,7 @@ const mockCommands: Record<string, CommandHandler> = {
   clear_chat_history: () => undefined,
   process_orchestrator_response: () => ({ message: '', actions: [], tasksCreated: [] }),
   set_orchestrator_error: () => ({ id: '', workspaceId: '', status: 'error', lastError: '', createdAt: '', updatedAt: '' }),
+  stream_orchestrator_chat: () => { console.warn('[Browser Mock] stream_orchestrator_chat not available in browser mode'); return undefined },
 
   // Voice commands (stubs)
   is_voice_available: () => false,

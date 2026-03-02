@@ -446,6 +446,35 @@ export const onOrchestratorComplete = (cb: EventCallback<OrchestratorEvent>): Pr
 export const onOrchestratorError = (cb: EventCallback<OrchestratorEvent>): Promise<UnlistenFn> =>
   listen<OrchestratorEvent>('orchestrator:error', cb)
 
+// ─── Orchestrator streaming ─────────────────────────────────────────────────
+
+export type StreamChunkEvent = {
+  workspaceId: string
+  delta: string
+  finishReason: string | null
+}
+
+export const onOrchestratorStream = (cb: EventCallback<StreamChunkEvent>): Promise<UnlistenFn> =>
+  listen<StreamChunkEvent>('orchestrator:stream', cb)
+
+export async function streamOrchestratorChat(
+  workspaceId: string,
+  message: string,
+  connectionMode: 'cli' | 'api',
+  apiKey?: string,
+  model?: string,
+  cliPath?: string,
+): Promise<void> {
+  return invoke<void>('stream_orchestrator_chat', {
+    workspaceId,
+    message,
+    connectionMode,
+    apiKey,
+    model,
+    cliPath,
+  })
+}
+
 // ─── Voice commands ─────────────────────────────────────────────────────────
 
 export type TranscriptionResult = {

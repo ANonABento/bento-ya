@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { listen } from '@tauri-apps/api/event'
 import { useUIStore } from '@/stores/ui-store'
-import { getChatHistory, type ChatMessage, type OrchestratorEvent } from '@/lib/ipc'
+import { getChatHistory, clearChatHistory, type ChatMessage, type OrchestratorEvent, type StreamChunkEvent } from '@/lib/ipc'
 import { ChatHistory } from './chat-history'
 import { PanelInput } from './panel-input'
+import { PanelSidebar } from './panel-sidebar'
 
 type OrchestratorPanelProps = {
   workspaceId: string
@@ -22,6 +23,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [isProcessing, setIsProcessing] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [streamingContent, setStreamingContent] = useState('')
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   const dragStartY = useRef(0)
   const dragStartHeight = useRef(0)
@@ -58,6 +61,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       const unsubComplete = await listen<OrchestratorEvent>('orchestrator:complete', (event) => {
         if (event.payload.workspaceId === workspaceId) {
           setIsProcessing(false)
+          setStreamingContent('')
           // Refresh messages
           void getChatHistory(workspaceId, 100).then(setMessages)
         }
@@ -67,9 +71,21 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       const unsubError = await listen<OrchestratorEvent>('orchestrator:error', (event) => {
         if (event.payload.workspaceId === workspaceId) {
           setIsProcessing(false)
+          setStreamingContent('')
         }
       })
       unsubscribes.push(unsubError)
+
+      const unsubStream = await listen<StreamChunkEvent>('orchestrator:stream', (event) => {
+        if (event.payload.workspaceId === workspaceId) {
+          if (event.payload.finishReason) {
+            setStreamingContent('')
+          } else if (event.payload.delta) {
+            setStreamingContent((prev) => prev + event.payload.delta)
+          }
+        }
+      })
+      unsubscribes.push(unsubStream)
     }
 
     void setupListeners()
@@ -147,8 +163,17 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   }, [isDragging, isPanelCollapsed, setPanelHeight, togglePanel])
 
   const handleMessageSent = useCallback(() => {
-    // Refresh messages after sending
+    // Refresh messages after sending completes
     void getChatHistory(workspaceId, 100).then(setMessages)
+  }, [workspaceId])
+
+  const handleNewChat = useCallback(async () => {
+    try {
+      await clearChatHistory(workspaceId)
+      setMessages([])
+    } catch (err) {
+      console.error('Failed to clear chat:', err)
+    }
   }, [workspaceId])
 
   const displayHeight = isPanelCollapsed ? COLLAPSED_HEIGHT : panelHeight
@@ -169,6 +194,18 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
         style={{ cursor: isPanelCollapsed ? 'pointer' : 'row-resize' }}
       >
         <div className="flex items-center gap-2" style={{ cursor: 'inherit' }}>
+          {/* Sidebar toggle */}
+          {!isPanelCollapsed && (
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                <path fillRule="evenodd" d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75Zm0 10.5a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75ZM2 10a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 2 10Z" clipRule="evenodd" />
+              </svg>
+            </button>
+          )}
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 20 20"
@@ -195,10 +232,24 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
         </div>
 
         <div className="flex items-center gap-2" style={{ cursor: 'inherit' }}>
+          {/* New Chat button */}
+          {!isPanelCollapsed && (
+            <button
+              type="button"
+              onClick={() => { void handleNewChat() }}
+              className="flex h-6 cursor-pointer items-center gap-1 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
+              </svg>
+              New
+            </button>
+          )}
           <span className="text-xs text-text-secondary" style={{ cursor: 'inherit' }}>
             {isPanelCollapsed ? 'Cmd+J to expand' : 'Cmd+J'}
           </span>
           <button
+            type="button"
             onClick={togglePanel}
             className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
           >
@@ -225,14 +276,24 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-1 flex-col overflow-hidden"
+            className="flex flex-1 overflow-hidden"
           >
-            <ChatHistory messages={messages} isLoading={isLoading} />
-            <PanelInput
-              workspaceId={workspaceId}
-              onMessageSent={handleMessageSent}
-              disabled={isProcessing}
+            {/* Sidebar */}
+            <PanelSidebar
+              isOpen={isSidebarOpen}
+              messageCount={messages.length}
+              onNewChat={() => { void handleNewChat() }}
             />
+            
+            {/* Main chat area */}
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <ChatHistory messages={messages} isLoading={isLoading} streamingContent={streamingContent} />
+              <PanelInput
+                workspaceId={workspaceId}
+                onMessageSent={handleMessageSent}
+                disabled={isProcessing}
+              />
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -206,15 +206,19 @@ pub fn get_api_key() -> Result<String, String> {
 
 /// Calculate cost in USD for Anthropic models
 pub fn calculate_cost(model: &str, usage: &TokenUsage) -> f64 {
-    // Pricing per million tokens (as of 2025)
-    let (input_price, output_price) = if model.contains("opus") {
-        (15.0, 75.0)
-    } else if model.contains("sonnet") {
-        (3.0, 15.0)
-    } else if model.contains("haiku") {
-        (0.25, 1.25)
+    use crate::llm::types::get_model_info;
+
+    let (input_price, output_price) = if let Some(info) = get_model_info(model) {
+        (info.input_cost_per_m, info.output_cost_per_m)
     } else {
-        (3.0, 15.0) // Default to Sonnet pricing
+        // Fallback: try to infer from model name
+        if model.contains("opus") {
+            (15.0, 75.0)
+        } else if model.contains("haiku") {
+            (0.25, 1.25)
+        } else {
+            (3.0, 15.0) // Default to Sonnet pricing
+        }
     };
 
     let input_cost = (usage.input_tokens as f64 / 1_000_000.0) * input_price;
