@@ -104,17 +104,15 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
   return (
     <div className="border-t border-border-default bg-surface p-3">
       <div className="flex items-end gap-2">
-        {/* Model selector */}
+        {/* Model selector with connection mode */}
         <div className="relative">
           <button
             type="button"
             onClick={() => setShowModelPicker(!showModelPicker)}
             disabled={isProcessing}
-            className="flex h-[38px] items-center gap-1 rounded-lg border border-border-default bg-bg px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+            className="flex h-[38px] items-center gap-1.5 rounded-lg border border-border-default bg-bg px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-              <path d="M8 1a.75.75 0 0 1 .75.75v6.5a.75.75 0 0 1-1.5 0v-6.5A.75.75 0 0 1 8 1ZM10.25 8a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0ZM8 15a.75.75 0 0 0 .75-.75V12.5h1.5a.75.75 0 0 0 0-1.5h-4.5a.75.75 0 0 0 0 1.5h1.5v1.75A.75.75 0 0 0 8 15Z" />
-            </svg>
+            <span className={`h-1.5 w-1.5 rounded-full ${anthropicProvider?.connectionMode === 'cli' ? 'bg-green-400' : 'bg-blue-400'}`} />
             <span className="max-w-[60px] truncate">{currentModel.name}</span>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
               <path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
@@ -122,7 +120,17 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
           </button>
 
           {showModelPicker && (
-            <div className="absolute bottom-full left-0 mb-1 w-48 rounded-lg border border-border-default bg-surface shadow-lg">
+            <div className="absolute bottom-full left-0 mb-1 w-48 rounded-lg border border-border-default bg-surface shadow-lg overflow-hidden">
+              {/* Connection mode indicator */}
+              <div className="px-3 py-2 border-b border-border-default bg-bg/50">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className={`h-1.5 w-1.5 rounded-full ${anthropicProvider?.connectionMode === 'cli' ? 'bg-green-400' : 'bg-blue-400'}`} />
+                  <span className="text-text-secondary">
+                    {anthropicProvider?.connectionMode === 'cli' ? 'CLI mode' : 'API mode'}
+                  </span>
+                </div>
+              </div>
+              {/* Model options */}
               {MODELS.map((model) => (
                 <button
                   key={model.id}
@@ -256,12 +264,6 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
             </svg>
           </button>
         </Tooltip>
-      </div>
-
-      {/* Connection mode indicator */}
-      <div className="mt-2 flex items-center gap-2 text-xs text-text-secondary/70">
-        <span className={`inline-block h-1.5 w-1.5 rounded-full ${anthropicProvider?.connectionMode === 'cli' ? 'bg-green-400' : 'bg-blue-400'}`} />
-        {anthropicProvider?.connectionMode === 'cli' ? 'CLI' : 'API'} mode
       </div>
     </div>
   )

@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self' blob: data: media:; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.anthropic.com https://*.openai.com"
     }
   },
   "bundle": {
@@ -30,6 +30,12 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png"
-    ]
+    ],
+    "macOS": {
+      "entitlements": "Entitlements.plist",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Bento-ya needs microphone access for voice input transcription."
+      }
+    }
   }
 }

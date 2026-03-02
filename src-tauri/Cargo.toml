@@ -32,6 +32,7 @@ log = "0.4"
 whisper-rs = "0.15"
 hound = "3.5"  # WAV file handling
 symphonia = { version = "0.5", features = ["all"] }  # Audio decoding
+cpal = "0.15"  # Native audio recording (bypasses webview limitations)
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

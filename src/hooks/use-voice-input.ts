@@ -82,6 +82,11 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       audioChunks.current = []
       setDuration(0)
 
+      // Check if mediaDevices is available (requires secure context)
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Microphone access not available. This may be a browser/webview limitation.')
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
