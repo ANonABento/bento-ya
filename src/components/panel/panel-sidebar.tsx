@@ -14,9 +14,30 @@ type PanelSidebarProps = {
   onDeleteSession?: (sessionId: string) => void
 }
 
-const MIN_WIDTH = 160
-const MAX_WIDTH = 400
-const DEFAULT_WIDTH = 200
+// Different constraints per mode
+const SIDEBAR_CONFIG = {
+  history: { min: 160, max: 280, default: 200 },
+  files: { min: 200, max: 600, default: 280 },
+} as const
+
+const STORAGE_KEY = 'chef-sidebar-widths'
+
+function loadWidths(): Record<string, number> {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    return stored ? JSON.parse(stored) : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveWidths(widths: Record<string, number>) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(widths))
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 export function PanelSidebar({
   mode,
@@ -27,10 +48,15 @@ export function PanelSidebar({
   onSelectSession,
   onDeleteSession,
 }: PanelSidebarProps) {
-  const [width, setWidth] = useState(DEFAULT_WIDTH)
+  // Per-mode widths with persistence
+  const [widths, setWidths] = useState<Record<string, number>>(() => loadWidths())
   const [isDragging, setIsDragging] = useState(false)
   const dragStartX = useRef(0)
   const dragStartWidth = useRef(0)
+
+  // Get current width for active mode
+  const config = mode ? SIDEBAR_CONFIG[mode] : SIDEBAR_CONFIG.history
+  const width = mode ? (widths[mode] ?? config.default) : config.default
 
   // Handle resize drag
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
@@ -42,15 +68,20 @@ export function PanelSidebar({
   }, [width])
 
   useEffect(() => {
-    if (!isDragging) return
+    if (!isDragging || !mode) return
 
+    const currentConfig = SIDEBAR_CONFIG[mode]
     document.body.style.cursor = 'ew-resize'
     document.body.style.userSelect = 'none'
 
     const handleMouseMove = (e: MouseEvent) => {
       const deltaX = e.clientX - dragStartX.current
-      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, dragStartWidth.current + deltaX))
-      setWidth(newWidth)
+      const newWidth = Math.min(currentConfig.max, Math.max(currentConfig.min, dragStartWidth.current + deltaX))
+      setWidths(prev => {
+        const updated = { ...prev, [mode]: newWidth }
+        saveWidths(updated)
+        return updated
+      })
     }
 
     const handleMouseUp = () => {
@@ -68,7 +99,7 @@ export function PanelSidebar({
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
-  }, [isDragging])
+  }, [isDragging, mode])
 
   return (
     <AnimatePresence>
