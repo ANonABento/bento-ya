@@ -53,7 +53,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | null>(null)
   const [_error, setError] = useState<string | null>(null)
   const [processingStartTime, setProcessingStartTime] = useState<number | null>(null)
   const [thinkingContent, setThinkingContent] = useState('')
@@ -477,41 +477,55 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       {/* Header - clickable to toggle, draggable to resize */}
       <div
         onMouseDown={handleHeaderMouseDown}
-        className="flex items-center justify-between px-3 py-2 select-none"
+        className="relative flex items-center justify-between px-3 py-2 select-none"
         style={{ cursor: isPanelCollapsed ? 'pointer' : 'row-resize' }}
       >
-        <div className="flex items-center gap-2" style={{ cursor: 'inherit' }}>
-          {/* Sidebar toggle */}
+        {/* Left: History + Files buttons */}
+        <div className="flex items-center gap-1" style={{ cursor: 'inherit' }}>
           {!isPanelCollapsed && (
-            <button
-              type="button"
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                <path fillRule="evenodd" d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75Zm0 10.5a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75ZM2 10a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 2 10Z" clipRule="evenodd" />
-              </svg>
-            </button>
+            <>
+              {/* History button */}
+              <button
+                type="button"
+                onClick={() => setSidebarMode(sidebarMode === 'history' ? null : 'history')}
+                className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                  sidebarMode === 'history'
+                    ? 'bg-surface-hover text-text-primary'
+                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                }`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13a.75.75 0 0 0-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 0 0 0-1.5h-3.25V5Z" clipRule="evenodd" />
+                </svg>
+              </button>
+              {/* Files button */}
+              <button
+                type="button"
+                onClick={() => setSidebarMode(sidebarMode === 'files' ? null : 'files')}
+                className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                  sidebarMode === 'files'
+                    ? 'bg-surface-hover text-text-primary'
+                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                }`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path d="M3.75 3A1.75 1.75 0 0 0 2 4.75v3.26a3.235 3.235 0 0 1 1.75-.51h12.5c.644 0 1.245.188 1.75.51V6.75A1.75 1.75 0 0 0 16.25 5h-4.836a.25.25 0 0 1-.177-.073L9.823 3.513A1.75 1.75 0 0 0 8.586 3H3.75Z" />
+                  <path fillRule="evenodd" d="M2 9.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 .75.75v5a1.75 1.75 0 0 1-1.75 1.75H3.75A1.75 1.75 0 0 1 2 14.25v-5Z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </>
           )}
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            className="h-4 w-4 text-accent"
-            style={{ cursor: 'inherit' }}
-          >
-            <path
-              fillRule="evenodd"
-              d="M10 2c-2.236 0-4.43.18-6.57.524C1.993 2.755 1 4.014 1 5.426v5.148c0 1.413.993 2.67 2.43 2.902.848.137 1.705.248 2.57.331v3.443a.75.75 0 0 0 1.28.53l3.58-3.579a.78.78 0 0 1 .527-.224 41.202 41.202 0 0 0 5.183-.5c1.437-.232 2.43-1.49 2.43-2.903V5.426c0-1.413-.993-2.67-2.43-2.902A41.289 41.289 0 0 0 10 2Zm0 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM8 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm5 1a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
-              clipRule="evenodd"
-            />
-          </svg>
-          <span className="text-sm font-medium text-text-primary" style={{ cursor: 'inherit' }}>Orchestrator</span>
+        </div>
+
+        {/* Center: Chef title + processing indicator */}
+        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2" style={{ cursor: 'inherit' }}>
+          <span className="text-sm font-medium text-text-primary" style={{ cursor: 'inherit' }}>Chef</span>
           {isProcessing && (
             <ProcessingIndicator startTime={processingStartTime} />
           )}
         </div>
 
+        {/* Right: New chat + collapse */}
         <div className="flex items-center gap-2" style={{ cursor: 'inherit' }}>
           {/* New Chat button */}
           {!isPanelCollapsed && (
@@ -562,9 +576,10 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
           >
             {/* Sidebar */}
             <PanelSidebar
-              isOpen={isSidebarOpen}
+              mode={sidebarMode}
               sessions={sessions}
               activeSessionId={activeSession?.id}
+              workspaceId={workspaceId}
               onNewChat={() => { void handleNewChat() }}
               onSelectSession={(session) => { void handleSelectSession(session) }}
               onDeleteSession={(sessionId) => { void handleDeleteSession(sessionId) }}

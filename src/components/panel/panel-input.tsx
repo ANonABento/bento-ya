@@ -211,7 +211,7 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
                     ? 'border-yellow-500 bg-yellow-500/10 text-yellow-500'
                     : !voice.isAvailable
                       ? 'border-border-default bg-bg text-text-secondary/40 cursor-help'
-                      : 'border-border-default bg-bg text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                      : 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {voice.state === 'processing' ? (

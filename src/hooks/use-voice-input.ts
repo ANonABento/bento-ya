@@ -168,10 +168,23 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
   const processAudio = async () => {
     try {
       console.log('[Voice] Processing audio...')
+
+      if (!audioChunks.current || audioChunks.current.length === 0) {
+        console.log('[Voice] No audio chunks to process')
+        setState('idle')
+        return
+      }
+
       const audioBlob = new Blob(audioChunks.current, { type: 'audio/webm' })
       const arrayBuffer = await audioBlob.arrayBuffer()
       const audioData = Array.from(new Uint8Array(arrayBuffer))
       console.log('[Voice] Audio size:', audioData.length, 'bytes')
+
+      if (audioData.length === 0) {
+        console.log('[Voice] Empty audio data')
+        setState('idle')
+        return
+      }
 
       // Save to temp file
       const audioPath = await saveAudioTemp(audioData)
@@ -179,6 +192,10 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
 
       // Use ref to get current config (avoids stale closure)
       const config = voiceConfigRef.current
+      if (!config) {
+        throw new Error('Voice config not available')
+      }
+
       console.log('[Voice] Transcribing with model:', config.model)
       const result = await transcribeAudio(
         audioPath,
@@ -187,7 +204,7 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       )
       console.log('[Voice] Transcription result:', result)
 
-      if (result.text) {
+      if (result && result.text) {
         onTranscriptRef.current(result.text)
       }
 
@@ -195,7 +212,7 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       setDuration(0)
     } catch (err) {
       console.error('[Voice] Transcription error:', err)
-      const message = err instanceof Error ? err.message : 'Transcription failed'
+      const message = err instanceof Error ? err.message : String(err)
       setError(message)
       setState('error')
     }
