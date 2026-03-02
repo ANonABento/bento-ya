@@ -157,6 +157,10 @@ pub fn run() {
             commands::checklist::update_checklist_category,
             commands::checklist::create_workspace_checklist,
             commands::checklist::delete_workspace_checklist,
+            // Files commands
+            commands::files::scan_workspace_files,
+            commands::files::read_file_content,
+            commands::files::create_note_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

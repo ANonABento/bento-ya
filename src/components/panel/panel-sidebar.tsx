@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import type { ChatSession } from '@/lib/ipc'
+import type { ChatSession, FileEntry } from '@/lib/ipc'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useWorkspaceFiles } from '@/hooks/use-workspace-files'
+import { FilesTree } from './files-tree'
+import { FilePreview } from './file-preview'
 
 type SidebarMode = 'history' | 'files' | null
 
@@ -26,7 +30,7 @@ const STORAGE_KEY = 'chef-sidebar-widths'
 function loadWidths(): Record<string, number> {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
-    return stored ? JSON.parse(stored) : {}
+    return stored ? (JSON.parse(stored) as Record<string, number>) : {}
   } catch {
     return {}
   }
@@ -228,18 +232,44 @@ function HistoryContent({
   )
 }
 
-// Files sidebar content (placeholder for now)
-function FilesContent({ workspaceId: _workspaceId }: { workspaceId: string }) {
+// Files sidebar content with tree and preview
+function FilesContent({ workspaceId }: { workspaceId: string }) {
+  const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null)
+
+  // Get the workspace to access repoPath
+  const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const workspace = workspaces.find((w) => w.id === workspaceId)
+  const repoPath = workspace?.repoPath ?? null
+
+  // Fetch files for the workspace
+  const { groupedFiles, loading } = useWorkspaceFiles(repoPath)
+
+  const handleSelectFile = useCallback((file: FileEntry) => {
+    setSelectedFile(file)
+  }, [])
+
+  const handleClosePreview = useCallback(() => {
+    setSelectedFile(null)
+  }, [])
+
+  // Show preview when a file is selected
+  if (selectedFile) {
+    return (
+      <div className="flex-1 overflow-hidden">
+        <FilePreview file={selectedFile} onClose={handleClosePreview} />
+      </div>
+    )
+  }
+
+  // Show file tree
   return (
     <div className="flex-1 overflow-y-auto p-2">
-      <div className="py-8 text-center">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-8 w-8 mx-auto text-text-secondary/30 mb-2">
-          <path d="M3.75 3A1.75 1.75 0 0 0 2 4.75v3.26a3.235 3.235 0 0 1 1.75-.51h12.5c.644 0 1.245.188 1.75.51V6.75A1.75 1.75 0 0 0 16.25 5h-4.836a.25.25 0 0 1-.177-.073L9.823 3.513A1.75 1.75 0 0 0 8.586 3H3.75Z" />
-          <path fillRule="evenodd" d="M2 9.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 .75.75v5a1.75 1.75 0 0 1-1.75 1.75H3.75A1.75 1.75 0 0 1 2 14.25v-5Z" clipRule="evenodd" />
-        </svg>
-        <p className="text-xs text-text-secondary/70">Plans, checklists, and notes</p>
-        <p className="text-xs text-text-secondary/50 mt-1">Coming soon</p>
-      </div>
+      <FilesTree
+        groupedFiles={groupedFiles}
+        selectedFile={selectedFile}
+        onSelectFile={handleSelectFile}
+        loading={loading}
+      />
     </div>
   )
 }
