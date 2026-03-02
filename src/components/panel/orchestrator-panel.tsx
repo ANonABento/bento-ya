@@ -580,6 +580,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               sessions={sessions}
               activeSessionId={activeSession?.id}
               workspaceId={workspaceId}
+              isCurrentChatEmpty={messages.length === 0}
               onNewChat={() => { void handleNewChat() }}
               onSelectSession={(session) => { void handleSelectSession(session) }}
               onDeleteSession={(sessionId) => { void handleDeleteSession(sessionId) }}

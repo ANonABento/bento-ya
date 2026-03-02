@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useVoiceInput } from '@/hooks/use-voice-input'
 import { Tooltip } from '@/components/shared/tooltip'
@@ -98,6 +98,14 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
     e.target.style.height = 'auto'
     e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`
   }
+
+  // Auto-resize when voice liveText changes
+  useEffect(() => {
+    if (voice.state === 'recording' && inputRef.current) {
+      inputRef.current.style.height = 'auto'
+      inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 120)}px`
+    }
+  }, [voice.liveText, voice.state])
 
   const currentModel = MODELS.find(m => m.id === selectedModel) ?? MODELS[0]
 

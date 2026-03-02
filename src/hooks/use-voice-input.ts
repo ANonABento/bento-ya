@@ -74,7 +74,7 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
     }
   }, [])
 
-  // Transcribe a chunk while recording - shows preview only (no accumulation)
+  // Transcribe a chunk while recording - accumulates text as you speak
   const transcribeChunk = useCallback(async () => {
     if (stateRef.current !== 'recording') return
 
@@ -93,10 +93,13 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
           .trim()
 
         if (cleanText) {
-          console.log('[Voice] Chunk preview:', cleanText)
-          // Just show latest chunk as preview - don't accumulate
-          // Final transcription when stopping will have complete text
-          setLiveText(cleanText)
+          console.log('[Voice] Chunk transcribed:', cleanText)
+          // Accumulate chunks as user speaks
+          const accumulated = accumulatedTextRef.current
+            ? accumulatedTextRef.current + ' ' + cleanText
+            : cleanText
+          accumulatedTextRef.current = accumulated
+          setLiveText(accumulated)
         }
       }
     } catch (err) {
