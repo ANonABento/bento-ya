@@ -28,5 +28,10 @@ async-stream = "0.3"
 git2 = "0.19"
 log = "0.4"
 
+# Local whisper transcription
+whisper-rs = "0.15"
+hound = "3.5"  # WAV file handling
+symphonia = { version = "0.5", features = ["all"] }  # Audio decoding
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]

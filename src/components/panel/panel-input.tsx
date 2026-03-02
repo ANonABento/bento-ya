@@ -170,7 +170,7 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
               : !voice.isEnabled
                 ? 'Enable voice in Settings'
                 : !voice.isApiAvailable
-                  ? 'Set OPENAI_API_KEY'
+                  ? 'Download model in Settings'
                   : 'Voice input'
           }
           side="top"

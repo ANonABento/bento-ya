@@ -12,9 +12,11 @@ pub mod git;
 pub mod llm;
 pub mod pipeline;
 pub mod process;
+pub mod whisper;
 
 use db::AppState;
 use process::agent_runner::AgentRunner;
+use process::cli_session::new_shared_cli_session_manager;
 use process::pty_manager::PtyManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -26,12 +28,14 @@ pub fn run() {
 
     let pty_manager = Arc::new(Mutex::new(PtyManager::new()));
     let agent_runner = Arc::new(Mutex::new(AgentRunner::new(Arc::clone(&pty_manager))));
+    let cli_session_manager = new_shared_cli_session_manager();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(state)
         .manage(pty_manager)
         .manage(agent_runner)
+        .manage(cli_session_manager)
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             // Workspace CRUD
@@ -91,6 +95,7 @@ pub fn run() {
             commands::orchestrator::delete_chat_session,
             commands::orchestrator::get_chat_history,
             commands::orchestrator::clear_chat_history,
+            commands::orchestrator::reset_cli_session,
             commands::orchestrator::process_orchestrator_response,
             commands::orchestrator::set_orchestrator_error,
             commands::orchestrator::stream_orchestrator_chat,
@@ -99,6 +104,10 @@ pub fn run() {
             commands::voice::transcribe_audio,
             commands::voice::save_audio_temp,
             commands::voice::is_voice_available,
+            commands::voice::list_whisper_models,
+            commands::voice::download_whisper_model,
+            commands::voice::delete_whisper_model,
+            commands::voice::get_whisper_model_info,
             // Usage tracking commands
             commands::usage::record_usage,
             commands::usage::get_workspace_usage,

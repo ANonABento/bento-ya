@@ -2,6 +2,11 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import type { ChatMessage, ToolCallEvent } from '@/lib/ipc'
 
+type QueuedMessage = {
+  id: string
+  content: string
+}
+
 type ChatHistoryProps = {
   messages: ChatMessage[]
   isLoading?: boolean
@@ -10,7 +15,7 @@ type ChatHistoryProps = {
   thinkingContent?: string
   toolCalls?: ToolCallEvent[]
   onCancel?: () => void
-  queueCount?: number
+  queuedMessages?: QueuedMessage[]
 }
 
 export function ChatHistory({
@@ -21,7 +26,7 @@ export function ChatHistory({
   thinkingContent = '',
   toolCalls = [],
   onCancel,
-  queueCount = 0,
+  queuedMessages = [],
 }: ChatHistoryProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -64,7 +69,7 @@ export function ChatHistory({
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
       {messages.map((msg, index) => (
-        <MessageBubble key={msg.id} message={msg} isLatest={index === messages.length - 1 && !isProcessing} />
+        <MessageBubble key={msg.id} message={msg} isLatest={index === messages.length - 1 && !isProcessing && queuedMessages.length === 0} />
       ))}
       {isProcessing && (
         <StreamingBubble
@@ -73,9 +78,13 @@ export function ChatHistory({
           thinkingContent={thinkingContent}
           toolCalls={toolCalls}
           onCancel={onCancel}
-          queueCount={queueCount}
+          queueCount={queuedMessages.length}
         />
       )}
+      {/* Queued messages shown as pending */}
+      {queuedMessages.map((queued) => (
+        <QueuedBubble key={queued.id} content={queued.content} />
+      ))}
     </div>
   )
 }
@@ -335,5 +344,21 @@ function TypingDots() {
         transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
       />
     </div>
+  )
+}
+
+// Queued message bubble - shows as pending user message
+function QueuedBubble({ content }: { content: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 5 }}
+      animate={{ opacity: 0.6, y: 0 }}
+      className="flex justify-end"
+    >
+      <div className="max-w-[80%] rounded-xl px-3 py-2 bg-accent/50 text-bg border border-dashed border-accent/30">
+        <p className="text-sm whitespace-pre-wrap">{content}</p>
+        <p className="text-xs mt-1 opacity-70">Queued</p>
+      </div>
+    </motion.div>
   )
 }

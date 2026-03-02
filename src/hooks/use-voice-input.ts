@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { isVoiceAvailable, saveAudioTemp, transcribeAudio } from '@/lib/ipc'
+import { isVoiceAvailable, saveAudioTemp, transcribeAudio, onWhisperDownloadComplete } from '@/lib/ipc'
 import { useSettingsStore } from '@/stores/settings-store'
 
 export type VoiceInputState = 'idle' | 'recording' | 'processing' | 'error'
@@ -17,12 +17,27 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
 
   const voiceConfig = useSettingsStore((s) => s.global.voice)
 
-  // Check if voice is available on mount
-  useEffect(() => {
+  // Check if voice is available
+  const checkAvailability = useCallback(() => {
     isVoiceAvailable()
       .then((available) => { setIsAvailable(available) })
       .catch(() => { setIsAvailable(false) })
   }, [])
+
+  // Check on mount
+  useEffect(() => {
+    checkAvailability()
+  }, [checkAvailability])
+
+  // Re-check when a model is downloaded
+  useEffect(() => {
+    const unlisten = onWhisperDownloadComplete(() => {
+      checkAvailability()
+    })
+    return () => {
+      void unlisten.then((fn) => { fn() })
+    }
+  }, [checkAvailability])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -130,11 +145,11 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       // Save to temp file
       const audioPath = await saveAudioTemp(audioData)
 
-      // Transcribe
+      // Transcribe using selected model
       const result = await transcribeAudio(
         audioPath,
         voiceConfig.language || undefined,
-        undefined, // Use default whisper-1 model
+        voiceConfig.model,
       )
 
       if (result.text) {

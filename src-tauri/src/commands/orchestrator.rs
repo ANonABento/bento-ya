@@ -11,16 +11,10 @@ use crate::llm::{
     orchestrator_tools, tools_to_api_format, execute_tools, parse_cli_action_blocks,
 };
 use crate::llm::types::{LlmRequest, Message};
+use crate::process::cli_session::SharedCliSessionManager;
 use tauri::{AppHandle, Emitter, State};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
-use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
-
-// Global state for tracking active CLI processes per workspace
-static ACTIVE_PROCESSES: LazyLock<Mutex<HashMap<String, u32>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -239,6 +233,29 @@ pub fn clear_chat_history(
     Ok(())
 }
 
+/// Reset CLI session (kill process and clear cli_session_id)
+/// Call this when starting a "New Chat" to ensure fresh state
+#[tauri::command(rename_all = "camelCase")]
+pub async fn reset_cli_session(
+    state: State<'_, AppState>,
+    cli_manager: State<'_, SharedCliSessionManager>,
+    session_id: String,
+) -> Result<(), AppError> {
+    // Kill the CLI process if running
+    {
+        let mut manager = cli_manager.lock().await;
+        manager.kill(&session_id).await;
+    }
+
+    // Clear cli_session_id from database
+    {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let _ = db::update_chat_session_cli_id(&conn, &session_id, None);
+    }
+
+    Ok(())
+}
+
 /// Process orchestrator response (creates tasks based on parsed actions)
 /// This is called by the frontend after receiving structured output from the LLM
 #[tauri::command]
@@ -338,6 +355,7 @@ pub fn set_orchestrator_error(
 pub async fn stream_orchestrator_chat(
     app: AppHandle,
     state: State<'_, AppState>,
+    cli_manager: State<'_, SharedCliSessionManager>,
     workspace_id: String,
     session_id: String,
     message: String,
@@ -349,18 +367,19 @@ pub async fn stream_orchestrator_chat(
     let model = model.unwrap_or_else(|| "sonnet".to_string());
 
     // Store user message and get history
-    let (history, orch_session_id, actual_session_id) = {
+    let (history, orch_session_id, actual_session_id, cli_session_id) = {
         let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
         // Verify session exists, or fall back to active session
-        let actual_session_id = match db::get_chat_session(&conn, &session_id) {
-            Ok(_) => session_id.clone(),
+        let chat_session = match db::get_chat_session(&conn, &session_id) {
+            Ok(s) => s,
             Err(_) => {
                 // Session doesn't exist (maybe deleted), get or create active session
-                let session = db::get_or_create_active_session(&conn, &workspace_id)?;
-                session.id
+                db::get_or_create_active_session(&conn, &workspace_id)?
             }
         };
+        let actual_session_id = chat_session.id.clone();
+        let cli_session_id = chat_session.cli_session_id.clone();
 
         // Store user message
         db::insert_chat_message(&conn, &workspace_id, &actual_session_id, "user", &message)?;
@@ -384,7 +403,7 @@ pub async fn stream_orchestrator_chat(
         let orch_session = db::get_or_create_orchestrator_session(&conn, &workspace_id)?;
         let _ = db::update_orchestrator_session(&conn, &orch_session.id, Some("processing"), None);
 
-        (history, orch_session.id, actual_session_id)
+        (history, orch_session.id, actual_session_id, cli_session_id)
     };
 
     // Emit processing event
@@ -406,7 +425,18 @@ pub async fn stream_orchestrator_chat(
         }
         "cli" => {
             let cli = cli_path.unwrap_or_else(|| "claude".to_string());
-            stream_via_cli(app.clone(), state.clone(), &workspace_id, &actual_session_id, &orch_session_id, &cli, &model, history).await
+            stream_via_cli(
+                app.clone(),
+                state.clone(),
+                cli_manager.clone(),
+                &workspace_id,
+                &actual_session_id,
+                &orch_session_id,
+                &cli,
+                &model,
+                &message,
+                cli_session_id.as_deref(),
+            ).await
         }
         _ => {
             Err(AppError::InvalidInput(format!("Unknown connection mode: {}", connection_mode)))
@@ -419,48 +449,29 @@ pub async fn stream_orchestrator_chat(
 pub async fn cancel_orchestrator_chat(
     app: AppHandle,
     state: State<'_, AppState>,
+    cli_manager: State<'_, SharedCliSessionManager>,
+    session_id: String,
     workspace_id: String,
 ) -> Result<(), AppError> {
-    // Get and remove the process ID
-    let pid = {
-        let Ok(mut processes) = ACTIVE_PROCESSES.lock() else {
-            return Ok(());
-        };
-        processes.remove(&workspace_id)
-    };
-
-    if let Some(pid) = pid {
-        // Kill the process
-        #[cfg(unix)]
-        {
-            use std::process::Command as StdCommand;
-            let _ = StdCommand::new("kill")
-                .arg("-9")
-                .arg(pid.to_string())
-                .output();
-        }
-        #[cfg(windows)]
-        {
-            use std::process::Command as StdCommand;
-            let _ = StdCommand::new("taskkill")
-                .args(["/F", "/PID", &pid.to_string()])
-                .output();
-        }
-
-        // Update orchestrator session to idle
-        {
-            let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-            let session = db::get_or_create_orchestrator_session(&conn, &workspace_id)?;
-            let _ = db::update_orchestrator_session(&conn, &session.id, Some("idle"), None);
-        }
-
-        // Emit cancelled event
-        let _ = app.emit("orchestrator:complete", &OrchestratorEvent {
-            workspace_id: workspace_id.clone(),
-            event_type: "cancelled".to_string(),
-            message: Some("Request cancelled".to_string()),
-        });
+    // Kill the CLI session process
+    {
+        let mut manager = cli_manager.lock().await;
+        manager.kill(&session_id).await;
     }
+
+    // Update orchestrator session to idle
+    {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let session = db::get_or_create_orchestrator_session(&conn, &workspace_id)?;
+        let _ = db::update_orchestrator_session(&conn, &session.id, Some("idle"), None);
+    }
+
+    // Emit cancelled event
+    let _ = app.emit("orchestrator:complete", &OrchestratorEvent {
+        workspace_id: workspace_id.clone(),
+        event_type: "cancelled".to_string(),
+        message: Some("Request cancelled".to_string()),
+    });
 
     Ok(())
 }
@@ -639,12 +650,14 @@ async fn stream_via_api(
 async fn stream_via_cli(
     app: AppHandle,
     state: State<'_, AppState>,
+    cli_manager: State<'_, SharedCliSessionManager>,
     workspace_id: &str,
     session_id: &str,
     orch_session_id: &str,
     cli_path: &str,
     model: &str,
-    history: Vec<ChatMessage>,
+    message: &str,
+    resume_id: Option<&str>,
 ) -> Result<(), AppError> {
     // Get workspace context for system prompt
     let (workspace, columns, tasks) = {
@@ -655,275 +668,76 @@ async fn stream_via_cli(
         (workspace, columns, tasks)
     };
 
-    // Build CLI-specific system prompt with action block instructions
+    // Build CLI-specific system prompt with action block instructions and current board state
     let system_prompt = build_cli_system_prompt(&workspace, &columns);
     let board_context = build_board_context(&workspace, &columns, &tasks);
     let board_context_msg = format_board_context_message(&board_context);
 
-    // Build conversation context from history
-    let last_message = history.last()
-        .map(|m| m.content.clone())
-        .unwrap_or_default();
+    // Build the message with board context prefix
+    let full_message = format!("{}\n\n{}", board_context_msg, message);
 
-    // Build resume context from previous messages (excluding the last user message)
-    let context: String = history.iter()
-        .rev()
-        .skip(1) // Skip the last message (current user input)
-        .take(10) // Take up to 10 previous messages for context
-        .rev()
-        .map(|m| format!("{}: {}", if m.role == "user" { "Human" } else { "Assistant" }, m.content))
-        .collect::<Vec<_>>()
-        .join("\n\n");
+    // Try to use existing persistent session, or spawn a new one
+    let mut manager = cli_manager.lock().await;
 
-    // Build the prompt with board context and conversation history
-    let prompt = if context.is_empty() {
-        format!("{}\n\n{}", board_context_msg, last_message)
-    } else {
-        format!("{}\n\nPrevious conversation:\n{}\n\nCurrent request: {}", board_context_msg, context, last_message)
+    // Check if we have a running process
+    let needs_spawn = !manager.has_session(session_id) || !manager.is_alive(session_id);
+
+    if needs_spawn {
+        // Spawn new CLI process
+        // Use resume_id if we have one from previous session
+        let stored_cli_id = manager.get_cli_session_id(session_id);
+        let effective_resume_id = resume_id.or(stored_cli_id.as_deref());
+
+        manager.spawn(
+            session_id,
+            cli_path,
+            model,
+            &system_prompt,
+            effective_resume_id,
+        ).await.map_err(AppError::InvalidInput)?;
+    }
+
+    // Send message and stream response
+    let (full_response, captured_cli_session_id) = match manager.send_message(
+        session_id,
+        &full_message,
+        workspace_id,
+        &app,
+    ).await {
+        Ok(result) => result,
+        Err(_) => {
+            // Process died, try to respawn with --resume
+            let resume_id = manager.get_cli_session_id(session_id);
+
+            // Kill the dead session
+            manager.kill(session_id).await;
+
+            // Respawn with resume
+            manager.spawn(
+                session_id,
+                cli_path,
+                model,
+                &system_prompt,
+                resume_id.as_deref(),
+            ).await.map_err(AppError::InvalidInput)?;
+
+            // Retry the message
+            manager.send_message(
+                session_id,
+                &full_message,
+                workspace_id,
+                &app,
+            ).await.map_err(AppError::InvalidInput)?
+        }
     };
 
-    // Get home directory for CLI working dir
-    let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    // Drop manager lock before database operations
+    drop(manager);
 
-    // Spawn Claude CLI with streaming output and system prompt
-    // Note: --verbose is required when using --output-format stream-json with -p
-    let mut child = Command::new(cli_path)
-        .current_dir(&home_dir)
-        .arg("--system-prompt")
-        .arg(&system_prompt)
-        .arg("-p")
-        .arg(&prompt)
-        .arg("--model")
-        .arg(model)
-        .arg("--output-format")
-        .arg("stream-json")
-        .arg("--verbose")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| AppError::InvalidInput(format!("Failed to spawn CLI '{}': {}", cli_path, e)))?;
-
-    // Track process ID for cancellation
-    if let Some(pid) = child.id() {
-        if let Ok(mut processes) = ACTIVE_PROCESSES.lock() {
-            processes.insert(workspace_id.to_string(), pid);
-        }
-    }
-
-    let stdout = child.stdout.take()
-        .ok_or_else(|| AppError::InvalidInput("Failed to capture CLI stdout".to_string()))?;
-    
-    let stderr = child.stderr.take()
-        .ok_or_else(|| AppError::InvalidInput("Failed to capture CLI stderr".to_string()))?;
-
-    let mut reader = BufReader::new(stdout).lines();
-    let mut full_response = String::new();
-    let workspace_id_clone = workspace_id.to_string();
-
-    // Spawn a task to read stderr
-    let stderr_handle = tokio::spawn(async move {
-        let mut stderr_reader = BufReader::new(stderr).lines();
-        let mut stderr_output = String::new();
-        while let Ok(Some(line)) = stderr_reader.next_line().await {
-            stderr_output.push_str(&line);
-            stderr_output.push('\n');
-        }
-        stderr_output
-    });
-
-    // Read streaming output line by line
-    while let Some(line) = reader.next_line().await
-        .map_err(|e| AppError::InvalidInput(format!("Failed to read CLI output: {}", e)))?
-    {
-        // Try to parse as JSON streaming format
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
-            // Handle different event types from Claude CLI stream-json format
-            if let Some(event_type) = json.get("type").and_then(|t| t.as_str()) {
-                match event_type {
-                    "system" => {
-                        // Init event - skip
-                    }
-                    "assistant" => {
-                        // Assistant message - extract content from message.content[0].text
-                        if let Some(text) = json.get("message")
-                            .and_then(|m| m.get("content"))
-                            .and_then(|c| c.as_array())
-                            .and_then(|arr| arr.first())
-                            .and_then(|item| item.get("text"))
-                            .and_then(|t| t.as_str())
-                        {
-                            full_response = text.to_string();
-                            let _ = app.emit("orchestrator:stream", &StreamChunkPayload {
-                                workspace_id: workspace_id_clone.clone(),
-                                delta: text.to_string(),
-                                finish_reason: None,
-                                tool_use: None,
-                            });
-                        }
-                    }
-                    "result" => {
-                        // Final result message with summary
-                        if let Some(result_text) = json.get("result").and_then(|r| r.as_str()) {
-                            // Only use if we didn't get content from assistant event
-                            if full_response.is_empty() {
-                                full_response = result_text.to_string();
-                                let _ = app.emit("orchestrator:stream", &StreamChunkPayload {
-                                    workspace_id: workspace_id_clone.clone(),
-                                    delta: result_text.to_string(),
-                                    finish_reason: None,
-                                    tool_use: None,
-                                });
-                            }
-                        }
-                        // Send finish event
-                        let _ = app.emit("orchestrator:stream", &StreamChunkPayload {
-                            workspace_id: workspace_id_clone.clone(),
-                            delta: String::new(),
-                            finish_reason: Some("stop".to_string()),
-                            tool_use: None,
-                        });
-                    }
-                    "content_block_start" => {
-                        // Check for thinking or tool_use blocks
-                        if let Some(content_block) = json.get("content_block") {
-                            if let Some(block_type) = content_block.get("type").and_then(|t| t.as_str()) {
-                                match block_type {
-                                    "thinking" => {
-                                        // Thinking block started
-                                        let _ = app.emit("orchestrator:thinking", &ThinkingPayload {
-                                            workspace_id: workspace_id_clone.clone(),
-                                            content: String::new(),
-                                            is_complete: false,
-                                        });
-                                    }
-                                    "tool_use" => {
-                                        // Tool use block started
-                                        let tool_id = content_block.get("id")
-                                            .and_then(|i| i.as_str())
-                                            .unwrap_or("unknown")
-                                            .to_string();
-                                        let tool_name = content_block.get("name")
-                                            .and_then(|n| n.as_str())
-                                            .unwrap_or("unknown")
-                                            .to_string();
-                                        let _ = app.emit("orchestrator:tool_call", &ToolCallPayload {
-                                            workspace_id: workspace_id_clone.clone(),
-                                            tool_id,
-                                            tool_name,
-                                            status: "running".to_string(),
-                                            input: None,
-                                            result: None,
-                                        });
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                    }
-                    "content_block_delta" => {
-                        // Streaming delta events
-                        if let Some(delta) = json.get("delta") {
-                            if let Some(delta_type) = delta.get("type").and_then(|t| t.as_str()) {
-                                match delta_type {
-                                    "thinking_delta" => {
-                                        // Thinking content delta
-                                        if let Some(thinking) = delta.get("thinking").and_then(|t| t.as_str()) {
-                                            let _ = app.emit("orchestrator:thinking", &ThinkingPayload {
-                                                workspace_id: workspace_id_clone.clone(),
-                                                content: thinking.to_string(),
-                                                is_complete: false,
-                                            });
-                                        }
-                                    }
-                                    "text_delta" => {
-                                        // Regular text delta
-                                        if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
-                                            full_response.push_str(text);
-                                            let _ = app.emit("orchestrator:stream", &StreamChunkPayload {
-                                                workspace_id: workspace_id_clone.clone(),
-                                                delta: text.to_string(),
-                                                finish_reason: None,
-                                                tool_use: None,
-                                            });
-                                        }
-                                    }
-                                    "input_json_delta" => {
-                                        // Tool input being streamed - we'll get full input in content_block_stop
-                                    }
-                                    _ => {
-                                        // Fallback for untyped deltas (older format)
-                                        if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
-                                            full_response.push_str(text);
-                                            let _ = app.emit("orchestrator:stream", &StreamChunkPayload {
-                                                workspace_id: workspace_id_clone.clone(),
-                                                delta: text.to_string(),
-                                                finish_reason: None,
-                                                tool_use: None,
-                                            });
-                                        }
-                                    }
-                                }
-                            } else if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
-                                // Fallback for simple delta format
-                                full_response.push_str(text);
-                                let _ = app.emit("orchestrator:stream", &StreamChunkPayload {
-                                    workspace_id: workspace_id_clone.clone(),
-                                    delta: text.to_string(),
-                                    finish_reason: None,
-                                    tool_use: None,
-                                });
-                            }
-                        }
-                    }
-                    "content_block_stop" => {
-                        // Content block completed - emit thinking complete
-                        let _ = app.emit("orchestrator:thinking", &ThinkingPayload {
-                            workspace_id: workspace_id_clone.clone(),
-                            content: String::new(),
-                            is_complete: true,
-                        });
-                    }
-                    _ => {}
-                }
-            }
-        } else if !line.trim().is_empty() {
-            // Plain text output (fallback for non-JSON mode)
-            full_response.push_str(&line);
-            full_response.push('\n');
-            let _ = app.emit("orchestrator:stream", &StreamChunkPayload {
-                workspace_id: workspace_id_clone.clone(),
-                delta: format!("{}\n", line),
-                finish_reason: None,
-                tool_use: None,
-            });
-        }
-    }
-
-    // Wait for stderr to be fully read
-    let stderr_content = stderr_handle.await.unwrap_or_default();
-
-    // Wait for process to complete
-    let status = child.wait().await
-        .map_err(|e| AppError::InvalidInput(format!("CLI process failed: {}", e)))?;
-
-    // Remove from active processes
-    if let Ok(mut processes) = ACTIVE_PROCESSES.lock() {
-        processes.remove(workspace_id);
-    }
-
-    if !status.success() {
-        let error_msg = if stderr_content.is_empty() {
-            format!("CLI exited with status: {}", status)
-        } else {
-            format!("CLI error: {}", stderr_content.trim())
-        };
-        let _ = app.emit("orchestrator:error", &OrchestratorEvent {
-            workspace_id: workspace_id.to_string(),
-            event_type: "error".to_string(),
-            message: Some(error_msg.clone()),
-        });
-        return Err(AppError::InvalidInput(error_msg));
+    // Save cli_session_id to database if we captured one
+    if let Some(cli_sid) = &captured_cli_session_id {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let _ = db::update_chat_session_cli_id(&conn, session_id, Some(cli_sid));
     }
 
     // Parse action blocks from the response and execute them

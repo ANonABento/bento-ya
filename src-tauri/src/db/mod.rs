@@ -75,6 +75,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("007_cost_tracking", include_str!("migrations/007_cost_tracking.sql")),
         ("008_session_history", include_str!("migrations/008_session_history.sql")),
         ("009_chat_sessions", include_str!("migrations/009_chat_sessions.sql")),
+        ("010_cli_sessions", include_str!("migrations/010_cli_sessions.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -704,6 +705,7 @@ pub struct ChatSession {
     pub id: String,
     pub workspace_id: String,
     pub title: String,
+    pub cli_session_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -744,15 +746,16 @@ pub fn create_chat_session(conn: &Connection, workspace_id: &str, title: &str) -
 
 pub fn get_chat_session(conn: &Connection, id: &str) -> SqlResult<ChatSession> {
     conn.query_row(
-        "SELECT id, workspace_id, title, created_at, updated_at FROM chat_sessions WHERE id = ?1",
+        "SELECT id, workspace_id, title, cli_session_id, created_at, updated_at FROM chat_sessions WHERE id = ?1",
         params![id],
         |row| {
             Ok(ChatSession {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
                 title: row.get(2)?,
-                created_at: row.get(3)?,
-                updated_at: row.get(4)?,
+                cli_session_id: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
             })
         },
     )
@@ -760,15 +763,16 @@ pub fn get_chat_session(conn: &Connection, id: &str) -> SqlResult<ChatSession> {
 
 pub fn list_chat_sessions(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<ChatSession>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, title, created_at, updated_at FROM chat_sessions WHERE workspace_id = ?1 ORDER BY updated_at DESC",
+        "SELECT id, workspace_id, title, cli_session_id, created_at, updated_at FROM chat_sessions WHERE workspace_id = ?1 ORDER BY updated_at DESC",
     )?;
     let rows = stmt.query_map(params![workspace_id], |row| {
         Ok(ChatSession {
             id: row.get(0)?,
             workspace_id: row.get(1)?,
             title: row.get(2)?,
-            created_at: row.get(3)?,
-            updated_at: row.get(4)?,
+            cli_session_id: row.get(3)?,
+            created_at: row.get(4)?,
+            updated_at: row.get(5)?,
         })
     })?;
     rows.collect()
@@ -798,15 +802,16 @@ pub fn delete_chat_session(conn: &Connection, id: &str) -> SqlResult<()> {
 pub fn get_or_create_active_session(conn: &Connection, workspace_id: &str) -> SqlResult<ChatSession> {
     // Get most recent session or create new one
     let existing = conn.query_row(
-        "SELECT id, workspace_id, title, created_at, updated_at FROM chat_sessions WHERE workspace_id = ?1 ORDER BY updated_at DESC LIMIT 1",
+        "SELECT id, workspace_id, title, cli_session_id, created_at, updated_at FROM chat_sessions WHERE workspace_id = ?1 ORDER BY updated_at DESC LIMIT 1",
         params![workspace_id],
         |row| {
             Ok(ChatSession {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
                 title: row.get(2)?,
-                created_at: row.get(3)?,
-                updated_at: row.get(4)?,
+                cli_session_id: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
             })
         },
     );
@@ -815,6 +820,16 @@ pub fn get_or_create_active_session(conn: &Connection, workspace_id: &str) -> Sq
         Ok(session) => Ok(session),
         Err(_) => create_chat_session(conn, workspace_id, "New Chat"),
     }
+}
+
+/// Update the CLI session ID for a chat session (used for --resume fallback)
+pub fn update_chat_session_cli_id(conn: &Connection, id: &str, cli_session_id: Option<&str>) -> SqlResult<()> {
+    let ts = now();
+    conn.execute(
+        "UPDATE chat_sessions SET cli_session_id = ?1, updated_at = ?2 WHERE id = ?3",
+        params![cli_session_id, ts, id],
+    )?;
+    Ok(())
 }
 
 // ─── CRUD helpers: ChatMessage ──────────────────────────────────────────────

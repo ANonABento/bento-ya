@@ -11,6 +11,7 @@ import {
   deleteChatSession,
   streamOrchestratorChat,
   cancelOrchestratorChat,
+  resetCliSession,
   type ChatMessage,
   type ChatSession,
   type OrchestratorEvent,
@@ -384,14 +385,15 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
   // Handle cancel
   const handleCancel = useCallback(async () => {
+    if (!activeSession) return
     try {
-      await cancelOrchestratorChat(workspaceId)
+      await cancelOrchestratorChat(activeSession.id, workspaceId)
       // Clear queue on cancel
       setMessageQueue([])
     } catch (err) {
       console.error('Failed to cancel:', err)
     }
-  }, [workspaceId])
+  }, [activeSession, workspaceId])
 
   // Handle retry failed message
   const handleRetry = useCallback(async () => {
@@ -411,6 +413,11 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     if (messages.length === 0) return
 
     try {
+      // Kill the old CLI process and clear its session ID (fresh start)
+      if (activeSession) {
+        await resetCliSession(activeSession.id)
+      }
+
       const newSession = await createChatSession(workspaceId)
       setActiveSession(newSession)
       setMessages([])
@@ -421,7 +428,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     } catch (err) {
       console.error('Failed to create new chat:', err)
     }
-  }, [workspaceId, messages.length])
+  }, [workspaceId, messages.length, activeSession])
 
   const handleSelectSession = useCallback(async (session: ChatSession) => {
     try {
@@ -597,7 +604,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 thinkingContent={thinkingContent}
                 toolCalls={Array.from(activeToolCalls.values())}
                 onCancel={handleCancel}
-                queueCount={messageQueue.length}
+                queuedMessages={messageQueue.map((m) => ({ id: m.id, content: m.content }))}
               />
               <PanelInput
                 onSendMessage={handleSendMessage}

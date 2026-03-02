@@ -541,8 +541,15 @@ export async function streamOrchestratorChat(
   })
 }
 
-export async function cancelOrchestratorChat(workspaceId: string): Promise<void> {
-  return invoke<void>('cancel_orchestrator_chat', { workspaceId })
+export async function cancelOrchestratorChat(
+  sessionId: string,
+  workspaceId: string
+): Promise<void> {
+  return invoke<void>('cancel_orchestrator_chat', { sessionId, workspaceId })
+}
+
+export async function resetCliSession(sessionId: string): Promise<void> {
+  return invoke<void>('reset_cli_session', { sessionId })
 }
 
 // ─── Voice commands ─────────────────────────────────────────────────────────
@@ -550,6 +557,25 @@ export async function cancelOrchestratorChat(workspaceId: string): Promise<void>
 export type TranscriptionResult = {
   text: string
   durationMs: number
+  modelUsed?: string
+}
+
+export type WhisperModelStatus = 'available' | 'downloading' | 'downloaded' | 'error'
+
+export type WhisperModelInfo = {
+  model: string
+  status: WhisperModelStatus
+  sizeDisplay: string
+  sizeBytes: number
+  description: string
+  path: string | null
+}
+
+export type WhisperDownloadProgress = {
+  model: string
+  downloadedBytes: number
+  totalBytes: number
+  percent: number
 }
 
 export async function isVoiceAvailable(): Promise<boolean> {
@@ -566,6 +592,34 @@ export async function transcribeAudio(
   model?: string,
 ): Promise<TranscriptionResult> {
   return invoke<TranscriptionResult>('transcribe_audio', { audioPath, language, model })
+}
+
+export async function listWhisperModels(): Promise<WhisperModelInfo[]> {
+  return invoke<WhisperModelInfo[]>('list_whisper_models')
+}
+
+export async function downloadWhisperModel(model: string): Promise<string> {
+  return invoke<string>('download_whisper_model', { model })
+}
+
+export async function deleteWhisperModel(model: string): Promise<void> {
+  return invoke<void>('delete_whisper_model', { model })
+}
+
+export async function getWhisperModelInfo(model: string): Promise<WhisperModelInfo> {
+  return invoke<WhisperModelInfo>('get_whisper_model_info', { model })
+}
+
+export function onWhisperDownloadProgress(
+  cb: EventCallback<WhisperDownloadProgress>
+): Promise<UnlistenFn> {
+  return listen<WhisperDownloadProgress>('whisper:download-progress', cb)
+}
+
+export function onWhisperDownloadComplete(
+  cb: EventCallback<{ model: string }>
+): Promise<UnlistenFn> {
+  return listen<{ model: string }>('whisper:download-complete', cb)
 }
 
 // ─── Usage tracking commands ─────────────────────────────────────────────────
