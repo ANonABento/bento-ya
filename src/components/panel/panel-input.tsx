@@ -212,14 +212,14 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
             disabled={disabled || isProcessing || voice.state === 'processing'}
             className={`flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg border transition-colors ${
               voice.state === 'recording'
-                ? 'border-red-500 bg-red-500/10 text-red-500 animate-pulse'
+                ? 'border-accent bg-accent/10 text-accent animate-pulse'
                 : voice.state === 'processing'
                   ? 'border-accent bg-accent/10 text-accent'
                   : voice.state === 'error'
                     ? 'border-yellow-500 bg-yellow-500/10 text-yellow-500'
                     : !voice.isAvailable
                       ? 'border-border-default bg-bg text-text-secondary/40 cursor-help'
-                      : 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
+                      : 'border-border-default bg-bg text-text-primary hover:bg-bg-hover hover:border-border-hover'
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {voice.state === 'processing' ? (

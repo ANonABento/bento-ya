@@ -11,7 +11,7 @@ import { useSettingsStore } from '@/stores/settings-store'
 
 export type VoiceInputState = 'idle' | 'recording' | 'processing' | 'error'
 
-const CHUNK_INTERVAL_MS = 2500 // Transcribe every 2.5 seconds
+const CHUNK_INTERVAL_MS = 1000 // Transcribe every 1 second for snappy feedback
 
 export function useVoiceInput(onTranscript: (text: string) => void) {
   const [state, setState] = useState<VoiceInputState>('idle')

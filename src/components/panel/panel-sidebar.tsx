@@ -145,6 +145,7 @@ export function PanelSidebar({
                 document.body.classList.remove('cursor-ew-resize')
               }
             }}
+            data-resize-cursor="ew"
             className="absolute -right-1 top-0 bottom-0 w-3"
           />
         </motion.div>

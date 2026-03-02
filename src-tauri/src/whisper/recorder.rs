@@ -142,9 +142,9 @@ impl AudioRecorder {
         let samples = self.samples.lock().unwrap();
         let offset = self.transcribed_offset.load(Ordering::SeqCst);
 
-        // Need at least 0.5 seconds of new audio (at input sample rate)
+        // Need at least 0.3 seconds of new audio for snappy feedback
         let input_rate = self.input_sample_rate.load(Ordering::SeqCst) as usize;
-        let min_new_samples = input_rate / 2; // 0.5 seconds
+        let min_new_samples = input_rate * 3 / 10; // 0.3 seconds
 
         if samples.len() <= offset + min_new_samples {
             return None;
@@ -153,8 +153,8 @@ impl AudioRecorder {
         // Get new samples
         let new_samples: Vec<f32> = samples[offset..].to_vec();
 
-        // Update offset (leave a small overlap for context)
-        let overlap = input_rate / 4; // 0.25 second overlap
+        // Update offset (larger overlap for better accuracy with short chunks)
+        let overlap = input_rate / 2; // 0.5 second overlap
         let new_offset = samples.len().saturating_sub(overlap);
         self.transcribed_offset.store(new_offset, Ordering::SeqCst);
 
