@@ -254,8 +254,9 @@ export async function startAgent(
   taskId: string,
   agentType: string,
   workingDir: string,
+  cliPath?: string,
 ): Promise<AgentInfo> {
-  return invoke<AgentInfo>('start_agent', { taskId, agentType, workingDir })
+  return invoke<AgentInfo>('start_agent', { taskId, agentType, workingDir, cliPath })
 }
 
 export async function stopAgent(taskId: string): Promise<void> {

@@ -15,7 +15,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { Column } from '@/components/kanban/column'
 import { DragOverlayContent } from '@/components/kanban/drag-overlay'
 import { SplitViewWrapper } from '@/components/layout/split-view'
-import { ChatInput } from '@/components/chat/chat-input'
+import { OrchestratorPanel } from '@/components/panel/orchestrator-panel'
 import { useDnd } from '@/hooks/use-dnd'
 import { useSplitView } from '@/hooks/use-split-view'
 
@@ -110,11 +110,9 @@ export function Board() {
           </button>
         </div>
 
-        {/* Orchestrator chat input */}
+        {/* Orchestrator panel */}
         {activeWorkspaceId && (
-          <div className="shrink-0 border-t border-border-default bg-bg p-4">
-            <ChatInput workspaceId={activeWorkspaceId} />
-          </div>
+          <OrchestratorPanel workspaceId={activeWorkspaceId} />
         )}
       </div>
       <DragOverlay dropAnimation={null}>

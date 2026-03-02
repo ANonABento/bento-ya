@@ -40,8 +40,8 @@ impl From<AgentSession> for AgentInfo {
     }
 }
 
-#[tauri::command]
-pub fn start_agent(
+#[tauri::command(rename_all = "camelCase")]
+pub async fn start_agent(
     task_id: String,
     agent_type: String,
     working_dir: String,
@@ -66,7 +66,7 @@ pub fn start_agent(
     Ok(AgentInfo::from(session))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn stop_agent(
     task_id: String,
     agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
@@ -77,7 +77,7 @@ pub fn stop_agent(
     runner.stop_agent(&task_id)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn force_stop_agent(
     task_id: String,
     agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
@@ -88,7 +88,7 @@ pub fn force_stop_agent(
     runner.force_stop_agent(&task_id)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn get_agent_status(
     task_id: String,
     agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
