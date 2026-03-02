@@ -1,92 +1,93 @@
 # Overnight Autonomous Session Plan
 
 > **Mode**: Ralph Loop (extended autonomous work)
-> **Goal**: Complete all remaining wiring tickets + v0.4 features
+> **Goal**: Wire up pipeline triggers, exit criteria, and core UI features
 > **Process**: Plan → Implement → Test → Review → Commit → Repeat
 
 ---
 
 ## Execution Order (Dependency-Optimized)
 
+### Phase 1: Foundation (Independent Tasks)
+
 | # | Ticket | Title | Complexity | Est. Time |
 |---|--------|-------|------------|-----------|
-| 1 | T036 | Metrics Data Collection | S | 30min |
-| 2 | T037 | Checklist Persistence | M | 45min |
-| 3 | T027 | Notification Column | S | 30min |
-| 4 | T038 | Settings Backend Sync | M | 45min |
-| 5 | T035 | History Replay Backend | M | 45min |
-| 6 | T034 | Pipeline Exit Criteria | L | 60min |
-| 7 | T028 | Checklist Auto-Detect & Fix-This | M | 60min |
-| 8 | — | Files Sidebar (Chef panel) | M | 45min |
+| 1 | T037 | Checklist Persistence | M | 45min |
+| 2 | T038 | Settings Backend Sync | M | 45min |
+| 3 | T040 | Files Sidebar (Chef) | M | 45min |
+
+### Phase 2: Trigger Execution (Sequential - Each Builds on Agent Infrastructure)
+
+| # | Ticket | Title | Complexity | Est. Time |
+|---|--------|-------|------------|-----------|
+| 4 | T042 | Agent Trigger Execution | M | 60min |
+| 5 | T043 | Script Trigger Executor | M | 45min |
+| 6 | T044 | Skill Trigger Executor | M | 45min |
+
+### Phase 3: Exit Criteria (Depends on Phase 2)
+
+| # | Ticket | Title | Complexity | Est. Time |
+|---|--------|-------|------------|-----------|
+| 7 | T034 | Pipeline Exit Criteria | L | 90min |
+| 8 | T041 | Review Actions (Approve/Reject) | S | 30min |
+
+### Phase 4: Siege Features (Depends on Phase 3)
+
+| # | Ticket | Title | Complexity | Est. Time |
+|---|--------|-------|------------|-----------|
 | 9 | T024 | PR Creation from Review | M | 45min |
 | 10 | T025 | Siege Loop (Comment-Watch) | L | 90min |
-| 11 | T026 | Manual Test Checklist Gen | M | 45min |
 
-**Total Estimated: ~8.5 hours**
+**Total Estimated: ~9 hours**
+
+---
+
+## Dependency Graph
+
+```
+Phase 1 (Parallel - No Dependencies)
+├── T037 Checklist Persistence
+├── T038 Settings Backend Sync
+└── T040 Files Sidebar
+
+Phase 2 (Sequential - Build Agent Infrastructure)
+T042 Agent Trigger ──┐
+                     ├──► T034 Exit Criteria
+T043 Script Trigger ─┤         │
+                     │         v
+T044 Skill Trigger ──┘    T041 Review Actions
+                               │
+                               v
+                          T024 PR Creation
+                               │
+                               v
+                          T025 Siege Loop
+```
 
 ---
 
 ## Task Details
 
-### 1. T036: Metrics Data Collection (S - 30min)
-
-**Goal**: Track LLM usage so dashboard shows real data
-
-**Steps**:
-1. Add `insert_usage_record()` calls after LLM responses in orchestrator
-2. Calculate token counts and costs from API response
-3. Track workspace_id and optional task_id
-4. Test: Send messages, verify `usage_records` table populated
-5. Verify: Metrics dashboard shows data
-
-**Files**:
-- `src-tauri/src/commands/orchestrator.rs` - Add usage tracking
-- `src-tauri/src/db/usage.rs` - Insert helper
-
-**Commit**: `feat(metrics): track LLM usage in orchestrator calls`
-
----
-
-### 2. T037: Checklist Persistence (M - 45min)
+### 1. T037: Checklist Persistence (M - 45min)
 
 **Goal**: Checklist state survives page refresh
 
 **Steps**:
 1. Add `update_checklist_item` command (checked, notes)
-2. Add `get_checklist_state` command
+2. Add `get_task_checklist` command
 3. Update checklist-store to sync with backend
 4. Debounce writes (500ms)
 5. Load from backend on mount
-6. Test: Check items, refresh, verify persistence
 
 **Files**:
-- `src-tauri/src/commands/checklist.rs` - CRUD commands
-- `src/stores/checklist-store.ts` - Backend sync
-- `src/components/checklist/*.tsx` - Wire up
+- `src-tauri/src/commands/checklist.rs`
+- `src/stores/checklist-store.ts`
 
 **Commit**: `feat(checklist): persist checklist state to database`
 
 ---
 
-### 3. T027: Notification Column (S - 30min)
-
-**Goal**: Column template for post-deploy notifications
-
-**Steps**:
-1. Add "Notify" column template to templates-store
-2. Manual exit criteria (confirm button)
-3. Task detail shows notification context
-4. Test: Create notify column, verify exit behavior
-
-**Files**:
-- `src/stores/templates-store.ts` - Add template
-- `src/components/kanban/task-card.tsx` - Notify UI
-
-**Commit**: `feat(pipeline): add Notification column template`
-
----
-
-### 4. T038: Settings Backend Sync (M - 45min)
+### 2. T038: Settings Backend Sync (M - 45min)
 
 **Goal**: Per-workspace settings, survive browser clear
 
@@ -95,94 +96,128 @@
 2. Add `update_workspace_config` command
 3. Load workspace config on switch
 4. Merge workspace settings over global defaults
-5. Test: Change settings per workspace, verify persistence
 
 **Files**:
-- `src-tauri/src/commands/workspace.rs` - Config field CRUD
-- `src/stores/settings-store.ts` - Split & sync logic
+- `src-tauri/src/commands/workspace.rs`
+- `src/stores/settings-store.ts`
 
 **Commit**: `feat(settings): per-workspace settings with backend sync`
 
 ---
 
-### 5. T035: History Replay Backend (M - 45min)
+### 3. T040: Files Sidebar (M - 45min)
 
-**Goal**: "Replay" button actually restores state
+**Goal**: Browse workspace files in Chef panel
 
 **Steps**:
-1. Add `restore_snapshot` command
-2. Parse snapshot JSON, update columns/tasks
-3. Create pre-restore snapshot (undo safety)
-4. Wire up onReplay prop in history-panel
-5. Add confirmation dialog
-6. Test: Create snapshot, modify, restore, verify
+1. Add `list_workspace_files` command (glob *.md files)
+2. Add `read_workspace_file` command
+3. Build file tree UI component
+4. Markdown preview on click
+5. "New Note" button
 
 **Files**:
-- `src-tauri/src/commands/history.rs` - restore_snapshot
-- `src/components/history/history-panel.tsx` - Wire onReplay
+- `src-tauri/src/commands/files.rs` (NEW)
+- `src/components/panel/files-content.tsx` (NEW)
 
-**Commit**: `feat(history): implement snapshot replay/restore`
+**Commit**: `feat(chef): implement files sidebar with markdown preview`
 
 ---
 
-### 6. T034: Pipeline Exit Criteria (L - 60min)
+### 4. T042: Agent Trigger Execution (M - 60min)
+
+**Goal**: When task enters column with trigger_type="agent", spawn agent
+
+**Steps**:
+1. In `fire_trigger`, parse agent_type from config
+2. Call `start_agent` with task context
+3. Store agent session ID on task
+4. Add completion callback to call `mark_complete`
+5. Wire up terminal output to task
+
+**Files**:
+- `src-tauri/src/pipeline/mod.rs`
+- `src-tauri/src/process/agent_runner.rs`
+
+**Commit**: `feat(pipeline): execute agent triggers on column entry`
+
+---
+
+### 5. T043: Script Trigger Executor (M - 45min)
+
+**Goal**: When task enters column with trigger_type="script", run script
+
+**Steps**:
+1. In `fire_trigger`, parse script_path from config
+2. Execute via PTY with env vars (TASK_ID, WORKSPACE_PATH)
+3. Capture exit code on completion
+4. Store exit code on task for exit criteria
+5. Call `mark_complete` with success status
+
+**Files**:
+- `src-tauri/src/pipeline/mod.rs`
+- `src-tauri/src/process/pty_manager.rs`
+
+**Commit**: `feat(pipeline): execute script triggers with exit code tracking`
+
+---
+
+### 6. T044: Skill Trigger Executor (M - 45min)
+
+**Goal**: When task enters column with trigger_type="skill", run skill
+
+**Steps**:
+1. In `fire_trigger`, parse skill_name from config
+2. Build skill prompt (map common skills to prompts)
+3. Execute via Claude CLI agent
+4. Track completion and result
+
+**Files**:
+- `src-tauri/src/pipeline/mod.rs`
+- `src-tauri/src/pipeline/skills.rs` (NEW)
+
+**Commit**: `feat(pipeline): execute skill triggers via Claude CLI`
+
+---
+
+### 7. T034: Pipeline Exit Criteria (L - 90min)
 
 **Goal**: Auto-advance tasks based on real conditions
 
 **Steps**:
-1. `agent_complete`: Check agent_sessions status
-2. `script_success`: Track & check exit codes
-3. `checklist_done`: All required items checked
-4. `manual_approval`: User button click
-5. `time_elapsed`: Auto-advance after delay
-6. Event-driven re-evaluation
-7. Test: Configure exit criteria, verify auto-advance
+1. Create `pipeline/evaluator.rs` module
+2. Implement `agent_complete` - check agent_sessions table
+3. Implement `script_success` - check last_script_exit_code
+4. Implement `checklist_done` - parse and verify JSON
+5. Implement `time_elapsed` - check triggered_at vs timeout
+6. Implement `manual_approval` - check review_status
+7. Add event-driven re-evaluation hooks
+8. Add debug logging
 
 **Files**:
-- `src-tauri/src/pipeline/mod.rs` - Exit criteria logic
-- `src-tauri/src/pipeline/evaluator.rs` - New evaluation module
+- `src-tauri/src/pipeline/evaluator.rs` (NEW)
+- `src-tauri/src/pipeline/mod.rs`
 
 **Commit**: `feat(pipeline): implement exit criteria evaluation`
 
 ---
 
-### 7. T028: Checklist Auto-Detect & Fix-This (M - 60min)
+### 8. T041: Review Actions (S - 30min)
 
-**Goal**: Auto-scan repo, one-click fix tasks
-
-**Steps**:
-1. File-exists detection (glob patterns)
-2. File-contains detection (regex search)
-3. Command-succeeds detection (run & check exit)
-4. "Fix this" button → create task
-5. Link checklist item to task
-6. Auto-check when task completes
-7. Test: Add detection rules, verify auto-check
-
-**Files**:
-- `src-tauri/src/checklist/detector.rs` - Detection logic
-- `src/components/checklist/checklist-item.tsx` - Fix button
-
-**Commit**: `feat(checklist): auto-detect and fix-this functionality`
-
----
-
-### 8. Files Sidebar (M - 45min)
-
-**Goal**: View plans, md files, checklists in Chef sidebar
+**Goal**: Wire up approve/reject buttons
 
 **Steps**:
-1. Scan workspace for .md files
-2. List plans/notes in sidebar
-3. Click to preview in panel
-4. Create new note button
-5. Test: Add files, verify display
+1. Add `approve_task` command
+2. Add `reject_task` command (with reason, return column)
+3. Wire buttons in task detail panel
+4. Show review status on card
+5. Integrate with `manual_approval` exit type
 
 **Files**:
-- `src/components/panel/panel-sidebar.tsx` - FilesContent
-- `src-tauri/src/commands/files.rs` - List/read files
+- `src-tauri/src/commands/review.rs` (NEW)
+- `src/components/review/review-actions.tsx`
 
-**Commit**: `feat(chef): implement files sidebar with markdown preview`
+**Commit**: `feat(review): wire approve/reject to pipeline state machine`
 
 ---
 
@@ -191,17 +226,17 @@
 **Goal**: Create GitHub PR from task
 
 **Steps**:
-1. "Create PR" button in Review column
-2. Use `gh` CLI or GitHub API
-3. PR title from task, body from description
-4. Update task with PR number/link
-5. Test: Create task, move to Review, create PR
+1. Add `create_pr` command using `gh` CLI
+2. PR title from task title, body from description
+3. "Create PR" button in Review column task card
+4. Store PR number on task
+5. Update task with PR link
 
 **Files**:
-- `src-tauri/src/commands/github.rs` - PR creation
-- `src/components/kanban/task-card.tsx` - PR button
+- `src-tauri/src/commands/github.rs`
+- `src/components/kanban/task-card.tsx`
 
-**Commit**: `feat(github): create PR from Review column`
+**Commit**: `feat(github): create PR from Review column task`
 
 ---
 
@@ -211,50 +246,30 @@
 
 **Steps**:
 1. Poll PR for new comments (configurable interval)
-2. Spawn agent to address comments
-3. Agent reads context, fixes, pushes
-4. Loop until clean or max iterations
-5. PR approved → auto-advance
+2. Parse comments, spawn agent to fix
+3. Agent pushes fix commit
+4. Loop until approved or max iterations
+5. Show iteration count on card
 6. Manual stop/takeover option
-7. Show iteration count on card
-8. Test: Create PR, add comment, verify fix cycle
 
 **Files**:
-- `src-tauri/src/siege/mod.rs` - Siege loop engine
-- `src-tauri/src/siege/comment_watcher.rs` - Poll logic
-- `src/components/kanban/siege-status.tsx` - UI
+- `src-tauri/src/siege/mod.rs` (NEW)
+- `src-tauri/src/siege/comment_watcher.rs` (NEW)
+- `src/components/kanban/siege-status.tsx` (NEW)
 
 **Commit**: `feat(siege): implement PR comment watch and fix loop`
-
----
-
-### 11. T026: Manual Test Checklist Gen (M - 45min)
-
-**Goal**: Auto-generate test checklist from PR diff
-
-**Steps**:
-1. Analyze diff with LLM → test items
-2. Generate checklist structure
-3. Interactive checklist in task detail
-4. All checked → exit criteria met
-5. Test: Merge PR, verify checklist generated
-
-**Files**:
-- `src-tauri/src/checklist/generator.rs` - LLM generation
-- `src/components/checklist/test-checklist.tsx` - UI
-
-**Commit**: `feat(checklist): auto-generate test checklist from PR diff`
 
 ---
 
 ## Verification Protocol
 
 After each task:
-1. `npm run type-check` - Must pass
-2. `npm run lint` - Must pass
-3. Manual test in `pnpm tauri dev`
-4. Commit with conventional message
-5. Update STATUS.md ticket status
+1. `cargo check` - Rust compiles
+2. `npm run type-check` - TypeScript passes
+3. `npm run lint` - No lint errors
+4. Manual test in `pnpm tauri dev`
+5. Commit with conventional message
+6. Update STATUS.md ticket status
 
 ---
 
@@ -262,17 +277,19 @@ After each task:
 
 If stuck on a task for >30min:
 1. Document blocker in ticket file
-2. Skip to next task
+2. Skip to next task (if no dependency)
 3. Return to blocked task later with fresh context
 
 ---
 
 ## Completion Criteria
 
-- [ ] All 11 tasks committed
-- [ ] STATUS.md updated (all wiring tickets ✅, v0.4 ✅)
-- [ ] `npm run type-check` passes
-- [ ] `npm run lint` passes
+- [ ] Phase 1 complete (T037, T038, T040)
+- [ ] Phase 2 complete (T042, T043, T044)
+- [ ] Phase 3 complete (T034, T041)
+- [ ] Phase 4 complete (T024, T025)
+- [ ] STATUS.md updated
+- [ ] All type-check and lint pass
 - [ ] App runs without errors
 
 ---
@@ -283,14 +300,11 @@ If stuck on a task for >30min:
 /ralph-loop .tickets/OVERNIGHT-PLAN.md
 ```
 
-Or manually:
+Or manually start with Phase 1:
 ```
-For each task in order:
-  1. Read ticket requirements
-  2. Implement changes
-  3. Run type-check + lint
-  4. Test in dev mode
-  5. Commit with message from plan
-  6. Mark ticket complete in STATUS.md
-  7. Continue to next task
+Read .tickets/wiring/T037-checklist-persistence.md
+Implement changes
+Test in dev mode
+Commit: feat(checklist): persist checklist state to database
+Continue to T038...
 ```

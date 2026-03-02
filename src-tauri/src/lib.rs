@@ -151,6 +151,12 @@ pub fn run() {
             commands::cli_detect::detect_clis,
             commands::cli_detect::detect_single_cli,
             commands::cli_detect::verify_cli_path,
+            // Checklist commands
+            commands::checklist::get_workspace_checklist,
+            commands::checklist::update_checklist_item,
+            commands::checklist::update_checklist_category,
+            commands::checklist::create_workspace_checklist,
+            commands::checklist::delete_workspace_checklist,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

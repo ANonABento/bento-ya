@@ -283,6 +283,13 @@ const mockCommands: Record<string, CommandHandler> = {
   get_workspace_history: () => [],
   get_task_history: () => [],
   clear_session_history: () => undefined,
+
+  // Checklist commands (stubs)
+  get_workspace_checklist: () => ({ checklist: null, categories: [], items: [] }),
+  update_checklist_item: () => undefined,
+  update_checklist_category: () => undefined,
+  create_workspace_checklist: () => ({ id: 'mock-checklist', workspaceId: '', name: 'Mock Checklist', description: '', createdAt: '', updatedAt: '' }),
+  delete_workspace_checklist: () => undefined,
 }
 
 // ─── Mock invoke function ───────────────────────────────────────────────────

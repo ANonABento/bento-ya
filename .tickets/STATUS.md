@@ -100,7 +100,7 @@ These tickets track work needed to connect existing UI to functional backends:
 | ID | Title | Status | Complexity |
 |----|-------|--------|------------|
 | T033 | LLM Integration (Anthropic/OpenAI) | ✅ **COMPLETE** | XL |
-| T034 | Pipeline Exit Criteria Evaluation | ❌ Stub returns `false` | M |
+| T034 | Pipeline Exit Criteria Evaluation | ❌ Stub returns `false` | L |
 | T035 | History Replay Backend | ❌ Missing `restore_snapshot` | M |
 | T036 | Metrics Data Collection | ✅ **COMPLETE** | S |
 | T037 | Checklist Persistence | ❌ Store is local-only | M |
@@ -108,6 +108,9 @@ These tickets track work needed to connect existing UI to functional backends:
 | T039 | Orchestrator Intelligence | ✅ **COMPLETE** | M |
 | T040 | Files Sidebar | ❌ Placeholder "Coming soon" | M |
 | T041 | Review Actions (Approve/Reject) | ❌ Buttons do nothing | S |
+| T042 | Agent Trigger Execution | ❌ Config saved, nothing spawns | M |
+| T043 | Script Trigger Executor | ❌ Config saved, nothing runs | M |
+| T044 | Skill Trigger Executor | ❌ Config saved, nothing executes | M |
 
 **Verified 2025-03-02**: T036 is wired - `insert_usage_record()` called in orchestrator.rs:632.
 
@@ -167,18 +170,31 @@ These tickets track work needed to connect existing UI to functional backends:
 
 ## Next Steps (Priority Order)
 
-### Core Wiring (Must Have)
+See [OVERNIGHT-PLAN.md](./OVERNIGHT-PLAN.md) for detailed execution plan.
+
+### Phase 1: Foundation (Independent)
 
 1. **T037: Checklist Persistence** - Sync checklist state to backend on toggle/notes change
 2. **T038: Settings Backend Sync** - Store workspace settings in DB, not just localStorage
-3. **T034: Pipeline Exit Criteria** - Implement `agent_complete`, `script_success`, `pr_approved` checks
-4. **T040: Files Sidebar** - Scan workspace for .md files, display in Chef sidebar
+3. **T040: Files Sidebar** - Scan workspace for .md files, display in Chef sidebar
 
-### Nice to Have
+### Phase 2: Trigger Execution (Core Pipeline)
 
-5. **T035: History Replay** - Add `restore_snapshot` command to actually restore board state
-6. **T041: Review Actions** - Wire approve/reject to pipeline state machine
+4. **T042: Agent Trigger Execution** - Spawn agents when task enters column with agent trigger
+5. **T043: Script Trigger Executor** - Run scripts with exit code tracking
+6. **T044: Skill Trigger Executor** - Execute skills via Claude CLI
 
-### Future (v0.4 Siege)
+### Phase 3: Exit Criteria (Auto-Advance)
 
-7. **T024-T028** - PR workflow, siege loop, comment watching
+7. **T034: Pipeline Exit Criteria** - Implement `agent_complete`, `script_success`, `checklist_done`, etc.
+8. **T041: Review Actions** - Wire approve/reject buttons to pipeline state machine
+
+### Phase 4: PR Workflow (Siege)
+
+9. **T024: PR Creation** - Create GitHub PR from Review column task
+10. **T025: Siege Loop** - Watch PR comments, auto-fix, loop until approved
+
+### Future
+
+11. **T035: History Replay** - Add `restore_snapshot` command to actually restore board state
+12. **T026: Manual Test Checklist** - Generate test checklists from PR changes
