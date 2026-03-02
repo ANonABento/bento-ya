@@ -160,40 +160,47 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
           style={{ minHeight: '38px', maxHeight: '120px' }}
         />
 
-        {/* Voice input button */}
-        {voice.isAvailable && (
-          <button
-            type="button"
-            onClick={() => {
-              if (voice.state === 'recording') {
-                voice.stopRecording()
-              } else if (voice.state === 'idle') {
-                void voice.startRecording()
-              }
-            }}
-            disabled={disabled || isProcessing || voice.state === 'processing'}
-            className={`flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg border transition-colors ${
-              voice.state === 'recording'
-                ? 'border-red-500 bg-red-500/10 text-red-500 animate-pulse'
-                : voice.state === 'processing'
-                  ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-border-default bg-bg text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
-            title={voice.state === 'recording' ? `Recording (${voice.duration}s) - click to stop` : 'Voice input'}
-          >
-            {voice.state === 'processing' ? (
-              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
-                <path d="M8 1a2 2 0 0 0-2 2v4a2 2 0 1 0 4 0V3a2 2 0 0 0-2-2Z" />
-                <path d="M4.5 7A.75.75 0 0 0 3 7a5 5 0 0 0 4.25 4.944V13.5h-1.5a.75.75 0 0 0 0 1.5h4.5a.75.75 0 0 0 0-1.5h-1.5v-1.556A5 5 0 0 0 13 7a.75.75 0 0 0-1.5 0 3.5 3.5 0 1 1-7 0Z" />
-              </svg>
-            )}
-          </button>
-        )}
+        {/* Voice input button - always show with helpful tooltip */}
+        <button
+          type="button"
+          onClick={() => {
+            if (!voice.isAvailable) return
+            if (voice.state === 'recording') {
+              voice.stopRecording()
+            } else if (voice.state === 'idle') {
+              void voice.startRecording()
+            }
+          }}
+          disabled={disabled || isProcessing || voice.state === 'processing' || !voice.isAvailable}
+          className={`flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg border transition-colors ${
+            voice.state === 'recording'
+              ? 'border-red-500 bg-red-500/10 text-red-500 animate-pulse'
+              : voice.state === 'processing'
+                ? 'border-accent bg-accent/10 text-accent'
+                : 'border-border-default bg-bg text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
+          title={
+            voice.state === 'recording'
+              ? `Recording (${voice.duration}s) - click to stop`
+              : !voice.isEnabled
+                ? 'Voice disabled - enable in Settings > Voice'
+                : !voice.isApiAvailable
+                  ? 'Voice unavailable - set OPENAI_API_KEY'
+                  : 'Voice input'
+          }
+        >
+          {voice.state === 'processing' ? (
+            <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
+              <path d="M8 1a2 2 0 0 0-2 2v4a2 2 0 1 0 4 0V3a2 2 0 0 0-2-2Z" />
+              <path d="M4.5 7A.75.75 0 0 0 3 7a5 5 0 0 0 4.25 4.944V13.5h-1.5a.75.75 0 0 0 0 1.5h4.5a.75.75 0 0 0 0-1.5h-1.5v-1.556A5 5 0 0 0 13 7a.75.75 0 0 0-1.5 0 3.5 3.5 0 1 1-7 0Z" />
+            </svg>
+          )}
+        </button>
 
         {/* Cancel or Send button */}
         {isProcessing ? (

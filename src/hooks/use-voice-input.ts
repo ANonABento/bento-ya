@@ -155,6 +155,8 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
     error,
     duration,
     isAvailable: isAvailable && voiceConfig.enabled,
+    isApiAvailable: isAvailable,
+    isEnabled: voiceConfig.enabled,
     startRecording,
     stopRecording,
     cancelRecording,

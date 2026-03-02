@@ -345,6 +345,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
         params,
         error: `${params.connectionMode.toUpperCase()} error: ${errorMessage}`,
       })
+      isProcessingRef.current = false
       setIsProcessing(false)
       setProcessingStartTime(null)
       // Refresh to get actual state from backend
