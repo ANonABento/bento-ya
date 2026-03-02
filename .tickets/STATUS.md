@@ -109,7 +109,7 @@ These tickets track work needed to connect existing UI to functional backends:
 | T042 | Agent Trigger Execution | ✅ **COMPLETE** | M |
 | T043 | Script Trigger Executor | ✅ **COMPLETE** | M |
 | T044 | Skill Trigger Executor | ✅ **COMPLETE** | M |
-| T045 | Task Card UI Improvements | ❌ Optional enhancement | M |
+| T045 | Task Card UI Improvements | ✅ **COMPLETE** | M |
 
 **Verified 2025-03-02**: Massive wiring session completed - T034, T037-T044 all implemented.
 
