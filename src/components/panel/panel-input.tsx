@@ -1,5 +1,4 @@
 import { useState, useRef, useCallback } from 'react'
-import { streamOrchestratorChat } from '@/lib/ipc'
 import { useSettingsStore } from '@/stores/settings-store'
 
 // Available models for the orchestrator (using CLI aliases)
@@ -11,16 +10,22 @@ const MODELS = [
 
 type ModelId = typeof MODELS[number]['id']
 
+export type SendMessageParams = {
+  content: string
+  model: ModelId
+  connectionMode: 'api' | 'cli'
+  apiKey?: string
+  cliPath: string
+}
+
 type PanelInputProps = {
-  workspaceId: string
-  onMessageSent?: () => void
+  onSendMessage: (params: SendMessageParams) => void
+  isProcessing?: boolean
   disabled?: boolean
 }
 
-export function PanelInput({ workspaceId, onMessageSent, disabled = false }: PanelInputProps) {
+export function PanelInput({ onSendMessage, isProcessing = false, disabled = false }: PanelInputProps) {
   const [message, setMessage] = useState('')
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [selectedModel, setSelectedModel] = useState<ModelId>(MODELS[0].id)
   const [showModelPicker, setShowModelPicker] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -29,46 +34,41 @@ export function PanelInput({ workspaceId, onMessageSent, disabled = false }: Pan
   const settings = useSettingsStore((s) => s.global)
   const anthropicProvider = settings.model.providers.find((p) => p.id === 'anthropic')
 
-  const handleSubmit = useCallback(async () => {
-    if (!message.trim() || isProcessing || disabled) return
+  const handleSubmit = useCallback(() => {
+    const trimmed = message.trim()
+    if (!trimmed || isProcessing || disabled) return
 
-    setIsProcessing(true)
-    setError(null)
-
-    // Use connection mode from settings
-    const connectionMode = anthropicProvider?.connectionMode ?? 'api'
+    // Get connection settings
+    const connectionMode = (anthropicProvider?.connectionMode ?? 'api') as 'api' | 'cli'
     const apiKey = settings.agent.envVars['ANTHROPIC_API_KEY'] || undefined
     const cliPath = anthropicProvider?.cliPath || 'claude'
 
-    try {
-      await streamOrchestratorChat(
-        workspaceId,
-        message.trim(),
-        connectionMode,
-        apiKey,
-        selectedModel,
-        cliPath
-      )
-      setMessage('')
-      onMessageSent?.()
-    } catch (err) {
-      const errorMessage = err instanceof Error
-        ? err.message
-        : typeof err === 'object' && err !== null
-          ? JSON.stringify(err)
-          : String(err)
-      setError(`${connectionMode.toUpperCase()} error: ${errorMessage}`)
-    } finally {
-      setIsProcessing(false)
+    // Emit message immediately - parent handles IPC
+    onSendMessage({
+      content: trimmed,
+      model: selectedModel,
+      connectionMode,
+      apiKey,
+      cliPath,
+    })
+
+    // Clear input immediately for snappy feel
+    setMessage('')
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto'
     }
-  }, [message, workspaceId, isProcessing, disabled, onMessageSent, anthropicProvider, settings.agent.envVars, selectedModel])
+  }, [message, isProcessing, disabled, onSendMessage, anthropicProvider, settings.agent.envVars, selectedModel])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      // Cmd+Enter or Ctrl+Enter to send
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      if (e.key === 'Enter') {
+        if (e.shiftKey) {
+          // Shift+Enter: allow newline (default behavior)
+          return
+        }
+        // Enter: send message
         e.preventDefault()
-        void handleSubmit()
+        handleSubmit()
       }
     },
     [handleSubmit]
@@ -77,7 +77,6 @@ export function PanelInput({ workspaceId, onMessageSent, disabled = false }: Pan
   // Auto-resize textarea
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setMessage(e.target.value)
-    setError(null)
     e.target.style.height = 'auto'
     e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`
   }
@@ -86,11 +85,6 @@ export function PanelInput({ workspaceId, onMessageSent, disabled = false }: Pan
 
   return (
     <div className="border-t border-border-default bg-surface p-3">
-      {error && (
-        <div className="mb-2 rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-400">
-          {error}
-        </div>
-      )}
       <div className="flex items-end gap-2">
         {/* Model selector */}
         <div className="relative">
@@ -108,7 +102,7 @@ export function PanelInput({ workspaceId, onMessageSent, disabled = false }: Pan
               <path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
             </svg>
           </button>
-          
+
           {showModelPicker && (
             <div className="absolute bottom-full left-0 mb-1 w-48 rounded-lg border border-border-default bg-surface shadow-lg">
               {MODELS.map((model) => (
@@ -143,16 +137,16 @@ export function PanelInput({ workspaceId, onMessageSent, disabled = false }: Pan
           value={message}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder="Ask me to create tasks... (⌘+Enter)"
+          placeholder="Ask me to create tasks..."
           rows={1}
-          disabled={disabled || isProcessing}
+          disabled={disabled}
           className="flex-1 resize-none rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50"
           style={{ minHeight: '38px', maxHeight: '120px' }}
         />
-        
+
         <button
           type="button"
-          onClick={() => { void handleSubmit() }}
+          onClick={handleSubmit}
           disabled={!message.trim() || isProcessing || disabled}
           className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg bg-accent text-bg transition-colors hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -168,7 +162,7 @@ export function PanelInput({ workspaceId, onMessageSent, disabled = false }: Pan
           )}
         </button>
       </div>
-      
+
       {/* Connection mode indicator */}
       <div className="mt-2 flex items-center gap-2 text-xs text-text-secondary/70">
         <span className={`inline-block h-1.5 w-1.5 rounded-full ${anthropicProvider?.connectionMode === 'cli' ? 'bg-green-400' : 'bg-blue-400'}`} />

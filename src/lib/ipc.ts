@@ -347,9 +347,18 @@ export const onPipelineError = (cb: EventCallback<PipelineEvent>): Promise<Unlis
 
 // ─── Orchestrator commands ──────────────────────────────────────────────────
 
+export type ChatSession = {
+  id: string
+  workspaceId: string
+  title: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type ChatMessage = {
   id: string
   workspaceId: string
+  sessionId: string | null
   role: 'user' | 'assistant' | 'system'
   content: string
   createdAt: string
@@ -407,15 +416,32 @@ export async function sendOrchestratorMessage(
   return invoke<ChatMessage>('send_orchestrator_message', { workspaceId, message })
 }
 
-export async function getChatHistory(
-  workspaceId: string,
-  limit?: number,
-): Promise<ChatMessage[]> {
-  return invoke<ChatMessage[]>('get_chat_history', { workspaceId, limit })
+// Chat session management
+export async function listChatSessions(workspaceId: string): Promise<ChatSession[]> {
+  return invoke<ChatSession[]>('list_chat_sessions', { workspaceId })
 }
 
-export async function clearChatHistory(workspaceId: string): Promise<void> {
-  return invoke<void>('clear_chat_history', { workspaceId })
+export async function getActiveChatSession(workspaceId: string): Promise<ChatSession> {
+  return invoke<ChatSession>('get_active_chat_session', { workspaceId })
+}
+
+export async function createChatSession(workspaceId: string, title?: string): Promise<ChatSession> {
+  return invoke<ChatSession>('create_chat_session', { workspaceId, title })
+}
+
+export async function deleteChatSession(sessionId: string): Promise<void> {
+  return invoke<void>('delete_chat_session', { sessionId })
+}
+
+export async function getChatHistory(
+  sessionId: string,
+  limit?: number,
+): Promise<ChatMessage[]> {
+  return invoke<ChatMessage[]>('get_chat_history', { sessionId, limit })
+}
+
+export async function clearChatHistory(sessionId: string): Promise<void> {
+  return invoke<void>('clear_chat_history', { sessionId })
 }
 
 export async function processOrchestratorResponse(
@@ -448,17 +474,56 @@ export const onOrchestratorError = (cb: EventCallback<OrchestratorEvent>): Promi
 
 // ─── Orchestrator streaming ─────────────────────────────────────────────────
 
+export type ToolUsePayload = {
+  id: string
+  name: string
+  input: Record<string, unknown>
+}
+
 export type StreamChunkEvent = {
   workspaceId: string
   delta: string
   finishReason: string | null
+  toolUse?: ToolUsePayload
+}
+
+export type ToolResultEvent = {
+  workspaceId: string
+  toolUseId: string
+  result: string
+  isError: boolean
+}
+
+export type ThinkingEvent = {
+  workspaceId: string
+  content: string
+  isComplete: boolean
+}
+
+export type ToolCallEvent = {
+  workspaceId: string
+  toolId: string
+  toolName: string
+  status: 'running' | 'complete' | 'error'
+  input?: Record<string, unknown>
+  result?: string
 }
 
 export const onOrchestratorStream = (cb: EventCallback<StreamChunkEvent>): Promise<UnlistenFn> =>
   listen<StreamChunkEvent>('orchestrator:stream', cb)
 
+export const onOrchestratorToolResult = (cb: EventCallback<ToolResultEvent>): Promise<UnlistenFn> =>
+  listen<ToolResultEvent>('orchestrator:tool_result', cb)
+
+export const onOrchestratorThinking = (cb: EventCallback<ThinkingEvent>): Promise<UnlistenFn> =>
+  listen<ThinkingEvent>('orchestrator:thinking', cb)
+
+export const onOrchestratorToolCall = (cb: EventCallback<ToolCallEvent>): Promise<UnlistenFn> =>
+  listen<ToolCallEvent>('orchestrator:tool_call', cb)
+
 export async function streamOrchestratorChat(
   workspaceId: string,
+  sessionId: string,
   message: string,
   connectionMode: 'cli' | 'api',
   apiKey?: string,
@@ -467,6 +532,7 @@ export async function streamOrchestratorChat(
 ): Promise<void> {
   return invoke<void>('stream_orchestrator_chat', {
     workspaceId,
+    sessionId,
     message,
     connectionMode,
     apiKey,

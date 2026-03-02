@@ -74,6 +74,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("006_session_resume", include_str!("migrations/006_session_resume.sql")),
         ("007_cost_tracking", include_str!("migrations/007_cost_tracking.sql")),
         ("008_session_history", include_str!("migrations/008_session_history.sql")),
+        ("009_chat_sessions", include_str!("migrations/009_chat_sessions.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -695,13 +696,24 @@ pub fn delete_agent_session(conn: &Connection, id: &str) -> SqlResult<()> {
     Ok(())
 }
 
-// ─── Data models: ChatMessage ───────────────────────────────────────────────
+// ─── Data models: ChatSession & ChatMessage ─────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSession {
+    pub id: String,
+    pub workspace_id: String,
+    pub title: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
     pub id: String,
     pub workspace_id: String,
+    pub session_id: Option<String>,
     pub role: String,
     pub content: String,
     pub created_at: String,
@@ -718,51 +730,143 @@ pub struct OrchestratorSession {
     pub updated_at: String,
 }
 
+// ─── CRUD helpers: ChatSession ──────────────────────────────────────────────
+
+pub fn create_chat_session(conn: &Connection, workspace_id: &str, title: &str) -> SqlResult<ChatSession> {
+    let id = new_id();
+    let ts = now();
+    conn.execute(
+        "INSERT INTO chat_sessions (id, workspace_id, title, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, workspace_id, title, ts, ts],
+    )?;
+    get_chat_session(conn, &id)
+}
+
+pub fn get_chat_session(conn: &Connection, id: &str) -> SqlResult<ChatSession> {
+    conn.query_row(
+        "SELECT id, workspace_id, title, created_at, updated_at FROM chat_sessions WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(ChatSession {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                title: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        },
+    )
+}
+
+pub fn list_chat_sessions(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<ChatSession>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, title, created_at, updated_at FROM chat_sessions WHERE workspace_id = ?1 ORDER BY updated_at DESC",
+    )?;
+    let rows = stmt.query_map(params![workspace_id], |row| {
+        Ok(ChatSession {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            title: row.get(2)?,
+            created_at: row.get(3)?,
+            updated_at: row.get(4)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn update_chat_session(conn: &Connection, id: &str, title: Option<&str>) -> SqlResult<ChatSession> {
+    let ts = now();
+    if let Some(t) = title {
+        conn.execute(
+            "UPDATE chat_sessions SET title = ?1, updated_at = ?2 WHERE id = ?3",
+            params![t, ts, id],
+        )?;
+    } else {
+        conn.execute(
+            "UPDATE chat_sessions SET updated_at = ?1 WHERE id = ?2",
+            params![ts, id],
+        )?;
+    }
+    get_chat_session(conn, id)
+}
+
+pub fn delete_chat_session(conn: &Connection, id: &str) -> SqlResult<()> {
+    conn.execute("DELETE FROM chat_sessions WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn get_or_create_active_session(conn: &Connection, workspace_id: &str) -> SqlResult<ChatSession> {
+    // Get most recent session or create new one
+    let existing = conn.query_row(
+        "SELECT id, workspace_id, title, created_at, updated_at FROM chat_sessions WHERE workspace_id = ?1 ORDER BY updated_at DESC LIMIT 1",
+        params![workspace_id],
+        |row| {
+            Ok(ChatSession {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                title: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        },
+    );
+
+    match existing {
+        Ok(session) => Ok(session),
+        Err(_) => create_chat_session(conn, workspace_id, "New Chat"),
+    }
+}
+
 // ─── CRUD helpers: ChatMessage ──────────────────────────────────────────────
 
 pub fn insert_chat_message(
     conn: &Connection,
     workspace_id: &str,
+    session_id: &str,
     role: &str,
     content: &str,
 ) -> SqlResult<ChatMessage> {
     let id = new_id();
     let ts = now();
     conn.execute(
-        "INSERT INTO chat_messages (id, workspace_id, role, content, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![id, workspace_id, role, content, ts],
+        "INSERT INTO chat_messages (id, workspace_id, session_id, role, content, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, workspace_id, session_id, role, content, ts],
     )?;
+    // Update session's updated_at
+    let _ = update_chat_session(conn, session_id, None);
     get_chat_message(conn, &id)
 }
 
 pub fn get_chat_message(conn: &Connection, id: &str) -> SqlResult<ChatMessage> {
     conn.query_row(
-        "SELECT id, workspace_id, role, content, created_at FROM chat_messages WHERE id = ?1",
+        "SELECT id, workspace_id, session_id, role, content, created_at FROM chat_messages WHERE id = ?1",
         params![id],
         |row| {
             Ok(ChatMessage {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
-                role: row.get(2)?,
-                content: row.get(3)?,
-                created_at: row.get(4)?,
+                session_id: row.get(2)?,
+                role: row.get(3)?,
+                content: row.get(4)?,
+                created_at: row.get(5)?,
             })
         },
     )
 }
 
-pub fn list_chat_messages(conn: &Connection, workspace_id: &str, limit: Option<i64>) -> SqlResult<Vec<ChatMessage>> {
+pub fn list_chat_messages(conn: &Connection, session_id: &str, limit: Option<i64>) -> SqlResult<Vec<ChatMessage>> {
     let limit_val = limit.unwrap_or(100);
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, role, content, created_at FROM chat_messages WHERE workspace_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+        "SELECT id, workspace_id, session_id, role, content, created_at FROM chat_messages WHERE session_id = ?1 ORDER BY created_at DESC LIMIT ?2",
     )?;
-    let rows = stmt.query_map(params![workspace_id, limit_val], |row| {
+    let rows = stmt.query_map(params![session_id, limit_val], |row| {
         Ok(ChatMessage {
             id: row.get(0)?,
             workspace_id: row.get(1)?,
-            role: row.get(2)?,
-            content: row.get(3)?,
-            created_at: row.get(4)?,
+            session_id: row.get(2)?,
+            role: row.get(3)?,
+            content: row.get(4)?,
+            created_at: row.get(5)?,
         })
     })?;
     let mut messages: Vec<ChatMessage> = rows.collect::<SqlResult<Vec<_>>>()?;
@@ -771,8 +875,8 @@ pub fn list_chat_messages(conn: &Connection, workspace_id: &str, limit: Option<i
     Ok(messages)
 }
 
-pub fn delete_chat_messages(conn: &Connection, workspace_id: &str) -> SqlResult<()> {
-    conn.execute("DELETE FROM chat_messages WHERE workspace_id = ?1", params![workspace_id])?;
+pub fn delete_chat_messages(conn: &Connection, session_id: &str) -> SqlResult<()> {
+    conn.execute("DELETE FROM chat_messages WHERE session_id = ?1", params![session_id])?;
     Ok(())
 }
 
@@ -1440,8 +1544,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 8 migrations: 001-008
-        assert_eq!(count, 8);
+        // We have 9 migrations: 001-009
+        assert_eq!(count, 9);
     }
 
     #[test]

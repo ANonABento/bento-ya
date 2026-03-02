@@ -38,11 +38,16 @@ pub struct LlmRequest {
     pub model: String,
     pub messages: Vec<Message>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(default)]
     pub stream: bool,
+    /// Tool definitions in Anthropic format
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<serde_json::Value>>,
 }
 
 impl Default for LlmRequest {
@@ -50,9 +55,11 @@ impl Default for LlmRequest {
         Self {
             model: "claude-sonnet-4-6-20260217".to_string(),
             messages: Vec::new(),
+            system: None,
             max_tokens: Some(4096),
             temperature: None,
             stream: true,
+            tools: None,
         }
     }
 }
@@ -62,9 +69,20 @@ impl Default for LlmRequest {
 pub struct StreamChunk {
     /// Incremental text content
     pub delta: String,
-    /// Set when streaming is complete (e.g., "end_turn", "stop")
+    /// Set when streaming is complete (e.g., "end_turn", "stop", "tool_use")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<String>,
+    /// Tool use block (when stop_reason is "tool_use")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_use: Option<ToolUseBlock>,
+}
+
+/// A tool use block from the LLM response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolUseBlock {
+    pub id: String,
+    pub name: String,
+    pub input: serde_json::Value,
 }
 
 /// Token usage statistics
@@ -89,8 +107,11 @@ pub struct LlmResponse {
     pub usage: TokenUsage,
     /// Model that was used
     pub model: String,
-    /// Why generation stopped
+    /// Why generation stopped (e.g., "end_turn", "tool_use")
     pub finish_reason: String,
+    /// Tool use blocks if the model requested tool calls
+    #[serde(default)]
+    pub tool_uses: Vec<ToolUseBlock>,
 }
 
 /// Supported LLM providers
