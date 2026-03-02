@@ -18,6 +18,7 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
   const [duration, setDuration] = useState(0)
 
   const timerRef = useRef<number | null>(null)
+  const stateRef = useRef<VoiceInputState>(state)
 
   const voiceConfig = useSettingsStore((s) => s.global.voice)
 
@@ -26,6 +27,10 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
   const onTranscriptRef = useRef(onTranscript)
 
   // Keep refs updated
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
   useEffect(() => {
     voiceConfigRef.current = voiceConfig
     onTranscriptRef.current = onTranscript
@@ -74,6 +79,7 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
     if (!voiceConfig.enabled || !isAvailable) {
       setError('Voice input is not enabled or available')
       setState('error')
+      stateRef.current = 'error'
       console.log('[Voice] Not available:', { enabled: voiceConfig.enabled, available: isAvailable })
       return
     }
@@ -92,16 +98,22 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       }, 1000)
 
       setState('recording')
+      stateRef.current = 'recording'
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       console.error('[Voice] Failed to start recording:', message)
       setError(message)
       setState('error')
+      stateRef.current = 'error'
     }
   }, [voiceConfig.enabled, isAvailable])
 
   const stopRecording = useCallback(async () => {
-    if (state !== 'recording') return
+    console.log('[Voice] stopRecording called, stateRef:', stateRef.current)
+    if (stateRef.current !== 'recording') {
+      console.log('[Voice] Not recording, ignoring stop')
+      return
+    }
 
     try {
       // Stop the timer
@@ -144,10 +156,10 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       setError(message)
       setState('error')
     }
-  }, [state])
+  }, [])
 
   const cancelRecording = useCallback(async () => {
-    if (state !== 'recording') {
+    if (stateRef.current !== 'recording') {
       setState('idle')
       setDuration(0)
       return
@@ -171,7 +183,7 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       setState('idle')
       setDuration(0)
     }
-  }, [state])
+  }, [])
 
   return {
     state,

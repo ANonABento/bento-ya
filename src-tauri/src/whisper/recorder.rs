@@ -25,8 +25,12 @@ impl AudioRecorder {
 
     /// Start recording from the default input device
     pub fn start(&self) -> Result<(), String> {
+        // If already recording, stop first (handles stuck state)
         if self.is_recording.load(Ordering::SeqCst) {
-            return Err("Already recording".to_string());
+            log::warn!("[Recorder] Was already recording, stopping first...");
+            self.is_recording.store(false, Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            self.samples.lock().unwrap().clear();
         }
 
         let host = cpal::default_host();

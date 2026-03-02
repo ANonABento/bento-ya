@@ -198,7 +198,7 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
               })
               if (voice.state === 'recording') {
                 console.log('[Voice Button] Stopping recording...')
-                voice.stopRecording()
+                void voice.stopRecording()
               } else if (voice.state === 'idle' && voice.isAvailable) {
                 console.log('[Voice Button] Starting recording...')
                 void voice.startRecording()
