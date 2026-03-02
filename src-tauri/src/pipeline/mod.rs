@@ -297,15 +297,46 @@ pub fn evaluate_exit_criteria(
             task.last_script_exit_code == Some(0)
         }
         "checklist_done" => {
-            // Check if all checklist items are checked
-            if let Some(ref checklist) = task.checklist {
-                checklist.contains("\"done\":true") && !checklist.contains("\"done\":false")
+            // Check if all checklist items are checked (using JSON parsing)
+            // The task.checklist field contains inline JSON array of items with "checked" boolean
+            if let Some(ref checklist_json) = task.checklist {
+                // Parse checklist as JSON array
+                #[derive(Deserialize)]
+                struct ChecklistEntry {
+                    #[serde(default)]
+                    checked: bool,
+                }
+                match serde_json::from_str::<Vec<ChecklistEntry>>(checklist_json) {
+                    Ok(items) => {
+                        // All items must be checked (and there must be at least one item)
+                        !items.is_empty() && items.iter().all(|item| item.checked)
+                    }
+                    Err(_) => false, // Invalid JSON, treat as not done
+                }
             } else {
-                false
+                false // No checklist, not done
+            }
+        }
+        "time_elapsed" => {
+            // Check if N seconds have passed since pipeline was triggered
+            // Default timeout is 300 seconds (5 minutes)
+            let timeout_secs = exit.config.timeout.unwrap_or(300);
+            if let Some(ref triggered_at) = task.pipeline_triggered_at {
+                // Parse triggered_at as ISO 8601 timestamp
+                if let Ok(triggered_time) = chrono::DateTime::parse_from_rfc3339(triggered_at) {
+                    let now = chrono::Utc::now();
+                    let elapsed = now.signed_duration_since(triggered_time);
+                    elapsed.num_seconds() >= timeout_secs as i64
+                } else {
+                    false // Invalid timestamp format
+                }
+            } else {
+                false // No trigger time recorded
             }
         }
         "pr_approved" => {
-            // Check if PR is approved
+            // TODO: Needs GitHub integration to check PR approval status
+            // Would query GitHub API for PR associated with task.branch_name
             false
         }
         _ => false,
