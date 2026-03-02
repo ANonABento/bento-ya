@@ -1,6 +1,8 @@
 # Bento-ya Implementation Status
 
-> Last updated: 2025-02-28
+> Last updated: 2025-03-01
+>
+> See also: [ARCHITECTURE.md](./ARCHITECTURE.md) for system overview
 
 ## Summary
 
@@ -87,6 +89,47 @@
 | Agent Sessions | Persistent agent session management | `agent_sessions` table with resumable flag |
 | Conflict Heatmap | Visual git conflict detection across branches | `src/components/git/conflict-heatmap.tsx` |
 | Swipe Navigation | Mobile-friendly workspace switching | `src/hooks/use-swipe.ts` |
+| CLI Auto-Detection | Detect claude/codex CLI paths automatically | `src-tauri/src/commands/cli_detect.rs` |
+
+---
+
+## Wiring Tickets (Backend ↔ Frontend Integration)
+
+These tickets track work needed to connect existing UI to functional backends:
+
+| ID | Title | Status | Complexity |
+|----|-------|--------|------------|
+| T033 | LLM Integration (Anthropic/OpenAI) | ❌ Plan Ready | XL |
+| T034 | Pipeline Exit Criteria Evaluation | ❌ Not Started | M |
+| T035 | History Replay Backend | ❌ Not Started | M |
+| T036 | Metrics Data Collection | ❌ Not Started | S |
+| T037 | Checklist Persistence | ❌ Not Started | M |
+| T038 | Settings Backend Sync | ❌ Not Started | M |
+
+**Priority**: T033 (LLM) is the core blocker — enables orchestrator, metrics, and pipeline agent_complete trigger.
+
+---
+
+## Recent Work (March 2025)
+
+### Terminal/Agent IPC Fix (2025-03-01)
+- Fixed parameter naming mismatch between JS (camelCase) and Rust (snake_case)
+- Added `#[tauri::command(rename_all = "camelCase")]` to agent/terminal commands
+- Made `start_agent` async to fix Tokio runtime panic
+- Terminal → Agent → PTY → Events flow now working end-to-end
+
+### CLI Auto-Detection (2025-03-01)
+- Added `detect_clis()` and `detect_single_cli()` commands
+- On-demand detection when selecting CLI mode in settings
+- Checks `which`, common paths, and verifies with `--version`
+- Auto-applies detected path without manual confirmation
+
+### Settings UI/UX Improvements (2025-03-01)
+- Toggle switches for provider enable/disable (cleaner than checkboxes)
+- Removed per-provider default model (orchestrator handles it)
+- Removed unused instructions file field
+- Default max concurrent agents: 10
+- "Coming Soon" section collapsed by default
 
 ---
 
