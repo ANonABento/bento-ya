@@ -1,7 +1,6 @@
 //! Native audio recording with streaming support using cpal
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 

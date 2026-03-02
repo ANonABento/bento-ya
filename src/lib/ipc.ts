@@ -628,8 +628,8 @@ export async function startNativeRecording(): Promise<void> {
   return invoke<void>('start_native_recording')
 }
 
-export async function stopNativeRecording(): Promise<string> {
-  return invoke<string>('stop_native_recording')
+export async function stopNativeRecording(): Promise<void> {
+  return invoke<void>('stop_native_recording')
 }
 
 export async function cancelNativeRecording(): Promise<void> {
@@ -638,6 +638,24 @@ export async function cancelNativeRecording(): Promise<void> {
 
 export async function isNativeRecording(): Promise<boolean> {
   return invoke<boolean>('is_native_recording')
+}
+
+// ─── Streaming Transcription ─────────────────────────────────────────────────
+
+/** Transcribe new audio chunk while still recording (for live streaming) */
+export async function transcribeRecordingChunk(
+  language?: string,
+  model?: string,
+): Promise<TranscriptionResult> {
+  return invoke<TranscriptionResult>('transcribe_recording_chunk', { language, model })
+}
+
+/** Stop recording and transcribe ALL audio (final transcription) */
+export async function transcribeAllRecording(
+  language?: string,
+  model?: string,
+): Promise<TranscriptionResult> {
+  return invoke<TranscriptionResult>('transcribe_all_recording', { language, model })
 }
 
 // ─── Usage tracking commands ─────────────────────────────────────────────────

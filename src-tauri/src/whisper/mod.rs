@@ -12,4 +12,4 @@ pub use manager::{
     list_whisper_models, WhisperModel, WhisperModelInfo, WhisperModelStatus,
 };
 pub use recorder::AudioRecorder;
-pub use transcriber::{transcribe_local, LocalTranscriptionResult};
+pub use transcriber::{transcribe_local, transcribe_samples, LocalTranscriptionResult};

@@ -130,6 +130,9 @@ pub fn run() {
             commands::voice::stop_native_recording,
             commands::voice::cancel_native_recording,
             commands::voice::is_native_recording,
+            // Streaming transcription
+            commands::voice::transcribe_recording_chunk,
+            commands::voice::transcribe_all_recording,
             // Usage tracking commands
             commands::usage::record_usage,
             commands::usage::get_workspace_usage,

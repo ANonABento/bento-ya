@@ -213,6 +213,86 @@ fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     resampled
 }
 
+/// Transcribe raw PCM samples directly (16kHz mono f32)
+/// Used for streaming transcription
+pub fn transcribe_samples(
+    samples: &[f32],
+    model_path: &Path,
+    language: Option<&str>,
+) -> Result<LocalTranscriptionResult, String> {
+    if samples.is_empty() {
+        return Ok(LocalTranscriptionResult {
+            text: String::new(),
+            duration_ms: 0,
+            model_used: "none".to_string(),
+        });
+    }
+
+    let start_time = std::time::Instant::now();
+
+    log::info!("[Whisper] Transcribing {} samples directly", samples.len());
+
+    // Load whisper context
+    let ctx = WhisperContext::new_with_params(
+        model_path.to_str().ok_or("Invalid model path")?,
+        WhisperContextParameters::default(),
+    )
+    .map_err(|e| format!("Failed to load whisper model: {}", e))?;
+
+    let mut state = ctx
+        .create_state()
+        .map_err(|e| format!("Failed to create whisper state: {}", e))?;
+
+    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+
+    if let Some(lang) = language {
+        params.set_language(Some(lang));
+    } else {
+        params.set_language(None);
+    }
+
+    // Optimize for speed in streaming mode
+    params.set_n_threads(4);
+    params.set_translate(false);
+    params.set_no_context(true);
+    params.set_single_segment(true); // Faster for short chunks
+    params.set_print_special(false);
+    params.set_print_progress(false);
+    params.set_print_realtime(false);
+    params.set_print_timestamps(false);
+
+    state
+        .full(params, samples)
+        .map_err(|e| format!("Whisper inference failed: {}", e))?;
+
+    let mut text = String::new();
+    for segment in state.as_iter() {
+        if let Ok(segment_text) = segment.to_str_lossy() {
+            text.push_str(&segment_text);
+            text.push(' ');
+        }
+    }
+
+    let duration_ms = start_time.elapsed().as_millis() as u64;
+    let model_name = model_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    log::info!(
+        "[Whisper] Chunk transcribed in {}ms: '{}'",
+        duration_ms,
+        text.trim()
+    );
+
+    Ok(LocalTranscriptionResult {
+        text: text.trim().to_string(),
+        duration_ms,
+        model_used: model_name,
+    })
+}
+
 /// Transcribe audio using local whisper model
 pub fn transcribe_local(
     audio_path: &Path,

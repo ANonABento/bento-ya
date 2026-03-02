@@ -37,13 +37,11 @@ pub async fn transcribe_audio<R: Runtime>(
         return Err(format!("Audio file not found: {}", audio_path));
     }
 
-    // Determine which model to use
     let model_size = model
         .as_deref()
         .and_then(WhisperModel::from_str)
         .unwrap_or(WhisperModel::Tiny);
 
-    // Check if model is downloaded
     let model_path = whisper::get_whisper_models_dir(&app)?
         .join(model_size.filename());
 
@@ -56,7 +54,6 @@ pub async fn transcribe_audio<R: Runtime>(
 
     let start_time = std::time::Instant::now();
 
-    // Run transcription in blocking task to not block async runtime
     let lang = language.clone();
     let result = tokio::task::spawn_blocking(move || {
         whisper::transcribe_local(&path, &model_path, lang.as_deref())
@@ -65,7 +62,6 @@ pub async fn transcribe_audio<R: Runtime>(
     .map_err(|e| format!("Transcription task failed: {}", e))?
     .map_err(|e| format!("Transcription failed: {}", e))?;
 
-    // Clean up temp file
     let _ = std::fs::remove_file(&audio_path);
 
     let duration_ms = start_time.elapsed().as_millis() as u64;
@@ -164,17 +160,14 @@ pub fn start_native_recording(
     recorder.start()
 }
 
-/// Stop native recording and return the audio file path
+/// Stop native recording
 #[command]
 pub fn stop_native_recording(
     recorder_state: State<'_, RecorderState>,
-) -> Result<String, String> {
+) -> Result<(), String> {
     log::info!("[Voice] Stopping native recording...");
     let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let path = recorder.stop()?;
-    path.to_str()
-        .map(String::from)
-        .ok_or_else(|| "Invalid path".to_string())
+    recorder.stop()
 }
 
 /// Cancel native recording without saving
@@ -195,4 +188,119 @@ pub fn is_native_recording(
 ) -> Result<bool, String> {
     let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
     Ok(recorder.is_recording())
+}
+
+// ============ Streaming Transcription Commands ============
+
+/// Get and transcribe the latest audio chunk while still recording
+/// Returns the transcribed text for new audio since last call
+#[command]
+pub async fn transcribe_recording_chunk<R: Runtime>(
+    app: AppHandle<R>,
+    recorder_state: State<'_, RecorderState>,
+    language: Option<String>,
+    model: Option<String>,
+) -> Result<TranscriptionResult, String> {
+    // Get the audio chunk
+    let samples = {
+        let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+        recorder.get_new_chunk()
+    };
+
+    let samples = match samples {
+        Some(s) if !s.is_empty() => s,
+        _ => {
+            return Ok(TranscriptionResult {
+                text: String::new(),
+                duration_ms: 0,
+                model_used: None,
+            });
+        }
+    };
+
+    // Get model path
+    let model_size = model
+        .as_deref()
+        .and_then(WhisperModel::from_str)
+        .unwrap_or(WhisperModel::Tiny);
+
+    let model_path = whisper::get_whisper_models_dir(&app)?
+        .join(model_size.filename());
+
+    if !model_path.exists() {
+        return Err(format!(
+            "Whisper model '{}' not downloaded",
+            format!("{:?}", model_size).to_lowercase()
+        ));
+    }
+
+    // Transcribe in blocking task
+    let lang = language.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        whisper::transcribe_samples(&samples, &model_path, lang.as_deref())
+    })
+    .await
+    .map_err(|e| format!("Transcription task failed: {}", e))?
+    .map_err(|e| format!("Transcription failed: {}", e))?;
+
+    Ok(TranscriptionResult {
+        text: result.text,
+        duration_ms: result.duration_ms,
+        model_used: Some(result.model_used),
+    })
+}
+
+/// Get and transcribe ALL recorded audio (for final transcription when stopping)
+#[command]
+pub async fn transcribe_all_recording<R: Runtime>(
+    app: AppHandle<R>,
+    recorder_state: State<'_, RecorderState>,
+    language: Option<String>,
+    model: Option<String>,
+) -> Result<TranscriptionResult, String> {
+    // Stop recording and get all samples
+    let samples = {
+        let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+        recorder.stop()?;
+        recorder.get_all_samples()
+    };
+
+    if samples.is_empty() {
+        return Ok(TranscriptionResult {
+            text: String::new(),
+            duration_ms: 0,
+            model_used: None,
+        });
+    }
+
+    // Get model path
+    let model_size = model
+        .as_deref()
+        .and_then(WhisperModel::from_str)
+        .unwrap_or(WhisperModel::Tiny);
+
+    let model_path = whisper::get_whisper_models_dir(&app)?
+        .join(model_size.filename());
+
+    if !model_path.exists() {
+        return Err(format!(
+            "Whisper model '{}' not downloaded",
+            format!("{:?}", model_size).to_lowercase()
+        ));
+    }
+
+    // Transcribe in blocking task
+    let lang = language.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        whisper::transcribe_samples(&samples, &model_path, lang.as_deref())
+    })
+    .await
+    .map_err(|e| format!("Transcription task failed: {}", e))?
+    .map_err(|e| format!("Transcription failed: {}", e))?;
+
+    Ok(TranscriptionResult {
+        text: result.text,
+        duration_ms: result.duration_ms,
+        model_used: Some(result.model_used),
+    })
 }

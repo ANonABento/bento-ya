@@ -109,32 +109,35 @@ export function PanelSidebar({
           animate={{ width, opacity: 1 }}
           exit={{ width: 0, opacity: 0 }}
           transition={isDragging ? { duration: 0 } : { duration: 0.15 }}
-          className="relative flex flex-col border-r border-border-default bg-bg overflow-hidden"
+          className="relative flex border-r border-border-default bg-bg"
         >
-          {/* Header */}
-          <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
-            <span className="text-xs font-medium text-text-secondary">
-              {mode === 'history' ? 'History' : 'Files'}
-            </span>
+          {/* Content container */}
+          <div className="flex flex-1 flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
+              <span className="text-xs font-medium text-text-secondary">
+                {mode === 'history' ? 'History' : 'Files'}
+              </span>
+            </div>
+
+            {/* Content */}
+            {mode === 'history' ? (
+              <HistoryContent
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                onNewChat={onNewChat}
+                onSelectSession={onSelectSession}
+                onDeleteSession={onDeleteSession}
+              />
+            ) : (
+              <FilesContent workspaceId={workspaceId} />
+            )}
           </div>
 
-          {/* Content */}
-          {mode === 'history' ? (
-            <HistoryContent
-              sessions={sessions}
-              activeSessionId={activeSessionId}
-              onNewChat={onNewChat}
-              onSelectSession={onSelectSession}
-              onDeleteSession={onDeleteSession}
-            />
-          ) : (
-            <FilesContent workspaceId={workspaceId} />
-          )}
-
-          {/* Resize handle */}
+          {/* Resize handle - outside overflow container */}
           <div
             onMouseDown={handleResizeMouseDown}
-            className="absolute right-0 top-0 bottom-0 w-2 z-10"
+            className="absolute -right-1 top-0 bottom-0 w-2"
             style={{ cursor: 'ew-resize' }}
           />
         </motion.div>

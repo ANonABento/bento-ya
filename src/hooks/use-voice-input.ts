@@ -1,28 +1,31 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   isVoiceAvailable,
-  transcribeAudio,
   onWhisperDownloadComplete,
   startNativeRecording,
-  stopNativeRecording,
   cancelNativeRecording,
+  transcribeRecordingChunk,
+  transcribeAllRecording,
 } from '@/lib/ipc'
 import { useSettingsStore } from '@/stores/settings-store'
 
 export type VoiceInputState = 'idle' | 'recording' | 'processing' | 'error'
+
+const CHUNK_INTERVAL_MS = 2500 // Transcribe every 2.5 seconds
 
 export function useVoiceInput(onTranscript: (text: string) => void) {
   const [state, setState] = useState<VoiceInputState>('idle')
   const [error, setError] = useState<string | null>(null)
   const [isAvailable, setIsAvailable] = useState(false)
   const [duration, setDuration] = useState(0)
+  const [liveText, setLiveText] = useState('') // Accumulated live transcription
 
   const timerRef = useRef<number | null>(null)
+  const chunkIntervalRef = useRef<number | null>(null)
   const stateRef = useRef<VoiceInputState>(state)
+  const accumulatedTextRef = useRef<string>('')
 
   const voiceConfig = useSettingsStore((s) => s.global.voice)
-
-  // Use refs to avoid stale closures in callbacks
   const voiceConfigRef = useRef(voiceConfig)
   const onTranscriptRef = useRef(onTranscript)
 
@@ -50,12 +53,10 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       })
   }, [])
 
-  // Check on mount
   useEffect(() => {
     checkAvailability()
   }, [checkAvailability])
 
-  // Re-check when a model is downloaded
   useEffect(() => {
     const unlisten = onWhisperDownloadComplete(() => {
       checkAvailability()
@@ -68,37 +69,75 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
+      if (timerRef.current) clearInterval(timerRef.current)
+      if (chunkIntervalRef.current) clearInterval(chunkIntervalRef.current)
+    }
+  }, [])
+
+  // Transcribe a chunk while recording
+  const transcribeChunk = useCallback(async () => {
+    if (stateRef.current !== 'recording') return
+
+    try {
+      const config = voiceConfigRef.current
+      const result = await transcribeRecordingChunk(
+        config.language || undefined,
+        config.model,
+      )
+
+      if (result.text && result.text.trim()) {
+        console.log('[Voice] Chunk transcribed:', result.text)
+        // Append to accumulated text
+        const newText = accumulatedTextRef.current
+          ? accumulatedTextRef.current + ' ' + result.text.trim()
+          : result.text.trim()
+        accumulatedTextRef.current = newText
+        setLiveText(newText)
+        // Send to parent immediately for live updates
+        onTranscriptRef.current(newText)
       }
+    } catch (err) {
+      console.error('[Voice] Chunk transcription error:', err)
+      // Don't stop on chunk errors, just log
     }
   }, [])
 
   const startRecording = useCallback(async () => {
-    console.log('[Voice] Starting native recording...', { enabled: voiceConfig.enabled, available: isAvailable })
+    console.log('[Voice] Starting streaming recording...', {
+      enabled: voiceConfig.enabled,
+      available: isAvailable
+    })
+
     if (!voiceConfig.enabled || !isAvailable) {
       setError('Voice input is not enabled or available')
       setState('error')
       stateRef.current = 'error'
-      console.log('[Voice] Not available:', { enabled: voiceConfig.enabled, available: isAvailable })
       return
     }
 
     try {
       setError(null)
       setDuration(0)
+      setLiveText('')
+      accumulatedTextRef.current = ''
 
-      // Start native recording via Tauri command
+      // Start native recording
       await startNativeRecording()
       console.log('[Voice] Native recording started')
+
+      setState('recording')
+      stateRef.current = 'recording'
 
       // Start duration timer
       timerRef.current = window.setInterval(() => {
         setDuration((d) => d + 1)
       }, 1000)
 
-      setState('recording')
-      stateRef.current = 'recording'
+      // Start chunk transcription interval
+      chunkIntervalRef.current = window.setInterval(() => {
+        void transcribeChunk()
+      }, CHUNK_INTERVAL_MS)
+
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       console.error('[Voice] Failed to start recording:', message)
@@ -106,89 +145,88 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       setState('error')
       stateRef.current = 'error'
     }
-  }, [voiceConfig.enabled, isAvailable])
+  }, [voiceConfig.enabled, isAvailable, transcribeChunk])
 
   const stopRecording = useCallback(async () => {
     console.log('[Voice] stopRecording called, stateRef:', stateRef.current)
     if (stateRef.current !== 'recording') {
-      console.log('[Voice] Not recording, ignoring stop')
       return
     }
 
+    // Stop timers immediately
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+    if (chunkIntervalRef.current) {
+      clearInterval(chunkIntervalRef.current)
+      chunkIntervalRef.current = null
+    }
+
+    setState('processing')
+    stateRef.current = 'processing'
+
     try {
-      // Stop the timer
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
-        timerRef.current = null
-      }
-
-      setState('processing')
-
-      // Stop native recording and get the audio file path
-      console.log('[Voice] Stopping native recording...')
-      const audioPath = await stopNativeRecording()
-      console.log('[Voice] Recording saved to:', audioPath)
-
-      // Use ref to get current config (avoids stale closure)
+      // Stop and do final transcription of ALL audio
       const config = voiceConfigRef.current
-      if (!config) {
-        throw new Error('Voice config not available')
-      }
+      console.log('[Voice] Stopping and doing final transcription...')
 
-      // Transcribe the audio
-      console.log('[Voice] Transcribing with model:', config.model)
-      const result = await transcribeAudio(
-        audioPath,
+      const result = await transcribeAllRecording(
         config.language || undefined,
         config.model,
       )
-      console.log('[Voice] Transcription result:', result)
 
-      if (result && result.text) {
-        onTranscriptRef.current(result.text)
+      console.log('[Voice] Final transcription:', result.text)
+
+      // Use the final full transcription (more accurate than chunks)
+      if (result.text && result.text.trim()) {
+        onTranscriptRef.current(result.text.trim())
       }
 
       setState('idle')
+      stateRef.current = 'idle'
       setDuration(0)
+      setLiveText('')
+      accumulatedTextRef.current = ''
+
     } catch (err) {
-      console.error('[Voice] Transcription error:', err)
+      console.error('[Voice] Stop/transcription error:', err)
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
       setState('error')
+      stateRef.current = 'error'
     }
   }, [])
 
   const cancelRecording = useCallback(async () => {
-    if (stateRef.current !== 'recording') {
-      setState('idle')
-      setDuration(0)
-      return
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+    if (chunkIntervalRef.current) {
+      clearInterval(chunkIntervalRef.current)
+      chunkIntervalRef.current = null
     }
 
     try {
-      // Stop the timer
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
-        timerRef.current = null
-      }
-
-      // Cancel native recording
       await cancelNativeRecording()
       console.log('[Voice] Recording cancelled')
-
-      setState('idle')
-      setDuration(0)
     } catch (err) {
       console.error('[Voice] Failed to cancel recording:', err)
-      setState('idle')
-      setDuration(0)
     }
+
+    setState('idle')
+    stateRef.current = 'idle'
+    setDuration(0)
+    setLiveText('')
+    accumulatedTextRef.current = ''
   }, [])
 
   return {
     state,
     error,
     duration,
+    liveText, // Live transcription text while recording
     isAvailable: isAvailable && voiceConfig.enabled,
     isApiAvailable: isAvailable,
     isEnabled: voiceConfig.enabled,
