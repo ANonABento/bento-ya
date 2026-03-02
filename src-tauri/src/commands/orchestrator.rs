@@ -200,12 +200,20 @@ pub fn create_chat_session(
     Ok(db::create_chat_session(&conn, &workspace_id, &title)?)
 }
 
-/// Delete a chat session
-#[tauri::command]
-pub fn delete_chat_session(
-    state: State<AppState>,
+/// Delete a chat session (also kills any running CLI process)
+#[tauri::command(rename_all = "camelCase")]
+pub async fn delete_chat_session(
+    state: State<'_, AppState>,
+    cli_manager: State<'_, SharedCliSessionManager>,
     session_id: String,
 ) -> Result<(), AppError> {
+    // Kill CLI process if running
+    {
+        let mut manager = cli_manager.lock().await;
+        manager.kill(&session_id).await;
+    }
+
+    // Delete from database
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::delete_chat_session(&conn, &session_id)?;
     Ok(())

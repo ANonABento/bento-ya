@@ -52,9 +52,11 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
   }, [])
 
   const startRecording = useCallback(async () => {
+    console.log('[Voice] Starting recording...', { enabled: voiceConfig.enabled, available: isAvailable })
     if (!voiceConfig.enabled || !isAvailable) {
       setError('Voice input is not enabled or available')
       setState('error')
+      console.log('[Voice] Not available:', { enabled: voiceConfig.enabled, available: isAvailable })
       return
     }
 
@@ -138,19 +140,24 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
 
   const processAudio = async () => {
     try {
+      console.log('[Voice] Processing audio...')
       const audioBlob = new Blob(audioChunks.current, { type: 'audio/webm' })
       const arrayBuffer = await audioBlob.arrayBuffer()
       const audioData = Array.from(new Uint8Array(arrayBuffer))
+      console.log('[Voice] Audio size:', audioData.length, 'bytes')
 
       // Save to temp file
       const audioPath = await saveAudioTemp(audioData)
+      console.log('[Voice] Saved to:', audioPath)
 
       // Transcribe using selected model
+      console.log('[Voice] Transcribing with model:', voiceConfig.model)
       const result = await transcribeAudio(
         audioPath,
         voiceConfig.language || undefined,
         voiceConfig.model,
       )
+      console.log('[Voice] Transcription result:', result)
 
       if (result.text) {
         onTranscript(result.text)
@@ -159,6 +166,7 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       setState('idle')
       setDuration(0)
     } catch (err) {
+      console.error('[Voice] Transcription error:', err)
       const message = err instanceof Error ? err.message : 'Transcription failed'
       setError(message)
       setState('error')

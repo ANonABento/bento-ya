@@ -1,7 +1,9 @@
 //! Local whisper transcription using whisper-rs
 
+use hound;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::DecoderOptions;
 use symphonia::core::formats::FormatOptions;
@@ -19,8 +21,83 @@ pub struct LocalTranscriptionResult {
     pub model_used: String,
 }
 
+/// Convert webm/opus to wav using ffmpeg
+fn convert_webm_to_wav(webm_path: &Path) -> Result<PathBuf, String> {
+    let wav_path = webm_path.with_extension("wav");
+
+    log::info!("Converting {:?} to WAV using ffmpeg", webm_path);
+
+    let output = Command::new("ffmpeg")
+        .args([
+            "-y",           // overwrite output
+            "-i",
+            webm_path.to_str().ok_or("Invalid input path")?,
+            "-ar",
+            "16000", // 16kHz sample rate for whisper
+            "-ac",
+            "1", // mono
+            "-f",
+            "wav",
+            wav_path.to_str().ok_or("Invalid output path")?,
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run ffmpeg: {}. Is ffmpeg installed?", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("ffmpeg conversion failed: {}", stderr));
+    }
+
+    log::info!("FFmpeg conversion successful: {:?}", wav_path);
+    Ok(wav_path)
+}
+
+/// Read WAV file to PCM samples
+fn read_wav_to_pcm(wav_path: &Path) -> Result<Vec<f32>, String> {
+    let reader = hound::WavReader::open(wav_path)
+        .map_err(|e| format!("Failed to open WAV file: {}", e))?;
+
+    let spec = reader.spec();
+    log::info!(
+        "WAV spec: {} channels, {} Hz, {:?}",
+        spec.channels,
+        spec.sample_rate,
+        spec.sample_format
+    );
+
+    let samples: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Int => reader
+            .into_samples::<i16>()
+            .filter_map(|s| s.ok())
+            .map(|s| s as f32 / i16::MAX as f32)
+            .collect(),
+        hound::SampleFormat::Float => reader
+            .into_samples::<f32>()
+            .filter_map(|s| s.ok())
+            .collect(),
+    };
+
+    log::info!("Read {} samples from WAV", samples.len());
+    Ok(samples)
+}
+
 /// Convert audio file to 16kHz mono PCM samples
 fn convert_to_pcm(audio_path: &Path) -> Result<Vec<f32>, String> {
+    let ext = audio_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+
+    // For webm files, use ffmpeg to convert (symphonia doesn't support Opus codec)
+    if ext == "webm" {
+        let wav_path = convert_webm_to_wav(audio_path)?;
+        let samples = read_wav_to_pcm(&wav_path)?;
+        // Clean up temp wav file
+        let _ = std::fs::remove_file(&wav_path);
+        return Ok(samples);
+    }
+
+    // For other formats, try symphonia
     let file = std::fs::File::open(audio_path)
         .map_err(|e| format!("Failed to open audio file: {}", e))?;
 
@@ -28,9 +105,7 @@ fn convert_to_pcm(audio_path: &Path) -> Result<Vec<f32>, String> {
 
     // Probe the format
     let mut hint = Hint::new();
-    if let Some(ext) = audio_path.extension().and_then(|e| e.to_str()) {
-        hint.with_extension(ext);
-    }
+    hint.with_extension(ext);
 
     let format_opts = FormatOptions::default();
     let metadata_opts = MetadataOptions::default();

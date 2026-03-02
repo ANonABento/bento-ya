@@ -30,12 +30,25 @@ pub fn run() {
     let agent_runner = Arc::new(Mutex::new(AgentRunner::new(Arc::clone(&pty_manager))));
     let cli_session_manager = new_shared_cli_session_manager();
 
+    // Clone for shutdown handler
+    let cli_manager_for_shutdown = Arc::clone(&cli_session_manager);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(state)
         .manage(pty_manager)
         .manage(agent_runner)
         .manage(cli_session_manager)
+        .on_window_event(move |_window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                // Kill all CLI sessions on window close
+                let manager = Arc::clone(&cli_manager_for_shutdown);
+                tauri::async_runtime::block_on(async {
+                    let mut m = manager.lock().await;
+                    m.kill_all().await;
+                });
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             // Workspace CRUD

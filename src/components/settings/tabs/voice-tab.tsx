@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
 import type { VoiceConfig, WhisperModelId } from '@/types/settings'
-import { SettingSection, SettingRow, SettingInput, SettingSlider } from '@/components/shared/setting-components'
+import { SettingSection, SettingRow, SettingSlider, ShortcutRecorder } from '@/components/shared/setting-components'
 import { Toggle } from '@/components/shared/toggle'
 import { Dropdown } from '@/components/shared/dropdown'
 import {
@@ -262,11 +262,11 @@ export function VoiceTab() {
         />
       </SettingSection>
 
-      <SettingSection title="Hotkey" description="Keyboard shortcut to activate voice input">
-        <SettingInput
+      <SettingSection title="Hotkey" description="Click to record a keyboard shortcut">
+        <ShortcutRecorder
           value={voice.hotkey}
-          onChange={(value) => updateVoice({ hotkey: value })}
-          placeholder="Cmd+Shift+V"
+          onChange={(value) => { updateVoice({ hotkey: value }) }}
+          placeholder="Click to record shortcut"
           disabled={!voice.enabled}
         />
       </SettingSection>
