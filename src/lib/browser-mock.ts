@@ -27,6 +27,7 @@ let mockWorkspaces: Workspace[] = [
     repoPath: '/tmp/demo-repo',
     tabOrder: 0,
     isActive: true,
+    config: '{}',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -78,6 +79,7 @@ const mockCommands: Record<string, CommandHandler> = {
       repoPath: args?.repoPath as string || '/tmp/repo',
       tabOrder: mockWorkspaces.length,
       isActive: false,
+      config: '{}',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
@@ -91,6 +93,7 @@ const mockCommands: Record<string, CommandHandler> = {
       existing.repoPath = (args?.repoPath as string) ?? existing.repoPath
       existing.tabOrder = (args?.tabOrder as number) ?? existing.tabOrder
       existing.isActive = (args?.isActive as boolean) ?? existing.isActive
+      existing.config = (args?.config as string) ?? existing.config
       existing.updatedAt = new Date().toISOString()
       return existing
     }
@@ -329,6 +332,7 @@ export function resetMockData() {
       repoPath: '/tmp/demo-repo',
       tabOrder: 0,
       isActive: true,
+      config: '{}',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     },

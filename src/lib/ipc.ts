@@ -59,6 +59,13 @@ export async function cloneWorkspace(sourceId: string, newName: string): Promise
 export const reorderWorkspaces = (ids: string[]) =>
   invoke<void>('reorder_workspaces', { ids })
 
+export async function updateWorkspaceConfig(
+  id: string,
+  config: string,
+): Promise<Workspace> {
+  return invoke<Workspace>('update_workspace', { id, config })
+}
+
 export const seedDemoData = (repoPath: string) =>
   invoke<Workspace>('seed_demo_data', { repoPath })
 

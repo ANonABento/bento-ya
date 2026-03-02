@@ -113,6 +113,7 @@ mod tests {
             repo_path: "/test/path".to_string(),
             tab_order: 0,
             is_active: true,
+            config: "{}".to_string(),
             created_at: "2024-01-01".to_string(),
             updated_at: "2024-01-01".to_string(),
         }

@@ -16,6 +16,7 @@ type SettingsState = {
   setActiveTab: (tab: string) => void
   updateGlobal: <K extends keyof Settings>(key: K, value: Settings[K]) => void
   updateWorkspace: (workspaceId: string, settings: WorkspaceSettings) => void
+  loadWorkspaceSettings: (workspaceId: string, settings: WorkspaceSettings) => void
   getEffective: (workspaceId: string | null) => Settings
   resetToDefaults: () => void
 }
@@ -51,6 +52,16 @@ export const useSettingsStore = create<SettingsState>()(
                 ...state.workspaceOverrides[workspaceId],
                 ...settings,
               },
+            },
+          }))
+        },
+
+        loadWorkspaceSettings: (workspaceId, settings) => {
+          // Replace workspace settings entirely (used when loading from backend)
+          set((state) => ({
+            workspaceOverrides: {
+              ...state.workspaceOverrides,
+              [workspaceId]: settings,
             },
           }))
         },

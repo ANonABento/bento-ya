@@ -76,6 +76,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("008_session_history", include_str!("migrations/008_session_history.sql")),
         ("009_chat_sessions", include_str!("migrations/009_chat_sessions.sql")),
         ("010_cli_sessions", include_str!("migrations/010_cli_sessions.sql")),
+        ("011_workspace_config", include_str!("migrations/011_workspace_config.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -116,6 +117,7 @@ pub struct Workspace {
     pub repo_path: String,
     pub tab_order: i64,
     pub is_active: bool,
+    pub config: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -183,7 +185,7 @@ pub fn insert_workspace(conn: &Connection, name: &str, repo_path: &str) -> SqlRe
     let id = new_id();
     let ts = now();
     conn.execute(
-        "INSERT INTO workspaces (id, name, repo_path, tab_order, is_active, created_at, updated_at) VALUES (?1, ?2, ?3, 0, 0, ?4, ?5)",
+        "INSERT INTO workspaces (id, name, repo_path, tab_order, is_active, config, created_at, updated_at) VALUES (?1, ?2, ?3, 0, 0, '{}', ?4, ?5)",
         params![id, name, repo_path, ts, ts],
     )?;
     get_workspace(conn, &id)
@@ -191,7 +193,7 @@ pub fn insert_workspace(conn: &Connection, name: &str, repo_path: &str) -> SqlRe
 
 pub fn get_workspace(conn: &Connection, id: &str) -> SqlResult<Workspace> {
     conn.query_row(
-        "SELECT id, name, repo_path, tab_order, is_active, created_at, updated_at FROM workspaces WHERE id = ?1",
+        "SELECT id, name, repo_path, tab_order, is_active, config, created_at, updated_at FROM workspaces WHERE id = ?1",
         params![id],
         |row| {
             Ok(Workspace {
@@ -200,8 +202,9 @@ pub fn get_workspace(conn: &Connection, id: &str) -> SqlResult<Workspace> {
                 repo_path: row.get(2)?,
                 tab_order: row.get(3)?,
                 is_active: row.get::<_, i64>(4)? != 0,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
+                config: row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "{}".to_string()),
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
             })
         },
     )
@@ -209,7 +212,7 @@ pub fn get_workspace(conn: &Connection, id: &str) -> SqlResult<Workspace> {
 
 pub fn list_workspaces(conn: &Connection) -> SqlResult<Vec<Workspace>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, repo_path, tab_order, is_active, created_at, updated_at FROM workspaces ORDER BY tab_order",
+        "SELECT id, name, repo_path, tab_order, is_active, config, created_at, updated_at FROM workspaces ORDER BY tab_order",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(Workspace {
@@ -218,8 +221,9 @@ pub fn list_workspaces(conn: &Connection) -> SqlResult<Vec<Workspace>> {
             repo_path: row.get(2)?,
             tab_order: row.get(3)?,
             is_active: row.get::<_, i64>(4)? != 0,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
+            config: row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "{}".to_string()),
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
         })
     })?;
     rows.collect()
@@ -232,16 +236,18 @@ pub fn update_workspace(
     repo_path: Option<&str>,
     tab_order: Option<i64>,
     is_active: Option<bool>,
+    config: Option<&str>,
 ) -> SqlResult<Workspace> {
     let current = get_workspace(conn, id)?;
     let ts = now();
     conn.execute(
-        "UPDATE workspaces SET name = ?1, repo_path = ?2, tab_order = ?3, is_active = ?4, updated_at = ?5 WHERE id = ?6",
+        "UPDATE workspaces SET name = ?1, repo_path = ?2, tab_order = ?3, is_active = ?4, config = ?5, updated_at = ?6 WHERE id = ?7",
         params![
             name.unwrap_or(&current.name),
             repo_path.unwrap_or(&current.repo_path),
             tab_order.unwrap_or(current.tab_order),
             is_active.unwrap_or(current.is_active) as i64,
+            config.unwrap_or(&current.config),
             ts,
             id,
         ],
@@ -1559,8 +1565,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 9 migrations: 001-009
-        assert_eq!(count, 9);
+        // We have 11 migrations: 001-011
+        assert_eq!(count, 11);
     }
 
     #[test]
@@ -1574,7 +1580,7 @@ mod tests {
         let fetched = get_workspace(&conn, &ws.id).unwrap();
         assert_eq!(fetched.id, ws.id);
 
-        let updated = update_workspace(&conn, &ws.id, Some("Renamed"), None, None, Some(true)).unwrap();
+        let updated = update_workspace(&conn, &ws.id, Some("Renamed"), None, None, Some(true), None).unwrap();
         assert_eq!(updated.name, "Renamed");
         assert!(updated.is_active);
 
