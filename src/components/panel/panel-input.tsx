@@ -1,10 +1,12 @@
 import { useState, useRef, useCallback } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
+import { useVoiceInput } from '@/hooks/use-voice-input'
 
 // Available models for the orchestrator (using CLI aliases)
+// Ordered by capability: Opus (most powerful) → Sonnet (balanced) → Haiku (fast)
 const MODELS = [
-  { id: 'sonnet', name: 'Sonnet', description: 'Fast & capable' },
   { id: 'opus', name: 'Opus', description: 'Most powerful' },
+  { id: 'sonnet', name: 'Sonnet', description: 'Fast & capable' },
   { id: 'haiku', name: 'Haiku', description: 'Quick & light' },
 ] as const
 
@@ -20,15 +22,29 @@ export type SendMessageParams = {
 
 type PanelInputProps = {
   onSendMessage: (params: SendMessageParams) => void
+  onCancel?: () => void
   isProcessing?: boolean
   disabled?: boolean
+  queueCount?: number
 }
 
-export function PanelInput({ onSendMessage, isProcessing = false, disabled = false }: PanelInputProps) {
+export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disabled = false, queueCount = 0 }: PanelInputProps) {
   const [message, setMessage] = useState('')
   const [selectedModel, setSelectedModel] = useState<ModelId>(MODELS[0].id)
   const [showModelPicker, setShowModelPicker] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  // Voice input - append transcript to current message
+  const handleTranscript = useCallback((text: string) => {
+    setMessage((prev) => {
+      const separator = prev.trim() ? ' ' : ''
+      return prev + separator + text
+    })
+    // Focus the input after transcription
+    inputRef.current?.focus()
+  }, [])
+
+  const voice = useVoiceInput(handleTranscript)
 
   // Get settings for LLM connection
   const settings = useSettingsStore((s) => s.global)
@@ -137,30 +153,72 @@ export function PanelInput({ onSendMessage, isProcessing = false, disabled = fal
           value={message}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder="Ask me to create tasks..."
+          placeholder={voice.state === 'recording' ? 'Recording...' : voice.state === 'processing' ? 'Transcribing...' : 'Ask me to create tasks...'}
           rows={1}
-          disabled={disabled}
+          disabled={disabled || voice.state === 'recording' || voice.state === 'processing'}
           className="flex-1 resize-none rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50"
           style={{ minHeight: '38px', maxHeight: '120px' }}
         />
 
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={!message.trim() || isProcessing || disabled}
-          className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg bg-accent text-bg transition-colors hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isProcessing ? (
-            <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        {/* Voice input button */}
+        {voice.isAvailable && (
+          <button
+            type="button"
+            onClick={() => {
+              if (voice.state === 'recording') {
+                voice.stopRecording()
+              } else if (voice.state === 'idle') {
+                void voice.startRecording()
+              }
+            }}
+            disabled={disabled || isProcessing || voice.state === 'processing'}
+            className={`flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg border transition-colors ${
+              voice.state === 'recording'
+                ? 'border-red-500 bg-red-500/10 text-red-500 animate-pulse'
+                : voice.state === 'processing'
+                  ? 'border-accent bg-accent/10 text-accent'
+                  : 'border-border-default bg-bg text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+            title={voice.state === 'recording' ? `Recording (${voice.duration}s) - click to stop` : 'Voice input'}
+          >
+            {voice.state === 'processing' ? (
+              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
+                <path d="M8 1a2 2 0 0 0-2 2v4a2 2 0 1 0 4 0V3a2 2 0 0 0-2-2Z" />
+                <path d="M4.5 7A.75.75 0 0 0 3 7a5 5 0 0 0 4.25 4.944V13.5h-1.5a.75.75 0 0 0 0 1.5h4.5a.75.75 0 0 0 0-1.5h-1.5v-1.556A5 5 0 0 0 13 7a.75.75 0 0 0-1.5 0 3.5 3.5 0 1 1-7 0Z" />
+              </svg>
+            )}
+          </button>
+        )}
+
+        {/* Cancel or Send button */}
+        {isProcessing ? (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg bg-red-500/10 text-red-500 border border-red-500/30 transition-colors hover:bg-red-500/20"
+            title={queueCount > 0 ? `Cancel (${queueCount} queued)` : 'Cancel'}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
+              <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm2.78-4.22a.75.75 0 0 1-1.06 0L8 9.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L6.94 8 5.22 6.28a.75.75 0 0 1 1.06-1.06L8 6.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L9.06 8l1.72 1.72a.75.75 0 0 1 0 1.06Z" clipRule="evenodd" />
             </svg>
-          ) : (
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!message.trim() || disabled}
+            className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg bg-accent text-bg transition-colors hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
               <path d="M3.105 2.288a.75.75 0 0 0-.826.95l1.414 4.926A1.5 1.5 0 0 0 5.135 9.25h6.115a.75.75 0 0 1 0 1.5H5.135a1.5 1.5 0 0 0-1.442 1.086l-1.414 4.926a.75.75 0 0 0 .826.95 28.897 28.897 0 0 0 15.293-7.155.75.75 0 0 0 0-1.114A28.897 28.897 0 0 0 3.105 2.288Z" />
             </svg>
-          )}
-        </button>
+          </button>
+        )}
       </div>
 
       {/* Connection mode indicator */}

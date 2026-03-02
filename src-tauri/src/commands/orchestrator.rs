@@ -17,11 +17,10 @@ use tokio::sync::mpsc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use std::collections::HashMap;
-use std::sync::Mutex;
-use once_cell::sync::Lazy;
+use std::sync::{LazyLock, Mutex};
 
 // Global state for tracking active CLI processes per workspace
-static ACTIVE_PROCESSES: Lazy<Mutex<HashMap<String, u32>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static ACTIVE_PROCESSES: LazyLock<Mutex<HashMap<String, u32>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -424,7 +423,9 @@ pub async fn cancel_orchestrator_chat(
 ) -> Result<(), AppError> {
     // Get and remove the process ID
     let pid = {
-        let mut processes = ACTIVE_PROCESSES.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let Ok(mut processes) = ACTIVE_PROCESSES.lock() else {
+            return Ok(());
+        };
         processes.remove(&workspace_id)
     };
 
@@ -905,6 +906,11 @@ async fn stream_via_cli(
     // Wait for process to complete
     let status = child.wait().await
         .map_err(|e| AppError::InvalidInput(format!("CLI process failed: {}", e)))?;
+
+    // Remove from active processes
+    if let Ok(mut processes) = ACTIVE_PROCESSES.lock() {
+        processes.remove(workspace_id);
+    }
 
     if !status.success() {
         let error_msg = if stderr_content.is_empty() {

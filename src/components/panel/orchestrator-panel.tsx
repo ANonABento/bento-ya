@@ -226,6 +226,10 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       if (!next) return
       setMessageQueue(rest)
 
+      // Set processing state immediately
+      setIsProcessing(true)
+      setProcessingStartTime(Date.now())
+
       // Add optimistic message for queued item
       const optimisticMessage: ChatMessage = {
         id: `temp-${Date.now()}`,
@@ -343,7 +347,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     }
   }, [activeSession, workspaceId])
 
-  const handleSendMessage = useCallback(async (params: SendMessageParams) => {
+  const handleSendMessage = useCallback((params: SendMessageParams) => {
     if (!activeSession) return
 
     // Add optimistic user message immediately
@@ -363,8 +367,12 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       return
     }
 
-    // Process immediately
-    await processMessage(params)
+    // Set processing immediately to prevent race conditions
+    setIsProcessing(true)
+    setProcessingStartTime(Date.now())
+
+    // Process the message
+    void processMessage(params)
   }, [activeSession, workspaceId, isProcessing, processMessage])
 
   // Handle cancel
@@ -586,8 +594,10 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               />
               <PanelInput
                 onSendMessage={handleSendMessage}
+                onCancel={handleCancel}
                 isProcessing={isProcessing}
                 disabled={!activeSession}
+                queueCount={messageQueue.length}
               />
             </div>
           </motion.div>

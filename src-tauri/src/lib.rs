@@ -94,6 +94,7 @@ pub fn run() {
             commands::orchestrator::process_orchestrator_response,
             commands::orchestrator::set_orchestrator_error,
             commands::orchestrator::stream_orchestrator_chat,
+            commands::orchestrator::cancel_orchestrator_chat,
             // Voice commands
             commands::voice::transcribe_audio,
             commands::voice::save_audio_temp,
