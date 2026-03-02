@@ -1,16 +1,18 @@
-//! Native audio recording using cpal (bypasses webview limitations)
+//! Native audio recording with streaming support using cpal
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-/// Audio recorder state
+/// Audio recorder with streaming transcription support
 pub struct AudioRecorder {
     samples: Arc<Mutex<Vec<f32>>>,
     is_recording: Arc<AtomicBool>,
     input_sample_rate: Arc<AtomicU32>,
     target_sample_rate: u32,
+    /// Track how many samples have been transcribed (for incremental chunks)
+    transcribed_offset: Arc<AtomicUsize>,
 }
 
 impl AudioRecorder {
@@ -18,8 +20,9 @@ impl AudioRecorder {
         Self {
             samples: Arc::new(Mutex::new(Vec::new())),
             is_recording: Arc::new(AtomicBool::new(false)),
-            input_sample_rate: Arc::new(AtomicU32::new(48000)), // Default, will be updated
+            input_sample_rate: Arc::new(AtomicU32::new(48000)),
             target_sample_rate: 16000, // Whisper requires 16kHz
+            transcribed_offset: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -40,7 +43,6 @@ impl AudioRecorder {
 
         log::info!("Using input device: {}", device.name().unwrap_or_default());
 
-        // Get supported config
         let config = device
             .default_input_config()
             .map_err(|e| format!("Failed to get default input config: {}", e))?;
@@ -55,17 +57,15 @@ impl AudioRecorder {
             config.sample_format()
         );
 
-        // Store the actual sample rate
         self.input_sample_rate.store(actual_sample_rate, Ordering::SeqCst);
+        self.transcribed_offset.store(0, Ordering::SeqCst);
 
         let samples = Arc::clone(&self.samples);
         let is_recording = Arc::clone(&self.is_recording);
 
-        // Clear previous samples
         samples.lock().unwrap().clear();
         is_recording.store(true, Ordering::SeqCst);
 
-        // Build the input stream
         let err_fn = |err| log::error!("Audio stream error: {}", err);
 
         let stream = match config.sample_format() {
@@ -75,7 +75,6 @@ impl AudioRecorder {
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
                         if is_recording.load(Ordering::SeqCst) {
                             let mut samples = samples.lock().unwrap();
-                            // Convert to mono by averaging channels
                             for chunk in data.chunks(channels) {
                                 let mono: f32 = chunk.iter().sum::<f32>() / channels as f32;
                                 samples.push(mono);
@@ -123,52 +122,70 @@ impl AudioRecorder {
 
         stream.play().map_err(|e| format!("Failed to start recording: {}", e))?;
 
-        // Keep stream alive in a thread
         let is_rec = Arc::clone(&self.is_recording);
         std::thread::spawn(move || {
             while is_rec.load(Ordering::SeqCst) {
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
-            // Stream drops here, stopping recording
             log::info!("Recording stream stopped");
         });
 
         Ok(())
     }
 
-    /// Stop recording and save to WAV file
-    pub fn stop(&self) -> Result<PathBuf, String> {
+    /// Get new audio samples since last chunk (for streaming transcription)
+    /// Returns the samples and updates the offset
+    pub fn get_new_chunk(&self) -> Option<Vec<f32>> {
         if !self.is_recording.load(Ordering::SeqCst) {
-            return Err("Not recording".to_string());
+            return None;
+        }
+
+        let samples = self.samples.lock().unwrap();
+        let offset = self.transcribed_offset.load(Ordering::SeqCst);
+
+        // Need at least 0.5 seconds of new audio (at input sample rate)
+        let input_rate = self.input_sample_rate.load(Ordering::SeqCst) as usize;
+        let min_new_samples = input_rate / 2; // 0.5 seconds
+
+        if samples.len() <= offset + min_new_samples {
+            return None;
+        }
+
+        // Get new samples
+        let new_samples: Vec<f32> = samples[offset..].to_vec();
+
+        // Update offset (leave a small overlap for context)
+        let overlap = input_rate / 4; // 0.25 second overlap
+        let new_offset = samples.len().saturating_sub(overlap);
+        self.transcribed_offset.store(new_offset, Ordering::SeqCst);
+
+        // Resample to 16kHz
+        let input_rate = self.input_sample_rate.load(Ordering::SeqCst);
+        let resampled = resample(&new_samples, input_rate, self.target_sample_rate);
+
+        log::info!("[Recorder] Got chunk: {} samples -> {} resampled", new_samples.len(), resampled.len());
+
+        Some(resampled)
+    }
+
+    /// Get ALL audio samples (for final transcription when stopping)
+    pub fn get_all_samples(&self) -> Vec<f32> {
+        let samples = self.samples.lock().unwrap();
+        let input_rate = self.input_sample_rate.load(Ordering::SeqCst);
+        resample(&samples, input_rate, self.target_sample_rate)
+    }
+
+    /// Stop recording (doesn't save - caller handles transcription)
+    pub fn stop(&self) -> Result<(), String> {
+        if !self.is_recording.load(Ordering::SeqCst) {
+            return Ok(()); // Already stopped
         }
 
         self.is_recording.store(false, Ordering::SeqCst);
-
-        // Give the stream time to stop
         std::thread::sleep(std::time::Duration::from_millis(200));
 
-        let samples = self.samples.lock().unwrap();
-        if samples.is_empty() {
-            return Err("No audio recorded".to_string());
-        }
-
-        let input_rate = self.input_sample_rate.load(Ordering::SeqCst);
-        log::info!("Recorded {} samples at {} Hz", samples.len(), input_rate);
-
-        // Resample to 16kHz for whisper
-        let resampled = resample(&samples, input_rate, self.target_sample_rate);
-        log::info!("Resampled to {} samples at {} Hz", resampled.len(), self.target_sample_rate);
-
-        // Save to temp WAV file
-        let temp_dir = std::env::temp_dir();
-        let filename = format!("bento_voice_{}.wav", uuid::Uuid::new_v4());
-        let wav_path = temp_dir.join(filename);
-
-        save_wav(&resampled, self.target_sample_rate, &wav_path)?;
-
-        log::info!("Saved recording to {:?}", wav_path);
-
-        Ok(wav_path)
+        log::info!("[Recorder] Stopped, total samples: {}", self.samples.lock().unwrap().len());
+        Ok(())
     }
 
     /// Check if currently recording
@@ -180,12 +197,23 @@ impl AudioRecorder {
     pub fn cancel(&self) {
         self.is_recording.store(false, Ordering::SeqCst);
         self.samples.lock().unwrap().clear();
+        self.transcribed_offset.store(0, Ordering::SeqCst);
+    }
+
+    /// Get duration in seconds
+    pub fn get_duration_secs(&self) -> f32 {
+        let samples = self.samples.lock().unwrap();
+        let input_rate = self.input_sample_rate.load(Ordering::SeqCst);
+        if input_rate == 0 {
+            return 0.0;
+        }
+        samples.len() as f32 / input_rate as f32
     }
 }
 
 /// Simple linear interpolation resampling
 fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
-    if from_rate == to_rate {
+    if from_rate == to_rate || samples.is_empty() {
         return samples.to_vec();
     }
 
@@ -212,32 +240,6 @@ fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     resampled
 }
 
-/// Save samples to WAV file
-fn save_wav(samples: &[f32], sample_rate: u32, path: &PathBuf) -> Result<(), String> {
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-
-    let mut writer = hound::WavWriter::create(path, spec)
-        .map_err(|e| format!("Failed to create WAV file: {}", e))?;
-
-    for &sample in samples {
-        let amplitude = (sample * i16::MAX as f32) as i16;
-        writer
-            .write_sample(amplitude)
-            .map_err(|e| format!("Failed to write sample: {}", e))?;
-    }
-
-    writer
-        .finalize()
-        .map_err(|e| format!("Failed to finalize WAV: {}", e))?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,7 +248,6 @@ mod tests {
     fn test_resample() {
         let input = vec![0.0, 1.0, 0.0, -1.0, 0.0, 1.0];
         let output = resample(&input, 48000, 16000);
-        // 48000/16000 = 3, so output should be ~1/3 the size
         assert!(output.len() < input.len());
     }
 }

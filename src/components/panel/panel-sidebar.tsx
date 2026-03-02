@@ -134,7 +134,8 @@ export function PanelSidebar({
           {/* Resize handle */}
           <div
             onMouseDown={handleResizeMouseDown}
-            className="absolute right-0 top-0 bottom-0 w-1.5 cursor-ew-resize"
+            className="absolute right-0 top-0 bottom-0 w-2 z-10"
+            style={{ cursor: 'ew-resize' }}
           />
         </motion.div>
       )}
