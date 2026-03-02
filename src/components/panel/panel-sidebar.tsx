@@ -137,8 +137,9 @@ export function PanelSidebar({
           {/* Resize handle - outside overflow container */}
           <div
             onMouseDown={handleResizeMouseDown}
-            className="absolute -right-1 top-0 bottom-0 w-2"
-            style={{ cursor: 'ew-resize' }}
+            onMouseEnter={() => { document.body.style.cursor = 'ew-resize' }}
+            onMouseLeave={() => { if (!isDragging) document.body.style.cursor = '' }}
+            className="absolute -right-1 top-0 bottom-0 w-3"
           />
         </motion.div>
       )}

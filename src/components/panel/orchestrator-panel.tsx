@@ -477,8 +477,19 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       {/* Header - clickable to toggle, draggable to resize */}
       <div
         onMouseDown={handleHeaderMouseDown}
+        onMouseMove={(e) => {
+          if (isDragging) return
+          // Only set resize cursor if not over a button
+          if ((e.target as HTMLElement).closest('button')) {
+            document.body.style.cursor = ''
+          } else {
+            document.body.style.cursor = isPanelCollapsed ? 'pointer' : 'ns-resize'
+          }
+        }}
+        onMouseLeave={() => {
+          if (!isDragging) document.body.style.cursor = ''
+        }}
         className="relative flex items-center justify-between px-3 py-1.5 select-none"
-        style={{ cursor: isPanelCollapsed ? 'pointer' : 'row-resize' }}
       >
         {/* Left: History + Files buttons */}
         <div className="flex items-center gap-1" style={{ cursor: 'inherit' }}>
