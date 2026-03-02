@@ -687,8 +687,12 @@ async fn stream_via_cli(
     // Try to use existing persistent session, or spawn a new one
     let mut manager = cli_manager.lock().await;
 
-    // Check if we have a running process
-    let needs_spawn = !manager.has_session(session_id) || !manager.is_alive(session_id);
+    // Check if we have a running process with the same model
+    let model_changed = manager
+        .get_model(session_id)
+        .map(|m| m != model)
+        .unwrap_or(false);
+    let needs_spawn = !manager.has_session(session_id) || !manager.is_alive(session_id) || model_changed;
 
     if needs_spawn {
         // Spawn new CLI process

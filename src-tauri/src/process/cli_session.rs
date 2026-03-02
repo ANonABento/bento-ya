@@ -6,11 +6,16 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
+use tokio::time::timeout;
+
+/// Timeout for reading a response from the CLI (5 minutes)
+const MESSAGE_TIMEOUT: Duration = Duration::from_secs(300);
 
 use crate::commands::orchestrator::{StreamChunkPayload, ThinkingPayload, ToolCallPayload};
 
@@ -24,6 +29,8 @@ struct CliSession {
     stdout: BufReader<ChildStdout>,
     /// CLI session ID for resume fallback (captured from first response)
     cli_session_id: Option<String>,
+    /// Model this session was spawned with
+    model: String,
     /// Whether we're currently processing a message
     is_busy: bool,
 }
@@ -59,6 +66,11 @@ impl CliSessionManager {
         self.sessions
             .get(session_id)
             .and_then(|s| s.cli_session_id.clone())
+    }
+
+    /// Get the model this session was spawned with
+    pub fn get_model(&self, session_id: &str) -> Option<&str> {
+        self.sessions.get(session_id).map(|s| s.model.as_str())
     }
 
     /// Spawn a new Claude CLI process for a session
@@ -110,6 +122,7 @@ impl CliSessionManager {
             stdin,
             stdout: BufReader::new(stdout),
             cli_session_id: resume_id.map(|s| s.to_string()),
+            model: model.to_string(),
             is_busy: false,
         };
 
@@ -154,14 +167,26 @@ impl CliSessionManager {
 
         loop {
             let mut line = String::new();
-            match session.stdout.read_line(&mut line).await {
-                Ok(0) => {
+            // Apply timeout to each line read to prevent hanging (5 min timeout)
+            let read_result = timeout(MESSAGE_TIMEOUT, session.stdout.read_line(&mut line)).await;
+
+            match read_result {
+                Err(_) => {
+                    // Timeout - CLI is not responding
+                    session.is_busy = false;
+                    return Err("CLI response timed out".to_string());
+                }
+                Ok(Err(e)) => {
+                    session.is_busy = false;
+                    return Err(format!("Failed to read stdout: {}", e));
+                }
+                Ok(Ok(0)) => {
                     // EOF - process ended
                     session.is_busy = false;
                     return Err("Process ended unexpectedly".to_string());
                 }
-                Ok(_) => {
-                    // Try to parse as JSON
+                Ok(Ok(_)) => {
+                    // Successfully read a line - parse JSON
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
                         if let Some(event_type) = json.get("type").and_then(|t| t.as_str()) {
                             match event_type {
@@ -293,10 +318,6 @@ impl CliSessionManager {
                             }
                         }
                     }
-                }
-                Err(e) => {
-                    session.is_busy = false;
-                    return Err(format!("Failed to read stdout: {}", e));
                 }
             }
         }

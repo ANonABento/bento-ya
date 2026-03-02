@@ -167,32 +167,51 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
           content={
             voice.state === 'recording'
               ? `Recording (${voice.duration}s) - click to stop`
-              : !voice.isEnabled
-                ? 'Enable voice in Settings'
-                : !voice.isApiAvailable
-                  ? 'Download model in Settings'
-                  : 'Voice input'
+              : voice.state === 'error'
+                ? `Error: ${voice.error || 'Unknown error'}`
+                : !voice.isEnabled
+                  ? 'Enable voice in Settings → Voice'
+                  : !voice.isApiAvailable
+                    ? 'Download a model in Settings → Voice'
+                    : 'Click to record voice'
           }
           side="top"
-          delay={200}
+          delay={100}
         >
           <button
             type="button"
             onClick={() => {
-              if (!voice.isAvailable) return
+              console.log('[Voice Button] Clicked!', {
+                isAvailable: voice.isAvailable,
+                isEnabled: voice.isEnabled,
+                isApiAvailable: voice.isApiAvailable,
+                state: voice.state,
+                error: voice.error,
+              })
               if (voice.state === 'recording') {
+                console.log('[Voice Button] Stopping recording...')
                 voice.stopRecording()
-              } else if (voice.state === 'idle') {
+              } else if (voice.state === 'idle' && voice.isAvailable) {
+                console.log('[Voice Button] Starting recording...')
+                void voice.startRecording()
+              } else if (voice.state === 'error') {
+                // Clear error state on click
+                console.log('[Voice Button] Clearing error state...')
                 void voice.startRecording()
               }
+              // If not available, do nothing - tooltip will explain why
             }}
-            disabled={disabled || isProcessing || voice.state === 'processing' || !voice.isAvailable}
+            disabled={disabled || isProcessing || voice.state === 'processing'}
             className={`flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg border transition-colors ${
               voice.state === 'recording'
                 ? 'border-red-500 bg-red-500/10 text-red-500 animate-pulse'
                 : voice.state === 'processing'
                   ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-border-default bg-bg text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                  : voice.state === 'error'
+                    ? 'border-yellow-500 bg-yellow-500/10 text-yellow-500'
+                    : !voice.isAvailable
+                      ? 'border-border-default bg-bg text-text-secondary/40 cursor-help'
+                      : 'border-border-default bg-bg text-text-secondary hover:bg-surface-hover hover:text-text-primary'
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {voice.state === 'processing' ? (

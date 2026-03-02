@@ -17,11 +17,28 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
 
   const voiceConfig = useSettingsStore((s) => s.global.voice)
 
+  // Use refs to avoid stale closures in callbacks
+  const voiceConfigRef = useRef(voiceConfig)
+  const onTranscriptRef = useRef(onTranscript)
+
+  // Keep refs updated
+  useEffect(() => {
+    voiceConfigRef.current = voiceConfig
+    onTranscriptRef.current = onTranscript
+  }, [voiceConfig, onTranscript])
+
   // Check if voice is available
   const checkAvailability = useCallback(() => {
+    console.log('[Voice] Checking availability...')
     isVoiceAvailable()
-      .then((available) => { setIsAvailable(available) })
-      .catch(() => { setIsAvailable(false) })
+      .then((available) => {
+        console.log('[Voice] Backend availability:', available)
+        setIsAvailable(available)
+      })
+      .catch((err) => {
+        console.error('[Voice] Availability check failed:', err)
+        setIsAvailable(false)
+      })
   }, [])
 
   // Check on mount
@@ -75,9 +92,19 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
 
       streamRef.current = stream
 
-      const recorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus',
-      })
+      // Try to use webm/opus, fallback to default if not supported
+      let mimeType = 'audio/webm;codecs=opus'
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        console.log('[Voice] webm/opus not supported, trying webm')
+        mimeType = 'audio/webm'
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          console.log('[Voice] webm not supported, using default')
+          mimeType = ''
+        }
+      }
+      console.log('[Voice] Using mimeType:', mimeType || 'default')
+
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
 
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
@@ -150,17 +177,18 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       const audioPath = await saveAudioTemp(audioData)
       console.log('[Voice] Saved to:', audioPath)
 
-      // Transcribe using selected model
-      console.log('[Voice] Transcribing with model:', voiceConfig.model)
+      // Use ref to get current config (avoids stale closure)
+      const config = voiceConfigRef.current
+      console.log('[Voice] Transcribing with model:', config.model)
       const result = await transcribeAudio(
         audioPath,
-        voiceConfig.language || undefined,
-        voiceConfig.model,
+        config.language || undefined,
+        config.model,
       )
       console.log('[Voice] Transcription result:', result)
 
       if (result.text) {
-        onTranscript(result.text)
+        onTranscriptRef.current(result.text)
       }
 
       setState('idle')

@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, memo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
+import ReactMarkdown from 'react-markdown'
 import type { ChatMessage, ToolCallEvent } from '@/lib/ipc'
 
 type QueuedMessage = {
@@ -185,11 +186,55 @@ function MessageBubble({ message, isLatest }: MessageBubbleProps) {
             ))}
           </div>
         )}
-        {displayText && <p className="text-sm whitespace-pre-wrap">{displayText}</p>}
+        {displayText && <MarkdownContent content={displayText} />}
       </div>
     </motion.div>
   )
 }
+
+// Memoized markdown renderer for chat messages
+const MarkdownContent = memo(function MarkdownContent({ content }: { content: string }) {
+  return (
+    <div className="text-sm markdown-content">
+      <ReactMarkdown
+        components={{
+          p: ({ children }) => <p className="my-1">{children}</p>,
+          strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+          em: ({ children }) => <em className="italic">{children}</em>,
+          ul: ({ children }) => <ul className="my-1 ml-4 list-disc">{children}</ul>,
+          ol: ({ children }) => <ol className="my-1 ml-4 list-decimal">{children}</ol>,
+          li: ({ children }) => <li className="my-0.5">{children}</li>,
+          h1: ({ children }) => <h1 className="text-lg font-bold my-2">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-base font-bold my-2">{children}</h2>,
+          h3: ({ children }) => <h3 className="text-sm font-bold my-1">{children}</h3>,
+          code: ({ className, children }) => {
+            const isInline = !className
+            return isInline ? (
+              <code className="text-accent bg-bg/50 px-1 py-0.5 rounded text-[0.85em]">{children}</code>
+            ) : (
+              <code className={className}>{children}</code>
+            )
+          },
+          pre: ({ children }) => (
+            <pre className="my-2 p-2 bg-bg/50 rounded overflow-x-auto text-xs">{children}</pre>
+          ),
+          a: ({ href, children }) => (
+            <a href={href} className="text-accent underline hover:opacity-80" target="_blank" rel="noopener noreferrer">
+              {children}
+            </a>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote className="border-l-2 border-accent/50 pl-2 my-2 text-text-secondary italic">
+              {children}
+            </blockquote>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  )
+})
 
 type StreamingBubbleProps = {
   content: string
@@ -296,7 +341,7 @@ function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls =
 
         {/* Streaming content or typing indicator */}
         {hasContent ? (
-          <p className="text-sm whitespace-pre-wrap">{content}</p>
+          <MarkdownContent content={content} />
         ) : !hasThinking && !hasToolCalls ? (
           <TypingDots />
         ) : null}
