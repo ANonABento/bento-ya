@@ -71,7 +71,7 @@ export function PanelSidebar({
     if (!isDragging || !mode) return
 
     const currentConfig = SIDEBAR_CONFIG[mode]
-    document.body.style.cursor = 'ew-resize'
+    document.body.classList.add('cursor-ew-resize')
     document.body.style.userSelect = 'none'
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -86,7 +86,7 @@ export function PanelSidebar({
 
     const handleMouseUp = () => {
       setIsDragging(false)
-      document.body.style.cursor = ''
+      document.body.classList.remove('cursor-ew-resize')
       document.body.style.userSelect = ''
     }
 
@@ -96,7 +96,7 @@ export function PanelSidebar({
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
-      document.body.style.cursor = ''
+      document.body.classList.remove('cursor-ew-resize')
       document.body.style.userSelect = ''
     }
   }, [isDragging, mode])
@@ -138,14 +138,14 @@ export function PanelSidebar({
           <div
             onMouseDown={handleResizeMouseDown}
             onMouseEnter={() => {
-              console.log('Resize handle enter')
-              document.body.style.cursor = 'ew-resize'
+              document.body.classList.add('cursor-ew-resize')
             }}
             onMouseLeave={() => {
-              console.log('Resize handle leave')
-              if (!isDragging) document.body.style.cursor = ''
+              if (!isDragging) {
+                document.body.classList.remove('cursor-ew-resize')
+              }
             }}
-            className="absolute -right-1 top-0 bottom-0 w-3 hover:bg-red-500/50"
+            className="absolute -right-1 top-0 bottom-0 w-3"
           />
         </motion.div>
       )}

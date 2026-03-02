@@ -277,7 +277,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
     // Set cursor on body during drag
     if (!isPanelCollapsed) {
-      document.body.style.cursor = 'ns-resize'
+      document.body.classList.add('cursor-ns-resize')
     }
     document.body.style.userSelect = 'none'
 
@@ -295,7 +295,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
     const handleMouseUp = () => {
       setIsDragging(false)
-      document.body.style.cursor = ''
+      document.body.classList.remove('cursor-ns-resize', 'cursor-pointer-override')
       document.body.style.userSelect = ''
 
       // If didn't drag, treat as click to toggle
@@ -310,7 +310,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
-      document.body.style.cursor = ''
+      document.body.classList.remove('cursor-ns-resize', 'cursor-pointer-override')
       document.body.style.userSelect = ''
     }
   }, [isDragging, isPanelCollapsed, setPanelHeight, togglePanel])
@@ -481,13 +481,16 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
           if (isDragging) return
           // Only set resize cursor if not over a button
           if ((e.target as HTMLElement).closest('button')) {
-            document.body.style.cursor = ''
+            document.body.classList.remove('cursor-ns-resize', 'cursor-pointer-override')
           } else {
-            document.body.style.cursor = isPanelCollapsed ? 'pointer' : 'ns-resize'
+            document.body.classList.remove('cursor-ns-resize', 'cursor-pointer-override')
+            document.body.classList.add(isPanelCollapsed ? 'cursor-pointer-override' : 'cursor-ns-resize')
           }
         }}
         onMouseLeave={() => {
-          if (!isDragging) document.body.style.cursor = ''
+          if (!isDragging) {
+            document.body.classList.remove('cursor-ns-resize', 'cursor-pointer-override')
+          }
         }}
         className="relative flex items-center justify-between px-3 py-1.5 select-none"
       >

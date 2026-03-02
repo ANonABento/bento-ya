@@ -171,3 +171,16 @@ body,
   transition-duration: var(--transition-duration);
 }
 
+/* Cursor overrides for drag handles */
+.cursor-ns-resize, .cursor-ns-resize * {
+  cursor: ns-resize !important;
+}
+
+.cursor-ew-resize, .cursor-ew-resize * {
+  cursor: ew-resize !important;
+}
+
+.cursor-pointer-override, .cursor-pointer-override * {
+  cursor: pointer !important;
+}
+
