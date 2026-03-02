@@ -81,6 +81,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("013_task_script_exit_code", include_str!("migrations/013_task_script_exit_code.sql")),
         ("014_review_status", include_str!("migrations/014_review_status.sql")),
         ("015_pr_fields", include_str!("migrations/015_pr_fields.sql")),
+        ("016_siege_fields", include_str!("migrations/016_siege_fields.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -165,6 +166,11 @@ pub struct Task {
     pub review_status: Option<String>,
     pub pr_number: Option<i64>,
     pub pr_url: Option<String>,
+    // Siege loop fields
+    pub siege_iteration: i64,
+    pub siege_active: bool,
+    pub siege_max_iterations: i64,
+    pub siege_last_checked: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -403,7 +409,7 @@ pub fn insert_task(
 
 pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
     conn.query_row(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, created_at, updated_at FROM tasks WHERE id = ?1",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, created_at, updated_at FROM tasks WHERE id = ?1",
         params![id],
         |row| {
             Ok(Task {
@@ -426,8 +432,12 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
                 review_status: row.get(16)?,
                 pr_number: row.get(17)?,
                 pr_url: row.get(18)?,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
+                siege_iteration: row.get::<_, Option<i64>>(19)?.unwrap_or(0),
+                siege_active: row.get::<_, Option<i64>>(20)?.unwrap_or(0) != 0,
+                siege_max_iterations: row.get::<_, Option<i64>>(21)?.unwrap_or(5),
+                siege_last_checked: row.get(22)?,
+                created_at: row.get(23)?,
+                updated_at: row.get(24)?,
             })
         },
     )
@@ -435,7 +445,7 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
 
 pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, created_at, updated_at FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, created_at, updated_at FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
     )?;
     let rows = stmt.query_map(params![workspace_id], |row| {
         Ok(Task {
@@ -458,8 +468,12 @@ pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>>
             review_status: row.get(16)?,
             pr_number: row.get(17)?,
             pr_url: row.get(18)?,
-            created_at: row.get(19)?,
-            updated_at: row.get(20)?,
+            siege_iteration: row.get::<_, Option<i64>>(19)?.unwrap_or(0),
+            siege_active: row.get::<_, Option<i64>>(20)?.unwrap_or(0) != 0,
+            siege_max_iterations: row.get::<_, Option<i64>>(21)?.unwrap_or(5),
+            siege_last_checked: row.get(22)?,
+            created_at: row.get(23)?,
+            updated_at: row.get(24)?,
         })
     })?;
     rows.collect()
@@ -509,7 +523,7 @@ pub fn delete_task(conn: &Connection, id: &str) -> SqlResult<()> {
 /// List tasks by column ID
 pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, created_at, updated_at FROM tasks WHERE column_id = ?1 ORDER BY position",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, created_at, updated_at FROM tasks WHERE column_id = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map(params![column_id], |row| {
         Ok(Task {
@@ -532,8 +546,12 @@ pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec
             review_status: row.get(16)?,
             pr_number: row.get(17)?,
             pr_url: row.get(18)?,
-            created_at: row.get(19)?,
-            updated_at: row.get(20)?,
+            siege_iteration: row.get::<_, Option<i64>>(19)?.unwrap_or(0),
+            siege_active: row.get::<_, Option<i64>>(20)?.unwrap_or(0) != 0,
+            siege_max_iterations: row.get::<_, Option<i64>>(21)?.unwrap_or(5),
+            siege_last_checked: row.get(22)?,
+            created_at: row.get(23)?,
+            updated_at: row.get(24)?,
         })
     })?;
     rows.collect()
@@ -608,6 +626,51 @@ pub fn update_task_pr_info(
     conn.execute(
         "UPDATE tasks SET pr_number = ?1, pr_url = ?2, updated_at = ?3 WHERE id = ?4",
         params![pr_number, pr_url, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Start or update siege loop for a task
+pub fn start_siege(
+    conn: &Connection,
+    id: &str,
+    max_iterations: Option<i64>,
+) -> SqlResult<Task> {
+    let ts = now();
+    let max_iter = max_iterations.unwrap_or(5);
+    conn.execute(
+        "UPDATE tasks SET siege_active = 1, siege_iteration = 0, siege_max_iterations = ?1, siege_last_checked = ?2, updated_at = ?3 WHERE id = ?4",
+        params![max_iter, ts, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Stop siege loop for a task
+pub fn stop_siege(conn: &Connection, id: &str) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET siege_active = 0, updated_at = ?1 WHERE id = ?2",
+        params![ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Increment siege iteration counter for a task
+pub fn increment_siege_iteration(conn: &Connection, id: &str) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET siege_iteration = siege_iteration + 1, siege_last_checked = ?1, updated_at = ?2 WHERE id = ?3",
+        params![ts, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Update siege last checked timestamp
+pub fn update_siege_last_checked(conn: &Connection, id: &str) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET siege_last_checked = ?1, updated_at = ?2 WHERE id = ?3",
+        params![ts, ts, id],
     )?;
     get_task(conn, id)
 }
@@ -1646,8 +1709,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 15 migrations: 001-015
-        assert_eq!(count, 15);
+        // We have 16 migrations: 001-016
+        assert_eq!(count, 16);
     }
 
     #[test]
