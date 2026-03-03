@@ -1,5 +1,8 @@
 pub mod agent;
+pub mod checklist;
+pub mod cli_detect;
 pub mod column;
+pub mod files;
 pub mod git;
 pub mod history;
 pub mod orchestrator;

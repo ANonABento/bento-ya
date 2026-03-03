@@ -4,7 +4,7 @@ use tauri::State;
 
 use crate::process::pty_manager::PtyManager;
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn write_to_pty(
     task_id: String,
     data: String,
@@ -17,7 +17,7 @@ pub fn write_to_pty(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn resize_pty(
     task_id: String,
     cols: u16,
@@ -31,7 +31,7 @@ pub fn resize_pty(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn get_pty_scrollback(
     task_id: String,
     pty_manager: State<'_, Arc<Mutex<PtyManager>>>,

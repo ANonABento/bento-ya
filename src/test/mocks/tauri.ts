@@ -12,6 +12,7 @@ export const mockWorkspace = (overrides: Partial<Workspace> = {}): Workspace => 
   repoPath: '/path/to/repo',
   tabOrder: 0,
   isActive: true,
+  config: '{}',
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   ...overrides,

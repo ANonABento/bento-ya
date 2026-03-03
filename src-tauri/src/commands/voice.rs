@@ -1,12 +1,21 @@
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::path::PathBuf;
-use tauri::{command, AppHandle, Manager, Runtime};
+use std::sync::Mutex;
+use tauri::{command, AppHandle, Manager, Runtime, State};
+
+use crate::whisper::{
+    self, AudioRecorder, WhisperModel, WhisperModelInfo, WhisperModelStatus,
+};
+
+/// Managed state for the audio recorder
+pub struct RecorderState(pub Mutex<AudioRecorder>);
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TranscriptionResult {
     pub text: String,
     pub duration_ms: u64,
+    pub model_used: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -15,89 +24,52 @@ pub struct TranscriptionError {
     pub code: String,
 }
 
-/// Transcribe an audio file using OpenAI's Whisper API
+/// Transcribe an audio file using local Whisper model
 #[command]
 pub async fn transcribe_audio<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     audio_path: String,
     language: Option<String>,
     model: Option<String>,
 ) -> Result<TranscriptionResult, String> {
-    let api_key = env::var("OPENAI_API_KEY")
-        .map_err(|_| "OPENAI_API_KEY environment variable not set".to_string())?;
-
     let path = PathBuf::from(&audio_path);
     if !path.exists() {
         return Err(format!("Audio file not found: {}", audio_path));
     }
 
-    // Read the audio file
-    let audio_data = std::fs::read(&path)
-        .map_err(|e| format!("Failed to read audio file: {}", e))?;
+    let model_size = model
+        .as_deref()
+        .and_then(WhisperModel::from_str)
+        .unwrap_or(WhisperModel::Tiny);
 
-    // Get filename for the form data
-    let filename = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("audio.webm")
-        .to_string();
+    let model_path = whisper::get_whisper_models_dir(&app)?
+        .join(model_size.filename());
 
-    let whisper_model = model.unwrap_or_else(|| "whisper-1".to_string());
+    if !model_path.exists() {
+        return Err(format!(
+            "Whisper model '{}' not downloaded. Please download it in Settings → Voice.",
+            format!("{:?}", model_size).to_lowercase()
+        ));
+    }
+
     let start_time = std::time::Instant::now();
 
-    // Build the multipart form
-    let form = reqwest::multipart::Form::new()
-        .part(
-            "file",
-            reqwest::multipart::Part::bytes(audio_data)
-                .file_name(filename)
-                .mime_str("audio/webm")
-                .map_err(|e| format!("Failed to set MIME type: {}", e))?,
-        )
-        .text("model", whisper_model);
+    let lang = language.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        whisper::transcribe_local(&path, &model_path, lang.as_deref())
+    })
+    .await
+    .map_err(|e| format!("Transcription task failed: {}", e))?
+    .map_err(|e| format!("Transcription failed: {}", e))?;
 
-    let form = if let Some(lang) = language {
-        form.text("language", lang)
-    } else {
-        form
-    };
-
-    // Send request to OpenAI
-    let client = reqwest::Client::new();
-    let response = client
-        .post("https://api.openai.com/v1/audio/transcriptions")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .multipart(form)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to send request to OpenAI: {}", e))?;
+    let _ = std::fs::remove_file(&audio_path);
 
     let duration_ms = start_time.elapsed().as_millis() as u64;
 
-    if !response.status().is_success() {
-        let error_text = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(format!("OpenAI API error: {}", error_text));
-    }
-
-    #[derive(Deserialize)]
-    struct WhisperResponse {
-        text: String,
-    }
-
-    let whisper_response: WhisperResponse = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse OpenAI response: {}", e))?;
-
-    // Clean up the temporary file
-    let _ = std::fs::remove_file(&path);
-
     Ok(TranscriptionResult {
-        text: whisper_response.text.trim().to_string(),
+        text: result.text,
         duration_ms,
+        model_used: Some(result.model_used),
     })
 }
 
@@ -119,12 +91,216 @@ pub async fn save_audio_temp<R: Runtime>(
         .map_err(|e| format!("Failed to write audio file: {}", e))?;
 
     path.to_str()
-        .map(|s| s.to_string())
+        .map(String::from)
         .ok_or_else(|| "Invalid path".to_string())
 }
 
-/// Check if voice transcription is available (API key set)
+/// Check if voice transcription is available (any model downloaded)
 #[command]
-pub fn is_voice_available() -> bool {
-    env::var("OPENAI_API_KEY").is_ok()
+pub fn is_voice_available<R: Runtime>(app: AppHandle<R>) -> bool {
+    let models = whisper::list_whisper_models(&app);
+    models.iter().any(|m| m.status == WhisperModelStatus::Downloaded)
+}
+
+/// List all available whisper models and their status
+#[command]
+pub fn list_whisper_models<R: Runtime>(app: AppHandle<R>) -> Vec<WhisperModelInfo> {
+    whisper::list_whisper_models(&app)
+}
+
+/// Download a whisper model
+#[command]
+pub async fn download_whisper_model<R: Runtime>(
+    app: AppHandle<R>,
+    model: String,
+) -> Result<String, String> {
+    let model_size = WhisperModel::from_str(&model)
+        .ok_or_else(|| format!("Invalid model: {}", model))?;
+
+    let path = whisper::download_whisper_model(app, model_size).await?;
+
+    path.to_str()
+        .map(String::from)
+        .ok_or_else(|| "Invalid path".to_string())
+}
+
+/// Delete a downloaded whisper model
+#[command]
+pub fn delete_whisper_model<R: Runtime>(
+    app: AppHandle<R>,
+    model: String,
+) -> Result<(), String> {
+    let model_size = WhisperModel::from_str(&model)
+        .ok_or_else(|| format!("Invalid model: {}", model))?;
+
+    whisper::delete_whisper_model(&app, model_size)
+}
+
+/// Get info about a specific whisper model
+#[command]
+pub fn get_whisper_model_info<R: Runtime>(
+    app: AppHandle<R>,
+    model: String,
+) -> Result<WhisperModelInfo, String> {
+    let model_size = WhisperModel::from_str(&model)
+        .ok_or_else(|| format!("Invalid model: {}", model))?;
+
+    Ok(whisper::get_model_info(&app, model_size))
+}
+
+// ============ Native Audio Recording Commands ============
+
+/// Start native audio recording (bypasses webview limitations)
+#[command]
+pub fn start_native_recording(
+    recorder_state: State<'_, RecorderState>,
+) -> Result<(), String> {
+    log::info!("[Voice] Starting native recording...");
+    let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    recorder.start()
+}
+
+/// Stop native recording
+#[command]
+pub fn stop_native_recording(
+    recorder_state: State<'_, RecorderState>,
+) -> Result<(), String> {
+    log::info!("[Voice] Stopping native recording...");
+    let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    recorder.stop()
+}
+
+/// Cancel native recording without saving
+#[command]
+pub fn cancel_native_recording(
+    recorder_state: State<'_, RecorderState>,
+) -> Result<(), String> {
+    log::info!("[Voice] Cancelling native recording...");
+    let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    recorder.cancel();
+    Ok(())
+}
+
+/// Check if currently recording
+#[command]
+pub fn is_native_recording(
+    recorder_state: State<'_, RecorderState>,
+) -> Result<bool, String> {
+    let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    Ok(recorder.is_recording())
+}
+
+// ============ Streaming Transcription Commands ============
+
+/// Get and transcribe the latest audio chunk while still recording
+/// Returns the transcribed text for new audio since last call
+#[command]
+pub async fn transcribe_recording_chunk<R: Runtime>(
+    app: AppHandle<R>,
+    recorder_state: State<'_, RecorderState>,
+    language: Option<String>,
+    model: Option<String>,
+) -> Result<TranscriptionResult, String> {
+    // Get the audio chunk
+    let samples = {
+        let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+        recorder.get_new_chunk()
+    };
+
+    let samples = match samples {
+        Some(s) if !s.is_empty() => s,
+        _ => {
+            return Ok(TranscriptionResult {
+                text: String::new(),
+                duration_ms: 0,
+                model_used: None,
+            });
+        }
+    };
+
+    // Get model path
+    let model_size = model
+        .as_deref()
+        .and_then(WhisperModel::from_str)
+        .unwrap_or(WhisperModel::Tiny);
+
+    let model_path = whisper::get_whisper_models_dir(&app)?
+        .join(model_size.filename());
+
+    if !model_path.exists() {
+        return Err(format!(
+            "Whisper model '{}' not downloaded",
+            format!("{:?}", model_size).to_lowercase()
+        ));
+    }
+
+    // Transcribe in blocking task
+    let lang = language.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        whisper::transcribe_samples(&samples, &model_path, lang.as_deref())
+    })
+    .await
+    .map_err(|e| format!("Transcription task failed: {}", e))?
+    .map_err(|e| format!("Transcription failed: {}", e))?;
+
+    Ok(TranscriptionResult {
+        text: result.text,
+        duration_ms: result.duration_ms,
+        model_used: Some(result.model_used),
+    })
+}
+
+/// Get and transcribe ALL recorded audio (for final transcription when stopping)
+#[command]
+pub async fn transcribe_all_recording<R: Runtime>(
+    app: AppHandle<R>,
+    recorder_state: State<'_, RecorderState>,
+    language: Option<String>,
+    model: Option<String>,
+) -> Result<TranscriptionResult, String> {
+    // Stop recording and get all samples
+    let samples = {
+        let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+        recorder.stop()?;
+        recorder.get_all_samples()
+    };
+
+    if samples.is_empty() {
+        return Ok(TranscriptionResult {
+            text: String::new(),
+            duration_ms: 0,
+            model_used: None,
+        });
+    }
+
+    // Get model path
+    let model_size = model
+        .as_deref()
+        .and_then(WhisperModel::from_str)
+        .unwrap_or(WhisperModel::Tiny);
+
+    let model_path = whisper::get_whisper_models_dir(&app)?
+        .join(model_size.filename());
+
+    if !model_path.exists() {
+        return Err(format!(
+            "Whisper model '{}' not downloaded",
+            format!("{:?}", model_size).to_lowercase()
+        ));
+    }
+
+    // Transcribe in blocking task
+    let lang = language.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        whisper::transcribe_samples(&samples, &model_path, lang.as_deref())
+    })
+    .await
+    .map_err(|e| format!("Transcription task failed: {}", e))?
+    .map_err(|e| format!("Transcription failed: {}", e))?;
+
+    Ok(TranscriptionResult {
+        text: result.text,
+        duration_ms: result.duration_ms,
+        model_used: Some(result.model_used),
+    })
 }

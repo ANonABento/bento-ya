@@ -1,6 +1,6 @@
 //! Anthropic Claude API client with streaming support
 
-use crate::llm::types::{LlmRequest, LlmResponse, Message, StreamChunk, TokenUsage};
+use crate::llm::types::{LlmRequest, LlmResponse, Message, StreamChunk, TokenUsage, ToolUseBlock};
 use futures::StreamExt;
 use reqwest::Client;
 use serde_json::{json, Value};
@@ -29,15 +29,17 @@ impl AnthropicClient {
         request: LlmRequest,
         tx: mpsc::Sender<StreamChunk>,
     ) -> Result<LlmResponse, String> {
-        // Extract system message if present
+        // Use provided system prompt or extract from messages
         let (system_prompt, messages): (Option<String>, Vec<&Message>) = {
-            let mut system = None;
+            let mut system = request.system.clone();
             let msgs: Vec<_> = request
                 .messages
                 .iter()
                 .filter(|m| {
                     if m.role == "system" {
-                        system = Some(m.content.clone());
+                        if system.is_none() {
+                            system = Some(m.content.clone());
+                        }
                         false
                     } else {
                         true
@@ -66,6 +68,13 @@ impl AnthropicClient {
             body["temperature"] = json!(temp);
         }
 
+        // Add tools if provided
+        if let Some(tools) = &request.tools {
+            if !tools.is_empty() {
+                body["tools"] = json!(tools);
+            }
+        }
+
         // Send request
         let response = self
             .client
@@ -90,6 +99,8 @@ impl AnthropicClient {
         let mut usage = TokenUsage::default();
         let mut finish_reason = String::from("stop");
         let mut buffer = String::new();
+        let mut tool_uses: Vec<ToolUseBlock> = Vec::new();
+        let mut current_tool_use: Option<(String, String, String)> = None; // (id, name, input_json)
 
         while let Some(chunk_result) = stream.next().await {
             let bytes = chunk_result.map_err(|e| format!("Stream error: {}", e))?;
@@ -111,7 +122,15 @@ impl AnthropicClient {
 
                     match serde_json::from_str::<Value>(data) {
                         Ok(event) => {
-                            self.process_sse_event(&event, &mut accumulated, &mut usage, &mut finish_reason, &tx).await;
+                            self.process_sse_event(
+                                &event,
+                                &mut accumulated,
+                                &mut usage,
+                                &mut finish_reason,
+                                &mut tool_uses,
+                                &mut current_tool_use,
+                                &tx,
+                            ).await;
                         }
                         Err(e) => {
                             log::warn!("Failed to parse SSE event: {} - data: {}", e, data);
@@ -126,6 +145,7 @@ impl AnthropicClient {
             .send(StreamChunk {
                 delta: String::new(),
                 finish_reason: Some(finish_reason.clone()),
+                tool_use: None,
             })
             .await;
 
@@ -134,6 +154,7 @@ impl AnthropicClient {
             usage,
             model: request.model,
             finish_reason,
+            tool_uses,
         })
     }
 
@@ -143,6 +164,8 @@ impl AnthropicClient {
         accumulated: &mut String,
         usage: &mut TokenUsage,
         finish_reason: &mut String,
+        tool_uses: &mut Vec<ToolUseBlock>,
+        current_tool_use: &mut Option<(String, String, String)>,
         tx: &mpsc::Sender<StreamChunk>,
     ) {
         let event_type = event["type"].as_str().unwrap_or("");
@@ -157,14 +180,66 @@ impl AnthropicClient {
                         .unwrap_or(0);
                 }
             }
+            "content_block_start" => {
+                // Check if this is a tool_use block
+                if let Some(content_block) = event.get("content_block") {
+                    if content_block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
+                        let id = content_block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let name = content_block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        *current_tool_use = Some((id, name, String::new()));
+                    }
+                }
+            }
             "content_block_delta" => {
-                // Extract text delta
-                if let Some(delta_text) = event["delta"]["text"].as_str() {
-                    accumulated.push_str(delta_text);
+                // Check if this is a text delta or tool_use input delta
+                if let Some(delta) = event.get("delta") {
+                    let delta_type = delta.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+                    match delta_type {
+                        "text_delta" => {
+                            if let Some(delta_text) = delta.get("text").and_then(|v| v.as_str()) {
+                                accumulated.push_str(delta_text);
+                                let _ = tx
+                                    .send(StreamChunk {
+                                        delta: delta_text.to_string(),
+                                        finish_reason: None,
+                                        tool_use: None,
+                                    })
+                                    .await;
+                            }
+                        }
+                        "input_json_delta" => {
+                            // Accumulate tool input JSON
+                            if let Some((_, _, ref mut input_json)) = current_tool_use {
+                                if let Some(partial) = delta.get("partial_json").and_then(|v| v.as_str()) {
+                                    input_json.push_str(partial);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            "content_block_stop" => {
+                // Finalize any pending tool_use block
+                if let Some((id, name, input_json)) = current_tool_use.take() {
+                    let input: serde_json::Value = serde_json::from_str(&input_json)
+                        .unwrap_or_else(|_| json!({}));
+
+                    let tool_block = ToolUseBlock {
+                        id: id.clone(),
+                        name: name.clone(),
+                        input: input.clone(),
+                    };
+
+                    tool_uses.push(tool_block.clone());
+
+                    // Send tool_use to frontend
                     let _ = tx
                         .send(StreamChunk {
-                            delta: delta_text.to_string(),
+                            delta: String::new(),
                             finish_reason: None,
+                            tool_use: Some(tool_block),
                         })
                         .await;
                 }
@@ -206,15 +281,19 @@ pub fn get_api_key() -> Result<String, String> {
 
 /// Calculate cost in USD for Anthropic models
 pub fn calculate_cost(model: &str, usage: &TokenUsage) -> f64 {
-    // Pricing per million tokens (as of 2025)
-    let (input_price, output_price) = if model.contains("opus") {
-        (15.0, 75.0)
-    } else if model.contains("sonnet") {
-        (3.0, 15.0)
-    } else if model.contains("haiku") {
-        (0.25, 1.25)
+    use crate::llm::types::get_model_info;
+
+    let (input_price, output_price) = if let Some(info) = get_model_info(model) {
+        (info.input_cost_per_m, info.output_cost_per_m)
     } else {
-        (3.0, 15.0) // Default to Sonnet pricing
+        // Fallback: try to infer from model name
+        if model.contains("opus") {
+            (15.0, 75.0)
+        } else if model.contains("haiku") {
+            (0.25, 1.25)
+        } else {
+            (3.0, 15.0) // Default to Sonnet pricing
+        }
     };
 
     let input_cost = (usage.input_tokens as f64 / 1_000_000.0) * input_price;

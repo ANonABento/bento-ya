@@ -51,6 +51,7 @@ pub fn update_workspace(
     repo_path: Option<String>,
     tab_order: Option<i64>,
     is_active: Option<bool>,
+    config: Option<String>,
 ) -> Result<Workspace, AppError> {
     if let Some(ref n) = name {
         if n.trim().is_empty() {
@@ -66,6 +67,7 @@ pub fn update_workspace(
         repo_path.as_deref(),
         tab_order,
         is_active,
+        config.as_deref(),
     )?)
 }
 
@@ -166,7 +168,7 @@ pub fn reorder_workspaces(state: State<AppState>, ids: Vec<String>) -> Result<()
     let tx = conn.unchecked_transaction().map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     for (i, id) in ids.iter().enumerate() {
-        db::update_workspace(&conn, id, None, None, Some(i as i64), None)?;
+        db::update_workspace(&conn, id, None, None, Some(i as i64), None, None)?;
     }
 
     tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;

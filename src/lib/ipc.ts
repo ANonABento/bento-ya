@@ -59,6 +59,13 @@ export async function cloneWorkspace(sourceId: string, newName: string): Promise
 export const reorderWorkspaces = (ids: string[]) =>
   invoke<void>('reorder_workspaces', { ids })
 
+export async function updateWorkspaceConfig(
+  id: string,
+  config: string,
+): Promise<Workspace> {
+  return invoke<Workspace>('update_workspace', { id, config })
+}
+
 export const seedDemoData = (repoPath: string) =>
   invoke<Workspace>('seed_demo_data', { repoPath })
 
@@ -254,8 +261,9 @@ export async function startAgent(
   taskId: string,
   agentType: string,
   workingDir: string,
+  cliPath?: string,
 ): Promise<AgentInfo> {
-  return invoke<AgentInfo>('start_agent', { taskId, agentType, workingDir })
+  return invoke<AgentInfo>('start_agent', { taskId, agentType, workingDir, cliPath })
 }
 
 export async function stopAgent(taskId: string): Promise<void> {
@@ -264,6 +272,28 @@ export async function stopAgent(taskId: string): Promise<void> {
 
 export async function getAgentStatus(taskId: string): Promise<AgentInfo> {
   return invoke<AgentInfo>('get_agent_status', { taskId })
+}
+
+// ─── CLI detection ──────────────────────────────────────────────────────────
+
+export type DetectedCli = {
+  id: string
+  name: string
+  path: string
+  version: string | null
+  isAvailable: boolean
+}
+
+export async function detectClis(): Promise<DetectedCli[]> {
+  return invoke<DetectedCli[]>('detect_clis')
+}
+
+export async function detectSingleCli(cliId: string): Promise<DetectedCli> {
+  return invoke<DetectedCli>('detect_single_cli', { cliId })
+}
+
+export async function verifyCliPath(path: string): Promise<DetectedCli> {
+  return invoke<DetectedCli>('verify_cli_path', { path })
 }
 
 // ─── Event listeners ───────────────────────────────────────────────────────
@@ -324,9 +354,18 @@ export const onPipelineError = (cb: EventCallback<PipelineEvent>): Promise<Unlis
 
 // ─── Orchestrator commands ──────────────────────────────────────────────────
 
+export type ChatSession = {
+  id: string
+  workspaceId: string
+  title: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type ChatMessage = {
   id: string
   workspaceId: string
+  sessionId: string | null
   role: 'user' | 'assistant' | 'system'
   content: string
   createdAt: string
@@ -384,15 +423,32 @@ export async function sendOrchestratorMessage(
   return invoke<ChatMessage>('send_orchestrator_message', { workspaceId, message })
 }
 
-export async function getChatHistory(
-  workspaceId: string,
-  limit?: number,
-): Promise<ChatMessage[]> {
-  return invoke<ChatMessage[]>('get_chat_history', { workspaceId, limit })
+// Chat session management
+export async function listChatSessions(workspaceId: string): Promise<ChatSession[]> {
+  return invoke<ChatSession[]>('list_chat_sessions', { workspaceId })
 }
 
-export async function clearChatHistory(workspaceId: string): Promise<void> {
-  return invoke<void>('clear_chat_history', { workspaceId })
+export async function getActiveChatSession(workspaceId: string): Promise<ChatSession> {
+  return invoke<ChatSession>('get_active_chat_session', { workspaceId })
+}
+
+export async function createChatSession(workspaceId: string, title?: string): Promise<ChatSession> {
+  return invoke<ChatSession>('create_chat_session', { workspaceId, title })
+}
+
+export async function deleteChatSession(sessionId: string): Promise<void> {
+  return invoke<void>('delete_chat_session', { sessionId })
+}
+
+export async function getChatHistory(
+  sessionId: string,
+  limit?: number,
+): Promise<ChatMessage[]> {
+  return invoke<ChatMessage[]>('get_chat_history', { sessionId, limit })
+}
+
+export async function clearChatHistory(sessionId: string): Promise<void> {
+  return invoke<void>('clear_chat_history', { sessionId })
 }
 
 export async function processOrchestratorResponse(
@@ -423,11 +479,110 @@ export const onOrchestratorComplete = (cb: EventCallback<OrchestratorEvent>): Pr
 export const onOrchestratorError = (cb: EventCallback<OrchestratorEvent>): Promise<UnlistenFn> =>
   listen<OrchestratorEvent>('orchestrator:error', cb)
 
+// ─── Orchestrator streaming ─────────────────────────────────────────────────
+
+export type ToolUsePayload = {
+  id: string
+  name: string
+  input: Record<string, unknown>
+}
+
+export type StreamChunkEvent = {
+  workspaceId: string
+  delta: string
+  finishReason: string | null
+  toolUse?: ToolUsePayload
+}
+
+export type ToolResultEvent = {
+  workspaceId: string
+  toolUseId: string
+  result: string
+  isError: boolean
+}
+
+export type ThinkingEvent = {
+  workspaceId: string
+  content: string
+  isComplete: boolean
+}
+
+export type ToolCallEvent = {
+  workspaceId: string
+  toolId: string
+  toolName: string
+  status: 'running' | 'complete' | 'error'
+  input?: Record<string, unknown>
+  result?: string
+}
+
+export const onOrchestratorStream = (cb: EventCallback<StreamChunkEvent>): Promise<UnlistenFn> =>
+  listen<StreamChunkEvent>('orchestrator:stream', cb)
+
+export const onOrchestratorToolResult = (cb: EventCallback<ToolResultEvent>): Promise<UnlistenFn> =>
+  listen<ToolResultEvent>('orchestrator:tool_result', cb)
+
+export const onOrchestratorThinking = (cb: EventCallback<ThinkingEvent>): Promise<UnlistenFn> =>
+  listen<ThinkingEvent>('orchestrator:thinking', cb)
+
+export const onOrchestratorToolCall = (cb: EventCallback<ToolCallEvent>): Promise<UnlistenFn> =>
+  listen<ToolCallEvent>('orchestrator:tool_call', cb)
+
+export async function streamOrchestratorChat(
+  workspaceId: string,
+  sessionId: string,
+  message: string,
+  connectionMode: 'cli' | 'api',
+  apiKey?: string,
+  model?: string,
+  cliPath?: string,
+): Promise<void> {
+  return invoke<void>('stream_orchestrator_chat', {
+    workspaceId,
+    sessionId,
+    message,
+    connectionMode,
+    apiKey,
+    model,
+    cliPath,
+  })
+}
+
+export async function cancelOrchestratorChat(
+  sessionId: string,
+  workspaceId: string
+): Promise<void> {
+  return invoke<void>('cancel_orchestrator_chat', { sessionId, workspaceId })
+}
+
+export async function resetCliSession(sessionId: string): Promise<void> {
+  return invoke<void>('reset_cli_session', { sessionId })
+}
+
 // ─── Voice commands ─────────────────────────────────────────────────────────
 
 export type TranscriptionResult = {
   text: string
   durationMs: number
+  modelUsed?: string
+}
+
+export type WhisperModelStatus = 'available' | 'downloading' | 'downloaded' | 'error'
+
+export type WhisperModelInfo = {
+  model: string
+  status: WhisperModelStatus
+  sizeDisplay: string
+  sizeBytes: number
+  description: string
+  path: string | null
+}
+
+export type WhisperDownloadProgress = {
+  model: string
+  downloadedBytes: number
+  totalBytes: number
+  percent: number
 }
 
 export async function isVoiceAvailable(): Promise<boolean> {
@@ -444,6 +599,70 @@ export async function transcribeAudio(
   model?: string,
 ): Promise<TranscriptionResult> {
   return invoke<TranscriptionResult>('transcribe_audio', { audioPath, language, model })
+}
+
+export async function listWhisperModels(): Promise<WhisperModelInfo[]> {
+  return invoke<WhisperModelInfo[]>('list_whisper_models')
+}
+
+export async function downloadWhisperModel(model: string): Promise<string> {
+  return invoke<string>('download_whisper_model', { model })
+}
+
+export async function deleteWhisperModel(model: string): Promise<void> {
+  return invoke<void>('delete_whisper_model', { model })
+}
+
+export async function getWhisperModelInfo(model: string): Promise<WhisperModelInfo> {
+  return invoke<WhisperModelInfo>('get_whisper_model_info', { model })
+}
+
+export function onWhisperDownloadProgress(
+  cb: EventCallback<WhisperDownloadProgress>
+): Promise<UnlistenFn> {
+  return listen<WhisperDownloadProgress>('whisper:download-progress', cb)
+}
+
+export function onWhisperDownloadComplete(
+  cb: EventCallback<{ model: string }>
+): Promise<UnlistenFn> {
+  return listen<{ model: string }>('whisper:download-complete', cb)
+}
+
+// ─── Native Audio Recording (bypasses webview limitations) ──────────────────
+
+export async function startNativeRecording(): Promise<void> {
+  return invoke<void>('start_native_recording')
+}
+
+export async function stopNativeRecording(): Promise<void> {
+  return invoke<void>('stop_native_recording')
+}
+
+export async function cancelNativeRecording(): Promise<void> {
+  return invoke<void>('cancel_native_recording')
+}
+
+export async function isNativeRecording(): Promise<boolean> {
+  return invoke<boolean>('is_native_recording')
+}
+
+// ─── Streaming Transcription ─────────────────────────────────────────────────
+
+/** Transcribe new audio chunk while still recording (for live streaming) */
+export async function transcribeRecordingChunk(
+  language?: string,
+  model?: string,
+): Promise<TranscriptionResult> {
+  return invoke<TranscriptionResult>('transcribe_recording_chunk', { language, model })
+}
+
+/** Stop recording and transcribe ALL audio (final transcription) */
+export async function transcribeAllRecording(
+  language?: string,
+  model?: string,
+): Promise<TranscriptionResult> {
+  return invoke<TranscriptionResult>('transcribe_all_recording', { language, model })
 }
 
 // ─── Usage tracking commands ─────────────────────────────────────────────────
@@ -573,6 +792,119 @@ export async function getTaskHistory(taskId: string): Promise<SessionSnapshot[]>
 
 export async function clearSessionHistory(sessionId: string): Promise<void> {
   return invoke<void>('clear_session_history', { sessionId })
+}
+
+// ─── Checklist commands ──────────────────────────────────────────────────────
+
+export type ChecklistItem = {
+  id: string
+  categoryId: string
+  text: string
+  checked: boolean
+  notes: string | null
+  position: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type ChecklistCategory = {
+  id: string
+  checklistId: string
+  name: string
+  icon: string
+  position: number
+  progress: number
+  totalItems: number
+  collapsed: boolean
+}
+
+export type ChecklistData = {
+  id: string
+  workspaceId: string
+  name: string
+  description: string | null
+  progress: number
+  totalItems: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type ChecklistWithData = {
+  checklist: ChecklistData | null
+  categories: ChecklistCategory[]
+  items: Record<string, ChecklistItem[]>
+}
+
+export type TemplateItem = {
+  text: string
+}
+
+export type TemplateCategory = {
+  name: string
+  icon: string
+  items: TemplateItem[]
+}
+
+export async function getWorkspaceChecklist(workspaceId: string): Promise<ChecklistWithData> {
+  return invoke<ChecklistWithData>('get_workspace_checklist', { workspaceId })
+}
+
+export async function updateChecklistItem(
+  itemId: string,
+  checked?: boolean,
+  notes?: string | null,
+): Promise<ChecklistItem> {
+  return invoke<ChecklistItem>('update_checklist_item', { itemId, checked, notes })
+}
+
+export async function updateChecklistCategory(
+  categoryId: string,
+  collapsed: boolean,
+): Promise<ChecklistCategory> {
+  return invoke<ChecklistCategory>('update_checklist_category', { categoryId, collapsed })
+}
+
+export async function createWorkspaceChecklist(
+  workspaceId: string,
+  name: string,
+  description: string | null,
+  categories: TemplateCategory[],
+): Promise<ChecklistWithData> {
+  return invoke<ChecklistWithData>('create_workspace_checklist', {
+    workspaceId,
+    name,
+    description,
+    categories,
+  })
+}
+
+export async function deleteWorkspaceChecklist(workspaceId: string): Promise<void> {
+  return invoke<void>('delete_workspace_checklist', { workspaceId })
+}
+
+// ─── Files commands ──────────────────────────────────────────────────────────
+
+export type FileEntry = {
+  path: string
+  name: string
+  category: 'context' | 'tickets' | 'notes'
+  modifiedAt: number
+}
+
+export async function scanWorkspaceFiles(repoPath: string): Promise<FileEntry[]> {
+  return invoke<FileEntry[]>('scan_workspace_files', { repoPath })
+}
+
+export async function readFileContent(filePath: string): Promise<string> {
+  return invoke<string>('read_file_content', { filePath })
+}
+
+export async function createNoteFile(
+  repoPath: string,
+  filename: string,
+  content: string,
+): Promise<FileEntry> {
+  return invoke<FileEntry>('create_note_file', { repoPath, filename, content })
 }
 
 export { listen, type UnlistenFn }

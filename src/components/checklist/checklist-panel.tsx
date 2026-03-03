@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { useChecklistStore } from '@/stores/checklist-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { ChecklistCategorySection } from './checklist-category'
 
 export function ChecklistPanel() {
@@ -7,7 +9,19 @@ export function ChecklistPanel() {
   const closeChecklist = useChecklistStore((s) => s.closeChecklist)
   const checklist = useChecklistStore((s) => s.checklist)
   const categories = useChecklistStore((s) => s.categories)
+  const isLoading = useChecklistStore((s) => s.isLoading)
+  const loadChecklist = useChecklistStore((s) => s.loadChecklist)
+  const currentWorkspaceId = useChecklistStore((s) => s.currentWorkspaceId)
   const getProgress = useChecklistStore((s) => s.getProgress)
+
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+
+  // Load checklist when panel opens or workspace changes
+  useEffect(() => {
+    if (isOpen && activeWorkspaceId && activeWorkspaceId !== currentWorkspaceId) {
+      void loadChecklist(activeWorkspaceId)
+    }
+  }, [isOpen, activeWorkspaceId, currentWorkspaceId, loadChecklist])
 
   const { progress, total, percentage } = getProgress()
 
@@ -82,7 +96,17 @@ export function ChecklistPanel() {
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-4">
-              {categories.length === 0 ? (
+              {isLoading ? (
+                <div className="flex h-full items-center justify-center text-text-secondary">
+                  <div className="flex items-center gap-2">
+                    <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    <span className="text-sm">Loading checklist...</span>
+                  </div>
+                </div>
+              ) : categories.length === 0 ? (
                 <div className="flex h-full items-center justify-center text-text-secondary">
                   <p className="text-sm">No checklist attached to this workspace</p>
                 </div>

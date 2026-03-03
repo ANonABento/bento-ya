@@ -76,8 +76,6 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
     <motion.div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
       layout
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{
@@ -87,8 +85,15 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
       whileHover={{ y: -2, boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}
       transition={{ type: 'spring', stiffness: 400, damping: 28 }}
       onClick={handleClick}
-      className={`relative cursor-grab rounded border bg-surface p-3 active:cursor-grabbing ${borderClass}`}
+      className={`relative cursor-pointer rounded border bg-surface p-3 ${borderClass}`}
     >
+      {/* Drag handle - top bar */}
+      <div
+        {...attributes}
+        {...listeners}
+        className="absolute left-0 right-0 top-0 h-3 cursor-grab active:cursor-grabbing"
+        onClick={(e) => e.stopPropagation()}
+      />
       {/* Attention badge */}
       {needsAttention && attention && (
         <div className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-attention px-1 text-[10px] font-bold text-bg">

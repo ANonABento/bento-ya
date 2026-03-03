@@ -170,3 +170,6 @@ body,
 .transition-appearance {
   transition-duration: var(--transition-duration);
 }
+
+/* Cursor during drag is set via document.body.style.cursor in JS */
+

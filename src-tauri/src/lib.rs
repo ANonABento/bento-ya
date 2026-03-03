@@ -9,12 +9,17 @@ pub mod db;
 pub mod error;
 pub mod events;
 pub mod git;
+pub mod llm;
 pub mod pipeline;
 pub mod process;
+pub mod whisper;
 
+use commands::voice::RecorderState;
 use db::AppState;
 use process::agent_runner::AgentRunner;
+use process::cli_session::new_shared_cli_session_manager;
 use process::pty_manager::PtyManager;
+use whisper::AudioRecorder;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -25,12 +30,29 @@ pub fn run() {
 
     let pty_manager = Arc::new(Mutex::new(PtyManager::new()));
     let agent_runner = Arc::new(Mutex::new(AgentRunner::new(Arc::clone(&pty_manager))));
+    let cli_session_manager = new_shared_cli_session_manager();
+    let recorder_state = RecorderState(Mutex::new(AudioRecorder::new()));
+
+    // Clone for shutdown handler
+    let cli_manager_for_shutdown = Arc::clone(&cli_session_manager);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(state)
         .manage(pty_manager)
         .manage(agent_runner)
+        .manage(cli_session_manager)
+        .manage(recorder_state)
+        .on_window_event(move |_window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                // Kill all CLI sessions on window close
+                let manager = Arc::clone(&cli_manager_for_shutdown);
+                tauri::async_runtime::block_on(async {
+                    let mut m = manager.lock().await;
+                    m.kill_all().await;
+                });
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             // Workspace CRUD
@@ -84,14 +106,33 @@ pub fn run() {
             commands::orchestrator::get_orchestrator_context,
             commands::orchestrator::get_orchestrator_session,
             commands::orchestrator::send_orchestrator_message,
+            commands::orchestrator::list_chat_sessions,
+            commands::orchestrator::get_active_chat_session,
+            commands::orchestrator::create_chat_session,
+            commands::orchestrator::delete_chat_session,
             commands::orchestrator::get_chat_history,
             commands::orchestrator::clear_chat_history,
+            commands::orchestrator::reset_cli_session,
             commands::orchestrator::process_orchestrator_response,
             commands::orchestrator::set_orchestrator_error,
+            commands::orchestrator::stream_orchestrator_chat,
+            commands::orchestrator::cancel_orchestrator_chat,
             // Voice commands
             commands::voice::transcribe_audio,
             commands::voice::save_audio_temp,
             commands::voice::is_voice_available,
+            commands::voice::list_whisper_models,
+            commands::voice::download_whisper_model,
+            commands::voice::delete_whisper_model,
+            commands::voice::get_whisper_model_info,
+            // Native audio recording (bypasses webview limitations)
+            commands::voice::start_native_recording,
+            commands::voice::stop_native_recording,
+            commands::voice::cancel_native_recording,
+            commands::voice::is_native_recording,
+            // Streaming transcription
+            commands::voice::transcribe_recording_chunk,
+            commands::voice::transcribe_all_recording,
             // Usage tracking commands
             commands::usage::record_usage,
             commands::usage::get_workspace_usage,
@@ -106,6 +147,20 @@ pub fn run() {
             commands::history::get_workspace_history,
             commands::history::get_task_history,
             commands::history::clear_session_history,
+            // CLI detection commands
+            commands::cli_detect::detect_clis,
+            commands::cli_detect::detect_single_cli,
+            commands::cli_detect::verify_cli_path,
+            // Checklist commands
+            commands::checklist::get_workspace_checklist,
+            commands::checklist::update_checklist_item,
+            commands::checklist::update_checklist_category,
+            commands::checklist::create_workspace_checklist,
+            commands::checklist::delete_workspace_checklist,
+            // Files commands
+            commands::files::scan_workspace_files,
+            commands::files::read_file_content,
+            commands::files::create_note_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

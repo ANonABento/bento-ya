@@ -49,9 +49,11 @@ export type Skill = {
   script: string
 }
 
+export type WhisperModelId = 'tiny' | 'base' | 'small' | 'medium' | 'large'
+
 export type VoiceConfig = {
   enabled: boolean
-  model: 'tiny' | 'base' | 'small' | 'medium' | 'large'
+  model: WhisperModelId
   language: string
   hotkey: string
   sensitivity: number
@@ -97,7 +99,7 @@ export type WorkspaceSettings = Partial<Settings>
 
 export const DEFAULT_SETTINGS: Settings = {
   agent: {
-    maxConcurrentAgents: 3,
+    maxConcurrentAgents: 10,
     envVars: {},
     instructionsFile: '',
     modelSelection: 'auto',

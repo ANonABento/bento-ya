@@ -27,6 +27,7 @@ let mockWorkspaces: Workspace[] = [
     repoPath: '/tmp/demo-repo',
     tabOrder: 0,
     isActive: true,
+    config: '{}',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -78,6 +79,7 @@ const mockCommands: Record<string, CommandHandler> = {
       repoPath: args?.repoPath as string || '/tmp/repo',
       tabOrder: mockWorkspaces.length,
       isActive: false,
+      config: '{}',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
@@ -91,6 +93,7 @@ const mockCommands: Record<string, CommandHandler> = {
       existing.repoPath = (args?.repoPath as string) ?? existing.repoPath
       existing.tabOrder = (args?.tabOrder as number) ?? existing.tabOrder
       existing.isActive = (args?.isActive as boolean) ?? existing.isActive
+      existing.config = (args?.config as string) ?? existing.config
       existing.updatedAt = new Date().toISOString()
       return existing
     }
@@ -252,11 +255,16 @@ const mockCommands: Record<string, CommandHandler> = {
   // Orchestrator commands (stubs)
   get_orchestrator_context: () => ({ workspaceId: '', workspaceName: '', columns: [], tasks: [], recentMessages: [] }),
   get_orchestrator_session: () => ({ id: '', workspaceId: '', status: 'idle', lastError: null, createdAt: '', updatedAt: '' }),
-  send_orchestrator_message: () => ({ id: '', workspaceId: '', role: 'user', content: '', createdAt: '' }),
+  send_orchestrator_message: () => ({ id: '', workspaceId: '', sessionId: null, role: 'user', content: '', createdAt: '' }),
+  list_chat_sessions: () => [],
+  get_active_chat_session: () => ({ id: 'mock-session', workspaceId: '', title: 'New Chat', createdAt: '', updatedAt: '' }),
+  create_chat_session: () => ({ id: 'mock-session', workspaceId: '', title: 'New Chat', createdAt: '', updatedAt: '' }),
+  delete_chat_session: () => undefined,
   get_chat_history: () => [],
   clear_chat_history: () => undefined,
   process_orchestrator_response: () => ({ message: '', actions: [], tasksCreated: [] }),
   set_orchestrator_error: () => ({ id: '', workspaceId: '', status: 'error', lastError: '', createdAt: '', updatedAt: '' }),
+  stream_orchestrator_chat: () => { console.warn('[Browser Mock] stream_orchestrator_chat not available in browser mode'); return undefined },
 
   // Voice commands (stubs)
   is_voice_available: () => false,
@@ -278,6 +286,13 @@ const mockCommands: Record<string, CommandHandler> = {
   get_workspace_history: () => [],
   get_task_history: () => [],
   clear_session_history: () => undefined,
+
+  // Checklist commands (stubs)
+  get_workspace_checklist: () => ({ checklist: null, categories: [], items: [] }),
+  update_checklist_item: () => undefined,
+  update_checklist_category: () => undefined,
+  create_workspace_checklist: () => ({ id: 'mock-checklist', workspaceId: '', name: 'Mock Checklist', description: '', createdAt: '', updatedAt: '' }),
+  delete_workspace_checklist: () => undefined,
 }
 
 // ─── Mock invoke function ───────────────────────────────────────────────────
@@ -317,6 +332,7 @@ export function resetMockData() {
       repoPath: '/tmp/demo-repo',
       tabOrder: 0,
       isActive: true,
+      config: '{}',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     },
