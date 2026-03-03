@@ -183,6 +183,7 @@ mod tests {
                 pipeline_state: "idle".to_string(),
                 pipeline_triggered_at: None,
                 pipeline_error: None,
+                agent_session_id: None,
                 created_at: "2024-01-01".to_string(),
                 updated_at: "2024-01-01".to_string(),
             },

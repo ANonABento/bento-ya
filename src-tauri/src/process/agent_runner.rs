@@ -85,6 +85,37 @@ impl AgentRunner {
         Ok(session)
     }
 
+    /// Start an agent with an initial prompt to send after spawn.
+    /// Used for skill triggers where we need to send `/<skill_name>` immediately.
+    pub fn start_agent_with_prompt(
+        &mut self,
+        task_id: &str,
+        agent_type: &str,
+        working_dir: &str,
+        env_vars: Option<HashMap<String, String>>,
+        cli_path: Option<String>,
+        initial_prompt: &str,
+        app_handle: AppHandle,
+    ) -> Result<AgentSession, String> {
+        // First spawn the agent
+        let session = self.start_agent(task_id, agent_type, working_dir, env_vars, cli_path, app_handle)?;
+
+        // Then send the initial prompt
+        {
+            let mut pty = self
+                .pty_manager
+                .lock()
+                .map_err(|e| format!("Lock error: {}", e))?;
+
+            // Send the prompt with newline
+            let prompt_bytes = format!("{}\n", initial_prompt);
+            pty.write(task_id, prompt_bytes.as_bytes())
+                .map_err(|e| format!("Failed to send initial prompt: {}", e))?;
+        }
+
+        Ok(session)
+    }
+
     pub fn stop_agent(&mut self, task_id: &str) -> Result<(), String> {
         // First try SIGINT via writing Ctrl+C to the PTY
         {
