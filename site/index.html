@@ -223,6 +223,61 @@
       font-family: monospace;
     }
 
+    /* SVG Line Draw Animations */
+    .line-draw {
+      stroke-dasharray: 1000;
+      stroke-dashoffset: 1000;
+      animation: draw 2s ease-out forwards;
+    }
+
+    .line-draw-delay-1 { animation-delay: 0.2s; }
+    .line-draw-delay-2 { animation-delay: 0.4s; }
+    .line-draw-delay-3 { animation-delay: 0.6s; }
+
+    @keyframes draw {
+      to { stroke-dashoffset: 0; }
+    }
+
+    /* Animated Bento Illustration */
+    .bento-illustration {
+      width: 120px;
+      height: 120px;
+      margin-bottom: 24px;
+    }
+
+    .bento-illustration .box {
+      fill: none;
+      stroke: var(--border);
+      stroke-width: 2;
+    }
+
+    .bento-illustration .divider {
+      fill: none;
+      stroke: var(--border);
+      stroke-width: 1.5;
+    }
+
+    .bento-illustration .food {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 2;
+      stroke-linecap: round;
+    }
+
+    .bento-illustration .steam {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      opacity: 0.6;
+      animation: steam 2s ease-in-out infinite;
+    }
+
+    @keyframes steam {
+      0%, 100% { transform: translateY(0); opacity: 0.6; }
+      50% { transform: translateY(-4px); opacity: 0.3; }
+    }
+
     /* Download Box */
     .download-box {
       margin-top: 32px;
@@ -338,52 +393,79 @@
       box-shadow: 0 8px 24px rgba(0,0,0,0.12);
     }
 
-    /* Conveyor Belt Animation */
+    /* Background Conveyor Columns */
+    .bg-conveyors {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      pointer-events: none;
+      z-index: -1;
+      overflow: hidden;
+      opacity: 0.06;
+    }
+
+    .bg-column {
+      position: absolute;
+      top: -100px;
+      bottom: -100px;
+      width: 120px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .bg-column:nth-child(1) { left: 5%; }
+    .bg-column:nth-child(2) { left: 20%; }
+    .bg-column:nth-child(3) { right: 20%; }
+    .bg-column:nth-child(4) { right: 5%; }
+
+    .bg-task {
+      background: var(--text);
+      border-radius: 8px;
+      height: 48px;
+      flex-shrink: 0;
+      transition: transform 0.3s ease-out;
+    }
+
+    /* Hero Conveyor - Step based */
     .conveyor-section {
-      margin-top: 48px;
+      margin-top: 32px;
       width: 100%;
-      max-width: 800px;
+      max-width: 700px;
       overflow: hidden;
       position: relative;
-      padding: 20px 0;
+      padding: 16px 0;
     }
 
     .conveyor-track {
       display: flex;
-      animation: scroll 20s linear infinite;
-      gap: 24px;
-    }
-
-    .conveyor-track:hover {
-      animation-play-state: paused;
-    }
-
-    @keyframes scroll {
-      0% { transform: translateX(0); }
-      100% { transform: translateX(-50%); }
+      gap: 16px;
+      transition: transform 0.3s ease-out;
     }
 
     .conveyor-item {
       flex-shrink: 0;
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px 20px;
+      border-radius: 10px;
+      padding: 12px 16px;
       display: flex;
       align-items: center;
-      gap: 12px;
-      transition: transform 0.2s, box-shadow 0.2s;
+      gap: 10px;
+      transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
       cursor: default;
     }
 
     .conveyor-item:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 8px 24px -8px var(--accent-glow);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 16px -4px var(--accent-glow);
     }
 
     .conveyor-item .status {
-      width: 8px;
-      height: 8px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       flex-shrink: 0;
     }
@@ -393,17 +475,17 @@
     .conveyor-item .status.done { background: #10B981; }
 
     .conveyor-item .task-text {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 500;
       white-space: nowrap;
     }
 
     .conveyor-item .task-tag {
-      font-size: 11px;
-      padding: 2px 8px;
+      font-size: 10px;
+      padding: 2px 6px;
       background: var(--accent-soft);
       color: var(--accent);
-      border-radius: 4px;
+      border-radius: 3px;
       font-weight: 500;
     }
 
@@ -411,7 +493,7 @@
       position: absolute;
       top: 0;
       bottom: 0;
-      width: 80px;
+      width: 60px;
       pointer-events: none;
       z-index: 2;
     }
@@ -427,7 +509,7 @@
     }
 
     .scroll-hint {
-      margin-top: 32px;
+      margin-top: 24px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -549,7 +631,7 @@
       .bento-cell.large { grid-column: span 1; }
     }
 
-    /* Order Ticket / Changelog */
+    /* Order Ticket Timeline */
     .changelog {
       padding: 80px 24px;
       display: flex;
@@ -566,14 +648,60 @@
       color: var(--text-secondary);
     }
 
+    .ticket-timeline {
+      width: 100%;
+      max-width: 900px;
+      overflow-x: auto;
+      overflow-y: visible;
+      padding: 20px 0;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .ticket-timeline::-webkit-scrollbar {
+      height: 4px;
+    }
+
+    .ticket-timeline::-webkit-scrollbar-track {
+      background: var(--border);
+      border-radius: 2px;
+    }
+
+    .ticket-timeline::-webkit-scrollbar-thumb {
+      background: var(--accent);
+      border-radius: 2px;
+    }
+
+    .ticket-track {
+      display: flex;
+      gap: 24px;
+      padding: 0 calc(50% - 140px);
+    }
+
     .order-ticket {
+      flex-shrink: 0;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 4px;
-      max-width: 320px;
-      width: 100%;
+      width: 280px;
       position: relative;
       box-shadow: 0 4px 24px -8px rgba(0,0,0,0.1);
+      scroll-snap-align: center;
+      transition: transform 0.2s, opacity 0.2s;
+    }
+
+    .order-ticket.future {
+      opacity: 0.5;
+    }
+
+    .order-ticket.past {
+      opacity: 0.6;
+    }
+
+    .order-ticket.current {
+      transform: scale(1.02);
+      box-shadow: 0 8px 32px -8px var(--accent-glow);
+      border-color: var(--accent);
     }
 
     .order-ticket::before,
@@ -597,33 +725,33 @@
     }
 
     .ticket-header {
-      padding: 20px 20px 12px;
+      padding: 16px 16px 10px;
       border-bottom: 1px dashed var(--border);
       text-align: center;
     }
 
     .ticket-header h3 {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.1em;
     }
 
     .ticket-header span {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--text-secondary);
     }
 
     .ticket-items {
-      padding: 16px 20px;
+      padding: 12px 16px;
     }
 
     .ticket-item {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      padding: 8px 0;
-      font-size: 13px;
+      padding: 6px 0;
+      font-size: 12px;
     }
 
     .ticket-item:not(:last-child) {
@@ -635,11 +763,11 @@
     }
 
     .ticket-item .item-tag {
-      font-size: 10px;
-      padding: 2px 6px;
+      font-size: 9px;
+      padding: 2px 5px;
       border-radius: 3px;
       font-weight: 500;
-      margin-left: 8px;
+      margin-left: 6px;
     }
 
     .ticket-item .item-tag.new {
@@ -657,12 +785,30 @@
       color: var(--accent);
     }
 
+    .ticket-item .item-tag.planned {
+      background: var(--border);
+      color: var(--text-secondary);
+    }
+
     .ticket-footer {
-      padding: 12px 20px 20px;
+      padding: 10px 16px 16px;
       border-top: 1px dashed var(--border);
       text-align: center;
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    .timeline-hint {
       font-size: 11px;
       color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .timeline-hint svg {
+      width: 14px;
+      height: 14px;
     }
 
     /* Wiki Easter Egg */
@@ -767,6 +913,34 @@
 </head>
 <body>
 
+  <!-- Background Conveyor Columns -->
+  <div class="bg-conveyors" aria-hidden="true">
+    <div class="bg-column down">
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+    </div>
+    <div class="bg-column up">
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+    </div>
+    <div class="bg-column down">
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+    </div>
+    <div class="bg-column up">
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+    </div>
+  </div>
+
   <!-- Nav -->
   <nav>
     <a href="/" class="logo">
@@ -790,6 +964,23 @@
 
   <!-- Hero -->
   <section class="hero">
+    <!-- Animated Bento Illustration -->
+    <svg class="bento-illustration" viewBox="0 0 120 120">
+      <!-- Box outline -->
+      <rect class="box line-draw" x="10" y="20" width="100" height="80" rx="8"/>
+      <!-- Dividers -->
+      <line class="divider line-draw line-draw-delay-1" x1="60" y1="20" x2="60" y2="100"/>
+      <line class="divider line-draw line-draw-delay-1" x1="10" y1="60" x2="60" y2="60"/>
+      <!-- Food items -->
+      <circle class="food line-draw line-draw-delay-2" cx="35" cy="40" r="12"/>
+      <rect class="food line-draw line-draw-delay-2" x="22" y="70" width="26" height="16" rx="3"/>
+      <ellipse class="food line-draw line-draw-delay-3" cx="85" cy="60" rx="20" ry="28"/>
+      <!-- Steam -->
+      <path class="steam" d="M30 15 Q33 10 30 5"/>
+      <path class="steam" d="M40 12 Q43 7 40 2" style="animation-delay: 0.3s"/>
+      <path class="steam" d="M85 10 Q88 5 85 0" style="animation-delay: 0.6s"/>
+    </svg>
+
     <h1>Conveyor belt your agents.</h1>
     <p class="tagline">Chef makes the bento — <em>ya, it's that easy.</em></p>
 
@@ -935,38 +1126,116 @@
     </div>
   </section>
 
-  <!-- Changelog / Order Ticket -->
+  <!-- Changelog / Order Ticket Timeline -->
   <section class="changelog">
     <h2 class="section-title">What's in the kitchen</h2>
-    <div class="order-ticket">
-      <div class="ticket-header">
-        <h3>Order Up!</h3>
-        <span>Latest updates</span>
-      </div>
-      <div class="ticket-items">
-        <div class="ticket-item">
-          <span class="item-name">Chef AI orchestrator</span>
-          <span class="item-tag new">new</span>
+    <p class="timeline-hint">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M5 12h14M12 5l7 7-7 7"/>
+      </svg>
+      scroll for roadmap
+    </p>
+    <div class="ticket-timeline">
+      <div class="ticket-track">
+        <!-- Future v0.3.0 -->
+        <div class="order-ticket future">
+          <div class="ticket-header">
+            <h3>v0.3.0</h3>
+            <span>Future</span>
+          </div>
+          <div class="ticket-items">
+            <div class="ticket-item">
+              <span class="item-name">Extensions API</span>
+              <span class="item-tag planned">planned</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">GitHub integration</span>
+              <span class="item-tag planned">planned</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">Linear sync</span>
+              <span class="item-tag planned">planned</span>
+            </div>
+          </div>
+          <div class="ticket-footer">
+            cooking later...
+          </div>
         </div>
-        <div class="ticket-item">
-          <span class="item-name">Kanban board</span>
-          <span class="item-tag new">new</span>
+
+        <!-- Future v0.2.0 -->
+        <div class="order-ticket future">
+          <div class="ticket-header">
+            <h3>v0.2.0</h3>
+            <span>Next up</span>
+          </div>
+          <div class="ticket-items">
+            <div class="ticket-item">
+              <span class="item-name">Voice input</span>
+              <span class="item-tag soon">soon</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">Task templates</span>
+              <span class="item-tag soon">soon</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">Keyboard shortcuts</span>
+              <span class="item-tag soon">soon</span>
+            </div>
+          </div>
+          <div class="ticket-footer">
+            prep started
+          </div>
         </div>
-        <div class="ticket-item">
-          <span class="item-name">Local SQLite database</span>
-          <span class="item-tag new">new</span>
+
+        <!-- Current v0.1.0 -->
+        <div class="order-ticket current">
+          <div class="ticket-header">
+            <h3>v0.1.0</h3>
+            <span>Now serving</span>
+          </div>
+          <div class="ticket-items">
+            <div class="ticket-item">
+              <span class="item-name">Chef AI orchestrator</span>
+              <span class="item-tag new">new</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">Kanban board</span>
+              <span class="item-tag new">new</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">Local SQLite</span>
+              <span class="item-tag new">new</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">Dark mode</span>
+              <span class="item-tag fix">fix</span>
+            </div>
+          </div>
+          <div class="ticket-footer">
+            fresh batch
+          </div>
         </div>
-        <div class="ticket-item">
-          <span class="item-name">Dark mode</span>
-          <span class="item-tag fix">fix</span>
+
+        <!-- Past v0.0.1 -->
+        <div class="order-ticket past">
+          <div class="ticket-header">
+            <h3>v0.0.1</h3>
+            <span>Archive</span>
+          </div>
+          <div class="ticket-items">
+            <div class="ticket-item">
+              <span class="item-name">Initial prototype</span>
+              <span class="item-tag fix">done</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">Tauri setup</span>
+              <span class="item-tag fix">done</span>
+            </div>
+          </div>
+          <div class="ticket-footer">
+            the first batch
+          </div>
         </div>
-        <div class="ticket-item">
-          <span class="item-name">Voice input</span>
-          <span class="item-tag soon">soon</span>
-        </div>
-      </div>
-      <div class="ticket-footer">
-        v0.1.0 — fresh batch
       </div>
     </div>
   </section>
@@ -989,7 +1258,22 @@
   </footer>
 
   <script>
-    // Theme toggle
+    // ========================================
+    // GLOBAL 1-SECOND TIMER
+    // All animations sync to this
+    // ========================================
+    let globalTick = 0;
+    const tickEvent = new CustomEvent('tick');
+
+    setInterval(() => {
+      globalTick++;
+      document.body.setAttribute('data-tick', globalTick);
+      document.dispatchEvent(new CustomEvent('tick', { detail: globalTick }));
+    }, 1000);
+
+    // ========================================
+    // THEME TOGGLE
+    // ========================================
     function toggleTheme() {
       const html = document.documentElement;
       const current = html.getAttribute('data-theme');
@@ -1001,7 +1285,6 @@
         html.setAttribute('data-theme', 'dark');
         localStorage.setItem('theme', 'dark');
       } else {
-        // Currently following system, switch to opposite
         const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
         const newTheme = prefersDark ? 'light' : 'dark';
         html.setAttribute('data-theme', newTheme);
@@ -1017,10 +1300,56 @@
       }
     })();
 
-    // Mouse-distance based lid animation
+    // ========================================
+    // STEP-BASED CONVEYOR (synced to tick)
+    // ========================================
+    const conveyorTrack = document.querySelector('.conveyor-track');
+    const conveyorItems = document.querySelectorAll('.conveyor-item');
+    let conveyorOffset = 0;
+    const itemWidth = 180; // approximate item width + gap
+
+    document.addEventListener('tick', (e) => {
+      if (!conveyorTrack) return;
+      conveyorOffset += itemWidth;
+
+      // Reset when we've scrolled through half (for seamless loop)
+      const totalWidth = conveyorItems.length * itemWidth / 2;
+      if (conveyorOffset >= totalWidth) {
+        conveyorOffset = 0;
+      }
+
+      conveyorTrack.style.transform = `translateX(-${conveyorOffset}px)`;
+    });
+
+    // ========================================
+    // BACKGROUND COLUMNS (synced to tick)
+    // ========================================
+    const bgColumns = document.querySelectorAll('.bg-column');
+    const taskHeight = 64; // 48px height + 16px gap
+
+    document.addEventListener('tick', (e) => {
+      bgColumns.forEach((col, i) => {
+        const isUp = col.classList.contains('up');
+        const tasks = col.querySelectorAll('.bg-task');
+        const currentOffset = parseInt(col.dataset.offset || 0);
+        const newOffset = currentOffset + (isUp ? -taskHeight : taskHeight);
+
+        // Reset when scrolled one full task
+        col.dataset.offset = Math.abs(newOffset) >= taskHeight ? 0 : newOffset;
+
+        tasks.forEach(task => {
+          task.style.transform = `translateY(${col.dataset.offset}px)`;
+          task.style.transition = 'transform 0.3s ease-out';
+        });
+      });
+    });
+
+    // ========================================
+    // MOUSE-DISTANCE LID ANIMATION
+    // ========================================
     const downloadBox = document.querySelector('.download-box');
     const downloadLid = document.getElementById('downloadLid');
-    const maxDistance = 200; // pixels
+    const maxDistance = 200;
 
     document.addEventListener('mousemove', (e) => {
       if (!downloadBox || !downloadLid) return;
@@ -1036,9 +1365,9 @@
 
       if (distance < maxDistance) {
         const progress = 1 - (distance / maxDistance);
-        const translateX = progress * -110; // max -110%
-        const rotate = progress * -8; // max -8deg
-        const lift = progress * 4; // max 4px lift
+        const translateX = progress * -110;
+        const rotate = progress * -8;
+        const lift = progress * 4;
 
         downloadLid.style.transform = `translateX(${translateX}%) rotate(${rotate}deg) translateY(${-lift}px)`;
         downloadLid.classList.toggle('lifting', progress > 0.3);
@@ -1047,6 +1376,19 @@
         downloadLid.classList.remove('lifting');
       }
     });
+
+    // ========================================
+    // TICKET TIMELINE - Auto-scroll to current
+    // ========================================
+    const ticketTimeline = document.querySelector('.ticket-timeline');
+    const currentTicket = document.querySelector('.order-ticket.current');
+
+    if (ticketTimeline && currentTicket) {
+      // Scroll to current ticket on load
+      setTimeout(() => {
+        currentTicket.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }, 500);
+    }
   </script>
 
 </body>
