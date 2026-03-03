@@ -78,6 +78,8 @@ pub fn run() {
             commands::task::move_task,
             commands::task::reorder_tasks,
             commands::task::delete_task,
+            commands::task::approve_task,
+            commands::task::reject_task,
             // Git commands
             commands::git::create_task_branch,
             commands::git::switch_branch,

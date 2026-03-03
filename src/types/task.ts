@@ -2,6 +2,8 @@ import type { AgentMode, AgentStatus } from './agent'
 
 export type PipelineState = 'idle' | 'triggered' | 'running' | 'evaluating' | 'advancing'
 
+export type ReviewStatus = 'pending' | 'approved' | 'rejected'
+
 export type Task = {
   id: string
   workspaceId: string
@@ -16,6 +18,7 @@ export type Task = {
   pipelineTriggeredAt: string | null
   pipelineError: string | null
   lastScriptExitCode: number | null
+  reviewStatus: ReviewStatus | null
   position: number
   createdAt: string
   updatedAt: string

@@ -1,12 +1,15 @@
-import { useEffect } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import type { Task } from '@/types'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useColumnStore } from '@/stores/column-store'
+import { useTaskStore } from '@/stores/task-store'
 import { useGit } from '@/hooks/use-git'
 import { Badge } from '@/components/shared/badge'
 import { ChangesSection } from './changes-section'
 import { CommitsSection } from './commits-section'
 import { UsageSection } from './usage-section'
+import { ReviewActions } from '@/components/review/review-actions'
+import * as ipc from '@/lib/ipc'
 
 type TaskDetailPanelProps = {
   task: Task
@@ -25,6 +28,9 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const columns = useColumnStore((s) => s.columns)
+  const updateTask = useTaskStore((s) => s.updateTask)
+  
+  const [isReviewPending, setIsReviewPending] = useState(false)
 
   const workspace = workspaces.find((w) => w.id === activeWorkspaceId)
   const column = columns.find((c) => c.id === task.columnId)
@@ -38,6 +44,31 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
       void fetchAll(task.branch)
     }
   }, [task.branch, fetchAll])
+
+  const handleApprove = useCallback(async () => {
+    setIsReviewPending(true)
+    try {
+      const updatedTask = await ipc.approveTask(task.id)
+      updateTask(task.id, updatedTask)
+    } catch (err) {
+      console.error('Failed to approve task:', err)
+    } finally {
+      setIsReviewPending(false)
+    }
+  }, [task.id, updateTask])
+
+  const handleReject = useCallback(async () => {
+    const reason = window.prompt('Rejection reason (optional):')
+    setIsReviewPending(true)
+    try {
+      const updatedTask = await ipc.rejectTask(task.id, reason ?? undefined)
+      updateTask(task.id, updatedTask)
+    } catch (err) {
+      console.error('Failed to reject task:', err)
+    } finally {
+      setIsReviewPending(false)
+    }
+  }, [task.id, updateTask])
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -103,6 +134,16 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
               </span>
             </div>
           )}
+        </div>
+
+        {/* Review Actions */}
+        <div className="border-b border-border-default px-3">
+          <ReviewActions
+            reviewStatus={task.reviewStatus}
+            onApprove={() => { void handleApprove() }}
+            onReject={() => { void handleReject() }}
+            disabled={isReviewPending}
+          />
         </div>
 
         {/* Changes */}
