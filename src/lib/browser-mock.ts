@@ -56,6 +56,12 @@ let mockTasks: Task[] = [
     pipelineError: null,
     lastScriptExitCode: null,
     reviewStatus: null,
+    prNumber: null,
+    prUrl: null,
+    siegeIteration: 0,
+    siegeActive: false,
+    siegeMaxIterations: 5,
+    siegeLastChecked: null,
     position: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -182,6 +188,12 @@ const mockCommands: Record<string, CommandHandler> = {
       pipelineError: null,
       lastScriptExitCode: null,
       reviewStatus: null,
+      prNumber: null,
+      prUrl: null,
+      siegeIteration: 0,
+      siegeActive: false,
+      siegeMaxIterations: 5,
+      siegeLastChecked: null,
       position: mockTasks.filter(t => t.columnId === args?.columnId).length,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -233,6 +245,18 @@ const mockCommands: Record<string, CommandHandler> = {
   // Settings
   get_settings: () => ({ theme: 'dark', defaultTemplate: 'standard' }),
   update_settings: () => undefined,
+
+  // PR creation (stub)
+  create_pr: (args) => {
+    const task = mockTasks.find(t => t.id === args?.taskId)
+    if (task) {
+      task.prNumber = 123
+      task.prUrl = 'https://github.com/owner/repo/pull/123'
+      task.updatedAt = new Date().toISOString()
+      return { prNumber: 123, prUrl: 'https://github.com/owner/repo/pull/123', task }
+    }
+    throw new Error('Task not found')
+  },
 
   // Git commands (stubs)
   get_current_branch: () => 'main',
@@ -365,6 +389,12 @@ export function resetMockData() {
       pipelineError: null,
       lastScriptExitCode: null,
       reviewStatus: null,
+      prNumber: null,
+      prUrl: null,
+      siegeIteration: 0,
+      siegeActive: false,
+      siegeMaxIterations: 5,
+      siegeLastChecked: null,
       position: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

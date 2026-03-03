@@ -80,6 +80,7 @@ pub fn run() {
             commands::task::delete_task,
             commands::task::approve_task,
             commands::task::reject_task,
+            commands::task::create_pr,
             // Git commands
             commands::git::create_task_branch,
             commands::git::switch_branch,
@@ -108,6 +109,12 @@ pub fn run() {
             commands::pipeline::fire_script_trigger,
             commands::pipeline::fire_skill_trigger,
             commands::pipeline::update_script_exit_code,
+            // Siege loop commands
+            commands::siege::start_siege,
+            commands::siege::stop_siege,
+            commands::siege::check_siege_status,
+            commands::siege::continue_siege,
+            commands::siege::get_pr_status,
             // Orchestrator commands
             commands::orchestrator::get_orchestrator_context,
             commands::orchestrator::get_orchestrator_session,

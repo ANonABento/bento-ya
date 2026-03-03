@@ -7,6 +7,7 @@ pub mod git;
 pub mod history;
 pub mod orchestrator;
 pub mod pipeline;
+pub mod siege;
 pub mod task;
 pub mod terminal;
 pub mod usage;

@@ -335,9 +335,45 @@ pub fn evaluate_exit_criteria(
             }
         }
         "pr_approved" => {
-            // TODO: Needs GitHub integration to check PR approval status
-            // Would query GitHub API for PR associated with task.branch_name
-            false
+            // Check if PR has been approved via gh CLI
+            if let Some(pr_number) = task.pr_number {
+                // Get workspace to find repo_path
+                if let Ok(workspace) = db::get_workspace(conn, &task.workspace_id) {
+                    // Run gh pr view to check review decision
+                    let output = std::process::Command::new("gh")
+                        .args([
+                            "pr", "view",
+                            &pr_number.to_string(),
+                            "--json", "reviewDecision",
+                        ])
+                        .current_dir(&workspace.repo_path)
+                        .output();
+
+                    if let Ok(output) = output {
+                        if output.status.success() {
+                            #[derive(serde::Deserialize)]
+                            #[serde(rename_all = "camelCase")]
+                            struct PrReview {
+                                review_decision: Option<String>,
+                            }
+
+                            if let Ok(pr_review) = serde_json::from_slice::<PrReview>(&output.stdout) {
+                                pr_review.review_decision.as_deref() == Some("APPROVED")
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
         }
         "manual_approval" => {
             // Check if review_status is "approved"
