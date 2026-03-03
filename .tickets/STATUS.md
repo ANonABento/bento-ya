@@ -67,17 +67,15 @@
 
 ---
 
-## TODO
+## v0.4 — "Siege" (Automation & PR Workflow)
 
-### v0.4 — "Siege" (Automation & PR Workflow)
-
-| ID | Title | Complexity | Description |
-|----|-------|------------|-------------|
-| T024 | PR Creation from Review Column | M | Trigger GitHub PR creation when task reaches Review column |
-| T025 | Siege Loop (Comment-Watch) | L | Watch for PR comments, auto-create fix tasks, loop until merged |
-| T026 | Manual Test Checklist Generation | M | Generate test checklists from PR changes |
-| T027 | Notification Column | S | Special column for external notifications/events |
-| T028 | Checklist Auto-Detect & Fix-This | M | Auto-detect issues from checklists, create fix tasks |
+| ID | Title | Status | Complexity |
+|----|-------|--------|------------|
+| T024 | PR Creation from Review Column | ✅ **COMPLETE** | M |
+| T025 | Siege Loop (Comment-Watch) | ✅ **COMPLETE** | L |
+| T026 | Manual Test Checklist Generation | ❌ TODO | M |
+| T027 | Notification Column | ❌ TODO | S |
+| T028 | Checklist Auto-Detect & Fix-This | ❌ TODO | M |
 
 ---
 
@@ -100,19 +98,20 @@ These tickets track work needed to connect existing UI to functional backends:
 | ID | Title | Status | Complexity |
 |----|-------|--------|------------|
 | T033 | LLM Integration (Anthropic/OpenAI) | ✅ **COMPLETE** | XL |
-| T034 | Pipeline Exit Criteria Evaluation | ❌ Stub returns `false` | L |
+| T034 | Pipeline Exit Criteria Evaluation | ✅ **COMPLETE** | L |
 | T035 | History Replay Backend | ❌ Missing `restore_snapshot` | M |
 | T036 | Metrics Data Collection | ✅ **COMPLETE** | S |
-| T037 | Checklist Persistence | ❌ Store is local-only | M |
-| T038 | Settings Backend Sync | ❌ localStorage only | M |
+| T037 | Checklist Persistence | ✅ **COMPLETE** | M |
+| T038 | Settings Backend Sync | ✅ **COMPLETE** | M |
 | T039 | Orchestrator Intelligence | ✅ **COMPLETE** | M |
-| T040 | Files Sidebar | ❌ Placeholder "Coming soon" | M |
-| T041 | Review Actions (Approve/Reject) | ❌ Buttons do nothing | S |
-| T042 | Agent Trigger Execution | ❌ Config saved, nothing spawns | M |
-| T043 | Script Trigger Executor | ❌ Config saved, nothing runs | M |
-| T044 | Skill Trigger Executor | ❌ Config saved, nothing executes | M |
+| T040 | Files Sidebar | ✅ **COMPLETE** | M |
+| T041 | Review Actions (Approve/Reject) | ✅ **COMPLETE** | S |
+| T042 | Agent Trigger Execution | ✅ **COMPLETE** | M |
+| T043 | Script Trigger Executor | ✅ **COMPLETE** | M |
+| T044 | Skill Trigger Executor | ✅ **COMPLETE** | M |
+| T045 | Task Card UI Improvements | ✅ **COMPLETE** | M |
 
-**Verified 2025-03-02**: T036 is wired - `insert_usage_record()` called in orchestrator.rs:632.
+**Verified 2025-03-02**: Massive wiring session completed - T034, T037-T044 all implemented.
 
 ---
 
