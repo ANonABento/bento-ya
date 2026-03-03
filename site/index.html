@@ -8,7 +8,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍱</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -20,10 +20,22 @@
       --border: #E7E5E4;
       --accent: #C2703E;
       --accent-soft: #C2703E15;
+      --accent-glow: #C2703E40;
+    }
+
+    [data-theme="dark"] {
+      --bg: #0A0A0A;
+      --surface: #141414;
+      --text: #FAFAF9;
+      --text-secondary: #A8A29E;
+      --border: #292524;
+      --accent: #E8A87C;
+      --accent-soft: #E8A87C15;
+      --accent-glow: #E8A87C40;
     }
 
     @media (prefers-color-scheme: dark) {
-      :root {
+      :root:not([data-theme="light"]) {
         --bg: #0A0A0A;
         --surface: #141414;
         --text: #FAFAF9;
@@ -31,6 +43,7 @@
         --border: #292524;
         --accent: #E8A87C;
         --accent-soft: #E8A87C15;
+        --accent-glow: #E8A87C40;
       }
     }
 
@@ -42,6 +55,7 @@
       color: var(--text);
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
     }
 
     .serif { font-family: 'Newsreader', Georgia, serif; }
@@ -53,18 +67,20 @@
       padding: 0 24px;
     }
 
-    /* Nav */
+    /* Glass Nav */
     nav {
       position: fixed;
       top: 0;
       left: 0;
       right: 0;
       z-index: 100;
-      padding: 16px 24px;
+      padding: 12px 24px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      background: var(--bg);
+      background: color-mix(in srgb, var(--bg) 80%, transparent);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border);
     }
 
@@ -82,6 +98,12 @@
       height: 28px;
     }
 
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
     nav a:not(.logo) {
       font-size: 14px;
       color: var(--text-secondary);
@@ -91,6 +113,29 @@
 
     nav a:not(.logo):hover { color: var(--text); }
 
+    /* Theme Toggle - Chopsticks */
+    .theme-toggle {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-secondary);
+      transition: color 0.2s, transform 0.3s;
+    }
+
+    .theme-toggle:hover {
+      color: var(--accent);
+      transform: rotate(15deg);
+    }
+
+    .theme-toggle svg {
+      width: 20px;
+      height: 20px;
+    }
+
     /* Hero */
     .hero {
       min-height: 100vh;
@@ -99,19 +144,20 @@
       justify-content: center;
       align-items: center;
       text-align: center;
-      padding: 120px 24px 80px;
+      padding: 100px 24px 60px;
+      position: relative;
     }
 
     .hero h1 {
-      font-size: clamp(32px, 6vw, 56px);
-      font-weight: 600;
-      line-height: 1.1;
-      letter-spacing: -0.02em;
+      font-size: clamp(36px, 7vw, 64px);
+      font-weight: 700;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
       margin-bottom: 16px;
     }
 
     .hero .tagline {
-      font-size: clamp(18px, 3vw, 24px);
+      font-size: clamp(18px, 3vw, 22px);
       color: var(--text-secondary);
       max-width: 500px;
     }
@@ -121,117 +167,31 @@
       color: var(--accent);
     }
 
-    .hero-visual {
-      margin-top: 64px;
-      width: 100%;
-      max-width: 800px;
-      aspect-ratio: 16/10;
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      background: var(--surface);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--text-secondary);
-      font-size: 14px;
-    }
-
-    .scroll-hint {
-      margin-top: 48px;
-      display: flex;
-      flex-direction: column;
+    /* Keyboard hint */
+    .keyboard-hint {
+      margin-top: 24px;
+      display: inline-flex;
       align-items: center;
       gap: 8px;
-      color: var(--text-secondary);
-      font-size: 13px;
-    }
-
-    .scroll-hint svg {
-      width: 20px;
-      height: 20px;
-      animation: bounce 2s infinite;
-    }
-
-    @keyframes bounce {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(4px); }
-    }
-
-    /* Bento Features */
-    .features {
-      padding: 120px 24px;
-    }
-
-    .features h2 {
-      text-align: center;
-      font-size: 14px;
-      font-weight: 500;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--text-secondary);
-      margin-bottom: 48px;
-    }
-
-    .bento-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 2px;
-      background: var(--border);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      overflow: hidden;
-    }
-
-    .bento-cell {
+      padding: 8px 14px;
       background: var(--surface);
-      padding: 32px;
-      display: flex;
-      flex-direction: column;
-      min-height: 200px;
-    }
-
-    .bento-cell.large {
-      grid-column: span 2;
-    }
-
-    .bento-cell.tall {
-      grid-row: span 2;
-    }
-
-    .bento-icon {
-      width: 40px;
-      height: 40px;
-      margin-bottom: 16px;
-      color: var(--accent);
-    }
-
-    .bento-cell h3 {
-      font-size: 18px;
-      font-weight: 600;
-      margin-bottom: 8px;
-    }
-
-    .bento-cell p {
-      font-size: 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
       color: var(--text-secondary);
-      line-height: 1.5;
     }
 
-    .bento-cell .coming-soon {
-      margin-top: auto;
+    .keyboard-hint kbd {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-family: inherit;
       font-size: 12px;
-      color: var(--text-secondary);
-      opacity: 0.6;
+      font-weight: 500;
     }
 
-    @media (max-width: 768px) {
-      .bento-grid {
-        grid-template-columns: 1fr;
-      }
-      .bento-cell.large { grid-column: span 1; }
-    }
-
-    /* Download Bento - Compact inline version */
+    /* Download Box */
     .download-box {
       margin-top: 32px;
       position: relative;
@@ -291,7 +251,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
+      gap: 8px;
       font-size: 13px;
       font-weight: 500;
       color: var(--text-secondary);
@@ -301,10 +261,13 @@
       z-index: 2;
     }
 
-    .download-lid svg {
-      width: 14px;
-      height: 14px;
-      transition: transform 0.3s;
+    .version-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-radius: 4px;
+      font-weight: 600;
     }
 
     .download-box:hover .download-lid {
@@ -312,24 +275,361 @@
       opacity: 0.85;
     }
 
-    .download-box:hover .download-lid svg {
-      transform: rotate(-45deg);
+    /* Conveyor Belt Animation */
+    .conveyor-section {
+      margin-top: 48px;
+      width: 100%;
+      max-width: 800px;
+      overflow: hidden;
+      position: relative;
+      padding: 20px 0;
+    }
+
+    .conveyor-track {
+      display: flex;
+      animation: scroll 20s linear infinite;
+      gap: 24px;
+    }
+
+    .conveyor-track:hover {
+      animation-play-state: paused;
+    }
+
+    @keyframes scroll {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+
+    .conveyor-item {
+      flex-shrink: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transition: transform 0.2s, box-shadow 0.2s;
+      cursor: default;
+    }
+
+    .conveyor-item:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px -8px var(--accent-glow);
+    }
+
+    .conveyor-item .status {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .conveyor-item .status.todo { background: var(--text-secondary); }
+    .conveyor-item .status.doing { background: #3B82F6; }
+    .conveyor-item .status.done { background: #10B981; }
+
+    .conveyor-item .task-text {
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .conveyor-item .task-tag {
+      font-size: 11px;
+      padding: 2px 8px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    .conveyor-fade {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 80px;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .conveyor-fade.left {
+      left: 0;
+      background: linear-gradient(90deg, var(--bg), transparent);
+    }
+
+    .conveyor-fade.right {
+      right: 0;
+      background: linear-gradient(-90deg, var(--bg), transparent);
+    }
+
+    .scroll-hint {
+      margin-top: 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .scroll-hint svg {
+      width: 20px;
+      height: 20px;
+      animation: bounce 2s infinite;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(4px); }
+    }
+
+    /* Value Prop Section */
+    .value-prop {
+      padding: 80px 24px;
+      text-align: center;
+    }
+
+    .value-prop h2 {
+      font-size: clamp(24px, 4vw, 32px);
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .value-prop p {
+      font-size: 16px;
+      color: var(--text-secondary);
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
+    /* Bento Features */
+    .features {
+      padding: 40px 24px 120px;
+    }
+
+    .features h2 {
+      text-align: center;
+      font-size: 13px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-secondary);
+      margin-bottom: 48px;
+    }
+
+    .bento-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+    }
+
+    .bento-cell {
+      background: var(--surface);
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      min-height: 200px;
+      transition: background 0.2s, transform 0.2s;
+      position: relative;
+    }
+
+    .bento-cell::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      box-shadow: inset 0 0 0 2px var(--accent);
+    }
+
+    .bento-cell:hover {
+      background: var(--accent-soft);
+    }
+
+    .bento-cell:hover::after {
+      opacity: 1;
+    }
+
+    .bento-cell:hover .bento-icon {
+      transform: scale(1.1) rotate(-5deg);
+    }
+
+    .bento-cell.large {
+      grid-column: span 2;
+    }
+
+    .bento-cell.tall {
+      grid-row: span 2;
+    }
+
+    .bento-icon {
+      width: 40px;
+      height: 40px;
+      margin-bottom: 16px;
+      color: var(--accent);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .bento-cell h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .bento-cell p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .bento-cell .coming-soon {
+      margin-top: auto;
+      font-size: 11px;
+      color: var(--accent);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    @media (max-width: 768px) {
+      .bento-grid {
+        grid-template-columns: 1fr;
+      }
+      .bento-cell.large { grid-column: span 1; }
+    }
+
+    /* Order Ticket / Changelog */
+    .changelog {
+      padding: 80px 24px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .order-ticket {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      max-width: 320px;
+      width: 100%;
+      position: relative;
+      box-shadow: 0 4px 24px -8px rgba(0,0,0,0.1);
+    }
+
+    .order-ticket::before,
+    .order-ticket::after {
+      content: '';
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      height: 12px;
+      background: radial-gradient(circle at 6px 0, transparent 6px, var(--surface) 6px);
+      background-size: 12px 12px;
+    }
+
+    .order-ticket::before {
+      top: -6px;
+    }
+
+    .order-ticket::after {
+      bottom: -6px;
+      transform: rotate(180deg);
+    }
+
+    .ticket-header {
+      padding: 20px 20px 12px;
+      border-bottom: 1px dashed var(--border);
+      text-align: center;
+    }
+
+    .ticket-header h3 {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .ticket-header span {
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .ticket-items {
+      padding: 16px 20px;
+    }
+
+    .ticket-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 8px 0;
+      font-size: 13px;
+    }
+
+    .ticket-item:not(:last-child) {
+      border-bottom: 1px dotted var(--border);
+    }
+
+    .ticket-item .item-name {
+      flex: 1;
+    }
+
+    .ticket-item .item-tag {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-weight: 500;
+      margin-left: 8px;
+    }
+
+    .ticket-item .item-tag.new {
+      background: #10B98120;
+      color: #10B981;
+    }
+
+    .ticket-item .item-tag.fix {
+      background: #3B82F620;
+      color: #3B82F6;
+    }
+
+    .ticket-item .item-tag.soon {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .ticket-footer {
+      padding: 12px 20px 20px;
+      border-top: 1px dashed var(--border);
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-secondary);
     }
 
     /* Wiki Easter Egg */
     .wiki {
-      padding: 80px 24px 120px;
+      padding: 40px 24px 120px;
       max-width: 600px;
       margin: 0 auto;
     }
 
     .wiki-entry {
-      border-left: 2px solid var(--border);
+      border-left: 2px solid var(--accent);
       padding-left: 24px;
+      transition: border-color 0.2s;
+    }
+
+    .wiki-entry:hover {
+      border-color: var(--text);
     }
 
     .wiki-entry .term {
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 600;
       margin-bottom: 4px;
     }
@@ -345,7 +645,7 @@
     .wiki-entry .definition {
       font-size: 14px;
       color: var(--text-secondary);
-      line-height: 1.6;
+      line-height: 1.7;
     }
 
     .wiki-entry .definition strong {
@@ -353,17 +653,61 @@
       font-weight: 500;
     }
 
-    /* Lineart illustrations */
-    .lineart {
-      stroke: var(--text);
-      stroke-width: 1.5;
-      fill: none;
-      stroke-linecap: round;
-      stroke-linejoin: round;
+    /* Footer */
+    footer {
+      padding: 24px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-secondary);
+      border-top: 1px solid var(--border);
     }
 
-    .lineart-accent {
-      stroke: var(--accent);
+    footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* Custom Cursor on Features */
+    .features {
+      cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M8 4 L12 28 M20 4 L24 28' stroke='%23C2703E' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") 16 16, auto;
+    }
+
+    /* Animations */
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .hero h1,
+    .hero .tagline,
+    .keyboard-hint,
+    .download-box {
+      animation: fadeInUp 0.6s ease-out backwards;
+    }
+
+    .hero .tagline { animation-delay: 0.1s; }
+    .keyboard-hint { animation-delay: 0.2s; }
+    .download-box { animation-delay: 0.3s; }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+      .conveyor-section {
+        display: none;
+      }
+
+      .keyboard-hint {
+        display: none;
+      }
     }
   </style>
 </head>
@@ -380,7 +724,15 @@
       </svg>
       Bento-ya
     </a>
-    <a href="https://github.com/ANonABento/bento-ya">GitHub</a>
+    <div class="nav-right">
+      <a href="https://github.com/ANonABento/bento-ya">GitHub</a>
+      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M4 8 L8 20 M16 8 L20 20"/>
+          <circle cx="12" cy="6" r="4"/>
+        </svg>
+      </button>
+    </div>
   </nav>
 
   <!-- Hero -->
@@ -388,7 +740,12 @@
     <h1>Conveyor belt your agents.</h1>
     <p class="tagline">Chef makes the bento — <em>ya, it's that easy.</em></p>
 
-    <!-- Compact download box -->
+    <div class="keyboard-hint">
+      <kbd>⌘</kbd><kbd>K</kbd>
+      <span>to summon Chef</span>
+    </div>
+
+    <!-- Download box -->
     <div class="download-box">
       <div class="download-contents">
         <a href="https://github.com/ANonABento/bento-ya/releases/latest">
@@ -414,11 +771,36 @@
           <span>Linux</span>
         </a>
       </div>
-      <div class="download-lid">Download</div>
+      <div class="download-lid">
+        Download
+        <span class="version-badge">v0.1.0</span>
+      </div>
     </div>
 
-    <div class="hero-visual">
-      <span>[ app screenshot / animation ]</span>
+    <!-- Conveyor Belt -->
+    <div class="conveyor-section">
+      <div class="conveyor-fade left"></div>
+      <div class="conveyor-track">
+        <!-- Duplicated for seamless loop -->
+        <div class="conveyor-item"><span class="status done"></span><span class="task-text">Set up project structure</span><span class="task-tag">chef</span></div>
+        <div class="conveyor-item"><span class="status done"></span><span class="task-text">Design database schema</span></div>
+        <div class="conveyor-item"><span class="status doing"></span><span class="task-text">Implement auth flow</span><span class="task-tag">in progress</span></div>
+        <div class="conveyor-item"><span class="status todo"></span><span class="task-text">Write API endpoints</span></div>
+        <div class="conveyor-item"><span class="status todo"></span><span class="task-text">Add unit tests</span></div>
+        <div class="conveyor-item"><span class="status done"></span><span class="task-text">Configure CI/CD</span><span class="task-tag">chef</span></div>
+        <div class="conveyor-item"><span class="status doing"></span><span class="task-text">Review PR #42</span></div>
+        <div class="conveyor-item"><span class="status todo"></span><span class="task-text">Deploy to staging</span></div>
+        <!-- Duplicate set for seamless loop -->
+        <div class="conveyor-item"><span class="status done"></span><span class="task-text">Set up project structure</span><span class="task-tag">chef</span></div>
+        <div class="conveyor-item"><span class="status done"></span><span class="task-text">Design database schema</span></div>
+        <div class="conveyor-item"><span class="status doing"></span><span class="task-text">Implement auth flow</span><span class="task-tag">in progress</span></div>
+        <div class="conveyor-item"><span class="status todo"></span><span class="task-text">Write API endpoints</span></div>
+        <div class="conveyor-item"><span class="status todo"></span><span class="task-text">Add unit tests</span></div>
+        <div class="conveyor-item"><span class="status done"></span><span class="task-text">Configure CI/CD</span><span class="task-tag">chef</span></div>
+        <div class="conveyor-item"><span class="status doing"></span><span class="task-text">Review PR #42</span></div>
+        <div class="conveyor-item"><span class="status todo"></span><span class="task-text">Deploy to staging</span></div>
+      </div>
+      <div class="conveyor-fade right"></div>
     </div>
 
     <div class="scroll-hint">
@@ -426,6 +808,12 @@
         <path d="M12 5v14M5 12l7 7 7-7"/>
       </svg>
     </div>
+  </section>
+
+  <!-- Value Prop -->
+  <section class="value-prop">
+    <h2>Tired of AI chaos?</h2>
+    <p>We compartmentalize it. Every task gets a compartment. Chef orchestrates the rest. No more scattered workflows.</p>
   </section>
 
   <!-- Features Bento Grid -->
@@ -442,7 +830,7 @@
             <path d="M20 8v-4M16 6h8" stroke="currentColor" stroke-width="1.5"/>
           </svg>
           <h3>Chef</h3>
-          <p>Your AI orchestrator. Tell Chef what you need — tasks get created, organized, and tracked automatically.</p>
+          <p>Your AI orchestrator. Tell Chef what you need — tasks get created, organized, and tracked automatically. It's like having a sous-chef for your code.</p>
         </div>
 
         <!-- Kanban -->
@@ -467,24 +855,65 @@
           <p>Your data stays on your machine. Always.</p>
         </div>
 
-        <!-- Placeholder -->
+        <!-- Voice - Coming soon -->
         <div class="bento-cell">
-          <svg class="bento-icon" viewBox="0 0 40 40" fill="none" style="opacity: 0.3">
-            <circle cx="20" cy="20" r="12" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 4"/>
+          <svg class="bento-icon" viewBox="0 0 40 40" fill="none" style="opacity: 0.5">
+            <rect x="14" y="4" width="12" height="20" rx="6" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M8 18a12 12 0 0024 0" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M20 32v4M16 36h8" stroke="currentColor" stroke-width="1.5"/>
           </svg>
-          <h3 style="opacity: 0.5">Voice</h3>
-          <p style="opacity: 0.5">Talk to create tasks.</p>
+          <h3 style="opacity: 0.7">Voice</h3>
+          <p style="opacity: 0.7">Talk to create tasks. Hands-free productivity.</p>
           <span class="coming-soon">Coming soon</span>
         </div>
 
-        <!-- Placeholder -->
+        <!-- Extensions - Coming soon -->
         <div class="bento-cell large">
-          <svg class="bento-icon" viewBox="0 0 40 40" fill="none" style="opacity: 0.3">
-            <circle cx="20" cy="20" r="12" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 4"/>
+          <svg class="bento-icon" viewBox="0 0 40 40" fill="none" style="opacity: 0.5">
+            <rect x="4" y="4" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="22" y="4" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="4" y="22" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M26 26h6M29 23v6" stroke="currentColor" stroke-width="1.5"/>
           </svg>
-          <h3 style="opacity: 0.5">More compartments loading...</h3>
-          <p style="opacity: 0.5">We're still packing the bento.</p>
+          <h3 style="opacity: 0.7">Extensions</h3>
+          <p style="opacity: 0.7">Connect your tools. GitHub, Linear, Slack — more compartments for your workflow.</p>
+          <span class="coming-soon">Coming soon</span>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Changelog / Order Ticket -->
+  <section class="changelog">
+    <div class="order-ticket">
+      <div class="ticket-header">
+        <h3>Order Up!</h3>
+        <span>Latest updates</span>
+      </div>
+      <div class="ticket-items">
+        <div class="ticket-item">
+          <span class="item-name">Chef AI orchestrator</span>
+          <span class="item-tag new">new</span>
+        </div>
+        <div class="ticket-item">
+          <span class="item-name">Kanban board</span>
+          <span class="item-tag new">new</span>
+        </div>
+        <div class="ticket-item">
+          <span class="item-name">Local SQLite database</span>
+          <span class="item-tag new">new</span>
+        </div>
+        <div class="ticket-item">
+          <span class="item-name">Dark mode</span>
+          <span class="item-tag fix">fix</span>
+        </div>
+        <div class="ticket-item">
+          <span class="item-name">Voice input</span>
+          <span class="item-tag soon">soon</span>
+        </div>
+      </div>
+      <div class="ticket-footer">
+        v0.1.0 — fresh batch
       </div>
     </div>
   </section>
@@ -500,6 +929,53 @@
       </div>
     </div>
   </section>
+
+  <!-- Footer -->
+  <footer>
+    <p>Built with 🍱 by <a href="https://github.com/ANonABento">ANonABento</a> · <a href="https://github.com/ANonABento/bento-ya">View source</a></p>
+  </footer>
+
+  <script>
+    // Theme toggle
+    function toggleTheme() {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme');
+
+      if (current === 'dark') {
+        html.setAttribute('data-theme', 'light');
+        localStorage.setItem('theme', 'light');
+      } else if (current === 'light') {
+        html.setAttribute('data-theme', 'dark');
+        localStorage.setItem('theme', 'dark');
+      } else {
+        // Currently following system, switch to opposite
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const newTheme = prefersDark ? 'light' : 'dark';
+        html.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+      }
+    }
+
+    // Load saved theme
+    (function() {
+      const saved = localStorage.getItem('theme');
+      if (saved) {
+        document.documentElement.setAttribute('data-theme', saved);
+      }
+    })();
+
+    // Lid sound effect (optional - disabled by default)
+    const downloadBox = document.querySelector('.download-box');
+    let soundEnabled = false;
+
+    if (soundEnabled) {
+      const lidSound = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2JkoyGgHZ2eoCKlJaNgXRra3F7iJSUjoV8dHJ1foeSlpKHfXRwc3uGkJOQiH55dXR4gIiNj4yHgXx4dnh9goiLi4mGgn57eXt+goaIiIeEgX99fH1/goWHh4WDgX9+fX5/gYOFhYSCgH9+fn+AgoOEg4KAf35+f4CBgoOCgYB/fn5/gIGCgoGAf35+f4CAgYGBgIB/fn9/gICBgYGAgH9/f3+AgIGBgICAf39/f4CAgICAgH9/f3+AgICAgIB/f39/gICAgICAf39/f4CAgICAgH9/f3+AgICAgIB/f39/gICAgICAf39/f4CAgA==');
+      downloadBox.addEventListener('mouseenter', () => {
+        lidSound.currentTime = 0;
+        lidSound.play();
+      });
+    }
+  </script>
 
 </body>
 </html>
