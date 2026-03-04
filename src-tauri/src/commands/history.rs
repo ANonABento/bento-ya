@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{State, Emitter};
 use crate::db::{
     self, AppState, SessionSnapshot,
 };
@@ -75,4 +75,40 @@ pub fn clear_session_history(
 ) -> Result<(), AppError> {
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::delete_session_snapshots(&conn, &session_id).map_err(AppError::from)
+}
+
+/// Restore a snapshot - creates a backup first, then returns the snapshot to restore
+#[tauri::command]
+pub fn restore_snapshot(
+    state: State<AppState>,
+    app: tauri::AppHandle,
+    snapshot_id: String,
+    current_session_id: String,
+    current_workspace_id: String,
+    current_task_id: Option<String>,
+    current_scrollback: Option<String>,
+    current_command_history: String,
+    current_files_modified: String,
+    current_duration_ms: i64,
+) -> Result<SessionSnapshot, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    // First, create a backup snapshot of current state
+    let backup = db::insert_session_snapshot(
+        &conn,
+        &current_session_id,
+        &current_workspace_id,
+        current_task_id.as_deref(),
+        "backup",
+        current_scrollback.as_deref(),
+        &current_command_history,
+        &current_files_modified,
+        current_duration_ms,
+    ).map_err(AppError::from)?;
+
+    // Emit event with backup ID so frontend can notify user
+    let _ = app.emit("history:backup-created", &backup.id);
+
+    // Return the snapshot to restore
+    db::get_session_snapshot(&conn, &snapshot_id).map_err(AppError::from)
 }

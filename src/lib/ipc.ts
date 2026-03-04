@@ -879,6 +879,21 @@ export async function clearSessionHistory(sessionId: string): Promise<void> {
   return invoke<void>('clear_session_history', { sessionId })
 }
 
+export type RestoreSnapshotParams = {
+  snapshotId: string
+  currentSessionId: string
+  currentWorkspaceId: string
+  currentTaskId?: string
+  currentScrollback?: string
+  currentCommandHistory: string
+  currentFilesModified: string
+  currentDurationMs: number
+}
+
+export async function restoreSnapshot(params: RestoreSnapshotParams): Promise<SessionSnapshot> {
+  return invoke<SessionSnapshot>('restore_snapshot', params)
+}
+
 // ─── Checklist commands ──────────────────────────────────────────────────────
 
 export type ChecklistItem = {

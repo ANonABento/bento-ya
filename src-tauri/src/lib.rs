@@ -160,6 +160,7 @@ pub fn run() {
             commands::history::get_workspace_history,
             commands::history::get_task_history,
             commands::history::clear_session_history,
+            commands::history::restore_snapshot,
             // CLI detection commands
             commands::cli_detect::detect_clis,
             commands::cli_detect::detect_single_cli,
