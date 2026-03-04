@@ -428,12 +428,20 @@ nav a:not(.logo):not(.nav-download):hover {
   /* No overflow:hidden - lid moves freely upward */
 }
 
-/* The app preview lid that slides up */
+/* The app preview lid that lifts up with tilt */
 .bento-lid {
   position: absolute;
   inset: 0;
   z-index: 10;
   will-change: transform;
+  transform-origin: bottom right;
+  transition: box-shadow 0.3s ease-out;
+}
+
+.bento-lid.opening {
+  box-shadow:
+    0 30px 60px rgba(0,0,0,0.12),
+    0 15px 30px rgba(0,0,0,0.08);
 }
 
 .app-preview-lid {
