@@ -9,12 +9,10 @@
 const CONFIG = {
   // Animation timing
   TICK_INTERVAL_MS: 1000,
-  SCROLL_FORCE_DURATION_MS: 600,
 
-  // Background columns
-  BG_CARD_HEIGHT: 48,
-  BG_CARD_GAP: 10,
-  BG_PHASES_PER_CYCLE: 8,
+  // Background columns - matches CSS exactly
+  BG_CARD_HEIGHT: 72,
+  BG_CARD_GAP: 8,
 
   // Download lid
   LID_APPROACH_DISTANCE: 150,
@@ -24,50 +22,9 @@ const CONFIG = {
   TIMELINE_SCROLL_DELAY_MS: 500,
 };
 
-// Computed values
-CONFIG.BG_STEP_SIZE = (CONFIG.BG_CARD_HEIGHT + CONFIG.BG_CARD_GAP) / CONFIG.BG_PHASES_PER_CYCLE;
+// Step size = one card slot (height + gap) per tick
+CONFIG.BG_STEP_SIZE = CONFIG.BG_CARD_HEIGHT + CONFIG.BG_CARD_GAP;
 
-// ===========================================
-// SCROLL RESTORATION FIX
-// Must run early to prevent browser scroll restoration
-// ===========================================
-const ScrollFix = {
-  init() {
-    if ('scrollRestoration' in history) {
-      history.scrollRestoration = 'manual';
-    }
-
-    window.addEventListener('load', () => this.forceTopTemporarily());
-    window.addEventListener('pageshow', (e) => {
-      if (e.persisted) window.scrollTo(0, 0);
-    });
-  },
-
-  forceTopTemporarily() {
-    const html = document.documentElement;
-    const body = document.body;
-    const start = Date.now();
-
-    html.style.scrollBehavior = 'auto';
-
-    const forceTop = () => {
-      html.scrollTop = 0;
-      body.scrollTop = 0;
-      window.scrollTo(0, 0);
-
-      if (Date.now() - start < CONFIG.SCROLL_FORCE_DURATION_MS) {
-        requestAnimationFrame(forceTop);
-      } else {
-        html.style.scrollBehavior = '';
-      }
-    };
-
-    forceTop();
-  },
-};
-
-// Initialize scroll fix immediately
-ScrollFix.init();
 
 // ===========================================
 // GLOBAL TICK TIMER
@@ -125,40 +82,242 @@ const Theme = {
 };
 
 // ===========================================
+// CARD CONTENT GENERATOR
+// Semi-structured random task content
+// ===========================================
+const CardContent = {
+  tasks: [
+    { title: 'Update API endpoints', tag: 'backend', hasNum: true },
+    { title: 'Fix dark mode toggle', tag: 'bug' },
+    { title: 'Add user preferences', tag: 'feature', summary: 'Settings page with theme options' },
+    { title: 'Write unit tests', tag: 'testing', hasNum: true },
+    { title: 'Optimize database queries', tag: 'perf', summary: 'Index improvements for search' },
+    { title: 'Deploy staging build', tag: 'devops' },
+    { title: 'Review PR', hasNum: true, hasPoints: true },
+    { title: 'Update dependencies', tag: 'maintenance', summary: 'Security patches' },
+    { title: 'Design system audit', tag: 'design', summary: 'Check component consistency' },
+    { title: 'Mobile responsive fixes', tag: 'ui', hasNum: true },
+    { title: 'Add loading skeletons', tag: 'ui', hasPoints: true },
+    { title: 'Implement search', tag: 'feature', summary: 'Full-text search with filters' },
+    { title: 'Error boundary setup', hasPoints: true },
+    { title: 'Analytics integration', tag: 'backend', summary: 'Privacy-focused tracking' },
+    { title: 'Keyboard shortcuts', tag: 'ux', hasNum: true },
+    { title: 'Cache invalidation', hasPoints: true },
+    { title: 'Drag and drop reorder', tag: 'feature', hasNum: true },
+    { title: 'Toast notifications', summary: 'Non-blocking user feedback', hasPoints: true },
+    { title: 'Rate limiting', tag: 'security' },
+    { title: 'Export to CSV', tag: 'feature', summary: 'Data export functionality', hasNum: true },
+    { title: 'Fix memory leak', tag: 'bug' },
+    { title: 'Add pagination', hasPoints: true },
+    { title: 'Webhook integration', tag: 'backend', summary: 'External service callbacks' },
+    { title: 'Accessibility audit', tag: 'a11y', hasNum: true },
+    { title: 'Setup CI pipeline', tag: 'devops', summary: 'GitHub Actions workflow' },
+    { title: 'Input validation', tag: 'security', hasPoints: true },
+    { title: 'Add breadcrumbs', tag: 'ux' },
+    { title: 'Performance monitoring', summary: 'Add metrics collection', hasNum: true },
+    { title: 'Refactor auth flow', tag: 'backend', hasPoints: true },
+    { title: 'Fix timezone bugs', tag: 'bug', summary: 'UTC conversion issues', hasNum: true },
+    { title: 'Add confirmation dialogs', hasPoints: true },
+    { title: 'Image optimization', tag: 'perf', hasNum: true },
+    { title: 'Add file uploads', tag: 'feature', summary: 'Drag and drop support' },
+    { title: 'Fix scroll jank', tag: 'bug', hasPoints: true },
+    { title: 'Add undo/redo', hasPoints: true },
+    { title: 'Email notifications', tag: 'backend', summary: 'Digest and alerts' },
+    { title: 'Redux migration', tag: 'refactor', hasNum: true },
+    { title: 'Add table view', tag: 'feature' },
+    { title: 'Lazy load images', summary: 'Intersection observer', hasPoints: true },
+    { title: 'Add filters', tag: 'feature', summary: 'Filter by status and tags' },
+    { title: 'Fix dropdown z-index', tag: 'bug', hasNum: true },
+    { title: 'Add bulk actions', hasPoints: true },
+    { title: 'SSO integration', tag: 'security', summary: 'SAML and OAuth support' },
+    { title: 'Archive feature', tag: 'feature', hasNum: true },
+    { title: 'Mobile app sync', hasPoints: true },
+    { title: 'Add comments', tag: 'feature', summary: 'Task discussion threads' },
+    { title: 'Optimize bundle', tag: 'perf', hasNum: true },
+  ],
+
+  generate() {
+    const task = this.tasks[Math.floor(Math.random() * this.tasks.length)];
+    return {
+      title: task.title,
+      tag: task.tag || null,
+      num: task.hasNum ? `#${Math.floor(Math.random() * 200 + 50)}` : null,
+      points: task.hasPoints ? `${Math.floor(Math.random() * 5 + 1)}pts` : null,
+      summary: task.summary || null,
+    };
+  },
+};
+
+// ===========================================
 // BACKGROUND COLUMNS
-// Kanban board backdrop with animated columns
+// Infinite scroll with DOM recycling
 // ===========================================
 const BackgroundColumns = {
   columns: [],
+  container: null,
+  cardsPerColumn: 12,
 
   init() {
-    const columnElements = document.querySelectorAll('.bg-col');
-    if (!columnElements.length) return;
+    this.container = document.querySelector('.bg-columns');
+    if (!this.container) return;
 
-    // Initialize each column with phase based on direction
-    this.columns = Array.from(columnElements).map((el, index) => {
-      const isUp = el.dataset.direction === 'up';
-      return {
-        element: el,
-        isUp,
-        phase: index * 2, // Stagger phases: 0, 2, 4, 6, 8
-      };
-    });
+    // Clear any existing content
+    this.container.innerHTML = '';
 
+    // Create 6 columns with alternating directions
+    for (let i = 0; i < 6; i++) {
+      const isUp = i % 2 === 1;
+      const col = this.createColumn(isUp, i);
+      this.container.appendChild(col.element);
+      this.columns.push(col);
+    }
+
+    // Register for tick events
     TickTimer.onTick(() => this.step());
   },
 
-  step() {
-    this.columns.forEach((col) => {
-      // Advance phase
-      col.phase = (col.phase + 1) % CONFIG.BG_PHASES_PER_CYCLE;
+  createColumn(isUp, index) {
+    const el = document.createElement('div');
+    el.className = 'bg-col';
 
-      // Calculate offset - moves up or down based on direction
-      const direction = col.isUp ? -1 : 1;
-      const offset = col.phase * CONFIG.BG_STEP_SIZE * direction;
+    // Apply staggered margin like CSS did
+    const margins = [0, -40, -80, -20, -60, -100];
+    el.style.marginTop = `${margins[index]}px`;
+
+    // Create card pool
+    const cards = [];
+    for (let i = 0; i < this.cardsPerColumn; i++) {
+      const card = this.createCard(i);
+      el.appendChild(card.element);
+      cards.push(card);
+    }
+
+    return {
+      element: el,
+      isUp,
+      cards,
+      offset: 0,
+    };
+  },
+
+  createCard(position) {
+    const content = CardContent.generate();
+    const el = document.createElement('div');
+    el.className = 'bg-card';
+
+    // Create all elements upfront (hidden if empty) - avoids DOM manipulation later
+    const titleEl = document.createElement('span');
+    titleEl.className = 'bg-title';
+    titleEl.textContent = content.title;
+
+    const summaryEl = document.createElement('span');
+    summaryEl.className = 'bg-summary';
+    summaryEl.textContent = content.summary || '';
+    summaryEl.hidden = !content.summary;
+
+    const metaEl = document.createElement('span');
+    metaEl.className = 'bg-meta';
+
+    const tagEl = document.createElement('span');
+    tagEl.className = 'bg-tag';
+    tagEl.textContent = content.tag || '';
+    tagEl.hidden = !content.tag;
+
+    const numEl = document.createElement('span');
+    numEl.className = 'bg-num';
+    numEl.textContent = content.num || '';
+    numEl.hidden = !content.num;
+
+    const pointsEl = document.createElement('span');
+    pointsEl.className = 'bg-num';
+    pointsEl.textContent = content.points || '';
+    pointsEl.hidden = !content.points;
+
+    metaEl.appendChild(tagEl);
+    metaEl.appendChild(numEl);
+    metaEl.appendChild(pointsEl);
+    metaEl.hidden = !content.tag && !content.num && !content.points;
+
+    el.appendChild(titleEl);
+    el.appendChild(summaryEl);
+    el.appendChild(metaEl);
+
+    // Set initial position (absolute positioning)
+    el.style.top = `${position * CONFIG.BG_STEP_SIZE}px`;
+
+    // Cache element references for fast updates (no querySelector needed)
+    return {
+      element: el,
+      position,
+      refs: { titleEl, summaryEl, metaEl, tagEl, numEl, pointsEl },
+    };
+  },
+
+  updateCardContent(card) {
+    const content = CardContent.generate();
+    const { titleEl, summaryEl, metaEl, tagEl, numEl, pointsEl } = card.refs;
+
+    // Direct property updates - no DOM queries, no innerHTML
+    titleEl.textContent = content.title;
+
+    summaryEl.textContent = content.summary || '';
+    summaryEl.hidden = !content.summary;
+
+    tagEl.textContent = content.tag || '';
+    tagEl.hidden = !content.tag;
+
+    numEl.textContent = content.num || '';
+    numEl.hidden = !content.num;
+
+    pointsEl.textContent = content.points || '';
+    pointsEl.hidden = !content.points;
+
+    metaEl.hidden = !content.tag && !content.num && !content.points;
+  },
+
+  step() {
+    const cardHeight = CONFIG.BG_STEP_SIZE;
+
+    this.columns.forEach((col) => {
+      // Increment offset continuously (never reset)
+      col.offset += cardHeight;
 
       // Apply transform to column
-      col.element.style.transform = `translateY(${offset}px)`;
+      // isUp = true: column moves UP (negative Y), cards appear to scroll UP
+      // isUp = false: column moves DOWN (positive Y), cards appear to scroll DOWN
+      const direction = col.isUp ? -1 : 1;
+      col.element.style.transform = `translateY(${col.offset * direction}px)`;
+
+      // Recycle cards that have scrolled out of view
+      this.recycleCards(col, cardHeight, direction);
+    });
+  },
+
+  recycleCards(col, cardHeight, direction) {
+    col.cards.forEach((card) => {
+      // Calculate card's actual visual position on screen
+      // Card base position + column transform offset
+      const cardBasePos = card.position * cardHeight;
+      const columnShift = col.offset * direction;
+      const cardVisualTop = cardBasePos + columnShift;
+
+      if (col.isUp) {
+        // Cards scroll UP visually → exit at TOP (negative Y)
+        // Recycle to BOTTOM when card goes above viewport
+        if (cardVisualTop < -cardHeight) {
+          card.position += this.cardsPerColumn;
+          card.element.style.top = `${card.position * cardHeight}px`;
+          this.updateCardContent(card);
+        }
+      } else {
+        // Cards scroll DOWN visually → exit at BOTTOM (large positive Y)
+        // Recycle to TOP when card goes below viewport
+        if (cardVisualTop > window.innerHeight + cardHeight) {
+          card.position -= this.cardsPerColumn;
+          card.element.style.top = `${card.position * cardHeight}px`;
+          this.updateCardContent(card);
+        }
+      }
     });
   },
 };
@@ -169,13 +328,22 @@ const BackgroundColumns = {
 const DownloadLid = {
   box: null,
   lid: null,
+  ticking: false,
 
   init() {
     this.box = document.querySelector('.download-box');
     this.lid = document.getElementById('downloadLid');
     if (!this.box || !this.lid) return;
 
-    document.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+    document.addEventListener('mousemove', (e) => {
+      if (!this.ticking) {
+        requestAnimationFrame(() => {
+          this.handleMouseMove(e);
+          this.ticking = false;
+        });
+        this.ticking = true;
+      }
+    });
   },
 
   handleMouseMove(e) {
@@ -236,13 +404,76 @@ const TicketTimeline = {
 
     if (timeline && currentTicket) {
       setTimeout(() => {
-        currentTicket.scrollIntoView({
-          behavior: 'smooth',
-          inline: 'center',
-          block: 'nearest',
+        // Use container scrolling instead of scrollIntoView to avoid page scroll
+        const ticketRect = currentTicket.getBoundingClientRect();
+        const timelineRect = timeline.getBoundingClientRect();
+        const scrollLeft = currentTicket.offsetLeft - (timelineRect.width / 2) + (ticketRect.width / 2);
+        timeline.scrollTo({
+          left: scrollLeft,
+          behavior: 'smooth'
         });
       }, CONFIG.TIMELINE_SCROLL_DELAY_MS);
     }
+  },
+};
+
+// ===========================================
+// BENTO LID REVEAL (Scroll-based animation)
+// ===========================================
+const BentoLidReveal = {
+  lid: null,
+  box: null,
+  section: null,
+  ticking: false,
+
+  init() {
+    this.lid = document.getElementById('bentoLid');
+    this.box = document.getElementById('bentoBox');
+    this.section = document.querySelector('.bento-reveal-section');
+
+    if (!this.lid || !this.box || !this.section) return;
+
+    // Listen for scroll
+    window.addEventListener('scroll', () => {
+      if (!this.ticking) {
+        requestAnimationFrame(() => {
+          this.updateLid();
+          this.ticking = false;
+        });
+        this.ticking = true;
+      }
+    });
+
+    // Initial update
+    this.updateLid();
+  },
+
+  updateLid() {
+    const sectionRect = this.section.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const boxHeight = this.box.offsetHeight;
+
+    // Calculate scroll progress through the section
+    const sectionTop = sectionRect.top;
+    const startPoint = viewportHeight * 0.3; // Start animation when section is 30% from top
+    const animationRange = boxHeight * 0.8; // Faster reveal
+
+    // How far past the start point we've scrolled
+    const scrolledPast = startPoint - sectionTop;
+
+    // Calculate progress (0 = closed, continues past 1 to move lid off screen)
+    let progress = scrolledPast / animationRange;
+    progress = Math.max(0, progress); // No upper limit - lid keeps moving up
+
+    // Apply lid transform - moves up and eventually off screen
+    // At progress 1, lid is at top of box; continues up to move off viewport
+    const maxOffset = boxHeight + viewportHeight; // Move completely off screen
+    const lidOffset = Math.min(progress * boxHeight, maxOffset);
+    this.lid.style.transform = `translateY(-${lidOffset}px)`;
+
+    // Add class when lid is opening
+    this.lid.classList.toggle('opening', progress > 0);
+    this.lid.classList.toggle('open', progress >= 1);
   },
 };
 
@@ -255,6 +486,7 @@ function init() {
   BackgroundColumns.init();
   DownloadLid.init();
   TicketTimeline.init();
+  BentoLidReveal.init();
 }
 
 // Run when DOM is ready
