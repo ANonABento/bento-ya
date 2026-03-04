@@ -1,37 +1,35 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useTaskStore } from '@/stores/task-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useSettingsStore } from '@/stores/settings-store'
 import { fetchPrStatusBatch, shouldRefreshPrStatus } from '@/lib/ipc'
+import { DEFAULT_SETTINGS } from '@/types/settings'
 import type { PrMergeable, PrCiStatus, PrReviewDecision } from '@/types/task'
-
-const DEFAULT_POLL_INTERVAL_MS = 60_000 // 1 minute
-const DEFAULT_MAX_AGE_SECONDS = 300 // 5 minutes cache
 
 /**
  * Hook to automatically poll PR status for tasks with PRs.
  * Uses smart refresh to avoid excessive API calls:
  * - Only fetches if data is stale (older than maxAgeSeconds)
  * - Batches requests to minimize API calls
- * - Respects configurable poll interval
+ * - Respects configurable poll interval from settings
  */
 export function usePrStatusPolling(options?: {
   enabled?: boolean
-  pollIntervalMs?: number
-  maxAgeSeconds?: number
 }) {
   const tasks = useTaskStore((s) => s.tasks)
   const updateTask = useTaskStore((s) => s.updateTask)
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId)
+  const cardSettings = useSettingsStore((s) => s.global.cards) ?? DEFAULT_SETTINGS.cards
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isPollingRef = useRef(false)
 
-  // Get settings with defaults
-  const pollIntervalMs = options?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
-  const maxAgeSeconds = options?.maxAgeSeconds ?? DEFAULT_MAX_AGE_SECONDS
-  const pollingEnabled = options?.enabled ?? true
+  // Get settings from card config
+  const pollIntervalMs = cardSettings.prPollingIntervalSeconds * 1000
+  const maxAgeSeconds = cardSettings.prCacheMaxAgeSeconds
+  const pollingEnabled = (options?.enabled ?? true) && cardSettings.prPollingEnabled
 
   const pollPrStatuses = useCallback(async () => {
     if (!activeWorkspace?.repoPath || isPollingRef.current) return

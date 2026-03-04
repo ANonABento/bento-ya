@@ -93,6 +93,39 @@ export type CardDisplayConfig = {
   prCacheMaxAgeSeconds: number
 }
 
+export type TerminalConfig = {
+  maxInputRows: number
+  lineHeight: number
+  scrollbackLines: number
+}
+
+export type PanelConfig = {
+  defaultHeight: number
+  minHeight: number
+  maxHeight: number
+  collapsedHeight: number
+}
+
+export type GestureConfig = {
+  swipeEnabled: boolean
+  swipeThreshold: number
+  swipeVelocityThreshold: number
+}
+
+export type AdvancedConfig = {
+  settingsSyncDebounceMs: number
+  notesDebounceMs: number
+  messageTimeoutSeconds: number
+  maxConcurrentTerminals: number
+  outputBufferIntervalMs: number
+}
+
+export type WorkspaceDefaults = {
+  defaultColumns: string[]
+  branchPrefix: string
+  autoStashPrefix: string
+}
+
 export type ShortcutConfig = {
   id: string
   action: string
@@ -111,6 +144,11 @@ export type Settings = {
   appearance: AppearanceConfig
   cards: CardDisplayConfig
   shortcuts: ShortcutConfig[]
+  terminal: TerminalConfig
+  panel: PanelConfig
+  gestures: GestureConfig
+  advanced: AdvancedConfig
+  workspaceDefaults: WorkspaceDefaults
 }
 
 export type WorkspaceSettings = Partial<Settings>
@@ -195,4 +233,32 @@ export const DEFAULT_SETTINGS: Settings = {
     { id: 'toggle-theme', action: 'Toggle Theme', keys: 'Cmd+Shift+T', enabled: true },
     { id: 'settings', action: 'Open Settings', keys: 'Cmd+,', enabled: true },
   ],
+  terminal: {
+    maxInputRows: 4,
+    lineHeight: 20,
+    scrollbackLines: 5000,
+  },
+  panel: {
+    defaultHeight: 300,
+    minHeight: 150,
+    maxHeight: 600,
+    collapsedHeight: 40,
+  },
+  gestures: {
+    swipeEnabled: true,
+    swipeThreshold: 50,
+    swipeVelocityThreshold: 0.3,
+  },
+  advanced: {
+    settingsSyncDebounceMs: 500,
+    notesDebounceMs: 500,
+    messageTimeoutSeconds: 300,
+    maxConcurrentTerminals: 5,
+    outputBufferIntervalMs: 16,
+  },
+  workspaceDefaults: {
+    defaultColumns: ['Backlog', 'Working', 'Review', 'Done'],
+    branchPrefix: 'bentoya/',
+    autoStashPrefix: 'bentoya-auto-stash-',
+  },
 }
