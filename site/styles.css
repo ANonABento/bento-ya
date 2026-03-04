@@ -945,6 +945,9 @@ nav a:not(.logo):not(.nav-download):hover {
   gap: var(--space-xl);
   scroll-snap-align: start;
   scroll-margin-top: var(--nav-height);
+  background: var(--color-bg);
+  position: relative;
+  z-index: 2;
 }
 
 .section-title {
@@ -1012,8 +1015,8 @@ nav a:not(.logo):not(.nav-download):hover {
   transition: transform var(--transition-base), opacity var(--transition-base);
 }
 
-.order-ticket.future { opacity: 0.5; }
-.order-ticket.past { opacity: 0.6; }
+.order-ticket.future { opacity: 1; }
+.order-ticket.past { opacity: 1; }
 
 .order-ticket.current {
   transform: scale(1.02);
@@ -1119,6 +1122,9 @@ nav a:not(.logo):not(.nav-download):hover {
   margin: 0 auto;
   scroll-snap-align: start;
   scroll-margin-top: var(--nav-height);
+  background: var(--color-bg);
+  position: relative;
+  z-index: 2;
 }
 
 .wiki-entry {
