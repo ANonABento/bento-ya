@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# Sitemap (update URL when deployed)
+# Sitemap: https://bento-ya.app/sitemap.xml

@@ -17,6 +17,21 @@
   </script>
   <title>Bento-ya — Conveyor belt your agents</title>
   <meta name="description" content="Hey chef, make me a bento — ya, it's pretty simple. AI-powered task management, local-first.">
+  <meta name="author" content="ANonABento">
+  <meta name="theme-color" content="#FAFAFA" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0A0A0A" media="(prefers-color-scheme: dark)">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Bento-ya — Conveyor belt your agents">
+  <meta property="og:description" content="AI-powered task management, local-first. Hey chef, make me a bento.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Bento-ya">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Bento-ya — Conveyor belt your agents">
+  <meta name="twitter:description" content="AI-powered task management, local-first. Hey chef, make me a bento.">
+
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍱</text></svg>">
 
   <!-- Fonts -->
@@ -28,9 +43,11 @@
   <link rel="stylesheet" href="styles.css">
 
   <!-- Early scroll fix (must be in head) -->
-  <script src="main.js"></script>
+  <script src="main.js" defer></script>
 </head>
 <body>
+  <!-- Skip link for accessibility -->
+  <a href="#main" class="skip-link">Skip to main content</a>
 
   <!-- Background Columns - Generated dynamically by JS -->
   <div class="bg-columns" aria-hidden="true"></div>
@@ -42,7 +59,7 @@
       Bento-ya
     </a>
     <div class="nav-right">
-      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+      <button type="button" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme">
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="12" cy="12" r="5"/>
           <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
@@ -56,8 +73,9 @@
     </div>
   </nav>
 
+  <main id="main">
   <!-- Hero Section -->
-  <section class="hero">
+  <section class="hero" aria-label="Introduction">
     <h1>Conveyor belt your agents.</h1>
     <p class="tagline">Hey chef, make me a bento — <em>ya, it's pretty simple</em></p>
 
@@ -98,7 +116,7 @@
   </section>
 
   <!-- Bento Box Reveal Section -->
-  <section class="bento-reveal-section">
+  <section class="bento-reveal-section" aria-label="Product features">
     <div class="bento-box-container">
       <div class="bento-box" id="bentoBox">
         <!-- App Preview Lid (slides up on scroll) -->
@@ -464,7 +482,7 @@
   </section>
 
   <!-- Wiki Section -->
-  <section class="wiki">
+  <section class="wiki" aria-label="Definition">
     <div class="wiki-entry">
       <div class="term">Bento-ya (弁当屋)</div>
       <div class="pronunciation">/ben.toː.ja/ · noun</div>
@@ -474,6 +492,7 @@
       </div>
     </div>
   </section>
+  </main>
 
   <!-- Footer -->
   <footer>
