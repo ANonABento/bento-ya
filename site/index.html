@@ -1,0 +1,1395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bento-ya — Conveyor belt your agents</title>
+  <meta name="description" content="Chef makes the bento — ya, it's that easy. AI-powered task management, local-first.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍱</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #FAFAFA;
+      --surface: #FFFFFF;
+      --text: #1C1917;
+      --text-secondary: #78716C;
+      --border: #E7E5E4;
+      --accent: #C2703E;
+      --accent-soft: #C2703E15;
+      --accent-glow: #C2703E40;
+    }
+
+    [data-theme="dark"] {
+      --bg: #0A0A0A;
+      --surface: #141414;
+      --text: #FAFAF9;
+      --text-secondary: #A8A29E;
+      --border: #292524;
+      --accent: #E8A87C;
+      --accent-soft: #E8A87C15;
+      --accent-glow: #E8A87C40;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0A0A0A;
+        --surface: #141414;
+        --text: #FAFAF9;
+        --text-secondary: #A8A29E;
+        --border: #292524;
+        --accent: #E8A87C;
+        --accent-soft: #E8A87C15;
+        --accent-glow: #E8A87C40;
+      }
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    .serif { font-family: 'Newsreader', Georgia, serif; }
+
+    /* Layout */
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Glass Nav */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: color-mix(in srgb, var(--bg) 80%, transparent);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      text-decoration: none;
+      color: var(--text);
+    }
+
+    .logo-placeholder {
+      width: 28px;
+      height: 28px;
+      background: var(--border);
+      border-radius: 6px;
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    nav a:not(.logo):not(.nav-download) {
+      font-size: 14px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    nav a:not(.logo):not(.nav-download):hover { color: var(--text); }
+
+    .nav-download {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--bg);
+      background: var(--text);
+      padding: 6px 14px;
+      border-radius: 6px;
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+
+    .nav-download:hover {
+      opacity: 0.8;
+    }
+
+    /* Theme Toggle - Sun/Moon */
+    .theme-toggle {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-secondary);
+      transition: color 0.2s;
+    }
+
+    .theme-toggle:hover {
+      color: var(--accent);
+    }
+
+    .theme-toggle svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* Show sun in dark mode, moon in light mode */
+    .icon-sun { display: none; }
+    .icon-moon { display: block; }
+
+    [data-theme="dark"] .icon-sun { display: block; }
+    [data-theme="dark"] .icon-moon { display: none; }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) .icon-sun { display: block; }
+      :root:not([data-theme="light"]) .icon-moon { display: none; }
+    }
+
+    /* Hero */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding: 100px 24px 60px;
+      position: relative;
+    }
+
+    .hero h1 {
+      font-size: clamp(36px, 7vw, 64px);
+      font-weight: 700;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      margin-bottom: 16px;
+    }
+
+    .hero .tagline {
+      font-size: clamp(18px, 3vw, 22px);
+      color: var(--text-secondary);
+      max-width: 500px;
+    }
+
+    .hero .tagline em {
+      font-style: normal;
+      color: var(--accent);
+    }
+
+    /* Quirky text */
+    .quirky-text {
+      margin-top: 24px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      font-style: italic;
+    }
+
+    /* App Preview */
+    .app-preview {
+      margin-top: 40px;
+      width: 100%;
+      max-width: 600px;
+    }
+
+    .gif-placeholder {
+      aspect-ratio: 16/10;
+      background: var(--surface);
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-family: monospace;
+    }
+
+    /* SVG Line Draw Animations */
+    .line-draw {
+      stroke-dasharray: 1000;
+      stroke-dashoffset: 1000;
+      animation: draw 2s ease-out forwards;
+    }
+
+    .line-draw-delay-1 { animation-delay: 0.2s; }
+    .line-draw-delay-2 { animation-delay: 0.4s; }
+    .line-draw-delay-3 { animation-delay: 0.6s; }
+
+    @keyframes draw {
+      to { stroke-dashoffset: 0; }
+    }
+
+    /* Animated Bento Illustration */
+    .bento-illustration {
+      width: 120px;
+      height: 120px;
+      margin-bottom: 24px;
+    }
+
+    .bento-illustration .box {
+      fill: none;
+      stroke: var(--border);
+      stroke-width: 2;
+    }
+
+    .bento-illustration .divider {
+      fill: none;
+      stroke: var(--border);
+      stroke-width: 1.5;
+    }
+
+    .bento-illustration .food {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 2;
+      stroke-linecap: round;
+    }
+
+    .bento-illustration .steam {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      opacity: 0.6;
+      animation: steam 2s ease-in-out infinite;
+    }
+
+    @keyframes steam {
+      0%, 100% { transform: translateY(0); opacity: 0.6; }
+      50% { transform: translateY(-4px); opacity: 0.3; }
+    }
+
+    /* Download Box */
+    .download-box {
+      margin-top: 32px;
+      position: relative;
+      display: inline-flex;
+      border-radius: 12px;
+      overflow: visible;
+    }
+
+    .download-contents {
+      display: flex;
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .download-contents a {
+      background: var(--surface);
+      padding: 12px 0;
+      width: 80px;
+      text-align: center;
+      text-decoration: none;
+      color: var(--text);
+      transition: background 0.2s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .download-contents a:hover {
+      background: var(--accent-soft);
+    }
+
+    .download-contents svg {
+      width: 20px;
+      height: 20px;
+      stroke: var(--text);
+      stroke-width: 1.5;
+      fill: none;
+    }
+
+    .download-contents span {
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .download-lid {
+      position: absolute;
+      top: -4px;
+      left: -4px;
+      right: -4px;
+      bottom: -4px;
+      background: var(--surface);
+      border: 2px solid var(--border);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+      transform-origin: right center;
+      z-index: 2;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    .download-lid::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 40px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .download-lid:hover::before {
+      opacity: 1;
+    }
+
+    .download-lid .lid-handle {
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 32px;
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+    }
+
+    .version-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    /* Mouse distance animation handled by JS */
+    .download-lid.lifting {
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    }
+
+    /* Background Conveyor Columns */
+    .bg-conveyors {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      pointer-events: none;
+      z-index: -1;
+      overflow: hidden;
+      opacity: 0.06;
+    }
+
+    .bg-column {
+      position: absolute;
+      top: -100px;
+      bottom: -100px;
+      width: 120px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .bg-column:nth-child(1) { left: 5%; }
+    .bg-column:nth-child(2) { left: 20%; }
+    .bg-column:nth-child(3) { right: 20%; }
+    .bg-column:nth-child(4) { right: 5%; }
+
+    .bg-task {
+      background: var(--text);
+      border-radius: 8px;
+      height: 48px;
+      flex-shrink: 0;
+      transition: transform 0.3s ease-out;
+    }
+
+    /* Hero Conveyor - Step based */
+    .conveyor-section {
+      margin-top: 32px;
+      width: 100%;
+      max-width: 700px;
+      overflow: hidden;
+      position: relative;
+      padding: 16px 0;
+    }
+
+    .conveyor-track {
+      display: flex;
+      gap: 16px;
+      transition: transform 0.3s ease-out;
+    }
+
+    .conveyor-item {
+      flex-shrink: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+      cursor: default;
+    }
+
+    .conveyor-item:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 16px -4px var(--accent-glow);
+    }
+
+    .conveyor-item .status {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .conveyor-item .status.todo { background: var(--text-secondary); }
+    .conveyor-item .status.doing { background: #3B82F6; }
+    .conveyor-item .status.done { background: #10B981; }
+
+    .conveyor-item .task-text {
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .conveyor-item .task-tag {
+      font-size: 10px;
+      padding: 2px 6px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-radius: 3px;
+      font-weight: 500;
+    }
+
+    .conveyor-fade {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 60px;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .conveyor-fade.left {
+      left: 0;
+      background: linear-gradient(90deg, var(--bg), transparent);
+    }
+
+    .conveyor-fade.right {
+      right: 0;
+      background: linear-gradient(-90deg, var(--bg), transparent);
+    }
+
+    .scroll-hint {
+      margin-top: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .scroll-hint svg {
+      width: 20px;
+      height: 20px;
+      animation: bounce 2s infinite;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(4px); }
+    }
+
+    /* Bento Features */
+    .features {
+      padding: 40px 24px 120px;
+    }
+
+    .features h2 {
+      text-align: center;
+      font-size: 13px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-secondary);
+      margin-bottom: 48px;
+    }
+
+    .bento-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+    }
+
+    .bento-cell {
+      background: var(--surface);
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      min-height: 200px;
+      transition: background 0.2s, transform 0.2s;
+      position: relative;
+    }
+
+    .bento-cell::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      box-shadow: inset 0 0 0 2px var(--accent);
+    }
+
+    .bento-cell:hover {
+      background: var(--accent-soft);
+    }
+
+    .bento-cell:hover::after {
+      opacity: 1;
+    }
+
+    .bento-cell:hover .bento-icon {
+      transform: scale(1.1) rotate(-5deg);
+    }
+
+    .bento-cell.large {
+      grid-column: span 2;
+    }
+
+    .bento-cell.tall {
+      grid-row: span 2;
+    }
+
+    .bento-icon {
+      width: 40px;
+      height: 40px;
+      margin-bottom: 16px;
+      color: var(--accent);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .bento-cell h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .bento-cell p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .bento-cell .coming-soon {
+      margin-top: auto;
+      font-size: 11px;
+      color: var(--accent);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    @media (max-width: 768px) {
+      .bento-grid {
+        grid-template-columns: 1fr;
+      }
+      .bento-cell.large { grid-column: span 1; }
+    }
+
+    /* Order Ticket Timeline */
+    .changelog {
+      padding: 80px 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-secondary);
+    }
+
+    .ticket-timeline {
+      width: 100%;
+      max-width: 900px;
+      overflow-x: auto;
+      overflow-y: visible;
+      padding: 20px 0;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .ticket-timeline::-webkit-scrollbar {
+      height: 4px;
+    }
+
+    .ticket-timeline::-webkit-scrollbar-track {
+      background: var(--border);
+      border-radius: 2px;
+    }
+
+    .ticket-timeline::-webkit-scrollbar-thumb {
+      background: var(--accent);
+      border-radius: 2px;
+    }
+
+    .ticket-track {
+      display: flex;
+      gap: 24px;
+      padding: 0 calc(50% - 140px);
+    }
+
+    .order-ticket {
+      flex-shrink: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      width: 280px;
+      position: relative;
+      box-shadow: 0 4px 24px -8px rgba(0,0,0,0.1);
+      scroll-snap-align: center;
+      transition: transform 0.2s, opacity 0.2s;
+    }
+
+    .order-ticket.future {
+      opacity: 0.5;
+    }
+
+    .order-ticket.past {
+      opacity: 0.6;
+    }
+
+    .order-ticket.current {
+      transform: scale(1.02);
+      box-shadow: 0 8px 32px -8px var(--accent-glow);
+      border-color: var(--accent);
+    }
+
+    .order-ticket::before,
+    .order-ticket::after {
+      content: '';
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      height: 12px;
+      background: radial-gradient(circle at 6px 0, transparent 6px, var(--surface) 6px);
+      background-size: 12px 12px;
+    }
+
+    .order-ticket::before {
+      top: -6px;
+    }
+
+    .order-ticket::after {
+      bottom: -6px;
+      transform: rotate(180deg);
+    }
+
+    .ticket-header {
+      padding: 16px 16px 10px;
+      border-bottom: 1px dashed var(--border);
+      text-align: center;
+    }
+
+    .ticket-header h3 {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .ticket-header span {
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    .ticket-items {
+      padding: 12px 16px;
+    }
+
+    .ticket-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 6px 0;
+      font-size: 12px;
+    }
+
+    .ticket-item:not(:last-child) {
+      border-bottom: 1px dotted var(--border);
+    }
+
+    .ticket-item .item-name {
+      flex: 1;
+    }
+
+    .ticket-item .item-tag {
+      font-size: 9px;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-weight: 500;
+      margin-left: 6px;
+    }
+
+    .ticket-item .item-tag.new {
+      background: #10B98120;
+      color: #10B981;
+    }
+
+    .ticket-item .item-tag.fix {
+      background: #3B82F620;
+      color: #3B82F6;
+    }
+
+    .ticket-item .item-tag.soon {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .ticket-item .item-tag.planned {
+      background: var(--border);
+      color: var(--text-secondary);
+    }
+
+    .ticket-footer {
+      padding: 10px 16px 16px;
+      border-top: 1px dashed var(--border);
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    .timeline-hint {
+      font-size: 11px;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .timeline-hint svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* Wiki Easter Egg */
+    .wiki {
+      padding: 40px 24px 120px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .wiki-entry {
+      border-left: 2px solid var(--accent);
+      padding-left: 24px;
+      transition: border-color 0.2s;
+    }
+
+    .wiki-entry:hover {
+      border-color: var(--text);
+    }
+
+    .wiki-entry .term {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .wiki-entry .pronunciation {
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-family: 'Newsreader', Georgia, serif;
+      font-style: italic;
+      margin-bottom: 12px;
+    }
+
+    .wiki-entry .definition {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+
+    .wiki-entry .definition strong {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    /* Footer */
+    footer {
+      padding: 24px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-secondary);
+      border-top: 1px solid var(--border);
+    }
+
+    footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* Custom Cursor on Features */
+    .features {
+      cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M8 4 L12 28 M20 4 L24 28' stroke='%23C2703E' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") 16 16, auto;
+    }
+
+    /* Animations */
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .hero h1,
+    .hero .tagline,
+    .quirky-text,
+    .download-box {
+      animation: fadeInUp 0.6s ease-out backwards;
+    }
+
+    .hero .tagline { animation-delay: 0.1s; }
+    .quirky-text { animation-delay: 0.2s; }
+    .download-box { animation-delay: 0.3s; }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+      .conveyor-section {
+        display: none;
+      }
+
+      .quirky-text {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Background Conveyor Columns -->
+  <div class="bg-conveyors" aria-hidden="true">
+    <div class="bg-column down">
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+    </div>
+    <div class="bg-column up">
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+    </div>
+    <div class="bg-column down">
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+    </div>
+    <div class="bg-column up">
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+      <div class="bg-task"></div><div class="bg-task"></div><div class="bg-task"></div>
+    </div>
+  </div>
+
+  <!-- Nav -->
+  <nav>
+    <a href="/" class="logo">
+      <div class="logo-placeholder"></div>
+      Bento-ya
+    </a>
+    <div class="nav-right">
+      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="5"/>
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+        </svg>
+      </button>
+      <a href="https://github.com/ANonABento/bento-ya">GitHub</a>
+      <a href="https://github.com/ANonABento/bento-ya/releases/latest" class="nav-download">Download</a>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <!-- Animated Bento Illustration -->
+    <svg class="bento-illustration" viewBox="0 0 120 120">
+      <!-- Box outline -->
+      <rect class="box line-draw" x="10" y="20" width="100" height="80" rx="8"/>
+      <!-- Dividers -->
+      <line class="divider line-draw line-draw-delay-1" x1="60" y1="20" x2="60" y2="100"/>
+      <line class="divider line-draw line-draw-delay-1" x1="10" y1="60" x2="60" y2="60"/>
+      <!-- Food items -->
+      <circle class="food line-draw line-draw-delay-2" cx="35" cy="40" r="12"/>
+      <rect class="food line-draw line-draw-delay-2" x="22" y="70" width="26" height="16" rx="3"/>
+      <ellipse class="food line-draw line-draw-delay-3" cx="85" cy="60" rx="20" ry="28"/>
+      <!-- Steam -->
+      <path class="steam" d="M30 15 Q33 10 30 5"/>
+      <path class="steam" d="M40 12 Q43 7 40 2" style="animation-delay: 0.3s"/>
+      <path class="steam" d="M85 10 Q88 5 85 0" style="animation-delay: 0.6s"/>
+    </svg>
+
+    <h1>Conveyor belt your agents.</h1>
+    <p class="tagline">Chef makes the bento — <em>ya, it's that easy.</em></p>
+
+    <p class="quirky-text">Every second that passes is a second you're not cooking.</p>
+
+    <!-- Download box -->
+    <div class="download-box">
+      <div class="download-contents">
+        <a href="https://github.com/ANonABento/bento-ya/releases/latest">
+          <svg viewBox="0 0 32 32">
+            <path d="M16 4C9.4 4 4 9.4 4 16s5.4 12 12 12 12-5.4 12-12S22.6 4 16 4z"/>
+            <path d="M16 8c-4.4 0-8 3.6-8 8s3.6 8 8 8"/>
+          </svg>
+          <span>macOS</span>
+        </a>
+        <a href="https://github.com/ANonABento/bento-ya/releases/latest">
+          <svg viewBox="0 0 32 32">
+            <rect x="6" y="6" width="20" height="20" rx="2"/>
+            <path d="M6 14h20M14 14v12"/>
+          </svg>
+          <span>Windows</span>
+        </a>
+        <a href="https://github.com/ANonABento/bento-ya/releases/latest">
+          <svg viewBox="0 0 32 32">
+            <circle cx="16" cy="16" r="10"/>
+            <circle cx="16" cy="16" r="4"/>
+            <path d="M16 6v4M16 22v4M6 16h4M22 16h4"/>
+          </svg>
+          <span>Linux</span>
+        </a>
+      </div>
+      <div class="download-lid" id="downloadLid">
+        <span class="lid-handle"></span>
+        <span class="lid-text">Download</span>
+        <span class="version-badge">v0.1.0</span>
+      </div>
+    </div>
+
+    <!-- App Preview GIF -->
+    <div class="app-preview">
+      <div class="gif-placeholder">
+        <span>app.gif</span>
+      </div>
+    </div>
+
+    <!-- Conveyor Belt -->
+    <div class="conveyor-section">
+      <div class="conveyor-fade left"></div>
+      <div class="conveyor-track">
+        <!-- Duplicated for seamless loop -->
+        <div class="conveyor-item"><span class="status done"></span><span class="task-text">Set up project structure</span><span class="task-tag">chef</span></div>
+        <div class="conveyor-item"><span class="status done"></span><span class="task-text">Design database schema</span></div>
+        <div class="conveyor-item"><span class="status doing"></span><span class="task-text">Implement auth flow</span><span class="task-tag">in progress</span></div>
+        <div class="conveyor-item"><span class="status todo"></span><span class="task-text">Write API endpoints</span></div>
+        <div class="conveyor-item"><span class="status todo"></span><span class="task-text">Add unit tests</span></div>
+        <div class="conveyor-item"><span class="status done"></span><span class="task-text">Configure CI/CD</span><span class="task-tag">chef</span></div>
+        <div class="conveyor-item"><span class="status doing"></span><span class="task-text">Review PR #42</span></div>
+        <div class="conveyor-item"><span class="status todo"></span><span class="task-text">Deploy to staging</span></div>
+        <!-- Duplicate set for seamless loop -->
+        <div class="conveyor-item"><span class="status done"></span><span class="task-text">Set up project structure</span><span class="task-tag">chef</span></div>
+        <div class="conveyor-item"><span class="status done"></span><span class="task-text">Design database schema</span></div>
+        <div class="conveyor-item"><span class="status doing"></span><span class="task-text">Implement auth flow</span><span class="task-tag">in progress</span></div>
+        <div class="conveyor-item"><span class="status todo"></span><span class="task-text">Write API endpoints</span></div>
+        <div class="conveyor-item"><span class="status todo"></span><span class="task-text">Add unit tests</span></div>
+        <div class="conveyor-item"><span class="status done"></span><span class="task-text">Configure CI/CD</span><span class="task-tag">chef</span></div>
+        <div class="conveyor-item"><span class="status doing"></span><span class="task-text">Review PR #42</span></div>
+        <div class="conveyor-item"><span class="status todo"></span><span class="task-text">Deploy to staging</span></div>
+      </div>
+      <div class="conveyor-fade right"></div>
+    </div>
+
+    <div class="scroll-hint">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M12 5v14M5 12l7 7 7-7"/>
+      </svg>
+    </div>
+  </section>
+
+  <!-- Features Bento Grid -->
+  <section class="features">
+    <div class="container">
+      <h2>What's inside</h2>
+
+      <div class="bento-grid">
+        <!-- Chef - Large -->
+        <div class="bento-cell large">
+          <svg class="bento-icon" viewBox="0 0 40 40" fill="none">
+            <circle cx="20" cy="12" r="8" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M8 36c0-8 5-12 12-12s12 4 12 12" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M20 8v-4M16 6h8" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+          <h3>Chef</h3>
+          <p>Your AI orchestrator. Tell Chef what you need — tasks get created, organized, and tracked automatically. It's like having a sous-chef for your code.</p>
+        </div>
+
+        <!-- Kanban -->
+        <div class="bento-cell">
+          <svg class="bento-icon" viewBox="0 0 40 40" fill="none">
+            <rect x="4" y="8" width="10" height="24" rx="2" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="15" y="8" width="10" height="16" rx="2" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="26" y="8" width="10" height="20" rx="2" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+          <h3>Kanban</h3>
+          <p>Visual task board. Drag, drop, done.</p>
+        </div>
+
+        <!-- Local-first -->
+        <div class="bento-cell">
+          <svg class="bento-icon" viewBox="0 0 40 40" fill="none">
+            <rect x="8" y="12" width="24" height="18" rx="2" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M12 12V8a8 8 0 0116 0v4" stroke="currentColor" stroke-width="1.5"/>
+            <circle cx="20" cy="22" r="3" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+          <h3>Local-first</h3>
+          <p>Your data stays on your machine. Always.</p>
+        </div>
+
+        <!-- Voice - Coming soon -->
+        <div class="bento-cell">
+          <svg class="bento-icon" viewBox="0 0 40 40" fill="none" style="opacity: 0.5">
+            <rect x="14" y="4" width="12" height="20" rx="6" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M8 18a12 12 0 0024 0" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M20 32v4M16 36h8" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+          <h3 style="opacity: 0.7">Voice</h3>
+          <p style="opacity: 0.7">Talk to create tasks. Hands-free productivity.</p>
+          <span class="coming-soon">Coming soon</span>
+        </div>
+
+        <!-- Extensions - Coming soon -->
+        <div class="bento-cell large">
+          <svg class="bento-icon" viewBox="0 0 40 40" fill="none" style="opacity: 0.5">
+            <rect x="4" y="4" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="22" y="4" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="4" y="22" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M26 26h6M29 23v6" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+          <h3 style="opacity: 0.7">Extensions</h3>
+          <p style="opacity: 0.7">Connect your tools. GitHub, Linear, Slack — more compartments for your workflow.</p>
+          <span class="coming-soon">Coming soon</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Changelog / Order Ticket Timeline -->
+  <section class="changelog">
+    <h2 class="section-title">What's in the kitchen</h2>
+    <p class="timeline-hint">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M5 12h14M12 5l7 7-7 7"/>
+      </svg>
+      scroll for roadmap
+    </p>
+    <div class="ticket-timeline">
+      <div class="ticket-track">
+        <!-- Future v0.3.0 -->
+        <div class="order-ticket future">
+          <div class="ticket-header">
+            <h3>v0.3.0</h3>
+            <span>Future</span>
+          </div>
+          <div class="ticket-items">
+            <div class="ticket-item">
+              <span class="item-name">Extensions API</span>
+              <span class="item-tag planned">planned</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">GitHub integration</span>
+              <span class="item-tag planned">planned</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">Linear sync</span>
+              <span class="item-tag planned">planned</span>
+            </div>
+          </div>
+          <div class="ticket-footer">
+            cooking later...
+          </div>
+        </div>
+
+        <!-- Future v0.2.0 -->
+        <div class="order-ticket future">
+          <div class="ticket-header">
+            <h3>v0.2.0</h3>
+            <span>Next up</span>
+          </div>
+          <div class="ticket-items">
+            <div class="ticket-item">
+              <span class="item-name">Voice input</span>
+              <span class="item-tag soon">soon</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">Task templates</span>
+              <span class="item-tag soon">soon</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">Keyboard shortcuts</span>
+              <span class="item-tag soon">soon</span>
+            </div>
+          </div>
+          <div class="ticket-footer">
+            prep started
+          </div>
+        </div>
+
+        <!-- Current v0.1.0 -->
+        <div class="order-ticket current">
+          <div class="ticket-header">
+            <h3>v0.1.0</h3>
+            <span>Now serving</span>
+          </div>
+          <div class="ticket-items">
+            <div class="ticket-item">
+              <span class="item-name">Chef AI orchestrator</span>
+              <span class="item-tag new">new</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">Kanban board</span>
+              <span class="item-tag new">new</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">Local SQLite</span>
+              <span class="item-tag new">new</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">Dark mode</span>
+              <span class="item-tag fix">fix</span>
+            </div>
+          </div>
+          <div class="ticket-footer">
+            fresh batch
+          </div>
+        </div>
+
+        <!-- Past v0.0.1 -->
+        <div class="order-ticket past">
+          <div class="ticket-header">
+            <h3>v0.0.1</h3>
+            <span>Archive</span>
+          </div>
+          <div class="ticket-items">
+            <div class="ticket-item">
+              <span class="item-name">Initial prototype</span>
+              <span class="item-tag fix">done</span>
+            </div>
+            <div class="ticket-item">
+              <span class="item-name">Tauri setup</span>
+              <span class="item-tag fix">done</span>
+            </div>
+          </div>
+          <div class="ticket-footer">
+            the first batch
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Wiki Easter Egg -->
+  <section class="wiki">
+    <div class="wiki-entry">
+      <div class="term">Bento-ya (弁当屋)</div>
+      <div class="pronunciation">/ben.toː.ja/ · noun</div>
+      <div class="definition">
+        <strong>1.</strong> A shop that sells bento boxes — compartmentalized meals where everything has its place.<br><br>
+        <strong>2.</strong> An app that does the same for your AI workflows. Each task in its compartment. Chef handles the rest.
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <p>Built with hunger by <a href="https://github.com/ANonABento">ANonABento</a> · <a href="https://github.com/ANonABento/bento-ya">View source</a></p>
+  </footer>
+
+  <script>
+    // ========================================
+    // GLOBAL 1-SECOND TIMER
+    // All animations sync to this
+    // ========================================
+    let globalTick = 0;
+    const tickEvent = new CustomEvent('tick');
+
+    setInterval(() => {
+      globalTick++;
+      document.body.setAttribute('data-tick', globalTick);
+      document.dispatchEvent(new CustomEvent('tick', { detail: globalTick }));
+    }, 1000);
+
+    // ========================================
+    // THEME TOGGLE
+    // ========================================
+    function toggleTheme() {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme');
+
+      if (current === 'dark') {
+        html.setAttribute('data-theme', 'light');
+        localStorage.setItem('theme', 'light');
+      } else if (current === 'light') {
+        html.setAttribute('data-theme', 'dark');
+        localStorage.setItem('theme', 'dark');
+      } else {
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const newTheme = prefersDark ? 'light' : 'dark';
+        html.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+      }
+    }
+
+    // Load saved theme
+    (function() {
+      const saved = localStorage.getItem('theme');
+      if (saved) {
+        document.documentElement.setAttribute('data-theme', saved);
+      }
+    })();
+
+    // ========================================
+    // STEP-BASED CONVEYOR (synced to tick)
+    // ========================================
+    const conveyorTrack = document.querySelector('.conveyor-track');
+    const conveyorItems = document.querySelectorAll('.conveyor-item');
+    let conveyorOffset = 0;
+    const itemWidth = 180; // approximate item width + gap
+
+    document.addEventListener('tick', (e) => {
+      if (!conveyorTrack) return;
+      conveyorOffset += itemWidth;
+
+      // Reset when we've scrolled through half (for seamless loop)
+      const totalWidth = conveyorItems.length * itemWidth / 2;
+      if (conveyorOffset >= totalWidth) {
+        conveyorOffset = 0;
+      }
+
+      conveyorTrack.style.transform = `translateX(-${conveyorOffset}px)`;
+    });
+
+    // ========================================
+    // BACKGROUND COLUMNS (synced to tick)
+    // ========================================
+    const bgColumns = document.querySelectorAll('.bg-column');
+    const taskHeight = 64; // 48px height + 16px gap
+
+    document.addEventListener('tick', (e) => {
+      bgColumns.forEach((col, i) => {
+        const isUp = col.classList.contains('up');
+        const tasks = col.querySelectorAll('.bg-task');
+        const currentOffset = parseInt(col.dataset.offset || 0);
+        const newOffset = currentOffset + (isUp ? -taskHeight : taskHeight);
+
+        // Reset when scrolled one full task
+        col.dataset.offset = Math.abs(newOffset) >= taskHeight ? 0 : newOffset;
+
+        tasks.forEach(task => {
+          task.style.transform = `translateY(${col.dataset.offset}px)`;
+          task.style.transition = 'transform 0.3s ease-out';
+        });
+      });
+    });
+
+    // ========================================
+    // MOUSE-DISTANCE LID ANIMATION
+    // ========================================
+    const downloadBox = document.querySelector('.download-box');
+    const downloadLid = document.getElementById('downloadLid');
+    const maxDistance = 200;
+
+    document.addEventListener('mousemove', (e) => {
+      if (!downloadBox || !downloadLid) return;
+
+      const rect = downloadBox.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+
+      const distance = Math.sqrt(
+        Math.pow(e.clientX - centerX, 2) +
+        Math.pow(e.clientY - centerY, 2)
+      );
+
+      if (distance < maxDistance) {
+        const progress = 1 - (distance / maxDistance);
+        const translateX = progress * -110;
+        const rotate = progress * -8;
+        const lift = progress * 4;
+
+        downloadLid.style.transform = `translateX(${translateX}%) rotate(${rotate}deg) translateY(${-lift}px)`;
+        downloadLid.classList.toggle('lifting', progress > 0.3);
+      } else {
+        downloadLid.style.transform = '';
+        downloadLid.classList.remove('lifting');
+      }
+    });
+
+    // ========================================
+    // TICKET TIMELINE - Auto-scroll to current
+    // ========================================
+    const ticketTimeline = document.querySelector('.ticket-timeline');
+    const currentTicket = document.querySelector('.order-ticket.current');
+
+    if (ticketTimeline && currentTicket) {
+      // Scroll to current ticket on load
+      setTimeout(() => {
+        currentTicket.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }, 500);
+    }
+  </script>
+
+</body>
+</html>
