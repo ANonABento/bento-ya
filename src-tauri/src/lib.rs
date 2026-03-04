@@ -83,6 +83,9 @@ pub fn run() {
             commands::task::approve_task,
             commands::task::reject_task,
             commands::task::create_pr,
+            commands::task::update_task_stakeholders,
+            commands::task::mark_notification_sent,
+            commands::task::clear_notification_sent,
             // Git commands
             commands::git::create_task_branch,
             commands::git::switch_branch,
