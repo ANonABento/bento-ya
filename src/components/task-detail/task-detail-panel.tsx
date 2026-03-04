@@ -8,6 +8,7 @@ import { Badge } from '@/components/shared/badge'
 import { ChangesSection } from './changes-section'
 import { CommitsSection } from './commits-section'
 import { UsageSection } from './usage-section'
+import { NotificationSection } from './notification-section'
 import { ReviewActions } from '@/components/review/review-actions'
 import * as ipc from '@/lib/ipc'
 
@@ -172,6 +173,14 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
             agentType={task.agentType}
             agentStatus={task.agentStatus}
             startedAt={task.agentStatus === 'running' ? task.updatedAt : null}
+          />
+        </div>
+
+        {/* Notification - for Notify column tasks */}
+        <div className="p-3 pt-0">
+          <NotificationSection
+            task={task}
+            onUpdate={(updated) => { updateTask(task.id, updated) }}
           />
         </div>
       </div>

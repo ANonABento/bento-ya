@@ -257,7 +257,7 @@ export const DEFAULT_SETTINGS: Settings = {
     outputBufferIntervalMs: 16,
   },
   workspaceDefaults: {
-    defaultColumns: ['Backlog', 'Working', 'Review', 'Done'],
+    defaultColumns: ['Backlog', 'Working', 'Review', 'Notify', 'Done'],
     branchPrefix: 'bentoya/',
     autoStashPrefix: 'bentoya-auto-stash-',
   },
