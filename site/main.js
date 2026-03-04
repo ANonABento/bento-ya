@@ -424,7 +424,11 @@ const BentoLidReveal = {
   lid: null,
   box: null,
   section: null,
-  ticking: false,
+
+  // Smoothing state (lerp for fast scroll handling)
+  currentProgress: 0,
+  targetProgress: 0,
+  lerpFactor: 0.12,
 
   init() {
     this.lid = document.getElementById('bentoLid');
@@ -433,45 +437,52 @@ const BentoLidReveal = {
 
     if (!this.lid || !this.box || !this.section) return;
 
-    // Listen for scroll
-    window.addEventListener('scroll', () => {
-      if (!this.ticking) {
-        requestAnimationFrame(() => {
-          this.updateLid();
-          this.ticking = false;
-        });
-        this.ticking = true;
-      }
-    });
+    // Listen for scroll - update target, animation loop handles smoothing
+    window.addEventListener('scroll', () => this.updateTarget(), { passive: true });
 
-    // Initial update
-    this.updateLid();
+    // Start animation loop
+    this.animate();
+    this.updateTarget();
   },
 
-  updateLid() {
+  updateTarget() {
     const sectionRect = this.section.getBoundingClientRect();
     const viewportHeight = window.innerHeight;
     const boxHeight = this.box.offsetHeight;
-
-    // Calculate scroll progress through the section
     const sectionTop = sectionRect.top;
-    const startPoint = viewportHeight * 0.3; // Start animation when section is 30% from top
-    const animationRange = boxHeight * 0.8; // Faster reveal
-
-    // How far past the start point we've scrolled
+    const startPoint = viewportHeight * 0.3;
+    const animationRange = boxHeight * 0.8;
     const scrolledPast = startPoint - sectionTop;
+    this.targetProgress = Math.max(0, scrolledPast / animationRange);
+  },
 
-    // Calculate progress (0 = closed, continues past 1 to move lid off screen)
-    let progress = scrolledPast / animationRange;
-    progress = Math.max(0, progress); // No upper limit - lid keeps moving up
+  animate() {
+    const diff = this.targetProgress - this.currentProgress;
+    if (Math.abs(diff) > 0.001) {
+      this.currentProgress += diff * this.lerpFactor;
+    } else {
+      this.currentProgress = this.targetProgress;
+    }
+    this.applyTransform();
+    requestAnimationFrame(() => this.animate());
+  },
 
-    // Apply lid transform - moves up and eventually off screen
-    // At progress 1, lid is at top of box; continues up to move off viewport
-    const maxOffset = boxHeight + viewportHeight; // Move completely off screen
-    const lidOffset = Math.min(progress * boxHeight, maxOffset);
-    this.lid.style.transform = `translateY(-${lidOffset}px)`;
+  applyTransform() {
+    const progress = this.currentProgress;
+    const boxHeight = this.box.offsetHeight;
+    const viewportHeight = window.innerHeight;
 
-    // Add class when lid is opening
+    // Cubic ease-out for natural motion
+    const eased = progress >= 1 ? 1 : 1 - Math.pow(1 - Math.min(progress, 1), 3);
+
+    // Lift up + tilt + drift right
+    const maxLift = boxHeight + viewportHeight;
+    const lift = Math.min(eased * boxHeight + Math.max(0, progress - 1) * boxHeight, maxLift);
+    const slideRight = eased * 20;
+    const rotate = eased * 12;
+    const scale = 1 + eased * 0.05;
+
+    this.lid.style.transform = `translateX(${slideRight}%) translateY(-${lift}px) rotate(${rotate}deg) scale(${scale})`;
     this.lid.classList.toggle('opening', progress > 0);
     this.lid.classList.toggle('open', progress >= 1);
   },
