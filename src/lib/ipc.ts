@@ -1059,5 +1059,41 @@ export const onSiegeStopped = (cb: EventCallback<SiegeEvent>): Promise<UnlistenF
 export const onSiegeComplete = (cb: EventCallback<SiegeEvent>): Promise<UnlistenFn> =>
   listen<SiegeEvent>('siege:complete', cb)
 
+// ─── GitHub PR status commands ────────────────────────────────────────────────
+
+export type PrStatusResponse = {
+  taskId: string
+  prNumber: number
+  mergeable: 'mergeable' | 'conflicted' | 'unknown'
+  ciStatus: 'pending' | 'success' | 'failure' | 'error'
+  reviewDecision: string | null
+  commentCount: number
+  isDraft: boolean
+  labels: string[]
+  headSha: string
+  state: string
+}
+
+export async function fetchPrStatus(
+  taskId: string,
+  repoPath: string,
+): Promise<PrStatusResponse> {
+  return invoke<PrStatusResponse>('fetch_pr_status', { taskId, repoPath })
+}
+
+export async function fetchPrStatusBatch(
+  taskIds: string[],
+  repoPath: string,
+): Promise<PrStatusResponse[]> {
+  return invoke<PrStatusResponse[]>('fetch_pr_status_batch', { taskIds, repoPath })
+}
+
+export async function shouldRefreshPrStatus(
+  taskId: string,
+  maxAgeSeconds: number,
+): Promise<boolean> {
+  return invoke<boolean>('should_refresh_pr_status', { taskId, maxAgeSeconds })
+}
+
 export { listen, type UnlistenFn }
 export type { AppError }

@@ -3,6 +3,8 @@ import { invoke } from '@tauri-apps/api/core'
 import { ModeSelector } from './mode-selector'
 import { ModelSelector } from './model-selector'
 import { ThinkingSelector } from './thinking-selector'
+import { useSettingsStore } from '@/stores/settings-store'
+import { DEFAULT_SETTINGS } from '@/types/settings'
 
 interface TerminalInputProps {
   taskId: string
@@ -11,9 +13,6 @@ interface TerminalInputProps {
   onForceStop?: () => void
   autoFocus?: boolean
 }
-
-const MAX_TEXTAREA_ROWS = 4
-const LINE_HEIGHT = 20
 
 export function TerminalInput({
   taskId,
@@ -25,6 +24,8 @@ export function TerminalInput({
   const [input, setInput] = useState('')
   const [stopping, setStopping] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const terminalSettings = useSettingsStore((s) => s.global.terminal) ?? DEFAULT_SETTINGS.terminal
+  const { maxInputRows, lineHeight } = terminalSettings
 
   // Auto-focus when requested
   useEffect(() => {
@@ -53,7 +54,7 @@ export function TerminalInput({
 
     // Reset textarea height
     if (textareaRef.current) {
-      textareaRef.current.style.height = `${LINE_HEIGHT}px`
+      textareaRef.current.style.height = `${lineHeight}px`
     }
   }, [input, taskId])
 
@@ -72,10 +73,10 @@ export function TerminalInput({
 
     // Auto-grow textarea
     const el = e.target
-    el.style.height = `${LINE_HEIGHT}px`
-    const maxHeight = LINE_HEIGHT * MAX_TEXTAREA_ROWS
+    el.style.height = `${lineHeight}px`
+    const maxHeight = lineHeight * maxInputRows
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`
-  }, [])
+  }, [lineHeight, maxInputRows])
 
   const handleStop = useCallback(() => {
     if (stopping) {
@@ -136,7 +137,7 @@ export function TerminalInput({
           placeholder="Message agent... (Cmd+Enter to send)"
           rows={1}
           className="flex-1 resize-none rounded border border-border-default bg-bg-primary px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-          style={{ height: `${LINE_HEIGHT}px`, lineHeight: `${LINE_HEIGHT}px` }}
+          style={{ height: `${lineHeight}px`, lineHeight: `${lineHeight}px` }}
         />
 
         {isRunning && (

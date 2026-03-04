@@ -49,11 +49,19 @@ export function useDnd() {
 
       const activeTaskId = String(active.id)
       const overId = String(over.id)
+      const overData = over.data.current as { type: string; columnId?: string } | undefined
 
       const activeColumn = findColumnOfTask(activeTaskId)
-      const overData = over.data.current as { type: string } | undefined
-      const overColumn =
-        overData?.type === 'column' ? overId : findColumnOfTask(overId)
+
+      // Handle dropping on column droppable area (empty columns)
+      let overColumn: string | undefined
+      if (overData?.type === 'column' && overData.columnId) {
+        overColumn = overData.columnId
+      } else if (overData?.type === 'column') {
+        overColumn = overId
+      } else {
+        overColumn = findColumnOfTask(overId)
+      }
 
       if (!activeColumn || !overColumn || activeColumn === overColumn) return
 

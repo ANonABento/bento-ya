@@ -1,5 +1,6 @@
 import { memo, useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { motion, AnimatePresence } from 'motion/react'
 import type { Column as ColumnType } from '@/types'
@@ -51,6 +52,12 @@ export const Column = memo(function Column({ column }: ColumnProps) {
     transform: CSS.Transform.toString(transform),
     transition,
   }
+
+  // Make empty column area droppable
+  const { setNodeRef: setDroppableRef, isOver } = useDroppable({
+    id: `column-drop-${column.id}`,
+    data: { type: 'column', columnId: column.id },
+  })
 
   // Focus input when add task is shown
   useEffect(() => {
@@ -115,7 +122,12 @@ export const Column = memo(function Column({ column }: ColumnProps) {
         </div>
 
         <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
-          <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
+          <div
+            ref={setDroppableRef}
+            className={`flex flex-1 flex-col gap-2 overflow-y-auto px-2 pt-1 pb-2 transition-colors ${
+              isOver ? 'bg-accent/5' : ''
+            }`}
+          >
             {/* Inline add task input */}
             <AnimatePresence>
               {showAddTask && (
@@ -159,8 +171,10 @@ export const Column = memo(function Column({ column }: ColumnProps) {
             </AnimatePresence>
 
             {tasks.length === 0 && !showAddTask ? (
-              <div className="flex flex-1 items-center justify-center">
-                <p className="text-xs text-text-secondary/50">No tasks yet</p>
+              <div className="flex flex-1 items-center justify-center min-h-[100px]">
+                <p className={`text-xs transition-colors ${isOver ? 'text-accent' : 'text-text-secondary/50'}`}>
+                  {isOver ? 'Drop here' : 'No tasks yet'}
+                </p>
               </div>
             ) : (
               tasks.map((task) => <TaskCard key={task.id} task={task} />)
