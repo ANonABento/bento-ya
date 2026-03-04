@@ -17,70 +17,96 @@
   </script>
   <title>Bento-ya — Conveyor belt your agents</title>
   <meta name="description" content="Hey chef, make me a bento — ya, it's pretty simple. AI-powered task management, local-first.">
+  <meta name="author" content="ANonABento">
+  <meta name="theme-color" content="#C2703E">
+  <link rel="canonical" href="https://bento-ya.app/">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍱</text></svg>">
 
-  <!-- Fonts -->
+  <!-- Open Graph -->
+  <meta property="og:title" content="Bento-ya — Conveyor belt your agents">
+  <meta property="og:description" content="AI-powered task management, local-first. Hey chef, make me a bento.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://bento-ya.app/">
+  <meta property="og:site_name" content="Bento-ya">
+  <meta property="og:image" content="https://bento-ya.app/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Bento-ya — Conveyor belt your agents">
+  <meta name="twitter:description" content="AI-powered task management, local-first. Hey chef, make me a bento.">
+  <meta name="twitter:image" content="https://bento-ya.app/og-image.png">
+
+  <!-- Fonts - preconnect for faster loading -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Preload critical fonts for faster LCP -->
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;1,400&display=swap">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
 
   <!-- Styles -->
   <link rel="stylesheet" href="styles.css">
 
-  <!-- Early scroll fix (must be in head) -->
-  <script src="main.js"></script>
+  <!-- Main script - deferred for performance -->
+  <script src="main.js" defer></script>
 </head>
 <body>
+  <!-- Skip link for keyboard navigation -->
+  <a href="#main" class="skip-link">Skip to main content</a>
 
   <!-- Background Columns - Generated dynamically by JS -->
   <div class="bg-columns" aria-hidden="true"></div>
 
   <!-- Navigation -->
-  <nav>
+  <nav aria-label="Main navigation">
     <a href="/" class="logo">
       <div class="logo-placeholder"></div>
       Bento-ya
     </a>
     <div class="nav-right">
-      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
-        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <button type="button" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle dark/light theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
           <circle cx="12" cy="12" r="5"/>
           <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
         </svg>
-        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
           <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
         </svg>
       </button>
-      <a href="https://github.com/ANonABento/bento-ya">GitHub</a>
-      <a href="https://github.com/ANonABento/bento-ya/releases/latest" class="nav-download">Download</a>
+      <a href="https://github.com/ANonABento/bento-ya" rel="noopener noreferrer">GitHub</a>
+      <a href="https://github.com/ANonABento/bento-ya/releases/latest" class="nav-download" rel="noopener noreferrer">Download</a>
     </div>
   </nav>
 
+  <!-- Main content -->
+  <main id="main">
+
   <!-- Hero Section -->
-  <section class="hero">
+  <section class="hero" aria-label="Introduction">
     <h1>Conveyor belt your agents.</h1>
     <p class="tagline">Hey chef, make me a bento — <em>ya, it's pretty simple</em></p>
 
     <!-- Download Box -->
     <div class="download-box">
       <div class="download-contents">
-        <a href="https://github.com/ANonABento/bento-ya/releases/latest">
+        <a href="https://github.com/ANonABento/bento-ya/releases/latest" aria-label="Download Bento-ya for macOS" rel="noopener noreferrer">
           <!-- Apple icon from Simple Icons -->
-          <svg viewBox="0 0 24 24" fill="currentColor">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/>
           </svg>
           <span>macOS</span>
         </a>
-        <a href="https://github.com/ANonABento/bento-ya/releases/latest">
+        <a href="https://github.com/ANonABento/bento-ya/releases/latest" aria-label="Download Bento-ya for Windows" rel="noopener noreferrer">
           <!-- Windows icon from MDI -->
-          <svg viewBox="0 0 24 24" fill="currentColor">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <path d="M3 12V6.75l6-1.32v6.48zm17-9v8.75l-10 .15V5.21zM3 13l6 .09v6.81l-6-1.15zm17 .25V22l-10-1.91V13.1z"/>
           </svg>
           <span>Windows</span>
         </a>
-        <a href="https://github.com/ANonABento/bento-ya/releases/latest">
+        <a href="https://github.com/ANonABento/bento-ya/releases/latest" aria-label="Download Bento-ya for Linux" rel="noopener noreferrer">
           <!-- Linux/Tux icon -->
-          <svg viewBox="0 0 32 32" fill="currentColor">
+          <svg viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
             <path d="M16.672 0q-.311.002-.641.027c-5.635.447-4.14 6.411-4.224 8.4c-.104 1.453-.4 2.604-1.4 4.027c-1.183 1.401-2.839 3.667-3.625 6.025c-.369 1.109-.547 2.251-.38 3.324a.5.5 0 0 0-.151.176c-.344.36-.6.803-.881 1.12c-.265.265-.645.355-1.063.532c-.416.181-.88.359-1.151.911c-.12.251-.183.521-.177.803c0 .26.037.531.073.713c.079.531.156.969.052 1.292c-.333.905-.369 1.525-.14 1.979c.233.448.713.625 1.249.803c1.084.265 2.547.181 3.704.796c1.233.625 2.489.896 3.489.631a2.38 2.38 0 0 0 1.609-1.26c.781-.005 1.64-.36 3.011-.448c.932-.079 2.099.359 3.437.265c.036.183.083.265.156.448v.005c.52 1.036 1.484 1.505 2.516 1.427c1.025-.083 2.119-.713 3.004-1.744c.844-1.016 2.245-1.444 3.172-2c.464-.267.839-.625.865-1.141c.031-.531-.265-1.083-.948-1.833v-.131l-.005-.005c-.229-.265-.333-.713-.453-1.233c-.115-.537-.24-1.047-.656-1.396c-.084-.073-.167-.089-.255-.177a.5.5 0 0 0-.251-.088c.573-1.704.349-3.396-.235-4.923c-.708-1.88-1.953-3.52-2.896-4.645c-1.063-1.339-2.104-2.609-2.083-4.489c.036-2.871.317-8.177-4.724-8.188zm.703 4.541h.021c.281 0 .525.084.776.261c.255.181.443.443.583.713c.141.344.215.609.224.963l.005-.077v.14l-.005-.031l-.005-.032c0 .324-.067.647-.197.943a1.2 1.2 0 0 1-.287.448l-.115-.057c-.14-.063-.265-.083-.38-.176a2 2 0 0 0-.292-.089c.063-.077.193-.177.245-.265c.068-.167.104-.349.115-.536v-.027a1.6 1.6 0 0 0-.084-.531c-.057-.177-.129-.267-.239-.443c-.115-.089-.224-.177-.36-.177h-.02c-.125 0-.235.036-.349.177a1.1 1.1 0 0 0-.271.443a1.5 1.5 0 0 0-.12.531v.027c0 .119.011.239.025.359c-.26-.088-.583-.183-.812-.271a2 2 0 0 1-.021-.265v-.027a2.4 2.4 0 0 1 .199-1.025c.109-.291.307-.543.573-.709c.228-.171.504-.265.791-.265zm-3.948.079h.047c.188 0 .36.063.532.177c.197.172.355.385.459.619c.12.267.187.537.208.891v.005c.005.177.005.272-.005.355v.109l-.109.031c-.203.073-.364.177-.527.267l.005-.355v-.021c-.015-.176-.052-.265-.109-.443a.84.84 0 0 0-.224-.359a.33.33 0 0 0-.239-.084h-.032c-.093.005-.172.052-.244.177a.7.7 0 0 0-.161.36c-.037.14-.048.291-.032.443v.015c.016.183.047.272.109.448a.8.8 0 0 0 .219.355l.047.031c-.093.079-.156.095-.233.183c-.053.037-.109.084-.177.095a3.4 3.4 0 0 1-.365-.537a2.3 2.3 0 0 1-.208-.891a2.5 2.5 0 0 1 .104-.891c.079-.26.204-.505.38-.713c.172-.177.391-.391.421-.448v-.177a.76.76 0 0 1 .021.624c-.167.417-.688.86-1.421 1.125v.005c-.355.177-.667.443-1.032.62c-.369.177-.787.391-1.421.355a1.6 1.6 0 0 1-.599-.089a4 4 0 0 1-.427-.265c-.26-.177-.484-.443-.817-.62v-.005h-.005c-.537-.328-.823-.683-.917-.948c-.088-.359-.005-.624.261-.801c.296-.177.504-.36.64-.448c.14-.099.193-.136.235-.172h.005v-.005c.224-.271.577-.625 1.12-.803c.181-.047.391-.083.619-.083z"/>
           </svg>
           <span>Linux</span>
@@ -98,7 +124,7 @@
   </section>
 
   <!-- Bento Box Reveal Section -->
-  <section class="bento-reveal-section">
+  <section class="bento-reveal-section" aria-label="Product features">
     <div class="bento-box-container">
       <div class="bento-box" id="bentoBox">
         <!-- App Preview Lid (slides up on scroll) -->
@@ -208,7 +234,7 @@
             <div class="compartment chef-panel">
               <div class="chef-content">
                 <div class="chef-header">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                     <circle cx="12" cy="8" r="5"/>
                     <path d="M4 20c0-4 3-7 8-7s8 3 8 7"/>
                   </svg>
@@ -233,7 +259,7 @@
 
             <!-- Local-first feature -->
             <div class="compartment feature-cell">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                 <rect x="5" y="8" width="14" height="10" rx="2"/>
                 <path d="M8 8V6a4 4 0 018 0v2"/>
                 <circle cx="12" cy="14" r="2"/>
@@ -253,7 +279,7 @@
 
             <!-- Voice (coming soon) -->
             <div class="compartment feature-cell coming-soon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                 <rect x="9" y="2" width="6" height="12" rx="3"/>
                 <path d="M5 10a7 7 0 0014 0"/>
                 <path d="M12 18v4M8 22h8"/>
@@ -264,7 +290,7 @@
 
             <!-- Extensions (coming soon) -->
             <div class="compartment feature-cell coming-soon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                 <rect x="3" y="3" width="8" height="8" rx="1"/>
                 <rect x="13" y="3" width="8" height="8" rx="1"/>
                 <rect x="3" y="13" width="8" height="8" rx="1"/>
@@ -280,10 +306,10 @@
   </section>
 
   <!-- Changelog Section -->
-  <section class="changelog">
+  <section class="changelog" aria-label="Product roadmap">
     <h2 class="section-title">What's in the kitchen</h2>
     <p class="timeline-hint">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
         <path d="M5 12h14M12 5l7 7-7 7"/>
       </svg>
       scroll for roadmap
@@ -464,7 +490,7 @@
   </section>
 
   <!-- Wiki Section -->
-  <section class="wiki">
+  <section class="wiki" aria-label="Definition">
     <div class="wiki-entry">
       <div class="term">Bento-ya (弁当屋)</div>
       <div class="pronunciation">/ben.toː.ja/ · noun</div>
@@ -475,9 +501,11 @@
     </div>
   </section>
 
+  </main>
+
   <!-- Footer -->
   <footer>
-    <p>Built with hunger by <a href="https://github.com/ANonABento">ANonABento</a> · <a href="https://github.com/ANonABento/bento-ya">View source</a></p>
+    <p>Built with hunger by <a href="https://github.com/ANonABento" rel="noopener noreferrer">ANonABento</a> · <a href="https://github.com/ANonABento/bento-ya" rel="noopener noreferrer">View source</a></p>
   </footer>
 
 </body>
