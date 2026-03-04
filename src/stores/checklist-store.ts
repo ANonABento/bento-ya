@@ -5,6 +5,7 @@ import type {
   ChecklistCategory,
   ChecklistItem,
   ChecklistTemplate,
+  DetectType,
 } from '@/types/checklist'
 import { BUILT_IN_CHECKLIST_TEMPLATES } from '@/types/checklist'
 import * as ipc from '@/lib/ipc'
@@ -38,6 +39,7 @@ type ChecklistState = {
   deleteChecklist: (workspaceId: string) => Promise<void>
   getProgress: () => { progress: number; total: number; percentage: number }
   getTemplates: () => ChecklistTemplate[]
+  linkItemToTask: (itemId: string, categoryId: string, taskId: string | null) => void
 }
 
 export const useChecklistStore = create<ChecklistState>()(
@@ -101,6 +103,10 @@ export const useChecklistStore = create<ChecklistState>()(
               checked: item.checked,
               notes: item.notes,
               position: item.position,
+              detectType: item.detectType as DetectType | null,
+              detectConfig: item.detectConfig,
+              autoDetected: item.autoDetected,
+              linkedTaskId: item.linkedTaskId,
               createdAt: item.createdAt,
               updatedAt: item.updatedAt,
             }))
@@ -206,11 +212,15 @@ export const useChecklistStore = create<ChecklistState>()(
       createChecklist: async (workspaceId: string, template: ChecklistTemplate) => {
         set({ isLoading: true })
         try {
-          // Convert template to IPC format
+          // Convert template to IPC format, including detection config
           const categories: ipc.TemplateCategory[] = template.categories.map((cat) => ({
             name: cat.name,
             icon: cat.icon,
-            items: cat.items.map((item) => ({ text: item.text })),
+            items: cat.items.map((item) => ({
+              text: item.text,
+              detectType: item.detectType,
+              detectConfig: item.detectConfig ? JSON.stringify(item.detectConfig) : undefined,
+            })),
           }))
 
           await ipc.createWorkspaceChecklist(
@@ -266,6 +276,36 @@ export const useChecklistStore = create<ChecklistState>()(
       },
 
       getTemplates: () => BUILT_IN_CHECKLIST_TEMPLATES,
+
+      linkItemToTask: (itemId, categoryId, taskId) => {
+        // Optimistic update
+        set((state) => {
+          const categoryItems = state.items[categoryId] ?? []
+          const updatedItems = categoryItems.map((item) =>
+            item.id === itemId ? { ...item, linkedTaskId: taskId } : item
+          )
+          return {
+            items: { ...state.items, [categoryId]: updatedItems },
+          }
+        })
+
+        // Persist to backend
+        ipc.linkChecklistItemToTask(itemId, taskId).catch((error) => {
+          console.error('Failed to link item to task:', error)
+          // Revert on error
+          set((state) => {
+            const categoryItems = state.items[categoryId] ?? []
+            const item = categoryItems.find((i) => i.id === itemId)
+            const oldTaskId = item?.linkedTaskId
+            const revertedItems = categoryItems.map((i) =>
+              i.id === itemId ? { ...i, linkedTaskId: oldTaskId ?? null } : i
+            )
+            return {
+              items: { ...state.items, [categoryId]: revertedItems },
+            }
+          })
+        })
+      },
     }),
     { name: 'checklist-store' },
   ),

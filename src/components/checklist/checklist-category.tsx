@@ -1,13 +1,14 @@
 import { motion, AnimatePresence } from 'motion/react'
 import { useChecklistStore } from '@/stores/checklist-store'
-import type { ChecklistCategory } from '@/types/checklist'
+import type { ChecklistCategory, ChecklistItem } from '@/types/checklist'
 import { ChecklistItemRow } from './checklist-item'
 
 type Props = {
   category: ChecklistCategory
+  onFixThis?: (item: ChecklistItem) => void
 }
 
-export function ChecklistCategorySection({ category }: Props) {
+export function ChecklistCategorySection({ category, onFixThis }: Props) {
   const items = useChecklistStore((s) => s.items[category.id] ?? [])
   const toggleCategory = useChecklistStore((s) => s.toggleCategory)
 
@@ -81,6 +82,7 @@ export function ChecklistCategorySection({ category }: Props) {
                       key={item.id}
                       item={item}
                       categoryId={category.id}
+                      onFixThis={onFixThis}
                     />
                   ))}
                 </div>
