@@ -111,22 +111,29 @@
 /* ===========================================
    ACCESSIBILITY
    =========================================== */
-/* Skip link for keyboard navigation */
+/* Skip link for keyboard navigation - hidden until focused */
 .skip-link {
   position: absolute;
-  top: -40px;
-  left: 0;
-  background: #8B4513;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  z-index: 1000;
+  background: var(--color-accent);
   color: white;
   padding: 8px 16px;
-  z-index: 1000;
   text-decoration: none;
   border-radius: 0 0 var(--radius-md) 0;
-  transition: top 0.2s ease;
 }
 
 .skip-link:focus {
-  top: 0;
+  position: fixed;
+  top: var(--space-sm);
+  left: var(--space-sm);
+  width: auto;
+  height: auto;
+  overflow: visible;
 }
 
 /* Focus styles for keyboard navigation */
