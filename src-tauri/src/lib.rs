@@ -174,6 +174,10 @@ pub fn run() {
             commands::files::scan_workspace_files,
             commands::files::read_file_content,
             commands::files::create_note_file,
+            // GitHub PR status commands
+            commands::github::fetch_pr_status,
+            commands::github::fetch_pr_status_batch,
+            commands::github::should_refresh_pr_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

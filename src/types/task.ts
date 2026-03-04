@@ -4,6 +4,10 @@ export type PipelineState = 'idle' | 'triggered' | 'running' | 'evaluating' | 'a
 
 export type ReviewStatus = 'pending' | 'approved' | 'rejected'
 
+export type PrMergeable = 'mergeable' | 'conflicted' | 'unknown'
+export type PrCiStatus = 'pending' | 'success' | 'failure' | 'error'
+export type PrReviewDecision = 'approved' | 'changes_requested' | 'review_required'
+
 export type Task = {
   id: string
   workspaceId: string
@@ -26,6 +30,15 @@ export type Task = {
   siegeActive: boolean
   siegeMaxIterations: number
   siegeLastChecked: string | null
+  // PR/CI status fields (from GitHub API)
+  prMergeable: PrMergeable | null
+  prCiStatus: PrCiStatus | null
+  prReviewDecision: PrReviewDecision | null
+  prCommentCount: number
+  prIsDraft: boolean
+  prLabels: string  // JSON array
+  prLastFetched: string | null
+  prHeadSha: string | null
   position: number
   createdAt: string
   updatedAt: string
