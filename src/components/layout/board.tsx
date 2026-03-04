@@ -99,6 +99,7 @@ export function Board() {
           {/* Add column button - styled like a column */}
           <button
             onClick={handleAddColumn}
+            title="Add column"
             className="group flex h-full w-[280px] min-w-[200px] shrink-0 flex-col items-center justify-center gap-2 border-r border-dashed border-border-default bg-surface/10 text-text-secondary/40 transition-all hover:border-accent/50 hover:bg-accent/10 hover:text-accent"
           >
             {/* View columns plus icon */}
