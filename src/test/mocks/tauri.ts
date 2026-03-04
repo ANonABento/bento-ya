@@ -64,6 +64,7 @@ export const mockTask = (overrides: Partial<Task> = {}): Task => ({
   prLabels: '[]',
   prLastFetched: null,
   prHeadSha: null,
+  checklist: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   ...overrides,

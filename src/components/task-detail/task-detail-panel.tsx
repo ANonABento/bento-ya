@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState } from 'react'
-import type { Task } from '@/types'
+import type { Task, TaskChecklistItem } from '@/types'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
@@ -8,6 +8,7 @@ import { Badge } from '@/components/shared/badge'
 import { ChangesSection } from './changes-section'
 import { CommitsSection } from './commits-section'
 import { UsageSection } from './usage-section'
+import { TaskChecklist } from './task-checklist'
 import { ReviewActions } from '@/components/review/review-actions'
 import * as ipc from '@/lib/ipc'
 
@@ -67,6 +68,16 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
       console.error('Failed to reject task:', err)
     } finally {
       setIsReviewPending(false)
+    }
+  }, [task.id, updateTask])
+
+  const handleChecklistUpdate = useCallback(async (items: TaskChecklistItem[]) => {
+    try {
+      const checklist = JSON.stringify(items)
+      const updatedTask = await ipc.updateTask(task.id, { checklist })
+      updateTask(task.id, updatedTask)
+    } catch (err) {
+      console.error('Failed to update checklist:', err)
     }
   }, [task.id, updateTask])
 
@@ -143,6 +154,19 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
             onApprove={() => { void handleApprove() }}
             onReject={() => { void handleReject() }}
             disabled={isReviewPending}
+          />
+        </div>
+
+        {/* Test Checklist */}
+        <div className="border-b border-border-default px-3 py-2">
+          <div className="mb-2">
+            <h4 className="text-[11px] font-medium uppercase tracking-wider text-text-secondary">
+              Test Checklist
+            </h4>
+          </div>
+          <TaskChecklist
+            task={task}
+            onUpdate={(items) => { void handleChecklistUpdate(items) }}
           />
         </div>
 
