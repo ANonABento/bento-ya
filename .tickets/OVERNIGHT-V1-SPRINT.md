@@ -1,663 +1,601 @@
-# Overnight V1 Sprint - Multi-Agent Orchestration
+# Overnight V1 Sprint - Agent Teams
 
-> **Mode**: Claude Orchestrator + Parallel Agents
+> **Mode**: Claude Code Agent Teams (experimental)
 > **Goal**: Complete all P0/P1 tickets in single overnight session
-> **Process**: Orchestrator assigns → Agents implement → Validator checks → Commit
 > **Est. Duration**: 6-8 hours autonomous
 
 ---
 
-## Architecture
+## Prerequisites
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     ORCHESTRATOR (Opus)                         │
-│  - Reads ticket specs                                           │
-│  - Assigns to worker agents                                     │
-│  - Monitors progress                                            │
-│  - Handles blockers                                             │
-│  - Commits validated work                                       │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
-         ┌─────────────────┼─────────────────┐
-         │                 │                 │
-         v                 v                 v
-   ┌──────────┐      ┌──────────┐      ┌──────────┐
-   │ WORKER 1 │      │ WORKER 2 │      │ WORKER 3 │
-   │ (Opus)   │      │ (Opus)   │      │ (Opus)   │
-   │          │      │          │      │          │
-   │ Frontend │      │ Backend  │      │ Wiring   │
-   └────┬─────┘      └────┬─────┘      └────┬─────┘
-        │                 │                 │
-        └─────────────────┼─────────────────┘
-                          v
-                   ┌──────────┐
-                   │ VALIDATOR│
-                   │ (Opus)   │
-                   │          │
-                   │ Type/Lint│
-                   │ Test     │
-                   └──────────┘
-```
+Enable agent teams in settings:
 
----
-
-## Execution Phases
-
-### Phase 1: Quick Wins (Parallel - 1.5 hrs)
-
-These have no dependencies, run all 3 simultaneously.
-
-| Agent | Ticket | Task | Effort |
-|-------|--------|------|--------|
-| Worker 1 | T047 | Terminal voice integration | S |
-| Worker 2 | T048 | Thinking level selector | S |
-| Worker 3 | T027 | Notification column template | S |
-
-**Orchestrator Actions:**
-```
-1. Spawn 3 parallel Task agents
-2. Each reads their ticket spec
-3. Implements changes
-4. Returns completion signal
-5. Validator runs type-check + lint
-6. If pass → commit all 3
-7. If fail → fix and retry
-```
-
-### Phase 2: Core Features (Sequential - 3 hrs)
-
-Dependencies require sequential execution.
-
-| Order | Ticket | Task | Depends On | Effort |
-|-------|--------|------|------------|--------|
-| 1 | T035 | History replay restore | - | M |
-| 2 | T049 | Model selector functional | - | M |
-| 3 | T051 | Siege loop UI | T035 patterns | M |
-
-**Orchestrator Actions:**
-```
-1. T035: Implement restore_snapshot backend
-   - Add Tauri command
-   - Wire HistoryPanel callback
-   - Validate with manual test
-   - Commit
-
-2. T049: Implement model selector
-   - Dropdown component
-   - Settings integration
-   - Agent spawn wiring
-   - Commit
-
-3. T051: Siege UI integration
-   - Start/stop buttons
-   - Event listeners
-   - Task card badge
-   - Commit
-```
-
-### Phase 3: Complex Features (Sequential - 2.5 hrs)
-
-Require careful implementation.
-
-| Order | Ticket | Task | Effort |
-|-------|--------|------|--------|
-| 1 | T026 | Test checklist generation | M |
-| 2 | T050 | File attachment | M |
-
-**Orchestrator Actions:**
-```
-1. T026: Test checklist from PR diff
-   - Agent prompt engineering
-   - Checklist UI wiring
-   - Auto-advance logic
-   - Commit
-
-2. T050: File attachment
-   - Tauri file dialog
-   - Base64 encoding
-   - UI components
-   - Commit
-```
-
-### Phase 4: Polish (Parallel - 1 hr)
-
-Independent polish tasks.
-
-| Agent | Ticket | Task | Effort |
-|-------|--------|------|--------|
-| Worker 1 | T028 | Checklist auto-detect | M |
-| Worker 2 | - | Remove stale tooltips | S |
-| Worker 3 | - | Update STATUS.md | S |
-
----
-
-## Detailed Task Specs
-
-### T047: Terminal Voice Integration (S - 30min)
-
-**Current State:**
-- `terminal-input.tsx:105-116` has disabled mic button
-- `use-voice-input.ts` hook exists and works in panel
-
-**Implementation:**
-```typescript
-// terminal-input.tsx
-import { useVoiceInput } from '@/hooks/use-voice-input'
-
-// Inside component:
-const voice = useVoiceInput({
-  onTranscript: (text) => setInput((prev) => prev + text),
-})
-
-// Replace disabled button with:
-<button
-  onClick={voice.state === 'recording' ? voice.stopRecording : voice.startRecording}
-  className={`rounded p-1 ${voice.state === 'recording' ? 'text-red-500 animate-pulse' : 'text-text-muted hover:text-text-primary'}`}
->
-  <MicIcon />
-</button>
-```
-
-**Validation:**
-- [ ] Type-check passes
-- [ ] Mic button clickable
-- [ ] Recording state visible
-- [ ] Transcription appears in input
-
----
-
-### T048: Thinking Level Selector (S - 30min)
-
-**Current State:**
-- `thinking-selector.tsx` is display-only stub
-
-**Implementation:**
-```typescript
-// thinking-selector.tsx
-const LEVELS = ['None', 'Low', 'Medium', 'High'] as const
-
-export function ThinkingSelector({ value = 'Medium', onChange }: Props) {
-  const [open, setOpen] = useState(false)
-
-  return (
-    <div className="relative">
-      <button onClick={() => setOpen(!open)}>
-        <BrainIcon /> {value}
-      </button>
-      {open && (
-        <div className="dropdown">
-          {LEVELS.map(level => (
-            <button key={level} onClick={() => onChange?.(level)}>
-              {level}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+```json
+// ~/.claude/settings.json
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "teammateMode": "tmux"  // or "in-process"
 }
-```
-
-**Wire to agent:**
-- Store in task store or session config
-- Pass to `start_agent` command
-- Map to Claude CLI `--thinking` flag
-
-**Validation:**
-- [ ] Dropdown opens/closes
-- [ ] Selection changes display
-- [ ] Value persists
-
----
-
-### T035: History Replay Restore (M - 60min)
-
-**Current State:**
-- `history-panel.tsx` has Replay button
-- `onReplay` callback never provided
-- No `restore_snapshot` backend command
-
-**Backend Implementation:**
-```rust
-// src-tauri/src/commands/history.rs
-
-#[tauri::command]
-pub async fn restore_snapshot(
-    snapshot_id: String,
-    mode: String, // "overwrite" | "new_workspace"
-    state: State<'_, AppState>,
-) -> Result<RestoreResult, String> {
-    let conn = state.db.lock().unwrap();
-
-    // 1. Get snapshot
-    let snapshot = db::get_snapshot(&conn, &snapshot_id)?;
-
-    // 2. Create backup of current state
-    let backup_id = db::create_snapshot(&conn, &snapshot.workspace_id, "pre-restore-backup")?;
-
-    // 3. Parse snapshot data
-    let data: SnapshotData = serde_json::from_str(&snapshot.data)?;
-
-    // 4. Restore based on mode
-    match mode.as_str() {
-        "overwrite" => {
-            // Delete current columns/tasks
-            db::clear_workspace(&conn, &snapshot.workspace_id)?;
-            // Recreate from snapshot
-            for col in data.columns {
-                db::create_column(&conn, &col)?;
-            }
-            for task in data.tasks {
-                db::create_task(&conn, &task)?;
-            }
-        }
-        "new_workspace" => {
-            // Create new workspace with snapshot data
-            let new_ws = db::create_workspace(&conn, &format!("{} (restored)", snapshot.name))?;
-            // ... copy data to new workspace
-        }
-    }
-
-    Ok(RestoreResult { backup_id, restored_at: now() })
-}
-```
-
-**Frontend Implementation:**
-```typescript
-// Provide onReplay to HistoryPanel
-<HistoryPanel
-  workspaceId={activeWorkspaceId}
-  onClose={() => setShowHistory(false)}
-  onReplay={async (snapshot) => {
-    const confirmed = await confirm(`Restore to "${snapshot.name}"?`)
-    if (confirmed) {
-      await restoreSnapshot(snapshot.id, 'overwrite')
-      await refreshWorkspace()
-      toast.success('Restored successfully')
-    }
-  }}
-/>
-```
-
-**Validation:**
-- [ ] Replay button works
-- [ ] Confirmation dialog shows
-- [ ] Workspace state actually restores
-- [ ] Backup created before restore
-
----
-
-### T049: Model Selector Functional (M - 45min)
-
-**Current State:**
-- `model-selector.tsx` is display-only
-
-**Implementation:**
-```typescript
-// model-selector.tsx
-export function ModelSelector({ value, onChange }: Props) {
-  const [open, setOpen] = useState(false)
-  const providers = useSettingsStore(s => s.global.model.providers)
-  const enabledProviders = providers.filter(p => p.enabled)
-
-  const models = enabledProviders.flatMap(p => ({
-    id: `${p.id}/${p.defaultModel}`,
-    name: p.defaultModel,
-    provider: p.name,
-  }))
-
-  return (
-    <div className="relative">
-      <button onClick={() => setOpen(!open)}>
-        <ModelIcon /> {value || 'Auto'}
-      </button>
-      {open && (
-        <div className="dropdown">
-          <button onClick={() => onChange?.('auto')}>Auto (Orchestrator)</button>
-          {models.map(m => (
-            <button key={m.id} onClick={() => onChange?.(m.id)}>
-              {m.name} <span className="text-muted">({m.provider})</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-```
-
-**Wire to agent spawn:**
-- Pass selected model to `start_agent`
-- Backend maps model ID to CLI/API config
-
-**Validation:**
-- [ ] Dropdown shows configured models
-- [ ] Selection changes agent behavior
-- [ ] "Auto" option works
-
----
-
-### T051: Siege Loop UI Integration (M - 60min)
-
-**Current State:**
-- Backend fully implemented in `siege.rs`
-- Events: `siege:started`, `siege:iteration`, `siege:stopped`, `siege:complete`
-- No UI controls
-
-**Implementation:**
-
-1. **Task Card Badge:**
-```typescript
-// task-card.tsx
-{task.siegeActive && (
-  <div className="badge bg-orange-500">
-    Siege {task.siegeIteration}/{task.siegeMaxIterations}
-  </div>
-)}
-```
-
-2. **Control Buttons:**
-```typescript
-// task-detail.tsx or task-card context menu
-{task.prNumber && !task.siegeActive && (
-  <button onClick={() => startSiege(task.id)}>
-    Start Siege Loop
-  </button>
-)}
-{task.siegeActive && (
-  <button onClick={() => stopSiege(task.id)}>
-    Stop Siege
-  </button>
-)}
-```
-
-3. **Event Listeners:**
-```typescript
-// app.tsx or siege-listener hook
-useEffect(() => {
-  const unlisten = listen('siege:iteration', (event) => {
-    toast.info(`Siege iteration ${event.payload.iteration}`)
-    refreshTask(event.payload.taskId)
-  })
-  return () => { unlisten.then(f => f()) }
-}, [])
-```
-
-**Validation:**
-- [ ] Start siege button appears for PR tasks
-- [ ] Badge shows iteration count
-- [ ] Stop button works
-- [ ] Events update UI in real-time
-
----
-
-### T026: Test Checklist Generation (M - 60min)
-
-**Implementation:**
-
-1. **Agent Prompt:**
-```typescript
-const generateChecklistPrompt = (diff: string, prTitle: string) => `
-Analyze this PR and generate a test checklist.
-
-PR: ${prTitle}
-Diff:
-${diff}
-
-Generate 5-10 specific test items that a human should verify.
-Format as JSON array: [{"text": "...", "category": "..."}]
-Categories: UI, API, Logic, Edge Cases, Performance
-`
-```
-
-2. **Backend Command:**
-```rust
-#[tauri::command]
-pub async fn generate_test_checklist(task_id: String) -> Result<Vec<ChecklistItem>, String> {
-    // Get PR diff
-    let diff = get_pr_diff(&task_id)?;
-    // Call LLM
-    let items = call_llm(generate_checklist_prompt(&diff))?;
-    // Store on task
-    update_task_checklist(&task_id, &items)?;
-    Ok(items)
-}
-```
-
-3. **UI Trigger:**
-```typescript
-// When task enters "Test" column or on demand
-<button onClick={() => generateTestChecklist(task.id)}>
-  Generate Test Checklist
-</button>
-```
-
-**Validation:**
-- [ ] Generates relevant test items
-- [ ] Items appear in checklist UI
-- [ ] All checked → task can advance
-
----
-
-### T050: File Attachment (M - 60min)
-
-**Implementation:**
-
-1. **Tauri File Dialog:**
-```rust
-// commands/files.rs
-#[tauri::command]
-pub async fn pick_file() -> Result<FileSelection, String> {
-    let file = tauri::api::dialog::blocking::FileDialogBuilder::new()
-        .add_filter("Images", &["png", "jpg", "gif"])
-        .add_filter("Text", &["txt", "md", "json"])
-        .pick_file();
-
-    match file {
-        Some(path) => {
-            let content = std::fs::read(&path)?;
-            let base64 = base64::encode(&content);
-            Ok(FileSelection { path, base64, mime_type: detect_mime(&path) })
-        }
-        None => Err("No file selected".into())
-    }
-}
-```
-
-2. **UI Components:**
-```typescript
-// terminal-input.tsx
-const [attachments, setAttachments] = useState<Attachment[]>([])
-
-const handleAttach = async () => {
-  const file = await pickFile()
-  setAttachments(prev => [...prev, file])
-}
-
-// Show attachment chips
-{attachments.map(a => (
-  <div className="attachment-chip">
-    {a.name}
-    <button onClick={() => removeAttachment(a)}>×</button>
-  </div>
-))}
-```
-
-3. **Send with Message:**
-```typescript
-const send = async () => {
-  await invoke('send_message', {
-    taskId,
-    message: input,
-    attachments: attachments.map(a => ({
-      type: a.mimeType,
-      data: a.base64,
-    }))
-  })
-}
-```
-
-**Validation:**
-- [ ] File picker opens
-- [ ] Selected file shows as chip
-- [ ] Image preview works
-- [ ] Attachment sent to agent
-
----
-
-## Orchestration Script
-
-```typescript
-// overnight-v1-sprint.ts - Run with: npx ts-node overnight-v1-sprint.ts
-
-const TICKETS = {
-  phase1: ['T047', 'T048', 'T027'],  // Parallel
-  phase2: ['T035', 'T049', 'T051'],  // Sequential
-  phase3: ['T026', 'T050'],          // Sequential
-  phase4: ['T028'],                   // Parallel
-}
-
-async function runPhase(name: string, tickets: string[], parallel: boolean) {
-  console.log(`\n=== Phase: ${name} ===\n`)
-
-  if (parallel) {
-    await Promise.all(tickets.map(t => runTicket(t)))
-  } else {
-    for (const t of tickets) {
-      await runTicket(t)
-    }
-  }
-
-  // Validate phase
-  await runCommand('npm run type-check')
-  await runCommand('npm run lint')
-
-  // Commit phase
-  await runCommand(`git add -A && git commit -m "feat: complete ${name}"`)
-}
-
-async function runTicket(ticketId: string) {
-  console.log(`\n--- ${ticketId} ---`)
-
-  // Read ticket spec
-  const spec = await readFile(`.tickets/v1-sprint/${ticketId}-*.md`)
-
-  // Spawn worker agent
-  const result = await spawnAgent({
-    type: 'worker',
-    model: 'opus',
-    prompt: `
-      Implement this ticket:
-      ${spec}
-
-      Requirements:
-      1. Make minimal changes
-      2. Follow existing patterns
-      3. Add no extra features
-      4. Test your changes work
-
-      When done, output: COMPLETE
-    `,
-  })
-
-  if (!result.includes('COMPLETE')) {
-    throw new Error(`${ticketId} failed`)
-  }
-}
-
-// Main execution
-async function main() {
-  await runPhase('Quick Wins', TICKETS.phase1, true)
-  await runPhase('Core Features', TICKETS.phase2, false)
-  await runPhase('Complex Features', TICKETS.phase3, false)
-  await runPhase('Polish', TICKETS.phase4, true)
-
-  // Final validation
-  await runCommand('npm run type-check')
-  await runCommand('npm run lint')
-  await runCommand('cargo test')
-
-  console.log('\n✅ V1 Sprint Complete!\n')
-}
-
-main().catch(console.error)
 ```
 
 ---
 
 ## Invoke Command
 
-### Option 1: Ralph Loop (Single Agent)
+Start the sprint with:
+
 ```bash
-/ralph-loop .tickets/OVERNIGHT-V1-SPRINT.md
+cd /Users/bentomac/bento-ya
+
+claude "Create an agent team for the V1 sprint. Read .tickets/OVERNIGHT-V1-SPRINT.md for the full spec.
+
+Spawn 4 teammates:
+1. 'frontend' - Terminal input features (T047, T048, T049, T050)
+2. 'backend' - History and siege backend (T035, T051)
+3. 'features' - Checklist and notification features (T026, T027, T028)
+4. 'validator' - Runs type-check, lint after each phase, reviews PRs
+
+Coordinate work through the shared task list. Have teammates message each other when they complete dependencies. Require plan approval before major changes.
+
+After all tasks complete, validator teammate runs final verification, then clean up the team."
 ```
 
-### Option 2: Multi-Agent (Claude Code)
-```bash
-# Start orchestrator
-claude --model opus "Execute .tickets/OVERNIGHT-V1-SPRINT.md using parallel Task agents for each phase. Validate after each phase. Commit incrementally."
+---
+
+## Team Structure
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      LEAD (You + Claude)                        │
+│  - Reads ticket specs                                           │
+│  - Spawns teammates                                             │
+│  - Monitors shared task list                                    │
+│  - Approves plans                                               │
+│  - Commits validated work                                       │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ spawns
+         ┌─────────────────┼─────────────────┬─────────────────┐
+         │                 │                 │                 │
+         v                 v                 v                 v
+   ┌──────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐
+   │ frontend │      │ backend  │      │ features │      │ validator│
+   │          │      │          │      │          │      │          │
+   │ T047     │      │ T035     │      │ T026     │      │ type-chk │
+   │ T048     │      │ T051     │      │ T027     │      │ lint     │
+   │ T049     │◄────►│          │◄────►│ T028     │◄────►│ review   │
+   │ T050     │      │          │      │          │      │          │
+   └──────────┘      └──────────┘      └──────────┘      └──────────┘
+         │                 │                 │                 │
+         └─────────────────┴────────┬────────┴─────────────────┘
+                                    │
+                              shared task list
+                              direct messaging
 ```
 
-### Option 3: Manual Phase Execution
+---
+
+## Shared Task List
+
+The lead creates this task list. Teammates claim and complete tasks:
+
+```yaml
+# Phase 1: Quick Wins (No Dependencies)
+- id: T047
+  title: Terminal voice integration
+  assignee: frontend
+  depends_on: []
+  status: pending
+
+- id: T048
+  title: Thinking level selector
+  assignee: frontend
+  depends_on: []
+  status: pending
+
+- id: T027
+  title: Notification column template
+  assignee: features
+  depends_on: []
+  status: pending
+
+# Phase 2: Core Features
+- id: T035
+  title: History replay restore
+  assignee: backend
+  depends_on: []
+  status: pending
+
+- id: T049
+  title: Model selector functional
+  assignee: frontend
+  depends_on: [T048]  # After thinking selector pattern
+  status: pending
+
+- id: T051
+  title: Siege loop UI integration
+  assignee: backend
+  depends_on: [T035]  # Uses similar event patterns
+  status: pending
+
+# Phase 3: Complex Features
+- id: T026
+  title: Test checklist generation
+  assignee: features
+  depends_on: [T027]
+  status: pending
+
+- id: T050
+  title: File attachment
+  assignee: frontend
+  depends_on: [T047]  # After voice wiring pattern
+  status: pending
+
+- id: T028
+  title: Checklist auto-detect
+  assignee: features
+  depends_on: [T026]
+  status: pending
+
+# Validation (runs after each phase)
+- id: VALIDATE-1
+  title: Phase 1 validation
+  assignee: validator
+  depends_on: [T047, T048, T027]
+  status: pending
+
+- id: VALIDATE-2
+  title: Phase 2 validation
+  assignee: validator
+  depends_on: [T035, T049, T051]
+  status: pending
+
+- id: VALIDATE-3
+  title: Final validation
+  assignee: validator
+  depends_on: [T026, T050, T028]
+  status: pending
+```
+
+---
+
+## Teammate Spawn Prompts
+
+### Frontend Teammate
+
+```text
+You are the 'frontend' teammate for the V1 sprint.
+
+Your tasks:
+1. T047: Wire voice input to terminal (use existing useVoiceInput hook)
+2. T048: Implement thinking level selector dropdown
+3. T049: Make model selector functional with settings integration
+4. T050: Add file attachment to terminal input
+
+Work in: src/components/terminal/, src/hooks/
+
+After completing each task:
+- Message 'validator' to run type-check
+- Mark task complete in shared list
+- Claim next available task
+
+Read the full ticket specs in .tickets/v1-sprint/T0XX-*.md before implementing.
+```
+
+### Backend Teammate
+
+```text
+You are the 'backend' teammate for the V1 sprint.
+
+Your tasks:
+1. T035: Implement restore_snapshot Tauri command for history replay
+2. T051: Wire siege loop UI to existing backend (events, buttons, badges)
+
+Work in: src-tauri/src/commands/, src/components/history/, src/components/kanban/
+
+After completing each task:
+- Message 'validator' to run cargo check
+- Mark task complete in shared list
+- Message 'frontend' if you add new IPC commands they need
+
+Read the full ticket specs in .tickets/v1-sprint/T0XX-*.md before implementing.
+```
+
+### Features Teammate
+
+```text
+You are the 'features' teammate for the V1 sprint.
+
+Your tasks:
+1. T027: Add notification column template
+2. T026: Implement test checklist generation from PR diff
+3. T028: Add checklist auto-detect from commit messages
+
+Work in: src/components/checklist/, src/stores/, src-tauri/src/commands/
+
+After completing each task:
+- Message 'validator' to run tests
+- Mark task complete in shared list
+
+Read the full ticket specs in .tickets/v1-sprint/T0XX-*.md before implementing.
+```
+
+### Validator Teammate
+
+```text
+You are the 'validator' teammate for the V1 sprint.
+
+Your job:
+1. When teammates message you, run validation:
+   - npm run type-check
+   - npm run lint
+   - cargo check
+2. Report results back to the teammate
+3. If validation fails, provide specific error details
+4. After each phase completes, do comprehensive check
+5. Final validation: run full test suite, check app runs
+
+Do NOT implement features. Only validate and report.
+
+After final validation passes, message the lead that sprint is complete.
+```
+
+---
+
+## Execution Flow
+
+### Phase 1: Quick Wins (Parallel)
+
+```
+Lead: "frontend, backend, features - start your Phase 1 tasks"
+
+frontend claims T047, T048
+features claims T027
+(backend waits - no Phase 1 tasks)
+
+frontend completes T047 → messages validator → validator runs check → passes
+frontend completes T048 → messages validator → validator runs check → passes
+features completes T027 → messages validator → validator runs check → passes
+
+validator completes VALIDATE-1 → messages lead "Phase 1 complete"
+```
+
+### Phase 2: Core Features
+
+```
+Lead: "All teammates proceed to Phase 2"
+
+backend claims T035 (no dependencies)
+frontend claims T049 (depends on T048 ✓)
+backend completes T035 → messages frontend about new IPC
+backend claims T051 (depends on T035 ✓)
+
+frontend completes T049 → messages validator
+backend completes T051 → messages validator
+
+validator completes VALIDATE-2 → messages lead "Phase 2 complete"
+```
+
+### Phase 3: Complex Features
+
+```
+Lead: "All teammates proceed to Phase 3"
+
+features claims T026 (depends on T027 ✓)
+frontend claims T050 (depends on T047 ✓)
+
+features completes T026
+features claims T028 (depends on T026 ✓)
+
+frontend completes T050
+features completes T028
+
+validator completes VALIDATE-3 → "All validations pass"
+validator: "Sprint complete! All tasks done, all checks pass."
+```
+
+### Cleanup
+
+```
+Lead: "All teammates shut down"
+Lead: "Clean up the team"
+Lead: Commits all changes with conventional messages
+```
+
+---
+
+## Detailed Task Specs
+
+### T047: Terminal Voice Integration
+
+**Ticket:** `.tickets/v1-sprint/T047-terminal-voice-integration.md`
+
+**Implementation:**
+```typescript
+// terminal-input.tsx
+import { useVoiceInput } from '@/hooks/use-voice-input'
+
+const voice = useVoiceInput({
+  onTranscript: (text) => setInput((prev) => prev + ' ' + text),
+})
+
+// Replace disabled mic button:
+<button
+  onClick={voice.state === 'recording' ? voice.stopRecording : voice.startRecording}
+  className={`rounded p-1 transition-colors ${
+    voice.state === 'recording'
+      ? 'text-red-500 animate-pulse'
+      : 'text-text-muted hover:text-text-primary'
+  }`}
+  title={voice.state === 'recording' ? 'Stop recording' : 'Voice input'}
+>
+  <MicIcon />
+</button>
+```
+
+---
+
+### T048: Thinking Level Selector
+
+**Ticket:** `.tickets/v1-sprint/T048-thinking-level-selector.md`
+
+**Implementation:**
+```typescript
+// thinking-selector.tsx
+const LEVELS = [
+  { id: 'none', label: 'None', description: 'No extended thinking' },
+  { id: 'low', label: 'Low', description: 'Brief reasoning' },
+  { id: 'medium', label: 'Medium', description: 'Moderate depth' },
+  { id: 'high', label: 'High', description: 'Deep analysis' },
+] as const
+
+export function ThinkingSelector({ value = 'medium', onChange }: Props) {
+  const [open, setOpen] = useState(false)
+  const selected = LEVELS.find(l => l.id === value)
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-text-secondary hover:bg-bg-tertiary"
+      >
+        <BrainIcon className="h-3 w-3" />
+        {selected?.label}
+        <ChevronDown className="h-3 w-3" />
+      </button>
+      {open && (
+        <div className="absolute bottom-full left-0 mb-1 rounded border border-border-default bg-bg-secondary py-1 shadow-lg min-w-[140px]">
+          {LEVELS.map((level) => (
+            <button
+              key={level.id}
+              onClick={() => { onChange?.(level.id); setOpen(false) }}
+              className={`block w-full px-3 py-1.5 text-left text-xs hover:bg-bg-tertiary ${
+                level.id === value ? 'text-accent' : 'text-text-secondary'
+              }`}
+            >
+              <div>{level.label}</div>
+              <div className="text-text-muted text-[10px]">{level.description}</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+---
+
+### T035: History Replay Restore
+
+**Ticket:** `.tickets/v1-sprint/T035-history-replay.md`
+
+**Backend:**
+```rust
+// src-tauri/src/commands/history.rs
+
+#[derive(Serialize)]
+pub struct RestoreResult {
+    pub backup_id: String,
+    pub restored_at: String,
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn restore_snapshot(
+    snapshot_id: String,
+    state: State<'_, AppState>,
+) -> Result<RestoreResult, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+
+    // Get snapshot
+    let snapshot = db::get_snapshot(&conn, &snapshot_id)
+        .map_err(|e| format!("Failed to get snapshot: {}", e))?;
+
+    // Create backup before restore
+    let backup_id = db::create_snapshot(
+        &conn,
+        &snapshot.workspace_id,
+        "pre-restore-backup",
+        &snapshot.data  // Current state
+    ).map_err(|e| format!("Failed to create backup: {}", e))?;
+
+    // Parse and restore
+    let data: serde_json::Value = serde_json::from_str(&snapshot.data)
+        .map_err(|e| format!("Invalid snapshot data: {}", e))?;
+
+    // Restore columns and tasks
+    db::restore_workspace_state(&conn, &snapshot.workspace_id, &data)
+        .map_err(|e| format!("Failed to restore: {}", e))?;
+
+    Ok(RestoreResult {
+        backup_id,
+        restored_at: chrono::Utc::now().to_rfc3339(),
+    })
+}
+```
+
+**Frontend:**
+```typescript
+// Where HistoryPanel is rendered
+<HistoryPanel
+  workspaceId={activeWorkspaceId}
+  onClose={() => setShowHistory(false)}
+  onReplay={async (snapshot) => {
+    const confirmed = await confirm(
+      `Restore workspace to "${snapshot.name}"?\n\nA backup will be created automatically.`
+    )
+    if (confirmed) {
+      try {
+        const result = await restoreSnapshot(snapshot.id)
+        await refreshWorkspace()
+        toast.success(`Restored! Backup created: ${result.backupId}`)
+        setShowHistory(false)
+      } catch (e) {
+        toast.error(`Restore failed: ${e}`)
+      }
+    }
+  }}
+/>
+```
+
+---
+
+### T051: Siege Loop UI
+
+**Ticket:** `.tickets/v1-sprint/T051-siege-ui-integration.md`
+
+**Task Card Badge:**
+```typescript
+// task-card.tsx - add to badges section
+{task.siegeActive && (
+  <span className="inline-flex items-center gap-1 rounded bg-orange-500/20 px-1.5 py-0.5 text-[10px] text-orange-400">
+    <SwordsIcon className="h-3 w-3" />
+    {task.siegeIteration}/{task.siegeMaxIterations}
+  </span>
+)}
+```
+
+**Context Menu Actions:**
+```typescript
+// task-card.tsx - add to context menu
+{task.prNumber && !task.siegeActive && (
+  <ContextMenuItem onClick={() => startSiege(task.id)}>
+    <SwordsIcon className="h-4 w-4" />
+    Start Siege Loop
+  </ContextMenuItem>
+)}
+{task.siegeActive && (
+  <ContextMenuItem onClick={() => stopSiege(task.id)} variant="destructive">
+    <StopIcon className="h-4 w-4" />
+    Stop Siege
+  </ContextMenuItem>
+)}
+```
+
+**Event Listener Hook:**
+```typescript
+// hooks/use-siege-events.ts
+export function useSiegeEvents() {
+  useEffect(() => {
+    const listeners = [
+      listen('siege:started', (e) => {
+        toast.info(`Siege started for ${e.payload.taskId}`)
+      }),
+      listen('siege:iteration', (e) => {
+        toast.info(`Siege iteration ${e.payload.iteration}/${e.payload.maxIterations}`)
+      }),
+      listen('siege:complete', (e) => {
+        toast.success(`Siege complete: ${e.payload.message}`)
+      }),
+      listen('siege:stopped', (e) => {
+        toast.warn('Siege stopped')
+      }),
+    ]
+
+    return () => {
+      listeners.forEach(p => p.then(f => f()))
+    }
+  }, [])
+}
+```
+
+---
+
+## Validation Commands
+
+The validator teammate runs these:
+
 ```bash
-# Phase 1 (parallel)
-claude "Implement T047, T048, T027 in parallel" &
-wait
+# TypeScript
+npm run type-check
 
-# Phase 2 (sequential)
-claude "Implement T035" && claude "Implement T049" && claude "Implement T051"
+# Lint
+npm run lint
 
-# etc.
+# Rust
+cargo check
+cargo clippy
+
+# Full test (final validation only)
+cargo test
+npm run test
+
+# Smoke test
+pnpm tauri dev  # Manual verify app launches
 ```
 
 ---
 
 ## Recovery Protocol
 
-**If agent stuck >30min:**
-1. Log blocker in ticket file
-2. Skip to next ticket
-3. Return with fresh context
+**If teammate gets stuck:**
+```text
+Lead → Teammate: "What's blocking you? Share the error."
+Teammate → Lead: <error details>
+Lead: Reviews and provides guidance or reassigns task
+```
 
 **If validation fails:**
-1. Read error output
-2. Fix specific issue
-3. Re-run validation
-4. Do NOT proceed until green
+```text
+Validator → Teammate: "Type-check failed: <specific errors>"
+Teammate: Fixes issues
+Teammate → Validator: "Fixed, please re-validate"
+```
 
-**If phase fails:**
-1. `git stash` partial work
-2. Document state
-3. Restart phase from scratch
+**If teammate crashes:**
+```text
+Lead: Spawns replacement teammate with same prompt
+Lead: "New frontend teammate, claim uncompleted tasks from the list"
+```
 
 ---
 
 ## Success Criteria
 
-- [ ] All P0 tickets complete (T035, T047, T051)
-- [ ] All P1 tickets complete (T048, T049, T026, T050)
-- [ ] P2 polish complete (T027, T028)
-- [ ] `npm run type-check` passes
-- [ ] `npm run lint` passes
-- [ ] `cargo check` passes
-- [ ] App runs without console errors
+- [ ] All 10 tasks marked complete in shared list
+- [ ] All 3 validation tasks pass
+- [ ] `npm run type-check` clean
+- [ ] `npm run lint` clean
+- [ ] `cargo check` clean
+- [ ] App launches without errors
 - [ ] No "coming in vX.X" tooltips remain
-- [ ] STATUS.md updated
-- [ ] All commits have conventional messages
+- [ ] Commits have conventional messages
 
 ---
 
 ## Estimated Timeline
 
-| Phase | Duration | Tickets |
-|-------|----------|---------|
-| Setup | 15min | Read specs, verify env |
-| Phase 1 | 1.5hr | T047, T048, T027 (parallel) |
-| Phase 2 | 3hr | T035, T049, T051 (sequential) |
-| Phase 3 | 2.5hr | T026, T050 (sequential) |
-| Phase 4 | 1hr | T028, polish (parallel) |
-| Validation | 30min | Final checks, STATUS update |
-| **Total** | **~8hr** | |
+| Time | Activity |
+|------|----------|
+| 0:00 | Lead spawns 4 teammates |
+| 0:15 | Phase 1 starts (parallel) |
+| 1:30 | Phase 1 complete, validation |
+| 1:45 | Phase 2 starts |
+| 4:00 | Phase 2 complete, validation |
+| 4:15 | Phase 3 starts |
+| 6:30 | Phase 3 complete, final validation |
+| 7:00 | Cleanup, commits |
+| **~7hr** | **Complete** |
 
-Start at 10pm → Complete by 6am
+Start at 11pm → Complete by 6am
