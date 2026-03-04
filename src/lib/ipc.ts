@@ -903,6 +903,11 @@ export type ChecklistItem = {
   checked: boolean
   notes: string | null
   position: number
+  // Auto-detect fields
+  detectType: string | null
+  detectConfig: string | null
+  autoDetected: boolean
+  linkedTaskId: string | null
   createdAt: string
   updatedAt: string
 }
@@ -937,6 +942,8 @@ export type ChecklistWithData = {
 
 export type TemplateItem = {
   text: string
+  detectType?: string
+  detectConfig?: string  // JSON-encoded detection config
 }
 
 export type TemplateCategory = {
@@ -980,6 +987,21 @@ export async function createWorkspaceChecklist(
 
 export async function deleteWorkspaceChecklist(workspaceId: string): Promise<void> {
   return invoke<void>('delete_workspace_checklist', { workspaceId })
+}
+
+export async function updateChecklistItemAutoDetect(
+  itemId: string,
+  autoDetected: boolean,
+  checked: boolean,
+): Promise<ChecklistItem> {
+  return invoke<ChecklistItem>('update_checklist_item_auto_detect', { itemId, autoDetected, checked })
+}
+
+export async function linkChecklistItemToTask(
+  itemId: string,
+  taskId: string | null,
+): Promise<ChecklistItem> {
+  return invoke<ChecklistItem>('link_checklist_item_to_task', { itemId, taskId })
 }
 
 // ─── Files commands ──────────────────────────────────────────────────────────
