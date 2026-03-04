@@ -24,7 +24,7 @@
          v                 v                 v
    ┌──────────┐      ┌──────────┐      ┌──────────┐
    │ WORKER 1 │      │ WORKER 2 │      │ WORKER 3 │
-   │ (Sonnet) │      │ (Sonnet) │      │ (Sonnet) │
+   │ (Opus)   │      │ (Opus)   │      │ (Opus)   │
    │          │      │          │      │          │
    │ Frontend │      │ Backend  │      │ Wiring   │
    └────┬─────┘      └────┬─────┘      └────┬─────┘
@@ -33,7 +33,7 @@
                           v
                    ┌──────────┐
                    │ VALIDATOR│
-                   │ (Haiku)  │
+                   │ (Opus)   │
                    │          │
                    │ Type/Lint│
                    │ Test     │
@@ -546,7 +546,7 @@ async function runTicket(ticketId: string) {
   // Spawn worker agent
   const result = await spawnAgent({
     type: 'worker',
-    model: 'sonnet',
+    model: 'opus',
     prompt: `
       Implement this ticket:
       ${spec}
