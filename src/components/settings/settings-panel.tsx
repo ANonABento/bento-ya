@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { useSettingsStore } from '@/stores/settings-store'
 import { AppearanceTab } from './tabs/appearance-tab'
 import { AgentTab } from './tabs/agent-tab'
+import { CardsTab } from './tabs/cards-tab'
 import { GitTab } from './tabs/git-tab'
 import { VoiceTab } from './tabs/voice-tab'
 import { ShortcutsTab } from './tabs/shortcuts-tab'
@@ -46,11 +47,17 @@ const icons: Record<string, React.ReactNode> = {
       <path fillRule="evenodd" d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75Zm7 10.5a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1-.75-.75ZM2 10a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 10Z" clipRule="evenodd" />
     </svg>
   ),
+  cards: (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+      <path fillRule="evenodd" d="M.99 5.24A2.25 2.25 0 0 1 3.25 3h13.5A2.25 2.25 0 0 1 19 5.25l.01 9.5A2.25 2.25 0 0 1 16.76 17H3.26A2.267 2.267 0 0 1 1 14.74l-.01-9.5Zm8.26 9.52v-.625a.75.75 0 0 0-.75-.75H3.25a.75.75 0 0 0-.75.75v.615c0 .414.336.75.75.75h5.373a.75.75 0 0 0 .627-.74Zm1.5 0a.75.75 0 0 0 .627.74h5.373a.75.75 0 0 0 .75-.75v-.615a.75.75 0 0 0-.75-.75H11.5a.75.75 0 0 0-.75.75v.625Zm6.75-5.26v-.625a.75.75 0 0 0-.75-.75H11.5a.75.75 0 0 0-.75.75v.625c0 .414.336.75.75.75h5.25a.75.75 0 0 0 .75-.75Zm-8.5 0v-.625a.75.75 0 0 0-.75-.75H3.25a.75.75 0 0 0-.75.75v.625c0 .414.336.75.75.75H8.5a.75.75 0 0 0 .75-.75Z" clipRule="evenodd" />
+    </svg>
+  ),
 }
 
 const TABS = [
   { id: 'workspace', label: 'Workspace' },
   { id: 'appearance', label: 'Appearance' },
+  { id: 'cards', label: 'Cards' },
   { id: 'agent', label: 'Agent' },
   { id: 'templates', label: 'Templates' },
   { id: 'git', label: 'Git' },
@@ -70,6 +77,8 @@ export function SettingsPanel() {
         return <WorkspaceTab />
       case 'appearance':
         return <AppearanceTab />
+      case 'cards':
+        return <CardsTab />
       case 'agent':
         return <AgentTab />
       case 'templates':

@@ -82,6 +82,7 @@ export const useSettingsStore = create<SettingsState>()(
             voice: { ...global.voice, ...overrides.voice },
             git: { ...global.git, ...overrides.git },
             appearance: { ...global.appearance, ...overrides.appearance },
+            cards: { ...global.cards, ...overrides.cards },
           } as Settings
         },
 

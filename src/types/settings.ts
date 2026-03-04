@@ -76,6 +76,23 @@ export type AppearanceConfig = {
   animationSpeed: 'none' | 'reduced' | 'normal'
 }
 
+export type CardDisplayConfig = {
+  showDescription: boolean
+  showBranch: boolean
+  showAgentType: boolean
+  showTimestamp: boolean
+  showPrBadge: boolean
+  showCiStatus: boolean
+  showReviewStatus: boolean
+  showMergeStatus: boolean
+  showCommentCount: boolean
+  showLabels: boolean
+  // PR polling settings
+  prPollingEnabled: boolean
+  prPollingIntervalSeconds: number
+  prCacheMaxAgeSeconds: number
+}
+
 export type ShortcutConfig = {
   id: string
   action: string
@@ -92,6 +109,7 @@ export type Settings = {
   voice: VoiceConfig
   git: GitConfig
   appearance: AppearanceConfig
+  cards: CardDisplayConfig
   shortcuts: ShortcutConfig[]
 }
 
@@ -155,6 +173,21 @@ export const DEFAULT_SETTINGS: Settings = {
     fontSize: 'medium',
     cardDensity: 'comfortable',
     animationSpeed: 'normal',
+  },
+  cards: {
+    showDescription: true,
+    showBranch: true,
+    showAgentType: true,
+    showTimestamp: true,
+    showPrBadge: true,
+    showCiStatus: true,
+    showReviewStatus: true,
+    showMergeStatus: true,
+    showCommentCount: true,
+    showLabels: true,
+    prPollingEnabled: true,
+    prPollingIntervalSeconds: 60,
+    prCacheMaxAgeSeconds: 300,
   },
   shortcuts: [
     { id: 'new-task', action: 'Create New Task', keys: 'Cmd+N', enabled: true },
