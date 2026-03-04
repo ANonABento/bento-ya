@@ -1,14 +1,36 @@
-# Overnight V1 Sprint - Agent Teams
+# Overnight V1 Sprint - Per-Ticket Agent Teams
 
-> **Mode**: Claude Code Agent Teams (experimental)
-> **Goal**: Complete all P0/P1 tickets in single overnight session
-> **Est. Duration**: 6-8 hours autonomous
+> **Mode**: Claude Code Agent Teams - One team per ticket
+> **Goal**: Deep implementation with built-in review for each feature
+> **Est. Duration**: 8-10 hours autonomous
+
+---
+
+## Philosophy
+
+Instead of spreading teammates across tickets, each ticket gets its own dedicated team:
+
+```
+Traditional:                    Per-Ticket Teams:
+
+frontend → T047, T048...       T047 Team:
+backend  → T035, T051...         ├── implementer
+features → T026, T027...         ├── reviewer
+validator → all                  ├── tester
+                                 └── lead validates
+
+Shallow but parallel           Deep and thorough
+```
+
+**Benefits:**
+- Implementer + Reviewer catch issues immediately
+- Tester writes tests as code is written
+- No context switching between unrelated features
+- Each ticket gets full attention
 
 ---
 
 ## Prerequisites
-
-Enable agent teams in settings:
 
 ```json
 // ~/.claude/settings.json
@@ -16,586 +38,553 @@ Enable agent teams in settings:
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
-  "teammateMode": "tmux"  // or "in-process"
+  "teammateMode": "tmux"
 }
 ```
 
 ---
 
-## Invoke Command
+## Execution Order
 
-Start the sprint with:
+Run tickets sequentially. Each gets a full team, completes, validates, commits, then next.
 
-```bash
-cd /Users/bentomac/bento-ya
+| # | Ticket | Team Size | Est. Time |
+|---|--------|-----------|-----------|
+| 1 | T047 - Terminal Voice | 3 agents | 45min |
+| 2 | T048 - Thinking Selector | 3 agents | 45min |
+| 3 | T049 - Model Selector | 3 agents | 60min |
+| 4 | T035 - History Replay | 4 agents | 90min |
+| 5 | T051 - Siege UI | 4 agents | 90min |
+| 6 | T026 - Test Checklist | 4 agents | 90min |
+| 7 | T050 - File Attachment | 4 agents | 90min |
+| 8 | T027 - Notification Column | 3 agents | 45min |
+| 9 | T028 - Checklist Auto-detect | 3 agents | 60min |
+| | **Total** | | **~10hr** |
 
-claude "Create an agent team for the V1 sprint. Read .tickets/OVERNIGHT-V1-SPRINT.md for the full spec.
+---
 
-Spawn 4 teammates:
-1. 'frontend' - Terminal input features (T047, T048, T049, T050)
-2. 'backend' - History and siege backend (T035, T051)
-3. 'features' - Checklist and notification features (T026, T027, T028)
-4. 'validator' - Runs type-check, lint after each phase, reviews PRs
+## Team Templates
 
-Coordinate work through the shared task list. Have teammates message each other when they complete dependencies. Require plan approval before major changes.
+### Small Team (3 agents) - Simple Features
 
-After all tasks complete, validator teammate runs final verification, then clean up the team."
+```
+┌─────────────────────────────────────────┐
+│              LEAD (You)                 │
+│  - Approves plans                       │
+│  - Commits when complete                │
+└────────────────┬────────────────────────┘
+                 │
+    ┌────────────┼────────────┐
+    │            │            │
+    v            v            v
+┌────────┐  ┌────────┐  ┌────────┐
+│implement│  │ review │  │  test  │
+│         │  │        │  │        │
+│ writes  │─►│challenges│─►│validates│
+│ code    │  │ approach│  │ & types │
+└────────┘  └────────┘  └────────┘
+```
+
+### Large Team (4 agents) - Complex Features
+
+```
+┌─────────────────────────────────────────┐
+│              LEAD (You)                 │
+└────────────────┬────────────────────────┘
+                 │
+    ┌────────────┼────────────┬────────────┐
+    │            │            │            │
+    v            v            v            v
+┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐
+│implement│  │ review │  │  test  │  │research│
+│         │  │        │  │        │  │        │
+│ writes  │  │devils  │  │writes  │  │finds   │
+│ code    │  │advocate│  │tests   │  │patterns│
+└────────┘  └────────┘  └────────┘  └────────┘
+     │            │            │            │
+     └────────────┴─────┬──────┴────────────┘
+                        │
+                  debate & iterate
 ```
 
 ---
 
-## Team Structure
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      LEAD (You + Claude)                        │
-│  - Reads ticket specs                                           │
-│  - Spawns teammates                                             │
-│  - Monitors shared task list                                    │
-│  - Approves plans                                               │
-│  - Commits validated work                                       │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ spawns
-         ┌─────────────────┼─────────────────┬─────────────────┐
-         │                 │                 │                 │
-         v                 v                 v                 v
-   ┌──────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐
-   │ frontend │      │ backend  │      │ features │      │ validator│
-   │          │      │          │      │          │      │          │
-   │ T047     │      │ T035     │      │ T026     │      │ type-chk │
-   │ T048     │      │ T051     │      │ T027     │      │ lint     │
-   │ T049     │◄────►│          │◄────►│ T028     │◄────►│ review   │
-   │ T050     │      │          │      │          │      │          │
-   └──────────┘      └──────────┘      └──────────┘      └──────────┘
-         │                 │                 │                 │
-         └─────────────────┴────────┬────────┴─────────────────┘
-                                    │
-                              shared task list
-                              direct messaging
-```
-
----
-
-## Shared Task List
-
-The lead creates this task list. Teammates claim and complete tasks:
-
-```yaml
-# Phase 1: Quick Wins (No Dependencies)
-- id: T047
-  title: Terminal voice integration
-  assignee: frontend
-  depends_on: []
-  status: pending
-
-- id: T048
-  title: Thinking level selector
-  assignee: frontend
-  depends_on: []
-  status: pending
-
-- id: T027
-  title: Notification column template
-  assignee: features
-  depends_on: []
-  status: pending
-
-# Phase 2: Core Features
-- id: T035
-  title: History replay restore
-  assignee: backend
-  depends_on: []
-  status: pending
-
-- id: T049
-  title: Model selector functional
-  assignee: frontend
-  depends_on: [T048]  # After thinking selector pattern
-  status: pending
-
-- id: T051
-  title: Siege loop UI integration
-  assignee: backend
-  depends_on: [T035]  # Uses similar event patterns
-  status: pending
-
-# Phase 3: Complex Features
-- id: T026
-  title: Test checklist generation
-  assignee: features
-  depends_on: [T027]
-  status: pending
-
-- id: T050
-  title: File attachment
-  assignee: frontend
-  depends_on: [T047]  # After voice wiring pattern
-  status: pending
-
-- id: T028
-  title: Checklist auto-detect
-  assignee: features
-  depends_on: [T026]
-  status: pending
-
-# Validation (runs after each phase)
-- id: VALIDATE-1
-  title: Phase 1 validation
-  assignee: validator
-  depends_on: [T047, T048, T027]
-  status: pending
-
-- id: VALIDATE-2
-  title: Phase 2 validation
-  assignee: validator
-  depends_on: [T035, T049, T051]
-  status: pending
-
-- id: VALIDATE-3
-  title: Final validation
-  assignee: validator
-  depends_on: [T026, T050, T028]
-  status: pending
-```
-
----
-
-## Teammate Spawn Prompts
-
-### Frontend Teammate
-
-```text
-You are the 'frontend' teammate for the V1 sprint.
-
-Your tasks:
-1. T047: Wire voice input to terminal (use existing useVoiceInput hook)
-2. T048: Implement thinking level selector dropdown
-3. T049: Make model selector functional with settings integration
-4. T050: Add file attachment to terminal input
-
-Work in: src/components/terminal/, src/hooks/
-
-After completing each task:
-- Message 'validator' to run type-check
-- Mark task complete in shared list
-- Claim next available task
-
-Read the full ticket specs in .tickets/v1-sprint/T0XX-*.md before implementing.
-```
-
-### Backend Teammate
-
-```text
-You are the 'backend' teammate for the V1 sprint.
-
-Your tasks:
-1. T035: Implement restore_snapshot Tauri command for history replay
-2. T051: Wire siege loop UI to existing backend (events, buttons, badges)
-
-Work in: src-tauri/src/commands/, src/components/history/, src/components/kanban/
-
-After completing each task:
-- Message 'validator' to run cargo check
-- Mark task complete in shared list
-- Message 'frontend' if you add new IPC commands they need
-
-Read the full ticket specs in .tickets/v1-sprint/T0XX-*.md before implementing.
-```
-
-### Features Teammate
-
-```text
-You are the 'features' teammate for the V1 sprint.
-
-Your tasks:
-1. T027: Add notification column template
-2. T026: Implement test checklist generation from PR diff
-3. T028: Add checklist auto-detect from commit messages
-
-Work in: src/components/checklist/, src/stores/, src-tauri/src/commands/
-
-After completing each task:
-- Message 'validator' to run tests
-- Mark task complete in shared list
-
-Read the full ticket specs in .tickets/v1-sprint/T0XX-*.md before implementing.
-```
-
-### Validator Teammate
-
-```text
-You are the 'validator' teammate for the V1 sprint.
-
-Your job:
-1. When teammates message you, run validation:
-   - npm run type-check
-   - npm run lint
-   - cargo check
-2. Report results back to the teammate
-3. If validation fails, provide specific error details
-4. After each phase completes, do comprehensive check
-5. Final validation: run full test suite, check app runs
-
-Do NOT implement features. Only validate and report.
-
-After final validation passes, message the lead that sprint is complete.
-```
-
----
-
-## Execution Flow
-
-### Phase 1: Quick Wins (Parallel)
-
-```
-Lead: "frontend, backend, features - start your Phase 1 tasks"
-
-frontend claims T047, T048
-features claims T027
-(backend waits - no Phase 1 tasks)
-
-frontend completes T047 → messages validator → validator runs check → passes
-frontend completes T048 → messages validator → validator runs check → passes
-features completes T027 → messages validator → validator runs check → passes
-
-validator completes VALIDATE-1 → messages lead "Phase 1 complete"
-```
-
-### Phase 2: Core Features
-
-```
-Lead: "All teammates proceed to Phase 2"
-
-backend claims T035 (no dependencies)
-frontend claims T049 (depends on T048 ✓)
-backend completes T035 → messages frontend about new IPC
-backend claims T051 (depends on T035 ✓)
-
-frontend completes T049 → messages validator
-backend completes T051 → messages validator
-
-validator completes VALIDATE-2 → messages lead "Phase 2 complete"
-```
-
-### Phase 3: Complex Features
-
-```
-Lead: "All teammates proceed to Phase 3"
-
-features claims T026 (depends on T027 ✓)
-frontend claims T050 (depends on T047 ✓)
-
-features completes T026
-features claims T028 (depends on T026 ✓)
-
-frontend completes T050
-features completes T028
-
-validator completes VALIDATE-3 → "All validations pass"
-validator: "Sprint complete! All tasks done, all checks pass."
-```
-
-### Cleanup
-
-```
-Lead: "All teammates shut down"
-Lead: "Clean up the team"
-Lead: Commits all changes with conventional messages
-```
-
----
-
-## Detailed Task Specs
+## Per-Ticket Invoke Commands
 
 ### T047: Terminal Voice Integration
 
-**Ticket:** `.tickets/v1-sprint/T047-terminal-voice-integration.md`
+```bash
+claude "Create an agent team for T047 - Terminal Voice Integration.
 
-**Implementation:**
-```typescript
-// terminal-input.tsx
-import { useVoiceInput } from '@/hooks/use-voice-input'
+Read the ticket: .tickets/v1-sprint/T047-terminal-voice-integration.md
 
-const voice = useVoiceInput({
-  onTranscript: (text) => setInput((prev) => prev + ' ' + text),
-})
+Spawn 3 teammates:
+1. 'implementer' - Wire useVoiceInput hook to terminal-input.tsx
+2. 'reviewer' - Review the implementation, suggest improvements, check edge cases
+3. 'tester' - Run type-check, verify the button works, check recording states
 
-// Replace disabled mic button:
-<button
-  onClick={voice.state === 'recording' ? voice.stopRecording : voice.startRecording}
-  className={`rounded p-1 transition-colors ${
-    voice.state === 'recording'
-      ? 'text-red-500 animate-pulse'
-      : 'text-text-muted hover:text-text-primary'
-  }`}
-  title={voice.state === 'recording' ? 'Stop recording' : 'Voice input'}
->
-  <MicIcon />
-</button>
+Workflow:
+- implementer writes the code, messages reviewer when ready
+- reviewer challenges the approach, suggests fixes
+- implementer addresses feedback
+- tester validates everything works
+- When all agree it's good, message lead to commit
+
+Require plan approval from implementer before coding."
 ```
 
 ---
 
 ### T048: Thinking Level Selector
 
-**Ticket:** `.tickets/v1-sprint/T048-thinking-level-selector.md`
+```bash
+claude "Create an agent team for T048 - Thinking Level Selector.
 
-**Implementation:**
-```typescript
-// thinking-selector.tsx
-const LEVELS = [
-  { id: 'none', label: 'None', description: 'No extended thinking' },
-  { id: 'low', label: 'Low', description: 'Brief reasoning' },
-  { id: 'medium', label: 'Medium', description: 'Moderate depth' },
-  { id: 'high', label: 'High', description: 'Deep analysis' },
-] as const
+Read the ticket: .tickets/v1-sprint/T048-thinking-level-selector.md
 
-export function ThinkingSelector({ value = 'medium', onChange }: Props) {
-  const [open, setOpen] = useState(false)
-  const selected = LEVELS.find(l => l.id === value)
+Spawn 3 teammates:
+1. 'implementer' - Build dropdown component with None/Low/Medium/High levels
+2. 'reviewer' - Verify UX matches other selectors, check accessibility
+3. 'tester' - Type-check, test dropdown behavior, verify state persistence
 
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-text-secondary hover:bg-bg-tertiary"
-      >
-        <BrainIcon className="h-3 w-3" />
-        {selected?.label}
-        <ChevronDown className="h-3 w-3" />
-      </button>
-      {open && (
-        <div className="absolute bottom-full left-0 mb-1 rounded border border-border-default bg-bg-secondary py-1 shadow-lg min-w-[140px]">
-          {LEVELS.map((level) => (
-            <button
-              key={level.id}
-              onClick={() => { onChange?.(level.id); setOpen(false) }}
-              className={`block w-full px-3 py-1.5 text-left text-xs hover:bg-bg-tertiary ${
-                level.id === value ? 'text-accent' : 'text-text-secondary'
-              }`}
-            >
-              <div>{level.label}</div>
-              <div className="text-text-muted text-[10px]">{level.description}</div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
+The component should follow the same pattern as mode-selector.tsx.
+Wire the selection to agent spawn config.
+
+Require plan approval before implementation."
+```
+
+---
+
+### T049: Model Selector Functional
+
+```bash
+claude "Create an agent team for T049 - Model Selector.
+
+Read the ticket: .tickets/v1-sprint/T049-model-selector-functional.md
+
+Spawn 3 teammates:
+1. 'implementer' - Convert display-only component to functional dropdown
+2. 'reviewer' - Check settings integration, verify model list from providers
+3. 'tester' - Type-check, test selection persists, verify agent uses selected model
+
+Current code in model-selector.tsx is just a display stub.
+Need to read providers from settings store and wire to agent spawn.
+
+Require plan approval before implementation."
 ```
 
 ---
 
 ### T035: History Replay Restore
 
-**Ticket:** `.tickets/v1-sprint/T035-history-replay.md`
+```bash
+claude "Create an agent team for T035 - History Replay Restore.
 
-**Backend:**
-```rust
-// src-tauri/src/commands/history.rs
+Read the ticket: .tickets/v1-sprint/T035-history-replay.md
 
-#[derive(Serialize)]
-pub struct RestoreResult {
-    pub backup_id: String,
-    pub restored_at: String,
-}
+Spawn 4 teammates:
+1. 'implementer' - Add restore_snapshot Tauri command, wire to HistoryPanel
+2. 'reviewer' - Review Rust code safety, check error handling, verify backup creation
+3. 'tester' - cargo check, test restore actually works, verify backup created
+4. 'researcher' - Check existing snapshot format, find best restore approach
 
-#[tauri::command(rename_all = "camelCase")]
-pub async fn restore_snapshot(
-    snapshot_id: String,
-    state: State<'_, AppState>,
-) -> Result<RestoreResult, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+This is complex - involves:
+- New Rust command in history.rs
+- Database operations to restore state
+- Frontend callback wiring
+- Confirmation dialog
 
-    // Get snapshot
-    let snapshot = db::get_snapshot(&conn, &snapshot_id)
-        .map_err(|e| format!("Failed to get snapshot: {}", e))?;
+Have researcher share findings with implementer first.
+Reviewer should be skeptical - this touches production data.
 
-    // Create backup before restore
-    let backup_id = db::create_snapshot(
-        &conn,
-        &snapshot.workspace_id,
-        "pre-restore-backup",
-        &snapshot.data  // Current state
-    ).map_err(|e| format!("Failed to create backup: {}", e))?;
-
-    // Parse and restore
-    let data: serde_json::Value = serde_json::from_str(&snapshot.data)
-        .map_err(|e| format!("Invalid snapshot data: {}", e))?;
-
-    // Restore columns and tasks
-    db::restore_workspace_state(&conn, &snapshot.workspace_id, &data)
-        .map_err(|e| format!("Failed to restore: {}", e))?;
-
-    Ok(RestoreResult {
-        backup_id,
-        restored_at: chrono::Utc::now().to_rfc3339(),
-    })
-}
-```
-
-**Frontend:**
-```typescript
-// Where HistoryPanel is rendered
-<HistoryPanel
-  workspaceId={activeWorkspaceId}
-  onClose={() => setShowHistory(false)}
-  onReplay={async (snapshot) => {
-    const confirmed = await confirm(
-      `Restore workspace to "${snapshot.name}"?\n\nA backup will be created automatically.`
-    )
-    if (confirmed) {
-      try {
-        const result = await restoreSnapshot(snapshot.id)
-        await refreshWorkspace()
-        toast.success(`Restored! Backup created: ${result.backupId}`)
-        setShowHistory(false)
-      } catch (e) {
-        toast.error(`Restore failed: ${e}`)
-      }
-    }
-  }}
-/>
+Require plan approval before any database changes."
 ```
 
 ---
 
-### T051: Siege Loop UI
-
-**Ticket:** `.tickets/v1-sprint/T051-siege-ui-integration.md`
-
-**Task Card Badge:**
-```typescript
-// task-card.tsx - add to badges section
-{task.siegeActive && (
-  <span className="inline-flex items-center gap-1 rounded bg-orange-500/20 px-1.5 py-0.5 text-[10px] text-orange-400">
-    <SwordsIcon className="h-3 w-3" />
-    {task.siegeIteration}/{task.siegeMaxIterations}
-  </span>
-)}
-```
-
-**Context Menu Actions:**
-```typescript
-// task-card.tsx - add to context menu
-{task.prNumber && !task.siegeActive && (
-  <ContextMenuItem onClick={() => startSiege(task.id)}>
-    <SwordsIcon className="h-4 w-4" />
-    Start Siege Loop
-  </ContextMenuItem>
-)}
-{task.siegeActive && (
-  <ContextMenuItem onClick={() => stopSiege(task.id)} variant="destructive">
-    <StopIcon className="h-4 w-4" />
-    Stop Siege
-  </ContextMenuItem>
-)}
-```
-
-**Event Listener Hook:**
-```typescript
-// hooks/use-siege-events.ts
-export function useSiegeEvents() {
-  useEffect(() => {
-    const listeners = [
-      listen('siege:started', (e) => {
-        toast.info(`Siege started for ${e.payload.taskId}`)
-      }),
-      listen('siege:iteration', (e) => {
-        toast.info(`Siege iteration ${e.payload.iteration}/${e.payload.maxIterations}`)
-      }),
-      listen('siege:complete', (e) => {
-        toast.success(`Siege complete: ${e.payload.message}`)
-      }),
-      listen('siege:stopped', (e) => {
-        toast.warn('Siege stopped')
-      }),
-    ]
-
-    return () => {
-      listeners.forEach(p => p.then(f => f()))
-    }
-  }, [])
-}
-```
-
----
-
-## Validation Commands
-
-The validator teammate runs these:
+### T051: Siege Loop UI Integration
 
 ```bash
-# TypeScript
-npm run type-check
+claude "Create an agent team for T051 - Siege Loop UI.
 
-# Lint
-npm run lint
+Read the ticket: .tickets/v1-sprint/T051-siege-ui-integration.md
 
-# Rust
-cargo check
-cargo clippy
+Spawn 4 teammates:
+1. 'implementer' - Add siege badge to task card, context menu actions, event listeners
+2. 'reviewer' - Check event handling, verify UI updates correctly, review state management
+3. 'tester' - Type-check, verify events fire correctly, test start/stop buttons
+4. 'researcher' - Read existing siege.rs backend, understand event payloads
 
-# Full test (final validation only)
-cargo test
-npm run test
+Backend is DONE in src-tauri/src/commands/siege.rs.
+Events: siege:started, siege:iteration, siege:stopped, siege:complete
 
-# Smoke test
-pnpm tauri dev  # Manual verify app launches
+Focus on:
+- Task card badge showing iteration count
+- Context menu Start/Stop actions
+- Event listener hook for toasts
+- Task store updates on events
+
+Have researcher explain the backend to implementer first.
+
+Require plan approval before implementation."
 ```
 
 ---
 
-## Recovery Protocol
+### T026: Test Checklist Generation
 
-**If teammate gets stuck:**
-```text
-Lead → Teammate: "What's blocking you? Share the error."
-Teammate → Lead: <error details>
-Lead: Reviews and provides guidance or reassigns task
+```bash
+claude "Create an agent team for T026 - Test Checklist Generation.
+
+Read the ticket: .tickets/v1-sprint/T026-manual-test-checklist.md
+
+Spawn 4 teammates:
+1. 'implementer' - Build prompt engineering + backend command + UI trigger
+2. 'reviewer' - Review LLM prompt quality, check checklist format
+3. 'tester' - Test with real PR diffs, verify items are sensible
+4. 'researcher' - Find best prompt patterns for test generation
+
+This generates test items from PR diff using LLM:
+- New Tauri command: generate_test_checklist
+- Prompt that analyzes diff and produces test items
+- UI button to trigger generation
+- Items appear in existing checklist component
+
+Have reviewer challenge the prompt - it needs to produce USEFUL test items.
+
+Require plan approval for prompt design."
 ```
 
-**If validation fails:**
-```text
-Validator → Teammate: "Type-check failed: <specific errors>"
-Teammate: Fixes issues
-Teammate → Validator: "Fixed, please re-validate"
+---
+
+### T050: File Attachment
+
+```bash
+claude "Create an agent team for T050 - File Attachment.
+
+Read the ticket: .tickets/v1-sprint/T050-file-attachment.md
+
+Spawn 4 teammates:
+1. 'implementer' - Tauri file dialog, base64 encoding, UI components
+2. 'reviewer' - Check file size limits, verify MIME handling, review security
+3. 'tester' - Test with images, text files, verify attachment sent to agent
+4. 'researcher' - Check Tauri file dialog API, find existing patterns
+
+Need:
+- Pick file via Tauri dialog
+- Base64 encode for images
+- Show attachment chip in input
+- Send with message to agent
+- Support drag-drop and paste
+
+Reviewer should focus on security - we're handling user files.
+
+Require plan approval before implementation."
 ```
 
-**If teammate crashes:**
+---
+
+### T027: Notification Column Template
+
+```bash
+claude "Create an agent team for T027 - Notification Column.
+
+Read the ticket: .tickets/v1-sprint/T027-notification-column.md
+
+Spawn 3 teammates:
+1. 'implementer' - Add notification column template to templates store
+2. 'reviewer' - Check template format matches existing ones
+3. 'tester' - Type-check, verify template appears in gallery
+
+Simple feature - add a new column template:
+- Name: 'Notify'
+- Shows task summary and who to notify
+- Manual exit criteria (user confirms notification sent)
+
+Follow pattern in src/stores/templates-store.ts
+
+Require plan approval."
+```
+
+---
+
+### T028: Checklist Auto-detect
+
+```bash
+claude "Create an agent team for T028 - Checklist Auto-detect.
+
+Read the ticket: .tickets/v1-sprint/T028-checklist-auto-detect.md
+
+Spawn 3 teammates:
+1. 'implementer' - Parse commit messages/PR body for checkboxes, populate checklist
+2. 'reviewer' - Review regex patterns, check edge cases
+3. 'tester' - Test with various checkbox formats, verify items created
+
+Detect patterns like:
+- [ ] Todo item
+- [x] Done item
+- * Todo item
+- - Todo item
+
+Parse from PR description or commit messages.
+Auto-populate task checklist with found items.
+
+Require plan approval for parsing logic."
+```
+
+---
+
+## Master Orchestration Script
+
+Run all tickets sequentially with teams:
+
+```bash
+#!/bin/bash
+# overnight-v1.sh
+
+cd /Users/bentomac/bento-ya
+
+TICKETS=(
+  "T047:3:Terminal Voice Integration"
+  "T048:3:Thinking Level Selector"
+  "T049:3:Model Selector Functional"
+  "T035:4:History Replay Restore"
+  "T051:4:Siege Loop UI"
+  "T026:4:Test Checklist Generation"
+  "T050:4:File Attachment"
+  "T027:3:Notification Column"
+  "T028:3:Checklist Auto-detect"
+)
+
+for ticket in "${TICKETS[@]}"; do
+  IFS=':' read -r id size name <<< "$ticket"
+
+  echo "=========================================="
+  echo "Starting team for $id: $name ($size agents)"
+  echo "=========================================="
+
+  claude "Create an agent team for $id - $name.
+
+Read .tickets/v1-sprint/$id-*.md for the full spec.
+Read .tickets/OVERNIGHT-V1-SPRINT.md for team patterns.
+
+Spawn $size teammates following the template for this ticket size.
+Require plan approval before implementation.
+
+When complete:
+1. All teammates validate the work
+2. Run: npm run type-check && npm run lint && cargo check
+3. If pass, commit: git add -A && git commit -m 'feat: $id $name'
+4. Clean up the team
+5. Exit"
+
+  echo "Completed $id"
+  echo ""
+done
+
+echo "V1 Sprint Complete!"
+```
+
+---
+
+## Per-Ticket Team Workflow
+
+Each team follows this flow:
+
+```
+1. LEAD spawns teammates with specific prompts
+   │
+2. RESEARCHER (if present) explores codebase
+   │ shares findings with team
+   │
+3. IMPLEMENTER creates plan
+   │ sends to LEAD for approval
+   │
+4. LEAD approves plan
+   │
+5. IMPLEMENTER writes code
+   │ messages REVIEWER when ready
+   │
+6. REVIEWER challenges implementation
+   │ suggests improvements
+   │ debates with IMPLEMENTER
+   │
+7. IMPLEMENTER addresses feedback
+   │ iterates until REVIEWER approves
+   │
+8. TESTER runs validation
+   │ - npm run type-check
+   │ - npm run lint
+   │ - cargo check (if Rust)
+   │ - manual verification
+   │
+9. TESTER reports results
+   │
+10. If PASS:
+    │ LEAD commits with conventional message
+    │ LEAD cleans up team
+    │
+11. If FAIL:
+    │ IMPLEMENTER fixes
+    │ Return to step 6
+```
+
+---
+
+## Teammate Role Prompts
+
+### Implementer
+
 ```text
-Lead: Spawns replacement teammate with same prompt
-Lead: "New frontend teammate, claim uncompleted tasks from the list"
+You are 'implementer' for this ticket.
+
+Your job:
+1. Read the ticket spec carefully
+2. Create a plan (share with lead for approval)
+3. Write clean, minimal code
+4. Follow existing patterns in the codebase
+5. Message 'reviewer' when ready for review
+6. Address all reviewer feedback
+7. Do NOT over-engineer
+
+When reviewer approves, message 'tester' to validate.
+```
+
+### Reviewer
+
+```text
+You are 'reviewer' for this ticket.
+
+Your job:
+1. Wait for implementer to message you
+2. Review their code critically:
+   - Does it follow existing patterns?
+   - Are there edge cases missed?
+   - Is error handling sufficient?
+   - Could it be simpler?
+3. Challenge assumptions - be the devil's advocate
+4. Message back with specific feedback
+5. Approve only when code is solid
+
+Do NOT be a rubber stamp. Find real issues.
+```
+
+### Tester
+
+```text
+You are 'tester' for this ticket.
+
+Your job:
+1. Wait for implementer + reviewer to finish
+2. Run validation commands:
+   - npm run type-check
+   - npm run lint
+   - cargo check (if Rust changes)
+3. Manually verify the feature works
+4. Report results to the team
+5. If issues found, message implementer with specifics
+
+Be thorough. Don't just run commands - verify behavior.
+```
+
+### Researcher
+
+```text
+You are 'researcher' for this ticket.
+
+Your job:
+1. Explore the codebase for relevant patterns
+2. Read existing similar implementations
+3. Find potential issues or conflicts
+4. Share findings with implementer BEFORE they start
+5. Stay available to answer questions
+
+Focus on: existing patterns, potential conflicts, best approaches.
+Do NOT write implementation code.
+```
+
+---
+
+## Validation Checklist (Per Ticket)
+
+Before committing each ticket:
+
+- [ ] `npm run type-check` passes
+- [ ] `npm run lint` passes
+- [ ] `cargo check` passes (if Rust)
+- [ ] Feature manually verified working
+- [ ] No console errors
+- [ ] Reviewer approved implementation
+- [ ] Follows existing code patterns
+- [ ] No unnecessary changes
+
+---
+
+## Recovery Protocols
+
+### If implementer gets stuck
+
+```text
+Lead: "implementer, what's blocking you?"
+Implementer: <describes issue>
+Lead: "reviewer, researcher - help debug this"
+Team collaborates to unblock
+```
+
+### If reviewer and implementer disagree
+
+```text
+Lead: "Both share your reasoning"
+Implementer: <explains approach>
+Reviewer: <explains concern>
+Lead: Makes final decision based on ticket requirements
+```
+
+### If validation fails
+
+```text
+Tester: "Type-check failed: <specific errors>"
+Implementer: Fixes the issues
+Implementer → Reviewer: "Fixed, please re-review"
+Reviewer: Quick re-review
+Tester: Re-runs validation
+```
+
+### If team gets stuck >30min
+
+```text
+Lead: "Team, we're stuck. Let's document the blocker and move on."
+Lead: Adds blocker note to ticket
+Lead: "Clean up this team, we'll return with fresh context"
+Lead: Moves to next ticket
 ```
 
 ---
 
 ## Success Criteria
 
-- [ ] All 10 tasks marked complete in shared list
-- [ ] All 3 validation tasks pass
-- [ ] `npm run type-check` clean
-- [ ] `npm run lint` clean
-- [ ] `cargo check` clean
-- [ ] App launches without errors
+- [ ] All 9 tickets completed
+- [ ] Each ticket has passing validation
+- [ ] Each commit follows conventional format
 - [ ] No "coming in vX.X" tooltips remain
-- [ ] Commits have conventional messages
+- [ ] App launches without errors
+- [ ] All new features manually verified
 
 ---
 
-## Estimated Timeline
+## Timeline
 
-| Time | Activity |
-|------|----------|
-| 0:00 | Lead spawns 4 teammates |
-| 0:15 | Phase 1 starts (parallel) |
-| 1:30 | Phase 1 complete, validation |
-| 1:45 | Phase 2 starts |
-| 4:00 | Phase 2 complete, validation |
-| 4:15 | Phase 3 starts |
-| 6:30 | Phase 3 complete, final validation |
-| 7:00 | Cleanup, commits |
-| **~7hr** | **Complete** |
+| Time | Ticket | Team |
+|------|--------|------|
+| 0:00 | T047 Terminal Voice | 3 |
+| 0:45 | T048 Thinking Selector | 3 |
+| 1:30 | T049 Model Selector | 3 |
+| 2:30 | T035 History Replay | 4 |
+| 4:00 | T051 Siege UI | 4 |
+| 5:30 | T026 Test Checklist | 4 |
+| 7:00 | T050 File Attachment | 4 |
+| 8:30 | T027 Notification Column | 3 |
+| 9:15 | T028 Checklist Auto-detect | 3 |
+| **10:00** | **Complete** | |
 
-Start at 11pm → Complete by 6am
+Start at 9pm → Complete by 7am
