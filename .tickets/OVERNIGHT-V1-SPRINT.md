@@ -588,3 +588,57 @@ Lead: Moves to next ticket
 | **10:00** | **Complete** | |
 
 Start at 9pm → Complete by 7am
+
+---
+
+## Autonomous Mode (No Human Input)
+
+This sprint runs fully autonomous. After each ticket:
+
+### Per-Ticket Workflow
+```
+1. Create feature branch: git checkout -b feat/T0XX-feature-name
+2. Implement the feature
+3. Run validation: npm run type-check && npm run lint && cargo check
+4. Commit: git add -A && git commit -m "feat(scope): description"
+5. Push: git push -u origin feat/T0XX-feature-name
+6. Create PR: gh pr create --title "feat: T0XX description" --body "..."
+7. Move to next ticket
+```
+
+### After All Tickets Complete
+```
+1. Audit the app for remaining issues
+2. Create new tickets for:
+   - UI inconsistencies
+   - Missing wiring
+   - Polish needed
+   - Bug fixes found
+3. Add to .tickets/v1-polish/ folder
+4. Update STATUS.md with progress
+```
+
+### PR Template
+```bash
+gh pr create --title "feat: T0XX - Feature Name" --body "$(cat <<'EOF'
+## Summary
+- Implements T0XX from v1 sprint
+- [1-2 bullet points of what changed]
+
+## Testing
+- [x] npm run type-check passes
+- [x] npm run lint passes
+- [x] cargo check passes (if Rust)
+- [x] Manual verification
+
+## Ticket
+.tickets/v1-sprint/T0XX-*.md
+EOF
+)"
+```
+
+### No Human Intervention Needed
+- All plans self-approved after validation
+- All commits auto-pushed
+- All PRs auto-created
+- Issues discovered → logged as new tickets
