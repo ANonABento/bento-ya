@@ -10,6 +10,7 @@ import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { TaskContextMenu } from './task-context-menu'
 import { TaskQuickActions } from './task-quick-actions'
+import * as ipc from '@/lib/ipc'
 
 type TaskCardProps = {
   task: Task
@@ -164,6 +165,26 @@ function PrStatusIndicator({ task, settings }: { task: Task; settings: typeof DE
   )
 }
 
+// Siege loop badge indicator
+function SiegeBadge({ task }: { task: Task }) {
+  if (!task.siegeActive) return null
+
+  return (
+    <span className="inline-flex items-center gap-1 text-accent">
+      <span className="relative flex h-1.5 w-1.5">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+      </span>
+      <svg className="h-3 w-3" viewBox="0 0 16 16" fill="currentColor">
+        <path fillRule="evenodd" d="M8 1a3.5 3.5 0 0 0-3.5 3.5c0 1.57.75 2.4 1.5 2.8V8h.75v2.25H5v1.5h1.75V15h2.5v-3.25H11v-1.5H9.25V8h.75v-.7c.75-.4 1.5-1.23 1.5-2.8A3.5 3.5 0 0 0 8 1Zm0 1.5a2 2 0 0 0-2 2c0 .94.5 1.5 1 1.75V7h2v-.75c.5-.25 1-.81 1-1.75a2 2 0 0 0-2-2Z" clipRule="evenodd" />
+      </svg>
+      <span className="text-[11px] font-medium">
+        {task.siegeIteration}/{task.siegeMaxIterations}
+      </span>
+    </span>
+  )
+}
+
 export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
   const openTask = useUIStore((s) => s.openTask)
   const hasAttention = useAttentionStore((s) => s.hasAttention(task.id))
@@ -236,6 +257,31 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
     updateTask(task.id, { agentStatus: 'stopped' })
   }, [task.id, updateTask])
 
+  const handleStartSiege = useCallback(async () => {
+    try {
+      const result = await ipc.startSiege(task.id)
+      updateTask(task.id, {
+        siegeActive: result.task.siegeActive,
+        siegeIteration: result.task.siegeIteration,
+        siegeMaxIterations: result.task.siegeMaxIterations,
+      })
+    } catch (err) {
+      console.error('Failed to start siege:', err)
+    }
+  }, [task.id, updateTask])
+
+  const handleStopSiege = useCallback(async () => {
+    try {
+      const result = await ipc.stopSiege(task.id)
+      updateTask(task.id, {
+        siegeActive: result.siegeActive,
+        siegeIteration: result.siegeIteration,
+      })
+    } catch (err) {
+      console.error('Failed to stop siege:', err)
+    }
+  }, [task.id, updateTask])
+
   const handleArchiveTask = useCallback(() => {
     // For now, just remove - could add archive column later
     void removeTask(task.id)
@@ -273,6 +319,7 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
     (cardSettings.showAgentType && task.agentType) ||
     (cardSettings.showTimestamp && !isPipelineActive) ||
     isPipelineActive ||
+    task.siegeActive ||
     (cardSettings.showPrBadge && task.prNumber) ||
     (cardSettings.showCommentCount && task.prCommentCount > 0) ||
     (cardSettings.showLabels && labels.length > 0)
@@ -422,6 +469,9 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
               </span>
             )}
 
+            {/* Siege loop badge */}
+            <SiegeBadge task={task} />
+
             {/* PR badge with status */}
             {cardSettings.showPrBadge && task.prNumber && (
               <button
@@ -493,7 +543,7 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
         task={task}
         columns={columns}
         position={contextMenu}
-        onClose={() => setContextMenu(null)}
+        onClose={() => { setContextMenu(null) }}
         onMoveToColumn={handleMoveToColumn}
         onOpenTask={handleClick}
         onDuplicateTask={handleDuplicateTask}
@@ -501,6 +551,8 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
         onDeleteTask={handleDeleteTask}
         onRunAgent={handleRunAgent}
         onStopAgent={handleStopAgent}
+        onStartSiege={handleStartSiege}
+        onStopSiege={handleStopSiege}
       />
     )}
     </>
