@@ -195,20 +195,37 @@ pub fn seed_demo_data(state: State<AppState>, repo_path: String) -> Result<Works
     let backlog_id = &columns[0].id;
     db::insert_task(&conn, &ws.id, backlog_id, "Add dark mode toggle", Some("Implement theme switching in settings"))?;
     db::insert_task(&conn, &ws.id, backlog_id, "Refactor auth flow", Some("Simplify the authentication logic"))?;
-    db::insert_task(&conn, &ws.id, backlog_id, "Write unit tests", Some("Add tests for core utilities"))?;
 
-    // Sample tasks for Working
+    // Task with draft PR
+    let draft_task = db::insert_task(&conn, &ws.id, backlog_id, "Write unit tests", Some("Add tests for core utilities - WIP draft PR"))?;
+    db::update_task_branch(&conn, &draft_task.id, Some("feat/unit-tests"))?;
+    db::update_task_pr_info(&conn, &draft_task.id, Some(101), Some("https://github.com/demo/repo/pull/101"))?;
+    db::update_task_pr_status(&conn, &draft_task.id, Some("unknown"), Some("pending"), None, Some(0), Some(true), Some("[]"), Some("abc123"))?;
+
+    // Sample tasks for Working - with CI failure and merge conflict
     let working_id = &columns[1].id;
-    db::insert_task(&conn, &ws.id, working_id, "Implement CLI agent spawning", Some("Wire up settings to spawn correct CLI"))?;
-    db::insert_task(&conn, &ws.id, working_id, "Fix terminal scrolling", Some("Terminal output should auto-scroll"))?;
+    let ci_fail_task = db::insert_task(&conn, &ws.id, working_id, "Implement CLI agent spawning", Some("Wire up settings to spawn correct CLI - CI failing"))?;
+    db::update_task_branch(&conn, &ci_fail_task.id, Some("feat/cli-agent"))?;
+    db::update_task_pr_info(&conn, &ci_fail_task.id, Some(102), Some("https://github.com/demo/repo/pull/102"))?;
+    db::update_task_pr_status(&conn, &ci_fail_task.id, Some("conflicted"), Some("failure"), Some("changes_requested"), Some(5), Some(false), Some("[\"bug\",\"needs-work\"]"), Some("def456"))?;
 
-    // Sample tasks for Review
+    let working_task = db::insert_task(&conn, &ws.id, working_id, "Fix terminal scrolling", Some("Terminal output should auto-scroll"))?;
+    db::update_task_branch(&conn, &working_task.id, Some("fix/terminal-scroll"))?;
+
+    // Sample tasks for Review - with approved PR
     let review_id = &columns[2].id;
-    db::insert_task(&conn, &ws.id, review_id, "PR: Add keyboard shortcuts", Some("Review PR #12 for hotkey support"))?;
+    let approved_task = db::insert_task(&conn, &ws.id, review_id, "PR: Add keyboard shortcuts", Some("Review PR #12 for hotkey support - ready to merge!"))?;
+    db::update_task_branch(&conn, &approved_task.id, Some("feat/keyboard-shortcuts"))?;
+    db::update_task_pr_info(&conn, &approved_task.id, Some(103), Some("https://github.com/demo/repo/pull/103"))?;
+    db::update_task_pr_status(&conn, &approved_task.id, Some("mergeable"), Some("success"), Some("approved"), Some(3), Some(false), Some("[\"enhancement\",\"ready\"]"), Some("ghi789"))?;
 
     // Sample tasks for Done
     let done_id = &columns[3].id;
-    db::insert_task(&conn, &ws.id, done_id, "Setup project structure", Some("Initial Tauri + React setup complete"))?;
+    let done_task1 = db::insert_task(&conn, &ws.id, done_id, "Setup project structure", Some("Initial Tauri + React setup complete"))?;
+    db::update_task_branch(&conn, &done_task1.id, Some("feat/initial-setup"))?;
+    db::update_task_pr_info(&conn, &done_task1.id, Some(99), Some("https://github.com/demo/repo/pull/99"))?;
+    db::update_task_pr_status(&conn, &done_task1.id, Some("mergeable"), Some("success"), Some("approved"), Some(2), Some(false), Some("[\"merged\"]"), Some("xyz000"))?;
+
     db::insert_task(&conn, &ws.id, done_id, "Design settings UI", Some("Settings panel with tabs working"))?;
 
     tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;
