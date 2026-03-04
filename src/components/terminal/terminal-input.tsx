@@ -5,6 +5,8 @@ import { ModelSelector } from './model-selector'
 import { ThinkingSelector } from './thinking-selector'
 import { useSettingsStore } from '@/stores/settings-store'
 import { DEFAULT_SETTINGS } from '@/types/settings'
+import { useVoiceInput } from '@/hooks/use-voice-input'
+import { Tooltip } from '@/components/shared/tooltip'
 
 interface TerminalInputProps {
   taskId: string
@@ -26,6 +28,17 @@ export function TerminalInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const terminalSettings = useSettingsStore((s) => s.global.terminal) ?? DEFAULT_SETTINGS.terminal
   const { maxInputRows, lineHeight } = terminalSettings
+
+  // Voice input - append transcript to current message
+  const handleTranscript = useCallback((text: string) => {
+    setInput((prev) => {
+      const separator = prev.trim() ? ' ' : ''
+      return prev + separator + text
+    })
+    textareaRef.current?.focus()
+  }, [])
+
+  const voice = useVoiceInput(handleTranscript)
 
   // Auto-focus when requested
   useEffect(() => {
@@ -101,18 +114,59 @@ export function TerminalInput({
 
         <div className="flex-1" />
 
-        {/* Mic placeholder */}
-        <button
-          type="button"
-          disabled
-          className="cursor-not-allowed rounded p-1 text-text-muted opacity-30"
-          title="Voice input coming in v0.3"
+        {/* Voice input button */}
+        <Tooltip
+          content={
+            voice.state === 'recording'
+              ? `Recording (${voice.duration}s) - click to stop`
+              : voice.state === 'error'
+                ? `Error: ${voice.error || 'Unknown error'}`
+                : !voice.isEnabled
+                  ? 'Enable voice in Settings → Voice'
+                  : !voice.isApiAvailable
+                    ? 'Download a model in Settings → Voice'
+                    : 'Click to record voice'
+          }
+          side="top"
+          delay={100}
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2">
-            <rect x="5" y="1" width="4" height="7" rx="2" />
-            <path d="M3 6.5a4 4 0 008 0M7 10.5V13" />
-          </svg>
-        </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (voice.state === 'recording') {
+                void voice.stopRecording()
+              } else if (voice.state === 'idle' && voice.isAvailable) {
+                void voice.startRecording()
+              } else if (voice.state === 'error') {
+                void voice.startRecording()
+              }
+            }}
+            disabled={voice.state === 'processing'}
+            className={`rounded p-1 transition-colors ${
+              voice.state === 'recording'
+                ? 'text-accent animate-pulse'
+                : voice.state === 'processing'
+                  ? 'text-accent'
+                  : voice.state === 'error'
+                    ? 'text-yellow-500'
+                    : !voice.isAvailable
+                      ? 'text-text-muted opacity-30'
+                      : 'text-text-muted hover:text-text-primary'
+            } disabled:cursor-not-allowed`}
+          >
+            {voice.state === 'processing' ? (
+              <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2">
+                <rect x="5" y="1" width="4" height="7" rx="2" />
+                <path d="M3 6.5a4 4 0 008 0M7 10.5V13" />
+              </svg>
+            )}
+          </button>
+        </Tooltip>
 
         {/* Attach placeholder */}
         <button
@@ -131,12 +185,14 @@ export function TerminalInput({
       <div className="flex items-end gap-2">
         <textarea
           ref={textareaRef}
-          value={input}
+          value={voice.state === 'recording' ? voice.liveText : input}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
-          placeholder="Message agent... (Cmd+Enter to send)"
+          placeholder={voice.state === 'recording' ? 'Listening...' : voice.state === 'processing' ? 'Transcribing...' : 'Message agent... (Cmd+Enter to send)'}
           rows={1}
-          className="flex-1 resize-none rounded border border-border-default bg-bg-primary px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+          readOnly={voice.state === 'recording'}
+          disabled={voice.state === 'processing'}
+          className={`flex-1 resize-none rounded border border-border-default bg-bg-primary px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none disabled:opacity-50 ${voice.state === 'recording' ? 'italic text-text-muted' : ''}`}
           style={{ height: `${lineHeight}px`, lineHeight: `${lineHeight}px` }}
         />
 
