@@ -127,6 +127,12 @@ pub struct Workspace {
     pub config: String,
     pub created_at: String,
     pub updated_at: String,
+    // Discord integration fields
+    pub discord_guild_id: Option<String>,
+    pub discord_category_id: Option<String>,
+    pub discord_chef_channel_id: Option<String>,
+    pub discord_notifications_channel_id: Option<String>,
+    pub discord_enabled: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -219,7 +225,7 @@ pub fn insert_workspace(conn: &Connection, name: &str, repo_path: &str) -> SqlRe
 
 pub fn get_workspace(conn: &Connection, id: &str) -> SqlResult<Workspace> {
     conn.query_row(
-        "SELECT id, name, repo_path, tab_order, is_active, config, created_at, updated_at FROM workspaces WHERE id = ?1",
+        "SELECT id, name, repo_path, tab_order, is_active, config, created_at, updated_at, discord_guild_id, discord_category_id, discord_chef_channel_id, discord_notifications_channel_id, discord_enabled FROM workspaces WHERE id = ?1",
         params![id],
         |row| {
             Ok(Workspace {
@@ -231,6 +237,11 @@ pub fn get_workspace(conn: &Connection, id: &str) -> SqlResult<Workspace> {
                 config: row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "{}".to_string()),
                 created_at: row.get(6)?,
                 updated_at: row.get(7)?,
+                discord_guild_id: row.get(8)?,
+                discord_category_id: row.get(9)?,
+                discord_chef_channel_id: row.get(10)?,
+                discord_notifications_channel_id: row.get(11)?,
+                discord_enabled: row.get(12)?,
             })
         },
     )
@@ -238,7 +249,7 @@ pub fn get_workspace(conn: &Connection, id: &str) -> SqlResult<Workspace> {
 
 pub fn list_workspaces(conn: &Connection) -> SqlResult<Vec<Workspace>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, repo_path, tab_order, is_active, config, created_at, updated_at FROM workspaces ORDER BY tab_order",
+        "SELECT id, name, repo_path, tab_order, is_active, config, created_at, updated_at, discord_guild_id, discord_category_id, discord_chef_channel_id, discord_notifications_channel_id, discord_enabled FROM workspaces ORDER BY tab_order",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(Workspace {
@@ -250,6 +261,11 @@ pub fn list_workspaces(conn: &Connection) -> SqlResult<Vec<Workspace>> {
             config: row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "{}".to_string()),
             created_at: row.get(6)?,
             updated_at: row.get(7)?,
+            discord_guild_id: row.get(8)?,
+            discord_category_id: row.get(9)?,
+            discord_chef_channel_id: row.get(10)?,
+            discord_notifications_channel_id: row.get(11)?,
+            discord_enabled: row.get(12)?,
         })
     })?;
     rows.collect()

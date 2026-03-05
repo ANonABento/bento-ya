@@ -355,6 +355,25 @@ impl DiscordBridge {
         Ok(archived)
     }
 
+    /// Update a thread's name
+    pub async fn update_thread_name(
+        &mut self,
+        thread_id: &str,
+        name: &str,
+    ) -> Result<bool, String> {
+        let payload = serde_json::json!({
+            "threadId": thread_id,
+            "name": name,
+        });
+
+        let result = self.send_command("update_thread_name", payload).await?;
+        let updated = result
+            .get("updated")
+            .and_then(|v| v.as_bool())
+            .ok_or("Missing updated in response")?;
+        Ok(updated)
+    }
+
     /// Post a message to a channel or thread
     pub async fn post_message(
         &mut self,

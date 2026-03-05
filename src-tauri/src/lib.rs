@@ -195,6 +195,11 @@ pub fn run() {
             commands::discord::archive_discord_thread,
             commands::discord::get_discord_thread_for_task,
             commands::discord::post_discord_message,
+            // Discord task sync commands
+            commands::discord::sync_task_created,
+            commands::discord::sync_task_moved,
+            commands::discord::sync_task_updated,
+            commands::discord::sync_task_deleted,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

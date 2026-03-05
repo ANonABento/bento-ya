@@ -3,7 +3,48 @@ use crate::error::AppError;
 use crate::pipeline;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
+
+// ─── Discord Task Events ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskCreatedEvent {
+    pub task_id: String,
+    pub workspace_id: String,
+    pub column_id: String,
+    pub title: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskMovedEvent {
+    pub task_id: String,
+    pub workspace_id: String,
+    pub old_column_id: String,
+    pub new_column_id: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskUpdatedEvent {
+    pub task_id: String,
+    pub workspace_id: String,
+    pub column_id: String,
+    pub old_title: Option<String>,
+    pub new_title: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskDeletedEvent {
+    pub task_id: String,
+    pub workspace_id: String,
+    pub column_id: String,
+    pub title: String,
+}
 
 #[tauri::command]
 pub fn create_task(
@@ -31,6 +72,15 @@ pub fn create_task(
     let column = db::get_column(&conn, &column_id)?;
     let task = pipeline::fire_trigger(&conn, &app, &task, &column)?;
 
+    // Emit Discord sync event
+    let _ = app.emit("discord:task_created", TaskCreatedEvent {
+        task_id: task.id.clone(),
+        workspace_id: task.workspace_id.clone(),
+        column_id: task.column_id.clone(),
+        title: task.title.clone(),
+        description: task.description.clone(),
+    });
+
     Ok(task)
 }
 
@@ -48,6 +98,7 @@ pub fn list_tasks(state: State<AppState>, workspace_id: String) -> Result<Vec<Ta
 
 #[tauri::command]
 pub fn update_task(
+    app: AppHandle,
     state: State<AppState>,
     id: String,
     title: Option<String>,
@@ -69,9 +120,17 @@ pub fn update_task(
     }
 
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    // Get old task for comparison (only if title is being updated)
+    let old_title = if title.is_some() {
+        Some(db::get_task(&conn, &id)?.title)
+    } else {
+        None
+    };
+
     let desc_ref = description.as_ref().map(|d| d.as_deref());
     let mode_ref = agent_mode.as_ref().map(|m| m.as_deref());
-    Ok(db::update_task(
+    let task = db::update_task(
         &conn,
         &id,
         title.as_deref(),
@@ -80,7 +139,20 @@ pub fn update_task(
         position,
         mode_ref,
         priority.as_deref(),
-    )?)
+    )?;
+
+    // Emit Discord sync event if title changed
+    if let Some(ref new_title) = title {
+        let _ = app.emit("discord:task_updated", TaskUpdatedEvent {
+            task_id: task.id.clone(),
+            workspace_id: task.workspace_id.clone(),
+            column_id: task.column_id.clone(),
+            old_title,
+            new_title: Some(new_title.clone()),
+        });
+    }
+
+    Ok(task)
 }
 
 #[tauri::command]
@@ -99,7 +171,8 @@ pub fn move_task(
 
     // Get the task's current column to check if it changed
     let task_before = db::get_task(&conn, &id)?;
-    let column_changed = task_before.column_id != target_column_id;
+    let old_column_id = task_before.column_id.clone();
+    let column_changed = old_column_id != target_column_id;
 
     let tx = conn.unchecked_transaction().map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
@@ -126,6 +199,15 @@ pub fn move_task(
 
     // Fire column trigger if task moved to a new column
     if column_changed {
+        // Emit Discord sync event
+        let _ = app.emit("discord:task_moved", TaskMovedEvent {
+            task_id: task.id.clone(),
+            workspace_id: task.workspace_id.clone(),
+            old_column_id,
+            new_column_id: target_column_id.clone(),
+            title: task.title.clone(),
+        });
+
         let target_column = db::get_column(&conn, &target_column_id)?;
         let task = pipeline::fire_trigger(&conn, &app, &task, &target_column)?;
         return Ok(task);
@@ -160,9 +242,26 @@ pub fn reorder_tasks(
 }
 
 #[tauri::command]
-pub fn delete_task(state: State<AppState>, id: String) -> Result<(), AppError> {
+pub fn delete_task(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<(), AppError> {
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    // Get task info before deletion for the event
+    let task = db::get_task(&conn, &id)?;
+
     db::delete_task(&conn, &id)?;
+
+    // Emit Discord sync event
+    let _ = app.emit("discord:task_deleted", TaskDeletedEvent {
+        task_id: task.id,
+        workspace_id: task.workspace_id,
+        column_id: task.column_id,
+        title: task.title,
+    });
+
     Ok(())
 }
 

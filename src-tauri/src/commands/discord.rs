@@ -268,3 +268,284 @@ pub async fn post_discord_message(
         .await
         .map_err(AppError::CommandError)
 }
+
+// ─── Task Event Sync Commands ─────────────────────────────────────────────────
+
+/// Sync a task creation to Discord - creates a thread in the column's channel
+#[tauri::command(rename_all = "camelCase")]
+pub async fn sync_task_created(
+    state: State<'_, AppState>,
+    discord: State<'_, SharedDiscordBridge>,
+    task_id: String,
+    workspace_id: String,
+    column_id: String,
+    title: String,
+    description: Option<String>,
+) -> Result<Option<CreateThreadResult>, AppError> {
+    // Check if workspace has Discord enabled
+    let channel_id = {
+        let conn = state.db.lock().unwrap();
+
+        // Get workspace to check if Discord is enabled
+        let workspace = crate::db::get_workspace(&conn, &workspace_id)?;
+        if workspace.discord_enabled != Some(1) {
+            return Ok(None); // Discord not enabled for this workspace
+        }
+
+        // Get the Discord channel for this column
+        crate::db::get_discord_channel_for_column(&conn, &column_id)?
+    };
+
+    let Some(channel_id) = channel_id else {
+        return Ok(None); // No Discord channel for this column
+    };
+
+    let mut bridge = discord.lock().await;
+    if !bridge.is_running() {
+        return Ok(None); // Discord sidecar not running
+    }
+
+    // Create thread
+    let result = bridge
+        .create_thread(&channel_id, &task_id, &title)
+        .await
+        .map_err(AppError::CommandError)?;
+
+    // Store mapping in database
+    {
+        let conn = state.db.lock().unwrap();
+        crate::db::insert_discord_task_thread(
+            &conn,
+            &task_id,
+            &result.thread_id,
+            &channel_id,
+        )?;
+    }
+
+    // Post initial message with description if provided
+    if let Some(desc) = description {
+        if !desc.is_empty() {
+            let _ = bridge
+                .post_message(
+                    &channel_id,
+                    Some(&result.thread_id),
+                    None,
+                    Some(serde_json::json!([{
+                        "description": desc,
+                        "color": 0x5865F2
+                    }])),
+                )
+                .await;
+        }
+    }
+
+    Ok(Some(result))
+}
+
+/// Sync a task move to Discord - archives old thread, creates new in new column
+#[tauri::command(rename_all = "camelCase")]
+pub async fn sync_task_moved(
+    state: State<'_, AppState>,
+    discord: State<'_, SharedDiscordBridge>,
+    task_id: String,
+    workspace_id: String,
+    _old_column_id: String,
+    new_column_id: String,
+    title: String,
+) -> Result<Option<CreateThreadResult>, AppError> {
+    // Check if workspace has Discord enabled and get channel info
+    let (old_thread, new_channel_id) = {
+        let conn = state.db.lock().unwrap();
+
+        // Get workspace to check if Discord is enabled
+        let workspace = crate::db::get_workspace(&conn, &workspace_id)?;
+        if workspace.discord_enabled != Some(1) {
+            return Ok(None);
+        }
+
+        let old_thread = crate::db::get_discord_thread_for_task(&conn, &task_id)?;
+        let new_channel_id = crate::db::get_discord_channel_for_column(&conn, &new_column_id)?;
+
+        (old_thread, new_channel_id)
+    };
+
+    let Some(new_channel_id) = new_channel_id else {
+        return Ok(None); // No Discord channel for new column
+    };
+
+    let mut bridge = discord.lock().await;
+    if !bridge.is_running() {
+        return Ok(None);
+    }
+
+    // Archive old thread if it exists
+    if let Some(ref thread) = old_thread {
+        // Get new column name for the message
+        let new_column_name = {
+            let conn = state.db.lock().unwrap();
+            crate::db::get_column(&conn, &new_column_id)
+                .map(|c| c.name)
+                .unwrap_or_else(|_| "new column".to_string())
+        };
+
+        // Post move notice to old thread
+        let _ = bridge
+            .post_message(
+                &thread.discord_channel_id,
+                Some(&thread.discord_thread_id),
+                None,
+                Some(serde_json::json!([{
+                    "description": format!("📦 Task moved to #{}", new_column_name),
+                    "color": 0xFEE75C
+                }])),
+            )
+            .await;
+
+        // Archive the old thread
+        let _ = bridge
+            .archive_thread(&thread.discord_thread_id, None)
+            .await;
+
+        // Update old thread as archived in database
+        let conn = state.db.lock().unwrap();
+        let _ = crate::db::update_discord_thread_archived(&conn, &task_id, true);
+    }
+
+    // Create new thread in new column
+    let result = bridge
+        .create_thread(&new_channel_id, &task_id, &title)
+        .await
+        .map_err(AppError::CommandError)?;
+
+    // Update or insert mapping in database
+    {
+        let conn = state.db.lock().unwrap();
+        // Delete old mapping if exists
+        let _ = conn.execute(
+            "DELETE FROM discord_task_threads WHERE task_id = ?1",
+            rusqlite::params![task_id],
+        );
+        // Insert new mapping
+        crate::db::insert_discord_task_thread(
+            &conn,
+            &task_id,
+            &result.thread_id,
+            &new_channel_id,
+        )?;
+    }
+
+    // Post continuation message
+    let _ = bridge
+        .post_message(
+            &new_channel_id,
+            Some(&result.thread_id),
+            None,
+            Some(serde_json::json!([{
+                "description": "📦 Continued from previous column",
+                "color": 0x5865F2
+            }])),
+        )
+        .await;
+
+    Ok(Some(result))
+}
+
+/// Sync a task title update to Discord
+#[tauri::command(rename_all = "camelCase")]
+pub async fn sync_task_updated(
+    state: State<'_, AppState>,
+    discord: State<'_, SharedDiscordBridge>,
+    task_id: String,
+    workspace_id: String,
+    new_title: String,
+) -> Result<bool, AppError> {
+    // Check if workspace has Discord enabled and get thread info
+    let thread = {
+        let conn = state.db.lock().unwrap();
+
+        let workspace = crate::db::get_workspace(&conn, &workspace_id)?;
+        if workspace.discord_enabled != Some(1) {
+            return Ok(false);
+        }
+
+        crate::db::get_discord_thread_for_task(&conn, &task_id)?
+    };
+
+    let Some(thread) = thread else {
+        return Ok(false); // No Discord thread for this task
+    };
+
+    let mut bridge = discord.lock().await;
+    if !bridge.is_running() {
+        return Ok(false);
+    }
+
+    // Update thread name
+    bridge
+        .update_thread_name(&thread.discord_thread_id, &new_title)
+        .await
+        .map_err(AppError::CommandError)?;
+
+    Ok(true)
+}
+
+/// Sync a task deletion to Discord - posts notice and archives thread
+#[tauri::command(rename_all = "camelCase")]
+pub async fn sync_task_deleted(
+    state: State<'_, AppState>,
+    discord: State<'_, SharedDiscordBridge>,
+    task_id: String,
+    workspace_id: String,
+    title: String,
+) -> Result<bool, AppError> {
+    // Check if workspace has Discord enabled and get thread info
+    let thread = {
+        let conn = state.db.lock().unwrap();
+
+        let workspace = crate::db::get_workspace(&conn, &workspace_id)?;
+        if workspace.discord_enabled != Some(1) {
+            return Ok(false);
+        }
+
+        crate::db::get_discord_thread_for_task(&conn, &task_id)?
+    };
+
+    let Some(thread) = thread else {
+        return Ok(false);
+    };
+
+    let mut bridge = discord.lock().await;
+    if !bridge.is_running() {
+        return Ok(false);
+    }
+
+    // Post deletion notice
+    let _ = bridge
+        .post_message(
+            &thread.discord_channel_id,
+            Some(&thread.discord_thread_id),
+            None,
+            Some(serde_json::json!([{
+                "title": "🗑️ Task Deleted",
+                "description": format!("Task \"{}\" was deleted from Bento-ya", title),
+                "color": 0xED4245
+            }])),
+        )
+        .await;
+
+    // Archive the thread
+    let _ = bridge
+        .archive_thread(&thread.discord_thread_id, None)
+        .await;
+
+    // Remove mapping from database
+    {
+        let conn = state.db.lock().unwrap();
+        let _ = conn.execute(
+            "DELETE FROM discord_task_threads WHERE task_id = ?1",
+            rusqlite::params![task_id],
+        );
+    }
+
+    Ok(true)
+}
