@@ -33,6 +33,8 @@ type TaskContextMenuProps = {
   onDeleteTask: () => void
   onRunAgent: () => void
   onStopAgent: () => void
+  onStartSiege: () => void
+  onStopSiege: () => void
 }
 
 // Icons
@@ -51,6 +53,11 @@ const Icons = {
   stop: (
     <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
       <path d="M5.75 3A2.75 2.75 0 0 0 3 5.75v8.5A2.75 2.75 0 0 0 5.75 17h8.5A2.75 2.75 0 0 0 17 14.25v-8.5A2.75 2.75 0 0 0 14.25 3h-8.5Z" />
+    </svg>
+  ),
+  siege: (
+    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M10 2a4 4 0 0 0-4 4c0 1.8.86 2.76 1.72 3.22V10h.86v2.57H7v1.72h1.58V18h2.84v-3.71H13v-1.72h-1.58V10h.86v-.78c.86-.46 1.72-1.42 1.72-3.22a4 4 0 0 0-4-4Zm0 1.72a2.28 2.28 0 0 0-2.28 2.28c0 1.08.57 1.72 1.14 2V9h2.28V8c.57-.28 1.14-.92 1.14-2A2.28 2.28 0 0 0 10 3.72Z" clipRule="evenodd" />
     </svg>
   ),
   move: (
@@ -165,6 +172,8 @@ export function TaskContextMenu({
   onDeleteTask,
   onRunAgent,
   onStopAgent,
+  onStartSiege,
+  onStopSiege,
 }: TaskContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -209,6 +218,7 @@ export function TaskContextMenu({
   const pos = adjustedPosition()
 
   const isRunning = task.agentStatus === 'running'
+  const hasPr = !!task.prNumber
   const otherColumns = columns.filter((c) => c.id !== task.columnId && c.visible)
 
   const menuItems: MenuItemType[] = [
@@ -217,6 +227,12 @@ export function TaskContextMenu({
     isRunning
       ? { label: 'Stop agent', icon: Icons.stop, onClick: onStopAgent }
       : { label: 'Run agent', icon: Icons.play, shortcut: 'Space', onClick: onRunAgent },
+    // Siege loop option - only show if task has a PR
+    ...(hasPr ? [
+      task.siegeActive
+        ? { label: 'Stop siege loop', icon: Icons.stop, onClick: onStopSiege }
+        : { label: 'Start siege loop', icon: Icons.siege, onClick: onStartSiege },
+    ] : []),
     { type: 'divider' },
     {
       label: 'Move to...',
