@@ -162,9 +162,9 @@ export function SplitView({ taskId, onClose }: SplitViewProps) {
         {/* Header bar with status */}
         <div className="shrink-0 border-b border-border px-4 py-2 bg-surface-hover">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <span
-                className={`w-2 h-2 rounded-full ${
+                className={`w-2 h-2 shrink-0 rounded-full ${
                   isProcessing
                     ? 'bg-blue-400 animate-pulse'
                     : isInitialized
@@ -172,13 +172,16 @@ export function SplitView({ taskId, onClose }: SplitViewProps) {
                       : 'bg-text-secondary'
                 }`}
               />
-              <span className="text-xs text-text-secondary">
-                {isProcessing ? 'Processing...' : isInitialized ? 'Ready' : 'Initializing...'}
+              <span className="text-xs font-medium text-text-primary truncate">
+                Agent: {task.title}
+              </span>
+              <span className="text-xs text-text-secondary shrink-0">
+                {isProcessing ? '• Processing' : isInitialized ? '• Ready' : '• Initializing'}
               </span>
 
               {/* Thinking indicator */}
               {thinkingContent && (
-                <span className="text-xs text-text-secondary italic">— Thinking...</span>
+                <span className="text-xs text-accent shrink-0 italic">— Thinking...</span>
               )}
             </div>
 
@@ -250,10 +253,10 @@ export function SplitView({ taskId, onClose }: SplitViewProps) {
               ? 'Initializing agent...'
               : isProcessing
                 ? 'Agent is processing...'
-                : 'Send message to agent...'
+                : `Message about "${task.title}"...`
           }
-          showModelPicker={false}
-          showVoiceInput={false}
+          showModelPicker={true}
+          showVoiceInput={true}
         />
       </motion.div>
     </div>
