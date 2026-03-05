@@ -28,7 +28,7 @@
 - **GitHub Integration**: PR creation from tasks, PR status tracking
 - **Siege Loop**: Autonomous PR review/fix cycles
 - **Model Selector**: Sonnet/Opus/Haiku selection per-message
-- **Thinking Levels**: Extended thinking configuration
+- **Effort Levels**: Reasoning depth control (Claude + Codex compatible)
 - **History Replay**: Snapshot restore with backups
 - **Checklist Auto-detect**: AI-powered checklist extraction
 - **Notification Column**: Template-based notification workflows
@@ -51,6 +51,11 @@
 - [x] Unify agent and orchestrator streaming (both use `--print`)
 - [x] Remove PTY-based agent in favor of chat UI
 - [x] Add shared CLI chat components
+- [x] Add effort level picker (Auto/Min/Low/Med/High/Max)
+- [x] Support Claude adaptive thinking via `CLAUDE_CODE_EFFORT_LEVEL`
+- [x] Support OpenAI Codex `model_reasoning_effort` levels
+- [x] Enable model picker + voice input in agent split-view
+- [x] Fix stale closure bug in agent streaming
 
 ### Immediate Tasks
 - [ ] Test orchestrator API mode end-to-end
