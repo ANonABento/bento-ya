@@ -83,6 +83,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("015_pr_fields", include_str!("migrations/015_pr_fields.sql")),
         ("016_siege_fields", include_str!("migrations/016_siege_fields.sql")),
         ("017_pr_status_fields", include_str!("migrations/017_pr_status_fields.sql")),
+        ("018_discord_integration", include_str!("migrations/018_discord_integration.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -1756,6 +1757,165 @@ pub fn delete_session_snapshots(conn: &Connection, session_id: &str) -> SqlResul
     Ok(())
 }
 
+// ─── Discord Integration ─────────────────────────────────────────────────────
+
+/// Discord column channel mapping
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscordColumnChannel {
+    pub id: String,
+    pub column_id: String,
+    pub discord_channel_id: String,
+    pub created_at: String,
+}
+
+/// Discord task thread mapping
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscordTaskThread {
+    pub id: String,
+    pub task_id: String,
+    pub discord_thread_id: String,
+    pub discord_channel_id: String,
+    pub is_archived: bool,
+    pub created_at: String,
+}
+
+/// Update workspace with Discord settings
+pub fn update_workspace_discord(
+    conn: &Connection,
+    workspace_id: &str,
+    guild_id: &str,
+    category_id: &str,
+    chef_channel_id: &str,
+    notifications_channel_id: &str,
+) -> SqlResult<()> {
+    conn.execute(
+        "UPDATE workspaces SET discord_guild_id = ?1, discord_category_id = ?2, discord_chef_channel_id = ?3, discord_notifications_channel_id = ?4, discord_enabled = 1 WHERE id = ?5",
+        params![guild_id, category_id, chef_channel_id, notifications_channel_id, workspace_id],
+    )?;
+    Ok(())
+}
+
+/// Insert a column-to-channel mapping
+pub fn insert_discord_column_channel(
+    conn: &Connection,
+    column_id: &str,
+    discord_channel_id: &str,
+) -> SqlResult<DiscordColumnChannel> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO discord_column_channels (id, column_id, discord_channel_id, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![id, column_id, discord_channel_id, now],
+    )?;
+    Ok(DiscordColumnChannel {
+        id,
+        column_id: column_id.to_string(),
+        discord_channel_id: discord_channel_id.to_string(),
+        created_at: now,
+    })
+}
+
+/// Get Discord channel for a column
+pub fn get_discord_channel_for_column(
+    conn: &Connection,
+    column_id: &str,
+) -> SqlResult<Option<String>> {
+    let result: Result<String, _> = conn.query_row(
+        "SELECT discord_channel_id FROM discord_column_channels WHERE column_id = ?1",
+        params![column_id],
+        |row| row.get(0),
+    );
+    match result {
+        Ok(channel_id) => Ok(Some(channel_id)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Insert a task-to-thread mapping
+pub fn insert_discord_task_thread(
+    conn: &Connection,
+    task_id: &str,
+    discord_thread_id: &str,
+    discord_channel_id: &str,
+) -> SqlResult<DiscordTaskThread> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO discord_task_threads (id, task_id, discord_thread_id, discord_channel_id, is_archived, created_at) VALUES (?1, ?2, ?3, ?4, 0, ?5)",
+        params![id, task_id, discord_thread_id, discord_channel_id, now],
+    )?;
+    Ok(DiscordTaskThread {
+        id,
+        task_id: task_id.to_string(),
+        discord_thread_id: discord_thread_id.to_string(),
+        discord_channel_id: discord_channel_id.to_string(),
+        is_archived: false,
+        created_at: now,
+    })
+}
+
+/// Get Discord thread for a task
+pub fn get_discord_thread_for_task(
+    conn: &Connection,
+    task_id: &str,
+) -> SqlResult<Option<DiscordTaskThread>> {
+    let result = conn.query_row(
+        "SELECT id, task_id, discord_thread_id, discord_channel_id, is_archived, created_at FROM discord_task_threads WHERE task_id = ?1",
+        params![task_id],
+        |row| {
+            Ok(DiscordTaskThread {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                discord_thread_id: row.get(2)?,
+                discord_channel_id: row.get(3)?,
+                is_archived: row.get::<_, i64>(4)? != 0,
+                created_at: row.get(5)?,
+            })
+        },
+    );
+    match result {
+        Ok(thread) => Ok(Some(thread)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Update thread archived status
+pub fn update_discord_thread_archived(
+    conn: &Connection,
+    task_id: &str,
+    is_archived: bool,
+) -> SqlResult<()> {
+    conn.execute(
+        "UPDATE discord_task_threads SET is_archived = ?1 WHERE task_id = ?2",
+        params![is_archived as i64, task_id],
+    )?;
+    Ok(())
+}
+
+/// Delete Discord mappings for a workspace (cleanup)
+pub fn delete_workspace_discord_mappings(conn: &Connection, workspace_id: &str) -> SqlResult<()> {
+    // Delete task threads for tasks in this workspace
+    conn.execute(
+        "DELETE FROM discord_task_threads WHERE task_id IN (SELECT id FROM tasks WHERE workspace_id = ?1)",
+        params![workspace_id],
+    )?;
+    // Delete column channels for columns in this workspace
+    conn.execute(
+        "DELETE FROM discord_column_channels WHERE column_id IN (SELECT id FROM columns WHERE workspace_id = ?1)",
+        params![workspace_id],
+    )?;
+    // Clear workspace discord settings
+    conn.execute(
+        "UPDATE workspaces SET discord_guild_id = NULL, discord_category_id = NULL, discord_chef_channel_id = NULL, discord_notifications_channel_id = NULL, discord_enabled = 0 WHERE id = ?1",
+        params![workspace_id],
+    )?;
+    Ok(())
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1788,8 +1948,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 17 migrations: 001-017
-        assert_eq!(count, 17);
+        // We have 18 migrations: 001-018
+        assert_eq!(count, 18);
     }
 
     #[test]

@@ -192,6 +192,8 @@ pub fn run() {
             commands::discord::test_discord_connection,
             commands::discord::setup_discord_workspace,
             commands::discord::create_discord_thread,
+            commands::discord::archive_discord_thread,
+            commands::discord::get_discord_thread_for_task,
             commands::discord::post_discord_message,
         ])
         .run(tauri::generate_context!())

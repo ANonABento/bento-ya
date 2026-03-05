@@ -336,6 +336,25 @@ impl DiscordBridge {
         serde_json::from_value(result).map_err(|e| format!("Failed to parse result: {}", e))
     }
 
+    /// Archive a thread
+    pub async fn archive_thread(
+        &mut self,
+        thread_id: &str,
+        reason: Option<&str>,
+    ) -> Result<bool, String> {
+        let payload = serde_json::json!({
+            "threadId": thread_id,
+            "reason": reason,
+        });
+
+        let result = self.send_command("archive_thread", payload).await?;
+        let archived = result
+            .get("archived")
+            .and_then(|v| v.as_bool())
+            .ok_or("Missing archived in response")?;
+        Ok(archived)
+    }
+
     /// Post a message to a channel or thread
     pub async fn post_message(
         &mut self,

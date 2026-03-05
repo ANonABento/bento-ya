@@ -131,15 +131,40 @@ pub async fn setup_discord_workspace(
         return Err(AppError::InvalidInput("Discord sidecar not running".to_string()));
     }
 
-    bridge
-        .setup_workspace(&guild_id, &workspace_name, column_data)
+    let result = bridge
+        .setup_workspace(&guild_id, &workspace_name, column_data.clone())
         .await
-        .map_err(AppError::CommandError)
+        .map_err(AppError::CommandError)?;
+
+    // Store mappings in database
+    {
+        let conn = state.db.lock().unwrap();
+
+        // Update workspace with Discord settings
+        crate::db::update_workspace_discord(
+            &conn,
+            &workspace_id,
+            &guild_id,
+            &result.category_id,
+            &result.chef_channel_id,
+            &result.notifications_channel_id,
+        )?;
+
+        // Store column → channel mappings
+        for (column_id, _, _) in &column_data {
+            if let Some(channel_id) = result.channel_map.get(column_id) {
+                crate::db::insert_discord_column_channel(&conn, column_id, channel_id)?;
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 /// Create a Discord thread for a task
 #[tauri::command(rename_all = "camelCase")]
 pub async fn create_discord_thread(
+    state: State<'_, AppState>,
     discord: State<'_, SharedDiscordBridge>,
     channel_id: String,
     task_id: String,
@@ -151,10 +176,71 @@ pub async fn create_discord_thread(
         return Err(AppError::InvalidInput("Discord sidecar not running".to_string()));
     }
 
-    bridge
+    let result = bridge
         .create_thread(&channel_id, &task_id, &task_title)
         .await
-        .map_err(AppError::CommandError)
+        .map_err(AppError::CommandError)?;
+
+    // Store mapping in database
+    {
+        let conn = state.db.lock().unwrap();
+        crate::db::insert_discord_task_thread(
+            &conn,
+            &task_id,
+            &result.thread_id,
+            &channel_id,
+        )?;
+    }
+
+    Ok(result)
+}
+
+/// Archive a Discord thread for a task
+#[tauri::command(rename_all = "camelCase")]
+pub async fn archive_discord_thread(
+    state: State<'_, AppState>,
+    discord: State<'_, SharedDiscordBridge>,
+    task_id: String,
+    reason: Option<String>,
+) -> Result<bool, AppError> {
+    // Get thread info from database
+    let thread_id = {
+        let conn = state.db.lock().unwrap();
+        let thread = crate::db::get_discord_thread_for_task(&conn, &task_id)?;
+        match thread {
+            Some(t) => t.discord_thread_id,
+            None => return Err(AppError::NotFound("No Discord thread for this task".to_string())),
+        }
+    };
+
+    let mut bridge = discord.lock().await;
+
+    if !bridge.is_running() {
+        return Err(AppError::InvalidInput("Discord sidecar not running".to_string()));
+    }
+
+    bridge
+        .archive_thread(&thread_id, reason.as_deref())
+        .await
+        .map_err(AppError::CommandError)?;
+
+    // Update database
+    {
+        let conn = state.db.lock().unwrap();
+        crate::db::update_discord_thread_archived(&conn, &task_id, true)?;
+    }
+
+    Ok(true)
+}
+
+/// Get Discord thread info for a task
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_discord_thread_for_task(
+    state: State<'_, AppState>,
+    task_id: String,
+) -> Result<Option<crate::db::DiscordTaskThread>, AppError> {
+    let conn = state.db.lock().unwrap();
+    Ok(crate::db::get_discord_thread_for_task(&conn, &task_id)?)
 }
 
 /// Post a message to Discord
