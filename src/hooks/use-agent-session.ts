@@ -57,6 +57,7 @@ export function useAgentSession(config: UseAgentSessionConfig): UseAgentSessionR
 
   // Streaming state
   const [streamingContent, setStreamingContent] = useState('')
+  const streamingContentRef = useRef('')
   const [thinkingContent, setThinkingContent] = useState('')
   const [activeToolCalls, setActiveToolCalls] = useState<Map<string, ToolCallData>>(new Map())
 
@@ -85,14 +86,15 @@ export function useAgentSession(config: UseAgentSessionConfig): UseAgentSessionR
       // Processing complete
       const unsubComplete = await listen<AgentStatusPayload>('agent:complete', (event) => {
         if (isRelevantEvent(event.payload)) {
-          // Finalize current streaming content as assistant message
-          if (streamingContent) {
+          // Finalize current streaming content as assistant message (use ref for current value)
+          const finalContent = streamingContentRef.current
+          if (finalContent) {
             setMessages((prev) => [
               ...prev,
               {
                 id: `assistant-${Date.now()}`,
                 role: 'assistant',
-                content: streamingContent,
+                content: finalContent,
                 taskId,
                 createdAt: new Date().toISOString(),
               },
@@ -103,6 +105,7 @@ export function useAgentSession(config: UseAgentSessionConfig): UseAgentSessionR
           setIsProcessing(false)
           setProcessingStartTime(null)
           setStreamingContent('')
+          streamingContentRef.current = ''
           setThinkingContent('')
           setActiveToolCalls(new Map())
         }
@@ -129,7 +132,11 @@ export function useAgentSession(config: UseAgentSessionConfig): UseAgentSessionR
           if (event.payload.finishReason) {
             // Stream complete - don't clear yet, wait for complete event
           } else if (event.payload.delta) {
-            setStreamingContent((prev) => prev + event.payload.delta)
+            setStreamingContent((prev) => {
+              const newContent = prev + event.payload.delta
+              streamingContentRef.current = newContent
+              return newContent
+            })
           }
         }
       })
@@ -169,7 +176,7 @@ export function useAgentSession(config: UseAgentSessionConfig): UseAgentSessionR
         unsub()
       }
     }
-  }, [taskId, isRelevantEvent, streamingContent])
+  }, [taskId, isRelevantEvent])
 
   // Initialize session
   const initSession = useCallback(async () => {
@@ -235,6 +242,7 @@ export function useAgentSession(config: UseAgentSessionConfig): UseAgentSessionR
       setIsInitialized(false)
       setMessages([])
       setStreamingContent('')
+      streamingContentRef.current = ''
       setThinkingContent('')
       setActiveToolCalls(new Map())
       setIsProcessing(false)

@@ -7,8 +7,7 @@
 ### Core Features ✅
 - Workspace/Column/Task CRUD with drag-and-drop
 - Git integration (branches, diffs, commits)
-- Terminal/PTY management with voice input
-- Agent runner infrastructure
+- Agent chat with `--print` streaming (same as orchestrator)
 - Pipeline system (triggers, exit criteria)
 - Voice transcription (Whisper)
 - Usage tracking & session history
@@ -47,16 +46,23 @@
 **Status**: In progress
 **Theme**: "Validate everything works end-to-end"
 
+### Completed
+- [x] Fix CLI mode "thinking forever" - switch to `--print` mode
+- [x] Unify agent and orchestrator streaming (both use `--print`)
+- [x] Remove PTY-based agent in favor of chat UI
+- [x] Add shared CLI chat components
+
 ### Immediate Tasks
 - [ ] Test orchestrator API mode end-to-end
 - [ ] Test orchestrator CLI mode end-to-end
+- [ ] Test agent chat end-to-end
 - [ ] Fix any broken paths discovered
-- [ ] Document all features properly
 
 ### Known Issues to Fix
 - [ ] Settings stored but some not enforced
 - [ ] Keyboard shortcuts not registered
 - [ ] Checklist backend incomplete
+- [ ] Cancel doesn't kill running CLI process (needs process handle)
 
 ---
 
