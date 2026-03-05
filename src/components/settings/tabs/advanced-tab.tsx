@@ -27,7 +27,7 @@ export function AdvancedTab() {
               min={1}
               max={20}
               value={terminal.maxInputRows}
-              onChange={(e) => updateSettings('terminal', { ...terminal, maxInputRows: Number(e.target.value) })}
+              onChange={(e) => { updateSettings('terminal', { ...terminal, maxInputRows: Number(e.target.value) }); }}
               className="w-20 rounded border border-border-default bg-surface px-2 py-1 text-sm text-text-primary"
             />
           </div>
@@ -41,7 +41,7 @@ export function AdvancedTab() {
               min={12}
               max={40}
               value={terminal.lineHeight}
-              onChange={(e) => updateSettings('terminal', { ...terminal, lineHeight: Number(e.target.value) })}
+              onChange={(e) => { updateSettings('terminal', { ...terminal, lineHeight: Number(e.target.value) }); }}
               className="w-20 rounded border border-border-default bg-surface px-2 py-1 text-sm text-text-primary"
             />
           </div>
@@ -56,7 +56,7 @@ export function AdvancedTab() {
               max={50000}
               step={1000}
               value={terminal.scrollbackLines}
-              onChange={(e) => updateSettings('terminal', { ...terminal, scrollbackLines: Number(e.target.value) })}
+              onChange={(e) => { updateSettings('terminal', { ...terminal, scrollbackLines: Number(e.target.value) }); }}
               className="w-24 rounded border border-border-default bg-surface px-2 py-1 text-sm text-text-primary"
             />
           </div>
@@ -78,7 +78,7 @@ export function AdvancedTab() {
               max={panel.maxHeight}
               step={50}
               value={panel.defaultHeight}
-              onChange={(e) => updateSettings('panel', { ...panel, defaultHeight: Number(e.target.value) })}
+              onChange={(e) => { updateSettings('panel', { ...panel, defaultHeight: Number(e.target.value) }); }}
               className="w-24 rounded border border-border-default bg-surface px-2 py-1 text-sm text-text-primary"
             />
           </div>
@@ -94,7 +94,7 @@ export function AdvancedTab() {
                 max={panel.maxHeight - 50}
                 step={50}
                 value={panel.minHeight}
-                onChange={(e) => updateSettings('panel', { ...panel, minHeight: Number(e.target.value) })}
+                onChange={(e) => { updateSettings('panel', { ...panel, minHeight: Number(e.target.value) }); }}
                 className="w-20 rounded border border-border-default bg-surface px-2 py-1 text-sm text-text-primary"
               />
               <span className="text-text-secondary">/</span>
@@ -104,7 +104,7 @@ export function AdvancedTab() {
                 max={1200}
                 step={50}
                 value={panel.maxHeight}
-                onChange={(e) => updateSettings('panel', { ...panel, maxHeight: Number(e.target.value) })}
+                onChange={(e) => { updateSettings('panel', { ...panel, maxHeight: Number(e.target.value) }); }}
                 className="w-20 rounded border border-border-default bg-surface px-2 py-1 text-sm text-text-primary"
               />
             </div>
@@ -122,7 +122,7 @@ export function AdvancedTab() {
               <p className="text-xs text-text-secondary">Swipe to switch workspaces</p>
             </div>
             <button
-              onClick={() => updateSettings('gestures', { ...gestures, swipeEnabled: !gestures.swipeEnabled })}
+              onClick={() => { updateSettings('gestures', { ...gestures, swipeEnabled: !gestures.swipeEnabled }); }}
               className={`relative h-6 w-11 rounded-full transition-colors ${
                 gestures.swipeEnabled ? 'bg-accent' : 'bg-surface-hover'
               }`}
@@ -146,7 +146,7 @@ export function AdvancedTab() {
                   min={20}
                   max={200}
                   value={gestures.swipeThreshold}
-                  onChange={(e) => updateSettings('gestures', { ...gestures, swipeThreshold: Number(e.target.value) })}
+                  onChange={(e) => { updateSettings('gestures', { ...gestures, swipeThreshold: Number(e.target.value) }); }}
                   className="w-20 rounded border border-border-default bg-surface px-2 py-1 text-sm text-text-primary"
                 />
               </div>
@@ -161,7 +161,7 @@ export function AdvancedTab() {
                   max={2}
                   step={0.1}
                   value={gestures.swipeVelocityThreshold}
-                  onChange={(e) => updateSettings('gestures', { ...gestures, swipeVelocityThreshold: Number(e.target.value) })}
+                  onChange={(e) => { updateSettings('gestures', { ...gestures, swipeVelocityThreshold: Number(e.target.value) }); }}
                   className="w-20 rounded border border-border-default bg-surface px-2 py-1 text-sm text-text-primary"
                 />
               </div>
@@ -185,7 +185,7 @@ export function AdvancedTab() {
               max={2000}
               step={100}
               value={advanced.settingsSyncDebounceMs}
-              onChange={(e) => updateSettings('advanced', { ...advanced, settingsSyncDebounceMs: Number(e.target.value) })}
+              onChange={(e) => { updateSettings('advanced', { ...advanced, settingsSyncDebounceMs: Number(e.target.value) }); }}
               className="w-24 rounded border border-border-default bg-surface px-2 py-1 text-sm text-text-primary"
             />
           </div>
@@ -200,7 +200,7 @@ export function AdvancedTab() {
               max={600}
               step={30}
               value={advanced.messageTimeoutSeconds}
-              onChange={(e) => updateSettings('advanced', { ...advanced, messageTimeoutSeconds: Number(e.target.value) })}
+              onChange={(e) => { updateSettings('advanced', { ...advanced, messageTimeoutSeconds: Number(e.target.value) }); }}
               className="w-24 rounded border border-border-default bg-surface px-2 py-1 text-sm text-text-primary"
             />
           </div>
@@ -214,7 +214,7 @@ export function AdvancedTab() {
               min={1}
               max={20}
               value={advanced.maxConcurrentTerminals}
-              onChange={(e) => updateSettings('advanced', { ...advanced, maxConcurrentTerminals: Number(e.target.value) })}
+              onChange={(e) => { updateSettings('advanced', { ...advanced, maxConcurrentTerminals: Number(e.target.value) }); }}
               className="w-20 rounded border border-border-default bg-surface px-2 py-1 text-sm text-text-primary"
             />
           </div>
@@ -231,10 +231,10 @@ export function AdvancedTab() {
             <input
               type="text"
               value={workspaceDefaults.defaultColumns.join(', ')}
-              onChange={(e) => updateSettings('workspaceDefaults', {
+              onChange={(e) => { updateSettings('workspaceDefaults', {
                 ...workspaceDefaults,
                 defaultColumns: e.target.value.split(',').map((s) => s.trim()).filter(Boolean)
-              })}
+              }); }}
               className="w-full rounded border border-border-default bg-surface px-3 py-2 text-sm text-text-primary"
               placeholder="Backlog, Working, Review, Done"
             />
@@ -247,7 +247,7 @@ export function AdvancedTab() {
             <input
               type="text"
               value={workspaceDefaults.branchPrefix}
-              onChange={(e) => updateSettings('workspaceDefaults', { ...workspaceDefaults, branchPrefix: e.target.value })}
+              onChange={(e) => { updateSettings('workspaceDefaults', { ...workspaceDefaults, branchPrefix: e.target.value }); }}
               className="w-32 rounded border border-border-default bg-surface px-2 py-1 text-sm text-text-primary font-mono"
             />
           </div>

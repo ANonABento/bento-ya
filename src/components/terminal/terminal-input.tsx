@@ -74,7 +74,8 @@ export function TerminalInput({
   const [stopping, setStopping] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const terminalSettings = useSettingsStore((s) => s.global.terminal)
-  const { maxInputRows, lineHeight } = terminalSettings
+  // Fallback for old persisted settings that don't have terminal config
+  const { maxInputRows, lineHeight } = terminalSettings ?? {}
 
   // Voice input - append transcript to current message
   const handleTranscript = useCallback((text: string) => {

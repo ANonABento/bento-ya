@@ -92,10 +92,36 @@ export const useSettingsStore = create<SettingsState>()(
       }),
       {
         name: 'bento-settings',
+        version: 3, // Bump version to trigger deep merge migration
         partialize: (state) => ({
           global: state.global,
           workspaceOverrides: state.workspaceOverrides,
         }),
+        migrate: (persistedState, version) => {
+          const state = persistedState as { global?: Partial<Settings>; workspaceOverrides?: Record<string, WorkspaceSettings> }
+          // Migrate from old settings - deep merge to preserve nested defaults
+          // Version 2 had shallow merge bug, version 3 fixes with deep merge
+          if (version < 3) {
+            const oldGlobal = state.global ?? {}
+            return {
+              global: {
+                ...DEFAULT_SETTINGS,
+                ...oldGlobal,
+                // Deep merge nested objects to ensure new fields are added
+                agent: { ...DEFAULT_SETTINGS.agent, ...oldGlobal.agent },
+                model: { ...DEFAULT_SETTINGS.model, ...oldGlobal.model },
+                voice: { ...DEFAULT_SETTINGS.voice, ...oldGlobal.voice },
+                git: { ...DEFAULT_SETTINGS.git, ...oldGlobal.git },
+                appearance: { ...DEFAULT_SETTINGS.appearance, ...oldGlobal.appearance },
+                cards: { ...DEFAULT_SETTINGS.cards, ...oldGlobal.cards },
+                terminal: { ...DEFAULT_SETTINGS.terminal, ...oldGlobal.terminal },
+                panel: { ...DEFAULT_SETTINGS.panel, ...oldGlobal.panel },
+              },
+              workspaceOverrides: state.workspaceOverrides ?? {},
+            }
+          }
+          return state
+        },
       },
     ),
     { name: 'settings-store' },

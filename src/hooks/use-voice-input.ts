@@ -144,7 +144,12 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       }, CHUNK_INTERVAL_MS)
 
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      // Handle both Error instances and Tauri's {kind, message} error objects
+      const message = err instanceof Error
+        ? err.message
+        : (err && typeof err === 'object' && 'message' in err)
+          ? String((err as { message: unknown }).message)
+          : String(err)
       console.error('[Voice] Failed to start recording:', message)
       setError(message)
       setState('error')
@@ -202,7 +207,12 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
 
     } catch (err) {
       console.error('[Voice] Stop/transcription error:', err)
-      const message = err instanceof Error ? err.message : String(err)
+      // Handle both Error instances and Tauri's {kind, message} error objects
+      const message = err instanceof Error
+        ? err.message
+        : (err && typeof err === 'object' && 'message' in err)
+          ? String((err as { message: unknown }).message)
+          : String(err)
       setError(message)
       setState('error')
       stateRef.current = 'error'

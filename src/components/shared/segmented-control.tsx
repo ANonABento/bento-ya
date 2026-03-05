@@ -35,7 +35,7 @@ export function SegmentedControl<T extends string>({
         return (
           <button
             key={option}
-            onClick={() => onChange(option)}
+            onClick={() => { onChange(option); }}
             className={`relative flex items-center justify-center gap-1.5 rounded-md font-medium capitalize transition-all ${buttonPadding[size]} ${sizeClasses[size]} ${
               isSelected
                 ? 'bg-accent text-bg'

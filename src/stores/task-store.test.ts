@@ -160,9 +160,9 @@ describe('task-store', () => {
       const col2Tasks = useTaskStore.getState().getByColumn('col-2')
 
       expect(col1Tasks).toHaveLength(1)
-      expect(col1Tasks[0].id).toBe('task-1')
+      expect(col1Tasks[0]?.id).toBe('task-1')
       expect(col2Tasks).toHaveLength(1)
-      expect(col2Tasks[0].id).toBe('task-2')
+      expect(col2Tasks[0]?.id).toBe('task-2')
     })
   })
 })

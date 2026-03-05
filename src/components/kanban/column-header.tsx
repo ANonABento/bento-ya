@@ -90,7 +90,7 @@ export const ColumnHeader = memo(function ColumnHeader({
       }
     }
     document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    return () => { document.removeEventListener('mousedown', handleClick); }
   }, [showMenu])
 
   return (
@@ -129,7 +129,7 @@ export const ColumnHeader = memo(function ColumnHeader({
                 <path d="M8 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM9.5 12.5a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0Z" />
               </svg>
             }
-            onClick={() => setShowMenu(!showMenu)}
+            onClick={() => { setShowMenu(!showMenu); }}
             tooltip="Column options"
             tooltipSide="bottom"
           />

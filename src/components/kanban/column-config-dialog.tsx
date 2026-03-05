@@ -109,7 +109,7 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    return () => { window.removeEventListener('keydown', handleKeyDown); }
   }, [onClose])
 
   return (
@@ -123,7 +123,7 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 10 }}
           transition={{ duration: 0.15 }}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); }}
           className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border-default bg-surface p-6 shadow-xl"
         >
           <h2 className="mb-4 text-lg font-semibold text-text-primary">
@@ -139,7 +139,7 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
               <input
                 type="text"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => { setName(e.target.value); }}
                 className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
               />
             </div>
@@ -152,7 +152,7 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
                 </label>
                 <select
                   value={icon}
-                  onChange={(e) => setIcon(e.target.value)}
+                  onChange={(e) => { setIcon(e.target.value); }}
                   className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
                 >
                   {ICONS.map((i) => (
@@ -172,7 +172,7 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
                     <button
                       key={c}
                       type="button"
-                      onClick={() => setColor(c)}
+                      onClick={() => { setColor(c); }}
                       className={`h-6 w-6 rounded-full transition-transform ${
                         color === c ? 'scale-110 ring-2 ring-white/50' : 'hover:scale-105'
                       }`}
@@ -215,7 +215,7 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
                   type="text"
                   placeholder="Agent type (e.g., claude, codex)"
                   value={triggerConfig.agent || ''}
-                  onChange={(e) => setTriggerConfig({ ...triggerConfig, agent: e.target.value })}
+                  onChange={(e) => { setTriggerConfig({ ...triggerConfig, agent: e.target.value }); }}
                   className="mt-2 w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
                 />
               )}
@@ -224,7 +224,7 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
                   type="text"
                   placeholder="Skill name (e.g., /review)"
                   value={triggerConfig.skill || ''}
-                  onChange={(e) => setTriggerConfig({ ...triggerConfig, skill: e.target.value })}
+                  onChange={(e) => { setTriggerConfig({ ...triggerConfig, skill: e.target.value }); }}
                   className="mt-2 w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
                 />
               )}
@@ -233,7 +233,7 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
                   type="text"
                   placeholder="Script path or command"
                   value={triggerConfig.script || ''}
-                  onChange={(e) => setTriggerConfig({ ...triggerConfig, script: e.target.value })}
+                  onChange={(e) => { setTriggerConfig({ ...triggerConfig, script: e.target.value }); }}
                   className="mt-2 w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
                 />
               )}
@@ -273,7 +273,7 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
                       type="number"
                       placeholder="Timeout (s)"
                       value={exitConfig.timeout || ''}
-                      onChange={(e) => setExitConfig({ ...exitConfig, timeout: parseInt(e.target.value) || undefined })}
+                      onChange={(e) => { setExitConfig({ ...exitConfig, timeout: parseInt(e.target.value) || undefined }); }}
                       className="w-24 rounded-lg border border-border-default bg-bg px-2 py-1 text-sm text-text-primary focus:border-accent focus:outline-none"
                     />
                     <span>Timeout (seconds)</span>
@@ -292,7 +292,7 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
               </div>
               <button
                 type="button"
-                onClick={() => setAutoAdvance(!autoAdvance)}
+                onClick={() => { setAutoAdvance(!autoAdvance); }}
                 className={`relative h-6 w-11 rounded-full transition-colors ${
                   autoAdvance ? 'bg-accent' : 'bg-surface-hover'
                 }`}

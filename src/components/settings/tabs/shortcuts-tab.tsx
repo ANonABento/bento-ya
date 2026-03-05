@@ -31,14 +31,14 @@ export function ShortcutsTab() {
             <div className="flex items-center gap-3">
               <Toggle
                 checked={shortcut.enabled}
-                onChange={(checked) => updateShortcut(shortcut.id, { enabled: checked })}
+                onChange={(checked) => { updateShortcut(shortcut.id, { enabled: checked }); }}
               />
               <span className="text-sm text-text-primary">{shortcut.action}</span>
             </div>
             <input
               type="text"
               value={shortcut.keys}
-              onChange={(e) => updateShortcut(shortcut.id, { keys: e.target.value })}
+              onChange={(e) => { updateShortcut(shortcut.id, { keys: e.target.value }); }}
               disabled={!shortcut.enabled}
               className="w-28 rounded-lg border border-border-default bg-surface px-2 py-1.5 text-center font-mono text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50"
             />

@@ -95,14 +95,14 @@ export function CliChatInput({
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    return () => { document.removeEventListener('mousedown', handleClickOutside); }
   }, [])
 
   const handleSubmit = useCallback(() => {
     const trimmed = message.trim()
     if (!trimmed || disabled) return
 
-    const connectionMode = (anthropicProvider?.connectionMode ?? 'api') as 'api' | 'cli'
+    const connectionMode = (anthropicProvider?.connectionMode ?? 'api')
     const apiKey = settings.agent.envVars['ANTHROPIC_API_KEY'] || undefined
     const cliPath = anthropicProvider?.cliPath || 'claude'
 
@@ -161,7 +161,7 @@ export function CliChatInput({
           <div className="relative">
             <button
               type="button"
-              onClick={() => setShowModelPicker(!showModelPicker)}
+              onClick={() => { setShowModelPicker(!showModelPicker); }}
               disabled={isProcessing}
               className="flex h-[38px] items-center gap-1.5 rounded-lg border border-border-default bg-bg px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
             >
@@ -216,7 +216,7 @@ export function CliChatInput({
             <Tooltip content="Reasoning effort (thinking depth)" side="top" delay={300}>
               <button
                 type="button"
-                onClick={() => setShowEffortPicker(!showEffortPicker)}
+                onClick={() => { setShowEffortPicker(!showEffortPicker); }}
                 disabled={isProcessing}
                 className={`flex h-[38px] items-center gap-1 rounded-lg border px-2 text-xs transition-colors disabled:opacity-50 ${
                   selectedEffort !== 'default'

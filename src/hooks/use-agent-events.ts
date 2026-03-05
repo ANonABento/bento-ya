@@ -16,20 +16,20 @@ export function useAgentEvents() {
     const setupListeners = async () => {
       // Agent started processing
       const unsubProcessing = await listen<AgentStatusPayload>('agent:processing', (event) => {
-        void updateTask(event.payload.taskId, { agentStatus: 'running' })
+        updateTask(event.payload.taskId, { agentStatus: 'running' })
       })
       unsubscribes.push(unsubProcessing)
 
       // Agent completed successfully
       const unsubComplete = await listen<AgentStatusPayload>('agent:complete', (event) => {
         // Mark as completed - we could also set to 'stopped' if we want to differentiate
-        void updateTask(event.payload.taskId, { agentStatus: 'completed' })
+        updateTask(event.payload.taskId, { agentStatus: 'completed' })
       })
       unsubscribes.push(unsubComplete)
 
       // Agent error
       const unsubError = await listen<AgentStatusPayload>('agent:error', (event) => {
-        void updateTask(event.payload.taskId, {
+        updateTask(event.payload.taskId, {
           agentStatus: 'failed',
           pipelineError: event.payload.message ?? 'Agent error',
         })

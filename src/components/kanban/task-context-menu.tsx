@@ -134,7 +134,7 @@ function SubmenuComponent({
   }
 
   const handleMouseLeave = () => {
-    timeoutRef.current = setTimeout(() => setIsOpen(false), 150)
+    timeoutRef.current = setTimeout(() => { setIsOpen(false); }, 150)
   }
 
   return (
@@ -239,7 +239,7 @@ export function TaskContextMenu({
       icon: Icons.move,
       items: otherColumns.map((col) => ({
         label: col.name,
-        onClick: () => onMoveToColumn(col.id),
+        onClick: () => { onMoveToColumn(col.id); },
       })),
     },
     { label: 'Duplicate', icon: Icons.duplicate, shortcut: 'D', onClick: onDuplicateTask },

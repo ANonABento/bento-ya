@@ -20,7 +20,7 @@ export function Toggle({ checked, onChange, disabled = false, size = 'sm' }: Tog
       role="switch"
       aria-checked={checked}
       disabled={disabled}
-      onClick={() => onChange(!checked)}
+      onClick={() => { onChange(!checked); }}
       className={`relative inline-flex shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50 ${s.track} ${
         checked ? 'bg-accent' : 'bg-surface-hover'
       }`}

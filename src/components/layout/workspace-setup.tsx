@@ -33,7 +33,12 @@ export function WorkspaceSetup() {
         setActive(created.id)
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
+      // Handle both Error instances and Tauri's {kind, message} error objects
+      const message = err instanceof Error
+        ? err.message
+        : (err && typeof err === 'object' && 'message' in err)
+          ? String((err as { message: unknown }).message)
+          : String(err)
       if (message.includes('repo') || message.includes('git')) {
         setError('Invalid repo path — make sure it points to a git repository')
       } else {
@@ -63,7 +68,12 @@ export function WorkspaceSetup() {
       await loadWorkspaces()
       setActive(workspace.id)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
+      // Handle both Error instances and Tauri's {kind, message} error objects
+      const message = err instanceof Error
+        ? err.message
+        : (err && typeof err === 'object' && 'message' in err)
+          ? String((err as { message: unknown }).message)
+          : String(err)
       setError(message)
     } finally {
       setSeeding(false)

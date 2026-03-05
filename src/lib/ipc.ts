@@ -22,7 +22,7 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
 
 function listen<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
   if (isTauri()) {
-    return tauriListen<T>(event, (e) => handler(e.payload))
+    return tauriListen<T>(event, (e) => { handler(e.payload); })
   }
   // Browser mode - events not supported
   return mockListen<T>(event, handler)

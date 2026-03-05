@@ -221,7 +221,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       }
     }
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    return () => { window.removeEventListener('keydown', handleKeyDown); }
   }, [togglePanel])
 
   // Process queue when current request completes
@@ -493,7 +493,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               {/* History button */}
               <button
                 type="button"
-                onClick={() => setSidebarMode(sidebarMode === 'history' ? null : 'history')}
+                onClick={() => { setSidebarMode(sidebarMode === 'history' ? null : 'history'); }}
                 className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
                   sidebarMode === 'history'
                     ? 'bg-surface-hover text-text-primary'
@@ -507,7 +507,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               {/* Files button */}
               <button
                 type="button"
-                onClick={() => setSidebarMode(sidebarMode === 'files' ? null : 'files')}
+                onClick={() => { setSidebarMode(sidebarMode === 'files' ? null : 'files'); }}
                 className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
                   sidebarMode === 'files'
                     ? 'bg-surface-hover text-text-primary'
@@ -661,7 +661,7 @@ function ProcessingIndicator({ startTime }: { startTime: number | null }) {
       setElapsed(Math.floor((Date.now() - startTime) / 1000))
     }, 1000)
 
-    return () => clearInterval(interval)
+    return () => { clearInterval(interval); }
   }, [startTime])
 
   return (

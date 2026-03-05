@@ -271,7 +271,7 @@ function ProcessingTimer({ startTime }: { startTime: number }) {
     const interval = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTime) / 1000))
     }, 1000)
-    return () => clearInterval(interval)
+    return () => { clearInterval(interval); }
   }, [startTime])
 
   return (

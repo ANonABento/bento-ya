@@ -130,6 +130,12 @@ const mockCommands: Record<string, CommandHandler> = {
       if (ws) ws.tabOrder = idx
     })
   },
+  seed_demo_data: (_args) => {
+    // Reset to demo data state
+    resetMockData()
+    // Return the demo workspace
+    return mockWorkspaces[0]
+  },
 
   // Column commands
   list_columns: (args) => mockColumns.filter(c => c.workspaceId === args?.workspaceId),
@@ -338,13 +344,84 @@ const mockCommands: Record<string, CommandHandler> = {
   clear_session_history: () => undefined,
 
   // Checklist commands (stubs)
-  get_workspace_checklist: () => ({ checklist: null, categories: [], items: [] }),
+  get_workspace_checklist: () => ({ checklist: null, categories: [], items: {} }),
   update_checklist_item: () => undefined,
   update_checklist_category: () => undefined,
   create_workspace_checklist: () => ({ id: 'mock-checklist', workspaceId: '', name: 'Mock Checklist', description: '', createdAt: '', updatedAt: '' }),
   delete_workspace_checklist: () => undefined,
   update_checklist_item_auto_detect: () => undefined,
   link_checklist_item_to_task: () => undefined,
+
+  // Task approval commands
+  approve_task: (args) => mockTasks.find(t => t.id === args?.taskId),
+  reject_task: (args) => mockTasks.find(t => t.id === args?.taskId),
+
+  // Workspace clone
+  clone_workspace: (args) => {
+    const source = mockWorkspaces.find(w => w.id === args?.sourceId)
+    if (!source) return null
+    const cloned: Workspace = {
+      ...source,
+      id: `ws-${++idCounter}`,
+      name: args?.newName as string || `${source.name} (Copy)`,
+      tabOrder: mockWorkspaces.length,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    mockWorkspaces.push(cloned)
+    return cloned
+  },
+
+  // Terminal PTY commands (stubs - not available in browser)
+  write_to_pty: () => { console.warn('[Browser Mock] PTY not available'); return undefined },
+  resize_pty: () => { console.warn('[Browser Mock] PTY not available'); return undefined },
+
+  // CLI detection commands
+  detect_clis: () => ({ claude: null, codex: null, aider: null }),
+  detect_single_cli: () => null,
+  verify_cli_path: () => ({ valid: false, version: null }),
+
+  // Siege loop commands (stubs)
+  start_siege: () => undefined,
+  stop_siege: () => undefined,
+  check_siege_status: () => ({ active: false, iteration: 0, maxIterations: 5 }),
+  continue_siege: () => undefined,
+
+  // Pipeline trigger commands (stubs)
+  fire_agent_trigger: () => undefined,
+  fire_script_trigger: () => undefined,
+  fire_skill_trigger: () => undefined,
+
+  // PR status commands (stubs)
+  fetch_pr_status: () => null,
+  fetch_pr_status_batch: () => [],
+  should_refresh_pr_status: () => false,
+
+  // Voice recording commands (stubs - not available in browser)
+  start_native_recording: () => { console.warn('[Browser Mock] Native recording not available'); return undefined },
+  stop_native_recording: () => { console.warn('[Browser Mock] Native recording not available'); return undefined },
+  cancel_native_recording: () => undefined,
+  is_native_recording: () => false,
+  transcribe_recording_chunk: () => ({ text: '', durationMs: 0 }),
+  transcribe_all_recording: () => ({ text: '', durationMs: 0 }),
+
+  // Whisper model management (stubs)
+  list_whisper_models: () => [],
+  download_whisper_model: () => undefined,
+  delete_whisper_model: () => undefined,
+  get_whisper_model_info: () => null,
+
+  // File operations (stubs)
+  scan_workspace_files: () => ({ files: [], totalSize: 0 }),
+  read_file_content: () => '',
+  create_note_file: () => '',
+
+  // Session management
+  reset_cli_session: () => undefined,
+  restore_snapshot: () => undefined,
+
+  // Orchestrator cancel
+  cancel_orchestrator_chat: () => { console.warn('[Browser Mock] cancel_orchestrator_chat called'); return undefined },
 }
 
 // ─── Mock invoke function ───────────────────────────────────────────────────

@@ -19,7 +19,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
   return (
     <div
       className="absolute right-1 top-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-      onClick={(e) => e.stopPropagation()}
+      onClick={(e) => { e.stopPropagation(); }}
     >
       {/* Open in panel */}
       <button

@@ -56,7 +56,7 @@ export type UseAgentSessionReturn = {
 function dbMessageToLocal(msg: DbAgentMessage, taskId: string): AgentMessage {
   return {
     id: msg.id,
-    role: msg.role as 'user' | 'assistant' | 'system',
+    role: msg.role,
     content: msg.content,
     taskId,
     createdAt: msg.createdAt,

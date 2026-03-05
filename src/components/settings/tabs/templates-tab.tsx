@@ -98,7 +98,7 @@ export function TemplatesTab() {
             <div className="flex items-start justify-between">
               <div
                 className="flex-1 cursor-pointer"
-                onClick={() => setSelectedTemplate(selectedTemplate?.id === template.id ? null : template)}
+                onClick={() => { setSelectedTemplate(selectedTemplate?.id === template.id ? null : template); }}
               >
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-text-primary">{template.name}</span>
@@ -119,7 +119,7 @@ export function TemplatesTab() {
               <div className="flex items-center gap-1">
                 {defaultTemplateId !== template.id && (
                   <button
-                    onClick={() => setDefaultTemplate(template.id)}
+                    onClick={() => { setDefaultTemplate(template.id); }}
                     className="rounded p-1.5 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
                     title="Set as default"
                   >
@@ -129,7 +129,7 @@ export function TemplatesTab() {
                   </button>
                 )}
                 <button
-                  onClick={() => handleExport(template)}
+                  onClick={() => { handleExport(template); }}
                   className="rounded p-1.5 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
                   title="Export"
                 >
@@ -140,7 +140,7 @@ export function TemplatesTab() {
                 </button>
                 {!template.isBuiltIn && (
                   <button
-                    onClick={() => deleteTemplate(template.id)}
+                    onClick={() => { deleteTemplate(template.id); }}
                     className="rounded p-1.5 text-text-secondary transition-colors hover:bg-error/10 hover:text-error"
                     title="Delete"
                   >
@@ -195,7 +195,7 @@ export function TemplatesTab() {
       {/* Community Gallery Modal */}
       <AnimatePresence>
         {showCommunityGallery && (
-          <CommunityGallery onClose={() => setShowCommunityGallery(false)} />
+          <CommunityGallery onClose={() => { setShowCommunityGallery(false); }} />
         )}
       </AnimatePresence>
     </div>

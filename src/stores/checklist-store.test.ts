@@ -109,7 +109,7 @@ describe('checklist-store', () => {
       useChecklistStore.getState().toggleItem('item-1', 'cat-1')
 
       const items = useChecklistStore.getState().items['cat-1']
-      expect(items[0].checked).toBe(true)
+      expect(items?.[0]?.checked).toBe(true)
     })
   })
 
@@ -123,7 +123,7 @@ describe('checklist-store', () => {
       useChecklistStore.getState().toggleCategory('cat-1')
 
       const categories = useChecklistStore.getState().categories
-      expect(categories[0].collapsed).toBe(true)
+      expect(categories[0]?.collapsed).toBe(true)
     })
   })
 
@@ -171,7 +171,7 @@ describe('checklist-store', () => {
       useChecklistStore.getState().linkItemToTask('item-1', 'cat-1', 'task-1')
 
       const items = useChecklistStore.getState().items['cat-1']
-      expect(items[0].linkedTaskId).toBe('task-1')
+      expect(items?.[0]?.linkedTaskId).toBe('task-1')
     })
   })
 })
