@@ -83,6 +83,7 @@ export const useSettingsStore = create<SettingsState>()(
             git: { ...global.git, ...overrides.git },
             appearance: { ...global.appearance, ...overrides.appearance },
             cards: { ...global.cards, ...overrides.cards },
+            discord: { ...global.discord, ...overrides.discord },
           } as Settings
         },
 
