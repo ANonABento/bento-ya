@@ -9,6 +9,7 @@ type TaskState = {
 
   load: (workspaceId: string) => Promise<void>
   add: (workspaceId: string, columnId: string, title: string, description: string) => Promise<void>
+  duplicate: (id: string) => Promise<Task | null>
   remove: (id: string) => Promise<void>
   move: (id: string, targetColumnId: string, position: number) => Promise<void>
   reorder: (columnId: string, ids: string[]) => Promise<void>
@@ -30,6 +31,24 @@ export const useTaskStore = create<TaskState>()(
       add: async (workspaceId, columnId, title, description) => {
         const task = await ipc.createTask(workspaceId, columnId, title, description)
         set((s) => ({ tasks: [...s.tasks, task] }))
+      },
+
+      duplicate: async (id) => {
+        const original = get().tasks.find((t) => t.id === id)
+        if (!original) return null
+
+        const newTitle = original.title.endsWith(' (Copy)')
+          ? original.title
+          : `${original.title} (Copy)`
+
+        const task = await ipc.createTask(
+          original.workspaceId,
+          original.columnId,
+          newTitle,
+          original.description,
+        )
+        set((s) => ({ tasks: [...s.tasks, task] }))
+        return task
       },
 
       remove: async (id) => {
