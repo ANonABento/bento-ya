@@ -71,6 +71,8 @@ let mockTasks: Task[] = [
     prLastFetched: null,
     prHeadSha: null,
     checklist: null,
+    notifyStakeholders: null,
+    notificationSentAt: null,
     position: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -212,6 +214,8 @@ const mockCommands: Record<string, CommandHandler> = {
       prLastFetched: null,
       prHeadSha: null,
       checklist: null,
+      notifyStakeholders: null,
+      notificationSentAt: null,
       position: mockTasks.filter(t => t.columnId === args?.columnId).length,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -276,6 +280,35 @@ const mockCommands: Record<string, CommandHandler> = {
     throw new Error('Task not found')
   },
 
+  // Notification commands
+  update_task_stakeholders: (args) => {
+    const task = mockTasks.find(t => t.id === args?.id)
+    if (task) {
+      task.notifyStakeholders = (args?.stakeholders as string | null) ?? null
+      task.updatedAt = new Date().toISOString()
+      return task
+    }
+    throw new Error('Task not found')
+  },
+  mark_task_notification_sent: (args) => {
+    const task = mockTasks.find(t => t.id === args?.id)
+    if (task) {
+      task.notificationSentAt = new Date().toISOString()
+      task.updatedAt = new Date().toISOString()
+      return task
+    }
+    throw new Error('Task not found')
+  },
+  clear_task_notification_sent: (args) => {
+    const task = mockTasks.find(t => t.id === args?.id)
+    if (task) {
+      task.notificationSentAt = null
+      task.updatedAt = new Date().toISOString()
+      return task
+    }
+    throw new Error('Task not found')
+  },
+
   // Git commands (stubs)
   get_current_branch: () => 'main',
   list_task_branches: () => [],
@@ -291,6 +324,21 @@ const mockCommands: Record<string, CommandHandler> = {
   start_agent: () => ({ taskId: '', agentType: '', status: 'idle', pid: null, workingDir: '' }),
   stop_agent: () => undefined,
   get_agent_status: () => ({ taskId: '', agentType: '', status: 'idle', pid: null, workingDir: '' }),
+
+  // Agent message commands
+  save_agent_message: (args) => ({
+    id: `msg-${Date.now()}`,
+    taskId: args?.taskId ?? '',
+    role: args?.role ?? 'user',
+    content: args?.content ?? '',
+    model: args?.model ?? null,
+    effortLevel: args?.effortLevel ?? null,
+    toolCalls: args?.toolCalls ?? null,
+    thinkingContent: args?.thinkingContent ?? null,
+    createdAt: new Date().toISOString(),
+  }),
+  get_agent_messages: () => [],
+  clear_agent_messages: () => undefined,
 
   // Pipeline commands (stubs)
   mark_pipeline_complete: (args) => mockTasks.find(t => t.id === args?.taskId),
@@ -424,6 +472,8 @@ export function resetMockData() {
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'abc123',
       checklist: null,
+      notifyStakeholders: null,
+      notificationSentAt: null,
       position: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -458,6 +508,8 @@ export function resetMockData() {
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'def456',
       checklist: null,
+      notifyStakeholders: null,
+      notificationSentAt: null,
       position: 0,
       createdAt: new Date(Date.now() - 3600000).toISOString(),
       updatedAt: new Date(Date.now() - 1800000).toISOString(),
@@ -492,6 +544,8 @@ export function resetMockData() {
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'ghi789',
       checklist: null,
+      notifyStakeholders: null,
+      notificationSentAt: null,
       position: 1,
       createdAt: new Date(Date.now() - 86400000).toISOString(),
       updatedAt: new Date(Date.now() - 7200000).toISOString(),

@@ -48,6 +48,9 @@ export type Task = {
   prHeadSha: string | null
   // Task checklist (JSON array of TaskChecklistItem)
   checklist: string | null
+  // Notification fields
+  notifyStakeholders: string | null  // JSON array of stakeholder names/emails
+  notificationSentAt: string | null
   position: number
   createdAt: string
   updatedAt: string

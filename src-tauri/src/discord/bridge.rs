@@ -11,6 +11,15 @@ use std::thread;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
+/// Incoming command from the sidecar (sidecar requesting data from Rust)
+#[derive(Debug, Clone, Deserialize)]
+pub struct IncomingCommand {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub cmd_type: String,
+    pub payload: serde_json::Value,
+}
+
 /// Shared Discord bridge state
 pub type SharedDiscordBridge = Arc<Mutex<DiscordBridge>>;
 
@@ -28,8 +37,8 @@ pub struct BridgeCommand {
     pub payload: serde_json::Value,
 }
 
-/// Response from the sidecar
-#[derive(Debug, Clone, Deserialize)]
+/// Response from the sidecar (also used to send responses TO the sidecar)
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeResponse {
     pub id: String,
     pub success: bool,
@@ -80,6 +89,15 @@ pub struct CreateThreadResult {
     pub message_id: String,
 }
 
+/// Queue status for rate limiter monitoring
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueStatus {
+    pub pending_count: u32,
+    pub limited_channels: Vec<String>,
+    pub last_error: Option<String>,
+}
+
 /// Discord bot sidecar bridge
 pub struct DiscordBridge {
     /// The running sidecar process
@@ -92,6 +110,8 @@ pub struct DiscordBridge {
     status: DiscordStatus,
     /// Command counter for unique IDs
     cmd_counter: u64,
+    /// Receiver for incoming commands from the sidecar
+    incoming_rx: Option<mpsc::UnboundedReceiver<IncomingCommand>>,
 }
 
 impl DiscordBridge {
@@ -102,6 +122,7 @@ impl DiscordBridge {
             pending: Arc::new(Mutex::new(HashMap::new())),
             status: DiscordStatus::default(),
             cmd_counter: 0,
+            incoming_rx: None,
         }
     }
 
@@ -142,6 +163,9 @@ impl DiscordBridge {
         // Create channel for stdin writes
         let (stdin_tx, mut stdin_rx) = mpsc::unbounded_channel::<String>();
 
+        // Create channel for incoming commands from sidecar
+        let (incoming_tx, incoming_rx) = mpsc::unbounded_channel::<IncomingCommand>();
+
         // Spawn stdin writer thread
         thread::spawn(move || {
             let mut stdin = stdin;
@@ -166,7 +190,7 @@ impl DiscordBridge {
                     continue;
                 }
 
-                // Try to parse as response first
+                // Try to parse as response first (has "success" field)
                 if let Ok(response) = serde_json::from_str::<BridgeResponse>(&line) {
                     // Find and complete the pending request
                     let mut pending = pending_clone.blocking_lock();
@@ -177,16 +201,24 @@ impl DiscordBridge {
                     continue;
                 }
 
-                // Try to parse as event
+                // Try to parse as event (has "event" field)
                 if let Ok(event) = serde_json::from_str::<BridgeEvent>(&line) {
                     // Emit to frontend
                     let _ = app_clone.emit("discord:event", &event);
+                    continue;
+                }
+
+                // Try to parse as incoming command from sidecar (has "type" field)
+                if let Ok(command) = serde_json::from_str::<IncomingCommand>(&line) {
+                    // Forward to command handler
+                    let _ = incoming_tx.send(command);
                 }
             }
         });
 
         self.process = Some(child);
         self.stdin_tx = Some(stdin_tx);
+        self.incoming_rx = Some(incoming_rx);
         self.status = DiscordStatus::default();
 
         Ok(())
@@ -199,7 +231,41 @@ impl DiscordBridge {
             let _ = process.wait();
         }
         self.stdin_tx = None;
+        self.incoming_rx = None;
         self.status = DiscordStatus::default();
+    }
+
+    /// Receive the next incoming command from the sidecar
+    pub async fn recv_command(&mut self) -> Option<IncomingCommand> {
+        if let Some(rx) = &mut self.incoming_rx {
+            rx.recv().await
+        } else {
+            None
+        }
+    }
+
+    /// Send a response to an incoming command from the sidecar
+    pub fn send_response(&self, id: &str, success: bool, data: Option<serde_json::Value>, error: Option<String>) -> Result<(), String> {
+        let stdin_tx = self
+            .stdin_tx
+            .as_ref()
+            .ok_or("Sidecar not running")?;
+
+        let response = BridgeResponse {
+            id: id.to_string(),
+            success,
+            data,
+            error,
+        };
+
+        let json = serde_json::to_string(&response)
+            .map_err(|e| format!("Failed to serialize response: {}", e))?;
+
+        stdin_tx
+            .send(json)
+            .map_err(|e| format!("Failed to send response: {}", e))?;
+
+        Ok(())
     }
 
     /// Send a command and wait for response
@@ -446,6 +512,12 @@ impl DiscordBridge {
 
         self.send_command("agent_complete", payload).await?;
         Ok(())
+    }
+
+    /// Get queue status from rate limiter
+    pub async fn get_queue_status(&mut self) -> Result<QueueStatus, String> {
+        let result = self.send_command("get_queue_status", serde_json::Value::Null).await?;
+        serde_json::from_value(result).map_err(|e| format!("Failed to parse queue status: {}", e))
     }
 }
 

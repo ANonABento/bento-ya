@@ -1,7 +1,7 @@
 //! Discord integration Tauri commands
 
 use crate::db::AppState;
-use crate::discord::bridge::{CreateThreadResult, SetupWorkspaceResult};
+use crate::discord::bridge::{CreateThreadResult, QueueStatus, SetupWorkspaceResult};
 use crate::discord::{DiscordStatus, SharedDiscordBridge};
 use crate::error::AppError;
 use tauri::{AppHandle, Manager, State};
@@ -31,6 +31,10 @@ pub async fn spawn_discord_sidecar(
         .spawn(&sidecar_path_str, &app)
         .await
         .map_err(AppError::CommandError)?;
+    drop(bridge);
+
+    // Start the command processor to handle incoming requests from the sidecar
+    start_discord_command_processor(&app, discord.inner().clone());
 
     Ok(())
 }
@@ -611,4 +615,72 @@ pub async fn signal_agent_complete(
         .send_agent_complete(&task_id, success, &summary, duration_ms, tokens_used)
         .await
         .map_err(AppError::CommandError)
+}
+
+/// Get Discord queue status for monitoring
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_discord_queue_status(
+    discord: State<'_, SharedDiscordBridge>,
+) -> Result<QueueStatus, AppError> {
+    let mut bridge = discord.lock().await;
+
+    if !bridge.is_running() {
+        return Ok(QueueStatus {
+            pending_count: 0,
+            limited_channels: vec![],
+            last_error: None,
+        });
+    }
+
+    bridge
+        .get_queue_status()
+        .await
+        .map_err(AppError::CommandError)
+}
+
+// ─── Command Processor ─────────────────────────────────────────────────────────
+
+/// Start the Discord command processor
+/// This processes incoming commands from the sidecar (db lookups, agent actions)
+pub fn start_discord_command_processor(
+    app: &AppHandle,
+    discord_ref: SharedDiscordBridge,
+) {
+    let app_handle = app.clone();
+
+    // Spawn a background task to process incoming commands
+    tokio::spawn(async move {
+        loop {
+            // Get the next incoming command
+            let command = {
+                let mut bridge = discord_ref.lock().await;
+                if !bridge.is_running() {
+                    // Bridge stopped, exit the loop
+                    break;
+                }
+                bridge.recv_command().await
+            };
+
+            let Some(command) = command else {
+                // Channel closed, exit
+                break;
+            };
+
+            // Get state from app handle
+            let state: tauri::State<'_, AppState> = app_handle.state();
+
+            // Handle the command
+            let (success, data, error) = crate::discord::handle_command(
+                state.inner(),
+                &command.cmd_type,
+                &command.payload,
+            );
+
+            // Send response back to sidecar
+            let bridge = discord_ref.lock().await;
+            if let Err(e) = bridge.send_response(&command.id, success, data, error) {
+                eprintln!("Failed to send response to sidecar: {}", e);
+            }
+        }
+    });
 }

@@ -173,6 +173,23 @@ export async function rejectTask(id: string, reason?: string): Promise<Task> {
   return invoke<Task>('reject_task', { id, reason })
 }
 
+// ─── Notification ────────────────────────────────────────────────────────────
+
+export async function updateTaskStakeholders(
+  id: string,
+  stakeholders: string | null,
+): Promise<Task> {
+  return invoke<Task>('update_task_stakeholders', { id, stakeholders })
+}
+
+export async function markTaskNotificationSent(id: string): Promise<Task> {
+  return invoke<Task>('mark_task_notification_sent', { id })
+}
+
+export async function clearTaskNotificationSent(id: string): Promise<Task> {
+  return invoke<Task>('clear_task_notification_sent', { id })
+}
+
 // ─── PR creation ─────────────────────────────────────────────────────────────
 
 import type { CreatePrResult } from '@/types/task'
@@ -294,6 +311,175 @@ export async function stopAgent(taskId: string): Promise<void> {
 
 export async function getAgentStatus(taskId: string): Promise<AgentInfo> {
   return invoke<AgentInfo>('get_agent_status', { taskId })
+}
+
+// ─── Agent Messages ────────────────────────────────────────────────────────
+
+import type { AgentMessage } from '@/types'
+
+export async function saveAgentMessage(
+  taskId: string,
+  role: string,
+  content: string,
+  model?: string,
+  effortLevel?: string,
+  toolCalls?: string,
+  thinkingContent?: string,
+): Promise<AgentMessage> {
+  return invoke<AgentMessage>('save_agent_message', {
+    taskId,
+    role,
+    content,
+    model,
+    effortLevel,
+    toolCalls,
+    thinkingContent,
+  })
+}
+
+export async function getAgentMessages(taskId: string): Promise<AgentMessage[]> {
+  return invoke<AgentMessage[]>('get_agent_messages', { taskId })
+}
+
+export async function clearAgentMessages(taskId: string): Promise<void> {
+  return invoke<void>('clear_agent_messages', { taskId })
+}
+
+export async function streamAgentChat(
+  taskId: string,
+  message: string,
+  workingDir: string,
+  cliPath: string,
+  model?: string,
+  effortLevel?: string,
+): Promise<void> {
+  return invoke<void>('stream_agent_chat', {
+    taskId,
+    message,
+    workingDir,
+    cliPath,
+    model,
+    effortLevel,
+  })
+}
+
+export async function cancelAgentChat(taskId: string): Promise<void> {
+  return invoke<void>('cancel_agent_chat', { taskId })
+}
+
+// ─── Agent Events ──────────────────────────────────────────────────────────
+
+export type AgentStreamEvent = {
+  taskId: string
+  content: string
+}
+
+export type AgentThinkingEvent = {
+  taskId: string
+  content: string
+}
+
+export type AgentToolCallEvent = {
+  taskId: string
+  toolId: string
+  toolName: string
+  toolInput: string
+  status: 'pending' | 'running' | 'completed' | 'error'
+}
+
+export type AgentCompleteEvent = {
+  taskId: string
+  success: boolean
+  message?: string
+}
+
+export const onAgentStream = (
+  cb: EventCallback<AgentStreamEvent>
+): Promise<UnlistenFn> => listen<AgentStreamEvent>('agent:stream', cb)
+
+export const onAgentThinking = (
+  cb: EventCallback<AgentThinkingEvent>
+): Promise<UnlistenFn> => listen<AgentThinkingEvent>('agent:thinking', cb)
+
+export const onAgentToolCall = (
+  cb: EventCallback<AgentToolCallEvent>
+): Promise<UnlistenFn> => listen<AgentToolCallEvent>('agent:tool_call', cb)
+
+export const onAgentComplete = (
+  cb: EventCallback<AgentCompleteEvent>
+): Promise<UnlistenFn> => listen<AgentCompleteEvent>('agent:complete', cb)
+
+// ─── Queue Events ──────────────────────────────────────────────────────────
+
+export type QueueBatchRequestedEvent = {
+  workspaceId: string
+  taskIds: string[]
+  agentType: string
+}
+
+export const onQueueBatchRequested = (
+  cb: EventCallback<QueueBatchRequestedEvent>
+): Promise<UnlistenFn> => listen<QueueBatchRequestedEvent>('queue:batch_requested', cb)
+
+// Maximum concurrent agents for batch processing
+const MAX_CONCURRENT_AGENTS = 5
+
+// Active agent tracking for batch queue
+const activeAgentSlots = new Set<string>()
+
+/**
+ * Queue multiple tasks for batch agent processing.
+ * Respects MAX_CONCURRENT_AGENTS limit and processes in parallel.
+ */
+export async function queueAgentBatch(
+  taskIds: string[],
+  agentType: string,
+  workingDir: string,
+  cliPath?: string
+): Promise<{ queued: string[]; skipped: string[] }> {
+  const queued: string[] = []
+  const skipped: string[] = []
+
+  for (const taskId of taskIds) {
+    // Check if we have available slots
+    if (activeAgentSlots.size >= MAX_CONCURRENT_AGENTS) {
+      skipped.push(taskId)
+      continue
+    }
+
+    // Check if this task already has an active agent
+    if (activeAgentSlots.has(taskId)) {
+      skipped.push(taskId)
+      continue
+    }
+
+    try {
+      activeAgentSlots.add(taskId)
+      await startAgent(taskId, agentType, workingDir, cliPath)
+      queued.push(taskId)
+    } catch (err) {
+      activeAgentSlots.delete(taskId)
+      console.error(`[queueAgentBatch] Failed to start agent for ${taskId}:`, err)
+      skipped.push(taskId)
+    }
+  }
+
+  return { queued, skipped }
+}
+
+/**
+ * Release an agent slot when processing completes.
+ * Should be called when an agent finishes (success or failure).
+ */
+export function releaseAgentSlot(taskId: string): void {
+  activeAgentSlots.delete(taskId)
+}
+
+/**
+ * Get current number of active agent slots.
+ */
+export function getActiveAgentCount(): number {
+  return activeAgentSlots.size
 }
 
 // ─── CLI detection ──────────────────────────────────────────────────────────
@@ -1281,6 +1467,17 @@ export async function signalAgentComplete(
   tokensUsed?: number,
 ): Promise<void> {
   return invoke<void>('signal_agent_complete', { taskId, success, summary, durationMs, tokensUsed })
+}
+
+// Discord queue status
+export type DiscordQueueStatus = {
+  pendingCount: number
+  limitedChannels: string[]
+  lastError: string | null
+}
+
+export async function getDiscordQueueStatus(): Promise<DiscordQueueStatus> {
+  return invoke<DiscordQueueStatus>('get_discord_queue_status')
 }
 
 // Discord event listeners

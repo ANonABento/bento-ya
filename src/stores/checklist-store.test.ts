@@ -74,6 +74,10 @@ describe('checklist-store', () => {
               checked: true,
               notes: null,
               position: 0,
+              detectType: null,
+              detectConfig: null,
+              autoDetected: false,
+              linkedTaskId: null,
               createdAt: '2024-01-01T00:00:00Z',
               updatedAt: '2024-01-01T00:00:00Z',
             },
@@ -84,6 +88,10 @@ describe('checklist-store', () => {
               checked: false,
               notes: 'Some notes',
               position: 1,
+              detectType: null,
+              detectConfig: null,
+              autoDetected: false,
+              linkedTaskId: null,
               createdAt: '2024-01-01T00:00:00Z',
               updatedAt: '2024-01-01T00:00:00Z',
             },
@@ -134,7 +142,7 @@ describe('checklist-store', () => {
       useChecklistStore.setState({
         items: {
           'cat-1': [
-            { id: 'item-1', categoryId: 'cat-1', text: 'Item 1', checked: false, notes: null, position: 0, createdAt: '', updatedAt: '' },
+            { id: 'item-1', categoryId: 'cat-1', text: 'Item 1', checked: false, notes: null, position: 0, detectType: null, detectConfig: null, autoDetected: false, linkedTaskId: null, createdAt: '', updatedAt: '' },
           ],
         },
       })
@@ -207,11 +215,11 @@ describe('checklist-store', () => {
       useChecklistStore.setState({
         items: {
           'cat-1': [
-            { id: 'i1', categoryId: 'cat-1', text: 'Item 1', checked: true, notes: null, position: 0, createdAt: '', updatedAt: '' },
-            { id: 'i2', categoryId: 'cat-1', text: 'Item 2', checked: false, notes: null, position: 1, createdAt: '', updatedAt: '' },
+            { id: 'i1', categoryId: 'cat-1', text: 'Item 1', checked: true, notes: null, position: 0, detectType: null, detectConfig: null, autoDetected: false, linkedTaskId: null, createdAt: '', updatedAt: '' },
+            { id: 'i2', categoryId: 'cat-1', text: 'Item 2', checked: false, notes: null, position: 1, detectType: null, detectConfig: null, autoDetected: false, linkedTaskId: null, createdAt: '', updatedAt: '' },
           ],
           'cat-2': [
-            { id: 'i3', categoryId: 'cat-2', text: 'Item 3', checked: true, notes: null, position: 0, createdAt: '', updatedAt: '' },
+            { id: 'i3', categoryId: 'cat-2', text: 'Item 3', checked: true, notes: null, position: 0, detectType: null, detectConfig: null, autoDetected: false, linkedTaskId: null, createdAt: '', updatedAt: '' },
           ],
         },
       })

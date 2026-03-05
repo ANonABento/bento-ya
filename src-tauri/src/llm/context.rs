@@ -116,6 +116,11 @@ mod tests {
             config: "{}".to_string(),
             created_at: "2024-01-01".to_string(),
             updated_at: "2024-01-01".to_string(),
+            discord_guild_id: None,
+            discord_category_id: None,
+            discord_chef_channel_id: None,
+            discord_notifications_channel_id: None,
+            discord_enabled: None,
         }
     }
 
@@ -200,6 +205,8 @@ mod tests {
                 pr_labels: "[]".to_string(),
                 pr_last_fetched: None,
                 pr_head_sha: None,
+                notify_stakeholders: None,
+                notification_sent_at: None,
                 created_at: "2024-01-01".to_string(),
                 updated_at: "2024-01-01".to_string(),
             },

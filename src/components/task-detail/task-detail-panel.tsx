@@ -9,6 +9,7 @@ import { ChangesSection } from './changes-section'
 import { CommitsSection } from './commits-section'
 import { UsageSection } from './usage-section'
 import { TaskChecklist } from './task-checklist'
+import { NotificationSection } from './notification-section'
 import { ReviewActions } from '@/components/review/review-actions'
 import * as ipc from '@/lib/ipc'
 
@@ -78,6 +79,15 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
       updateTask(task.id, updatedTask)
     } catch (err) {
       console.error('Failed to update checklist:', err)
+    }
+  }, [task.id, updateTask])
+
+  const handleNotificationUpdate = useCallback(async () => {
+    try {
+      const updatedTask = await ipc.getTask(task.id)
+      updateTask(task.id, updatedTask)
+    } catch (err) {
+      console.error('Failed to refresh task:', err)
     }
   }, [task.id, updateTask])
 
@@ -196,6 +206,16 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
             agentType={task.agentType}
             agentStatus={task.agentStatus}
             startedAt={task.agentStatus === 'running' ? task.updatedAt : null}
+          />
+        </div>
+
+        {/* Notifications */}
+        <div className="px-3 pb-3">
+          <NotificationSection
+            taskId={task.id}
+            stakeholders={task.notifyStakeholders}
+            notificationSentAt={task.notificationSentAt}
+            onUpdate={() => { void handleNotificationUpdate() }}
           />
         </div>
       </div>
