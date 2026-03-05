@@ -296,6 +296,76 @@ export async function getAgentStatus(taskId: string): Promise<AgentInfo> {
   return invoke<AgentInfo>('get_agent_status', { taskId })
 }
 
+// ─── Streaming Agent commands (--print mode like orchestrator) ──────────────
+
+export type AgentStreamPayload = {
+  taskId: string
+  delta: string
+  finishReason: string | null
+}
+
+export type AgentThinkingPayload = {
+  taskId: string
+  content: string
+  isComplete: boolean
+}
+
+export type AgentToolCallPayload = {
+  taskId: string
+  toolId: string
+  toolName: string
+  status: string
+}
+
+export type AgentStatusPayload = {
+  taskId: string
+  status: string
+  message: string | null
+}
+
+export async function initAgentSession(
+  taskId: string,
+  workingDir: string,
+  cliPath: string,
+): Promise<void> {
+  return invoke<void>('init_agent_session', { taskId, workingDir, cliPath })
+}
+
+export async function streamAgentChat(
+  taskId: string,
+  message: string,
+): Promise<void> {
+  return invoke<void>('stream_agent_chat', { taskId, message })
+}
+
+export async function cancelAgentChat(taskId: string): Promise<void> {
+  return invoke<void>('cancel_agent_chat', { taskId })
+}
+
+export async function resetAgentSession(taskId: string): Promise<void> {
+  return invoke<void>('reset_agent_session', { taskId })
+}
+
+// ─── Agent streaming event listeners ─────────────────────────────────────────
+
+export const onAgentStream = (cb: EventCallback<AgentStreamPayload>): Promise<UnlistenFn> =>
+  listen<AgentStreamPayload>('agent:stream', cb)
+
+export const onAgentThinking = (cb: EventCallback<AgentThinkingPayload>): Promise<UnlistenFn> =>
+  listen<AgentThinkingPayload>('agent:thinking', cb)
+
+export const onAgentToolCall = (cb: EventCallback<AgentToolCallPayload>): Promise<UnlistenFn> =>
+  listen<AgentToolCallPayload>('agent:tool_call', cb)
+
+export const onAgentProcessing = (cb: EventCallback<AgentStatusPayload>): Promise<UnlistenFn> =>
+  listen<AgentStatusPayload>('agent:processing', cb)
+
+export const onAgentComplete = (cb: EventCallback<AgentStatusPayload>): Promise<UnlistenFn> =>
+  listen<AgentStatusPayload>('agent:complete', cb)
+
+export const onAgentError = (cb: EventCallback<AgentStatusPayload>): Promise<UnlistenFn> =>
+  listen<AgentStatusPayload>('agent:error', cb)
+
 // ─── CLI detection ──────────────────────────────────────────────────────────
 
 export type DetectedCli = {

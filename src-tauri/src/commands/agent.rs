@@ -1,10 +1,12 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex as StdMutex};
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::process::agent_runner::{AgentRunner, AgentSession};
+use crate::process::agent_session::AgentSessionManager;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,6 +42,7 @@ impl From<AgentSession> for AgentInfo {
     }
 }
 
+// Legacy PTY-based agent start (kept for backwards compatibility)
 #[tauri::command(rename_all = "camelCase")]
 pub async fn start_agent(
     task_id: String,
@@ -48,7 +51,7 @@ pub async fn start_agent(
     env_vars: Option<HashMap<String, String>>,
     cli_path: Option<String>,
     app_handle: AppHandle,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    agent_runner: State<'_, Arc<StdMutex<AgentRunner>>>,
 ) -> Result<AgentInfo, String> {
     let mut runner = agent_runner
         .lock()
@@ -69,7 +72,7 @@ pub async fn start_agent(
 #[tauri::command(rename_all = "camelCase")]
 pub fn stop_agent(
     task_id: String,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    agent_runner: State<'_, Arc<StdMutex<AgentRunner>>>,
 ) -> Result<(), String> {
     let mut runner = agent_runner
         .lock()
@@ -80,7 +83,7 @@ pub fn stop_agent(
 #[tauri::command(rename_all = "camelCase")]
 pub fn force_stop_agent(
     task_id: String,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    agent_runner: State<'_, Arc<StdMutex<AgentRunner>>>,
 ) -> Result<(), String> {
     let mut runner = agent_runner
         .lock()
@@ -91,7 +94,7 @@ pub fn force_stop_agent(
 #[tauri::command(rename_all = "camelCase")]
 pub fn get_agent_status(
     task_id: String,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    agent_runner: State<'_, Arc<StdMutex<AgentRunner>>>,
 ) -> Result<AgentInfo, String> {
     let runner = agent_runner
         .lock()
@@ -105,11 +108,64 @@ pub fn get_agent_status(
 
 #[tauri::command]
 pub fn list_active_agents(
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    agent_runner: State<'_, Arc<StdMutex<AgentRunner>>>,
 ) -> Result<Vec<AgentInfo>, String> {
     let runner = agent_runner
         .lock()
         .map_err(|e| format!("Lock error: {}", e))?;
 
     Ok(runner.list_active().into_iter().map(AgentInfo::from).collect())
+}
+
+// ─── New streaming agent commands (like orchestrator) ──────────────────────
+
+/// Initialize an agent chat session for a task
+#[tauri::command(rename_all = "camelCase")]
+pub async fn init_agent_session(
+    task_id: String,
+    working_dir: String,
+    cli_path: String,
+    agent_sessions: State<'_, Arc<TokioMutex<AgentSessionManager>>>,
+) -> Result<(), String> {
+    let mut sessions = agent_sessions.lock().await;
+    sessions.init_session(&task_id, &working_dir, &cli_path, None);
+    Ok(())
+}
+
+/// Send a message to an agent and stream the response
+#[tauri::command(rename_all = "camelCase")]
+pub async fn stream_agent_chat(
+    task_id: String,
+    message: String,
+    app_handle: AppHandle,
+    agent_sessions: State<'_, Arc<TokioMutex<AgentSessionManager>>>,
+) -> Result<(), String> {
+    let mut sessions = agent_sessions.lock().await;
+
+    // Send message and stream response
+    sessions.send_message(&task_id, &message, &app_handle).await?;
+
+    Ok(())
+}
+
+/// Cancel an ongoing agent chat
+#[tauri::command(rename_all = "camelCase")]
+pub async fn cancel_agent_chat(
+    task_id: String,
+    agent_sessions: State<'_, Arc<TokioMutex<AgentSessionManager>>>,
+) -> Result<(), String> {
+    let mut sessions = agent_sessions.lock().await;
+    sessions.reset_session(&task_id);
+    Ok(())
+}
+
+/// Reset agent session for a fresh start
+#[tauri::command(rename_all = "camelCase")]
+pub async fn reset_agent_session(
+    task_id: String,
+    agent_sessions: State<'_, Arc<TokioMutex<AgentSessionManager>>>,
+) -> Result<(), String> {
+    let mut sessions = agent_sessions.lock().await;
+    sessions.kill_session(&task_id);
+    Ok(())
 }

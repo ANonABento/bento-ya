@@ -17,8 +17,10 @@ pub mod whisper;
 use commands::voice::RecorderState;
 use db::AppState;
 use process::agent_runner::AgentRunner;
+use process::agent_session::AgentSessionManager;
 use process::cli_session::new_shared_cli_session_manager;
 use process::pty_manager::PtyManager;
+use tokio::sync::Mutex as TokioMutex;
 use whisper::AudioRecorder;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -31,6 +33,7 @@ pub fn run() {
     let pty_manager = Arc::new(Mutex::new(PtyManager::new()));
     let agent_runner = Arc::new(Mutex::new(AgentRunner::new(Arc::clone(&pty_manager))));
     let cli_session_manager = new_shared_cli_session_manager();
+    let agent_session_manager = Arc::new(TokioMutex::new(AgentSessionManager::new()));
     let recorder_state = RecorderState(Mutex::new(AudioRecorder::new()));
 
     // Clone for shutdown handler
@@ -44,6 +47,7 @@ pub fn run() {
         .manage(pty_manager)
         .manage(agent_runner)
         .manage(cli_session_manager)
+        .manage(agent_session_manager)
         .manage(recorder_state)
         .on_window_event(move |_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
@@ -105,6 +109,11 @@ pub fn run() {
             commands::agent::force_stop_agent,
             commands::agent::get_agent_status,
             commands::agent::list_active_agents,
+            // Streaming agent commands (--print mode)
+            commands::agent::init_agent_session,
+            commands::agent::stream_agent_chat,
+            commands::agent::cancel_agent_chat,
+            commands::agent::reset_agent_session,
             // Pipeline commands
             commands::pipeline::mark_pipeline_complete,
             commands::pipeline::get_pipeline_state,
