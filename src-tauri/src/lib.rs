@@ -6,6 +6,7 @@ pub mod checklist;
 pub mod commands;
 pub mod config;
 pub mod db;
+pub mod discord;
 pub mod error;
 pub mod events;
 pub mod git;
@@ -16,6 +17,7 @@ pub mod whisper;
 
 use commands::voice::RecorderState;
 use db::AppState;
+use discord::bridge::new_shared_discord_bridge;
 use process::agent_runner::AgentRunner;
 use process::cli_session::new_shared_cli_session_manager;
 use process::pty_manager::PtyManager;
@@ -31,6 +33,7 @@ pub fn run() {
     let pty_manager = Arc::new(Mutex::new(PtyManager::new()));
     let agent_runner = Arc::new(Mutex::new(AgentRunner::new(Arc::clone(&pty_manager))));
     let cli_session_manager = new_shared_cli_session_manager();
+    let discord_bridge = new_shared_discord_bridge();
     let recorder_state = RecorderState(Mutex::new(AudioRecorder::new()));
 
     // Clone for shutdown handler
@@ -42,6 +45,7 @@ pub fn run() {
         .manage(pty_manager)
         .manage(agent_runner)
         .manage(cli_session_manager)
+        .manage(discord_bridge)
         .manage(recorder_state)
         .on_window_event(move |_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
@@ -179,6 +183,16 @@ pub fn run() {
             commands::github::fetch_pr_status,
             commands::github::fetch_pr_status_batch,
             commands::github::should_refresh_pr_status,
+            // Discord commands
+            commands::discord::spawn_discord_sidecar,
+            commands::discord::kill_discord_sidecar,
+            commands::discord::connect_discord,
+            commands::discord::disconnect_discord,
+            commands::discord::get_discord_status,
+            commands::discord::test_discord_connection,
+            commands::discord::setup_discord_workspace,
+            commands::discord::create_discord_thread,
+            commands::discord::post_discord_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
