@@ -70,6 +70,7 @@ let mockTasks: Task[] = [
     prLabels: '[]',
     prLastFetched: null,
     prHeadSha: null,
+    checklist: null,
     position: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -210,6 +211,7 @@ const mockCommands: Record<string, CommandHandler> = {
       prLabels: '[]',
       prLastFetched: null,
       prHeadSha: null,
+      checklist: null,
       position: mockTasks.filter(t => t.columnId === args?.columnId).length,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -337,6 +339,8 @@ const mockCommands: Record<string, CommandHandler> = {
   update_checklist_category: () => undefined,
   create_workspace_checklist: () => ({ id: 'mock-checklist', workspaceId: '', name: 'Mock Checklist', description: '', createdAt: '', updatedAt: '' }),
   delete_workspace_checklist: () => undefined,
+  update_checklist_item_auto_detect: () => undefined,
+  link_checklist_item_to_task: () => undefined,
 }
 
 // ─── Mock invoke function ───────────────────────────────────────────────────
@@ -419,6 +423,7 @@ export function resetMockData() {
       prLabels: '["enhancement", "ready-for-review"]',
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'abc123',
+      checklist: null,
       position: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -452,6 +457,7 @@ export function resetMockData() {
       prLabels: '["bug", "needs-work", "urgent"]',
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'def456',
+      checklist: null,
       position: 0,
       createdAt: new Date(Date.now() - 3600000).toISOString(),
       updatedAt: new Date(Date.now() - 1800000).toISOString(),
@@ -485,6 +491,7 @@ export function resetMockData() {
       prLabels: '[]',
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'ghi789',
+      checklist: null,
       position: 1,
       createdAt: new Date(Date.now() - 86400000).toISOString(),
       updatedAt: new Date(Date.now() - 7200000).toISOString(),

@@ -110,12 +110,24 @@ pub fn create_workspace_checklist(
             )?;
 
             for (item_idx, item) in cat.items.iter().enumerate() {
-                db::insert_checklist_item(
-                    &conn,
-                    &category.id,
-                    &item.text,
-                    item_idx as i64,
-                )?;
+                // Use create_checklist_item_with_detect if detection config is provided
+                if item.detect_type.is_some() || item.detect_config.is_some() {
+                    db::create_checklist_item_with_detect(
+                        &conn,
+                        &category.id,
+                        &item.text,
+                        item_idx as i64,
+                        item.detect_type.as_deref(),
+                        item.detect_config.as_deref(),
+                    )?;
+                } else {
+                    db::insert_checklist_item(
+                        &conn,
+                        &category.id,
+                        &item.text,
+                        item_idx as i64,
+                    )?;
+                }
             }
         }
 
@@ -151,6 +163,32 @@ pub struct TemplateCategory {
 
 /// Template item for creating checklists
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TemplateItem {
     pub text: String,
+    pub detect_type: Option<String>,
+    pub detect_config: Option<String>,
+}
+
+/// Update a checklist item's auto-detected status
+#[tauri::command]
+pub fn update_checklist_item_auto_detect(
+    state: State<AppState>,
+    item_id: String,
+    auto_detected: bool,
+    checked: bool,
+) -> Result<ChecklistItem, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::update_checklist_item_auto_detect(&conn, &item_id, auto_detected, checked)?)
+}
+
+/// Link a checklist item to a task (for "Fix this" feature)
+#[tauri::command]
+pub fn link_checklist_item_to_task(
+    state: State<AppState>,
+    item_id: String,
+    task_id: Option<String>,
+) -> Result<ChecklistItem, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::link_checklist_item_to_task(&conn, &item_id, task_id.as_deref())?)
 }
