@@ -1,7 +1,9 @@
 import { useSettingsStore } from '@/stores/settings-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { GitConfig } from '@/types/settings'
 import { SettingSection, SettingRow, SettingCard, SettingInput, SettingTextarea } from '@/components/shared/setting-components'
 import { Toggle } from '@/components/shared/toggle'
+import { ConflictHeatmap } from '@/components/git/conflict-heatmap'
 
 const MERGE_STRATEGIES = [
   { id: 'merge', label: 'Merge', description: 'Create a merge commit' },
@@ -14,12 +16,25 @@ export function GitTab() {
   const updateGlobal = useSettingsStore((s) => s.updateGlobal)
   const git = global.git
 
+  const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const workspace = workspaces.find((w) => w.id === activeWorkspaceId)
+
   const updateGit = (updates: Partial<GitConfig>) => {
     updateGlobal('git', { ...git, ...updates })
   }
 
   return (
     <div className="space-y-6">
+      {/* Conflict Heatmap */}
+      {workspace && (
+        <SettingSection
+          title="Branch Conflicts"
+          description="Files that may conflict across active branches"
+        >
+          <ConflictHeatmap repoPath={workspace.repoPath} />
+        </SettingSection>
+      )}
       <SettingSection title="Branch Prefix" description="Prefix for auto-generated branch names (e.g., feat/, fix/, task/)">
         <SettingInput
           value={git.branchPrefix}
