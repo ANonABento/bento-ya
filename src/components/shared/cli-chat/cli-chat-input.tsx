@@ -10,15 +10,19 @@ const DEFAULT_MODELS = [
   { id: 'haiku', name: 'Haiku', description: 'Quick & light' },
 ] as const
 
-// Thinking levels with token budget mapping
-const THINKING_LEVELS = [
-  { id: 'none', label: 'Off', budget: 0, description: 'No extended thinking' },
-  { id: 'low', label: 'Low', budget: 1024, description: 'Brief reasoning' },
-  { id: 'medium', label: 'Med', budget: 4096, description: 'Moderate depth' },
-  { id: 'high', label: 'High', budget: 10000, description: 'Deep analysis' },
+// Effort levels for reasoning depth
+// Claude: CLAUDE_CODE_EFFORT_LEVEL (low/medium/high)
+// OpenAI Codex: model_reasoning_effort (minimal/low/medium/high/xhigh)
+const EFFORT_LEVELS = [
+  { id: 'default', label: 'Auto', description: 'Model decides thinking depth' },
+  { id: 'minimal', label: 'Min', description: 'Fastest, skip reasoning' },
+  { id: 'low', label: 'Low', description: 'Brief reasoning' },
+  { id: 'medium', label: 'Med', description: 'Balanced (recommended)' },
+  { id: 'high', label: 'High', description: 'Deep analysis' },
+  { id: 'xhigh', label: 'Max', description: 'Maximum thinking (Codex only)' },
 ] as const
 
-export type ThinkingLevel = (typeof THINKING_LEVELS)[number]['id']
+export type EffortLevel = (typeof EFFORT_LEVELS)[number]['id']
 
 export type ModelOption = {
   id: string
@@ -29,7 +33,7 @@ export type ModelOption = {
 export type SendMessageParams = {
   content: string
   model: string
-  thinkingBudget: number
+  effortLevel: EffortLevel
   connectionMode: 'api' | 'cli'
   apiKey?: string
   cliPath: string
@@ -62,11 +66,11 @@ export function CliChatInput({
 }: CliChatInputProps) {
   const [message, setMessage] = useState('')
   const [selectedModel, setSelectedModel] = useState(models[0]?.id ?? 'sonnet')
-  const [selectedThinking, setSelectedThinking] = useState<ThinkingLevel>('none')
+  const [selectedEffort, setSelectedEffort] = useState<EffortLevel>('default')
   const [showModelPicker, setShowModelPicker] = useState(false)
-  const [showThinkingPicker, setShowThinkingPicker] = useState(false)
+  const [showEffortPicker, setShowEffortPicker] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const thinkingPickerRef = useRef<HTMLDivElement>(null)
+  const effortPickerRef = useRef<HTMLDivElement>(null)
 
   // Voice input - append transcript to current message
   const handleTranscript = useCallback((text: string) => {
@@ -83,11 +87,11 @@ export function CliChatInput({
   const settings = useSettingsStore((s) => s.global)
   const anthropicProvider = settings.model.providers.find((p) => p.id === 'anthropic')
 
-  // Close thinking picker when clicking outside
+  // Close effort picker when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (thinkingPickerRef.current && !thinkingPickerRef.current.contains(e.target as Node)) {
-        setShowThinkingPicker(false)
+      if (effortPickerRef.current && !effortPickerRef.current.contains(e.target as Node)) {
+        setShowEffortPicker(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -101,13 +105,11 @@ export function CliChatInput({
     const connectionMode = (anthropicProvider?.connectionMode ?? 'api') as 'api' | 'cli'
     const apiKey = settings.agent.envVars['ANTHROPIC_API_KEY'] || undefined
     const cliPath = anthropicProvider?.cliPath || 'claude'
-    const thinkingLevel = THINKING_LEVELS.find((l) => l.id === selectedThinking)
-    const thinkingBudget = thinkingLevel?.budget ?? 0
 
     onSendMessage({
       content: trimmed,
       model: selectedModel,
-      thinkingBudget,
+      effortLevel: selectedEffort,
       connectionMode,
       apiKey,
       cliPath,
@@ -117,7 +119,7 @@ export function CliChatInput({
     if (inputRef.current) {
       inputRef.current.style.height = 'auto'
     }
-  }, [message, disabled, onSendMessage, anthropicProvider, settings.agent.envVars, selectedModel, selectedThinking])
+  }, [message, disabled, onSendMessage, anthropicProvider, settings.agent.envVars, selectedModel, selectedEffort])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -208,16 +210,16 @@ export function CliChatInput({
           </div>
         )}
 
-        {/* Thinking level selector */}
+        {/* Effort level selector (controls thinking depth) */}
         {showThinkingPickerProp && (
-          <div ref={thinkingPickerRef} className="relative">
-            <Tooltip content="Extended thinking depth" side="top" delay={300}>
+          <div ref={effortPickerRef} className="relative">
+            <Tooltip content="Reasoning effort (thinking depth)" side="top" delay={300}>
               <button
                 type="button"
-                onClick={() => setShowThinkingPicker(!showThinkingPicker)}
+                onClick={() => setShowEffortPicker(!showEffortPicker)}
                 disabled={isProcessing}
                 className={`flex h-[38px] items-center gap-1 rounded-lg border px-2 text-xs transition-colors disabled:opacity-50 ${
-                  selectedThinking !== 'none'
+                  selectedEffort !== 'default'
                     ? 'border-accent/50 bg-accent/10 text-accent'
                     : 'border-border-default bg-bg text-text-secondary hover:bg-surface-hover hover:text-text-primary'
                 }`}
@@ -225,32 +227,32 @@ export function CliChatInput({
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2">
                   <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.8 2.8l1.1 1.1M10.1 10.1l1.1 1.1M2.8 11.2l1.1-1.1M10.1 3.9l1.1-1.1" />
                 </svg>
-                <span>{THINKING_LEVELS.find((l) => l.id === selectedThinking)?.label}</span>
+                <span>{EFFORT_LEVELS.find((l) => l.id === selectedEffort)?.label}</span>
               </button>
             </Tooltip>
 
-            {showThinkingPicker && (
-              <div className="absolute bottom-full left-0 mb-1 w-40 rounded-lg border border-border-default bg-surface shadow-lg overflow-hidden z-50">
+            {showEffortPicker && (
+              <div className="absolute bottom-full left-0 mb-1 w-44 rounded-lg border border-border-default bg-surface shadow-lg overflow-hidden z-50">
                 <div className="px-3 py-1.5 border-b border-border-default bg-bg/50">
-                  <span className="text-[10px] text-text-secondary uppercase tracking-wider">Thinking</span>
+                  <span className="text-[10px] text-text-secondary uppercase tracking-wider">Effort Level</span>
                 </div>
-                {THINKING_LEVELS.map((level) => (
+                {EFFORT_LEVELS.map((level) => (
                   <button
                     key={level.id}
                     type="button"
                     onClick={() => {
-                      setSelectedThinking(level.id)
-                      setShowThinkingPicker(false)
+                      setSelectedEffort(level.id)
+                      setShowEffortPicker(false)
                     }}
                     className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition-colors hover:bg-surface-hover ${
-                      level.id === selectedThinking ? 'bg-surface-hover text-text-primary' : 'text-text-secondary'
+                      level.id === selectedEffort ? 'bg-surface-hover text-text-primary' : 'text-text-secondary'
                     }`}
                   >
                     <div>
                       <div className="font-medium text-text-primary">{level.label}</div>
                       <div className="text-text-secondary/70 text-[10px]">{level.description}</div>
                     </div>
-                    {level.id === selectedThinking && (
+                    {level.id === selectedEffort && (
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4 text-accent">
                         <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
                       </svg>

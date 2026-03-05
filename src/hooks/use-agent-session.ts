@@ -220,7 +220,7 @@ export function useAgentSession(config: UseAgentSessionConfig): UseAgentSessionR
         taskId,
         params.content,
         params.model,
-        params.thinkingBudget > 0 ? params.thinkingBudget : undefined,
+        params.effortLevel !== 'default' ? params.effortLevel : undefined,
       ).catch((err) => {
         setError(err instanceof Error ? err.message : String(err))
         isProcessingRef.current = false

@@ -54,8 +54,8 @@ struct AgentSessionState {
     cli_path: String,
     /// Model to use (e.g., "sonnet", "opus", "haiku")
     model: String,
-    /// Thinking budget tokens (0 = no extended thinking)
-    thinking_budget: u32,
+    /// Effort level for adaptive thinking ("default", "low", "medium", "high")
+    effort_level: String,
     /// Whether we're currently processing a message
     is_busy: bool,
 }
@@ -113,24 +113,10 @@ impl AgentSessionManager {
                 working_dir: working_dir.to_string(),
                 cli_path: cli_path.to_string(),
                 model: "sonnet".to_string(),
-                thinking_budget: 0,
+                effort_level: "default".to_string(),
                 is_busy: false,
             },
         );
-    }
-
-    /// Update the model for a session
-    pub fn set_model(&mut self, task_id: &str, model: &str) {
-        if let Some(state) = self.sessions.get_mut(task_id) {
-            state.model = model.to_string();
-        }
-    }
-
-    /// Update the thinking budget for a session
-    pub fn set_thinking_budget(&mut self, task_id: &str, budget: u32) {
-        if let Some(state) = self.sessions.get_mut(task_id) {
-            state.thinking_budget = budget;
-        }
     }
 
     /// Send a message to the agent and stream the response
@@ -139,7 +125,7 @@ impl AgentSessionManager {
         task_id: &str,
         message: &str,
         model: Option<&str>,
-        thinking_budget: Option<u32>,
+        effort_level: Option<&str>,
         app: &AppHandle<R>,
     ) -> Result<String, String> {
         let state = self
@@ -151,12 +137,12 @@ impl AgentSessionManager {
             return Err("Agent is busy processing another message".to_string());
         }
 
-        // Update model and thinking if provided
+        // Update model and effort level if provided
         if let Some(m) = model {
             state.model = m.to_string();
         }
-        if let Some(tb) = thinking_budget {
-            state.thinking_budget = tb;
+        if let Some(effort) = effort_level {
+            state.effort_level = effort.to_string();
         }
 
         state.is_busy = true;
@@ -178,10 +164,16 @@ impl AgentSessionManager {
         cmd.arg("--verbose");
         cmd.arg("--model").arg(&state.model);
 
-        // Add thinking budget if set (extended thinking)
-        if state.thinking_budget > 0 {
-            cmd.arg("--thinking-budget")
-                .arg(state.thinking_budget.to_string());
+        // Set effort level via environment variable (Claude uses CLAUDE_CODE_EFFORT_LEVEL)
+        // For non-default effort, set the env var
+        if state.effort_level != "default" {
+            // Map our effort levels to Claude's supported values (low/medium/high)
+            let claude_effort = match state.effort_level.as_str() {
+                "minimal" => "low", // Claude doesn't have minimal, use low
+                "xhigh" => "high",  // Claude doesn't have xhigh, use high
+                other => other,     // low/medium/high pass through
+            };
+            cmd.env("CLAUDE_CODE_EFFORT_LEVEL", claude_effort);
         }
 
         // Resume if we have a session ID

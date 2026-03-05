@@ -26,7 +26,7 @@ pub async fn stream_agent_chat(
     task_id: String,
     message: String,
     model: Option<String>,
-    thinking_budget: Option<u32>,
+    effort_level: Option<String>,
     app_handle: AppHandle,
     agent_sessions: State<'_, Arc<TokioMutex<AgentSessionManager>>>,
 ) -> Result<(), String> {
@@ -38,7 +38,7 @@ pub async fn stream_agent_chat(
             &task_id,
             &message,
             model.as_deref(),
-            thinking_budget,
+            effort_level.as_deref(),
             &app_handle,
         )
         .await?;

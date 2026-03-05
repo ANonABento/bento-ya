@@ -308,9 +308,9 @@ export async function streamAgentChat(
   taskId: string,
   message: string,
   model?: string,
-  thinkingBudget?: number,
+  effortLevel?: string,
 ): Promise<void> {
-  return invoke<void>('stream_agent_chat', { taskId, message, model, thinkingBudget })
+  return invoke<void>('stream_agent_chat', { taskId, message, model, effortLevel })
 }
 
 export async function cancelAgentChat(taskId: string): Promise<void> {
