@@ -108,6 +108,25 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
                 "required": ["task_id"]
             }),
         },
+        ToolDefinition {
+            name: "queue_tasks".to_string(),
+            description: "Queue multiple tasks for parallel agent execution. Tasks are queued immediately (optimistic UI), and up to 5 agents run concurrently. Remaining tasks wait in queue until slots open.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "task_ids": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Array of task IDs to queue for agent execution"
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "The prompt/instructions to give to each agent (can use {taskTitle} and {taskDescription} placeholders)"
+                    }
+                },
+                "required": ["task_ids", "prompt"]
+            }),
+        },
     ]
 }
 
@@ -222,7 +241,7 @@ mod tests {
     #[test]
     fn test_orchestrator_tools_count() {
         let tools = orchestrator_tools();
-        assert_eq!(tools.len(), 4);
+        assert_eq!(tools.len(), 5);
     }
 
     #[test]
@@ -233,6 +252,7 @@ mod tests {
         assert!(names.contains(&"update_task"));
         assert!(names.contains(&"move_task"));
         assert!(names.contains(&"delete_task"));
+        assert!(names.contains(&"queue_tasks"));
     }
 
     #[test]

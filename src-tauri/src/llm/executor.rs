@@ -88,6 +88,20 @@ pub fn execute_tools(
                         }));
                         tasks_deleted.push(task_id);
                     }
+                    ToolOutcome::TasksQueued(task_ids, prompt) => {
+                        let count = task_ids.len();
+                        results.push(ToolResult {
+                            tool_use_id: tool_use.id.clone(),
+                            content: format!("Queued {} task(s) for agent execution", count),
+                            is_error: false,
+                        });
+                        // Emit event for frontend to handle via queueAgentBatch IPC
+                        let _ = app.emit("queue:batch_requested", json!({
+                            "workspace_id": workspace_id,
+                            "task_ids": task_ids,
+                            "prompt": prompt
+                        }));
+                    }
                 }
             }
             Err(e) => {
@@ -132,6 +146,7 @@ enum ToolOutcome {
     TaskUpdated(Task),
     TaskMoved(Task, String, String), // task, from_column, to_column
     TaskDeleted(String, String),      // task_id, title
+    TasksQueued(Vec<String>, String), // task_ids, prompt
 }
 
 /// Execute a single tool
@@ -247,6 +262,33 @@ fn execute_single_tool(
                 .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
             Ok(ToolOutcome::TaskDeleted(task_id.to_string(), title))
+        }
+
+        "queue_tasks" => {
+            let task_ids = input
+                .get("task_ids")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| AppError::InvalidInput("Missing task_ids array".to_string()))?
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>();
+
+            if task_ids.is_empty() {
+                return Err(AppError::InvalidInput("task_ids array is empty".to_string()));
+            }
+
+            let prompt = input
+                .get("prompt")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AppError::InvalidInput("Missing prompt".to_string()))?;
+
+            // Validate that all tasks exist
+            for task_id in &task_ids {
+                db::get_task(conn, task_id)
+                    .map_err(|_| AppError::InvalidInput(format!("Task not found: {}", task_id)))?;
+            }
+
+            Ok(ToolOutcome::TasksQueued(task_ids, prompt.to_string()))
         }
 
         _ => Err(AppError::InvalidInput(format!(
