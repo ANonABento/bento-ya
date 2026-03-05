@@ -1237,6 +1237,11 @@ pub struct ChecklistItem {
     pub checked: bool,
     pub notes: Option<String>,
     pub position: i64,
+    // Auto-detect fields
+    pub detect_type: Option<String>,
+    pub detect_config: Option<String>,
+    pub auto_detected: bool,
+    pub linked_task_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -1389,7 +1394,7 @@ pub fn insert_checklist_item(
 
 pub fn get_checklist_item(conn: &Connection, id: &str) -> SqlResult<ChecklistItem> {
     conn.query_row(
-        "SELECT id, category_id, text, checked, notes, position, created_at, updated_at FROM checklist_items WHERE id = ?1",
+        "SELECT id, category_id, text, checked, notes, position, detect_type, detect_config, auto_detected, linked_task_id, created_at, updated_at FROM checklist_items WHERE id = ?1",
         params![id],
         |row| Ok(ChecklistItem {
             id: row.get(0)?,
@@ -1398,15 +1403,19 @@ pub fn get_checklist_item(conn: &Connection, id: &str) -> SqlResult<ChecklistIte
             checked: row.get::<_, i64>(3)? != 0,
             notes: row.get(4)?,
             position: row.get(5)?,
-            created_at: row.get(6)?,
-            updated_at: row.get(7)?,
+            detect_type: row.get(6)?,
+            detect_config: row.get(7)?,
+            auto_detected: row.get::<_, Option<i64>>(8)?.unwrap_or(0) != 0,
+            linked_task_id: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
         }),
     )
 }
 
 pub fn list_checklist_items(conn: &Connection, category_id: &str) -> SqlResult<Vec<ChecklistItem>> {
     let mut stmt = conn.prepare(
-        "SELECT id, category_id, text, checked, notes, position, created_at, updated_at FROM checklist_items WHERE category_id = ?1 ORDER BY position"
+        "SELECT id, category_id, text, checked, notes, position, detect_type, detect_config, auto_detected, linked_task_id, created_at, updated_at FROM checklist_items WHERE category_id = ?1 ORDER BY position"
     )?;
     let rows = stmt.query_map(params![category_id], |row| {
         Ok(ChecklistItem {
@@ -1416,8 +1425,12 @@ pub fn list_checklist_items(conn: &Connection, category_id: &str) -> SqlResult<V
             checked: row.get::<_, i64>(3)? != 0,
             notes: row.get(4)?,
             position: row.get(5)?,
-            created_at: row.get(6)?,
-            updated_at: row.get(7)?,
+            detect_type: row.get(6)?,
+            detect_config: row.get(7)?,
+            auto_detected: row.get::<_, Option<i64>>(8)?.unwrap_or(0) != 0,
+            linked_task_id: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
         })
     })?;
     rows.collect()
@@ -1486,6 +1499,64 @@ fn recalculate_checklist_progress(conn: &Connection, checklist_id: &str) -> SqlR
         params![checked, total, ts, checklist_id],
     )?;
     Ok(())
+}
+
+/// Create a checklist item with detection configuration (used for templates)
+pub fn create_checklist_item_with_detect(
+    conn: &Connection,
+    category_id: &str,
+    text: &str,
+    position: i64,
+    detect_type: Option<&str>,
+    detect_config: Option<&str>,
+) -> SqlResult<ChecklistItem> {
+    let id = new_id();
+    let ts = now();
+    conn.execute(
+        "INSERT INTO checklist_items (id, category_id, text, checked, notes, position, detect_type, detect_config, auto_detected, linked_task_id, created_at, updated_at) VALUES (?1, ?2, ?3, 0, NULL, ?4, ?5, ?6, 0, NULL, ?7, ?8)",
+        params![id, category_id, text, position, detect_type, detect_config, ts, ts],
+    )?;
+    // Update category and checklist totals
+    let cat = get_checklist_category(conn, category_id)?;
+    recalculate_category_progress(conn, category_id)?;
+    recalculate_checklist_progress(conn, &cat.checklist_id)?;
+    get_checklist_item(conn, &id)
+}
+
+/// Update the auto-detected status of a checklist item
+pub fn update_checklist_item_auto_detect(
+    conn: &Connection,
+    id: &str,
+    auto_detected: bool,
+    checked: bool,
+) -> SqlResult<ChecklistItem> {
+    let ts = now();
+    conn.execute(
+        "UPDATE checklist_items SET auto_detected = ?1, checked = ?2, updated_at = ?3 WHERE id = ?4",
+        params![if auto_detected { 1 } else { 0 }, if checked { 1 } else { 0 }, ts, id],
+    )?;
+
+    // Update category and checklist progress
+    let item = get_checklist_item(conn, id)?;
+    let cat = get_checklist_category(conn, &item.category_id)?;
+    recalculate_category_progress(conn, &item.category_id)?;
+    recalculate_checklist_progress(conn, &cat.checklist_id)?;
+
+    get_checklist_item(conn, id)
+}
+
+/// Link a checklist item to a task (for "Fix this" feature)
+pub fn link_checklist_item_to_task(
+    conn: &Connection,
+    id: &str,
+    task_id: Option<&str>,
+) -> SqlResult<ChecklistItem> {
+    let ts = now();
+    conn.execute(
+        "UPDATE checklist_items SET linked_task_id = ?1, updated_at = ?2 WHERE id = ?3",
+        params![task_id, ts, id],
+    )?;
+    get_checklist_item(conn, id)
 }
 
 // ─── Usage tracking types ──────────────────────────────────────────────────

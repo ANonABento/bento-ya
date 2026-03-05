@@ -173,6 +173,8 @@ pub fn run() {
             commands::checklist::update_checklist_category,
             commands::checklist::create_workspace_checklist,
             commands::checklist::delete_workspace_checklist,
+            commands::checklist::update_checklist_item_auto_detect,
+            commands::checklist::link_checklist_item_to_task,
             // Files commands
             commands::files::scan_workspace_files,
             commands::files::read_file_content,

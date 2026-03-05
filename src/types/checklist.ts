@@ -1,5 +1,14 @@
 // Checklist types for production readiness tracking
 
+// Detection types for auto-detect feature
+export type DetectType = 'none' | 'file-exists' | 'file-contains' | 'file-absent' | 'command-succeeds'
+
+export type DetectConfig = {
+  pattern?: string      // File glob pattern or regex
+  content?: string      // Content to search for (file-contains)
+  command?: string      // Command to run (command-succeeds)
+}
+
 export type ChecklistItem = {
   id: string
   categoryId: string
@@ -7,6 +16,11 @@ export type ChecklistItem = {
   checked: boolean
   notes: string | null
   position: number
+  // Auto-detect fields
+  detectType: DetectType | null
+  detectConfig: string | null  // JSON-encoded DetectConfig
+  autoDetected: boolean        // true if item was auto-checked
+  linkedTaskId: string | null  // Task created via "Fix this"
   createdAt: string
   updatedAt: string
 }
@@ -38,6 +52,8 @@ export type Checklist = {
 // Built-in checklist templates
 export type ChecklistTemplateItem = {
   text: string
+  detectType?: DetectType
+  detectConfig?: DetectConfig
 }
 
 export type ChecklistTemplateCategory = {
@@ -69,7 +85,11 @@ export const BUILT_IN_CHECKLIST_TEMPLATES: ChecklistTemplate[] = [
           { text: 'SQL injection protection verified' },
           { text: 'XSS protection in place' },
           { text: 'HTTPS enforced' },
-          { text: 'Secrets stored securely (not in code)' },
+          {
+            text: 'Secrets stored securely (not in code)',
+            detectType: 'file-absent',
+            detectConfig: { pattern: '.env' },
+          },
           { text: 'Security headers configured' },
         ],
       },
@@ -77,7 +97,11 @@ export const BUILT_IN_CHECKLIST_TEMPLATES: ChecklistTemplate[] = [
         name: 'Testing',
         icon: '🧪',
         items: [
-          { text: 'Unit tests pass' },
+          {
+            text: 'Unit tests pass',
+            detectType: 'command-succeeds',
+            detectConfig: { command: 'npm test' },
+          },
           { text: 'Integration tests pass' },
           { text: 'E2E tests pass' },
           { text: 'Edge cases covered' },
@@ -89,11 +113,23 @@ export const BUILT_IN_CHECKLIST_TEMPLATES: ChecklistTemplate[] = [
         name: 'Code Quality',
         icon: '✨',
         items: [
-          { text: 'No lint errors or warnings' },
-          { text: 'Type checking passes' },
+          {
+            text: 'No lint errors or warnings',
+            detectType: 'command-succeeds',
+            detectConfig: { command: 'npm run lint' },
+          },
+          {
+            text: 'Type checking passes',
+            detectType: 'command-succeeds',
+            detectConfig: { command: 'npm run type-check' },
+          },
           { text: 'Code reviewed and approved' },
           { text: 'No TODO/FIXME comments in production code' },
-          { text: 'Documentation updated' },
+          {
+            text: 'Documentation updated',
+            detectType: 'file-exists',
+            detectConfig: { pattern: 'README.md' },
+          },
         ],
       },
       {
@@ -101,7 +137,16 @@ export const BUILT_IN_CHECKLIST_TEMPLATES: ChecklistTemplate[] = [
         icon: '🏗️',
         items: [
           { text: 'Database migrations ready' },
-          { text: 'Environment variables configured' },
+          {
+            text: 'Environment variables configured',
+            detectType: 'file-exists',
+            detectConfig: { pattern: '.env.example' },
+          },
+          {
+            text: 'CI configured',
+            detectType: 'file-exists',
+            detectConfig: { pattern: '.github/workflows/*.yml' },
+          },
           { text: 'Monitoring/alerting set up' },
           { text: 'Logging configured' },
           { text: 'Backup strategy in place' },

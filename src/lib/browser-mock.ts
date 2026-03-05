@@ -339,6 +339,8 @@ const mockCommands: Record<string, CommandHandler> = {
   update_checklist_category: () => undefined,
   create_workspace_checklist: () => ({ id: 'mock-checklist', workspaceId: '', name: 'Mock Checklist', description: '', createdAt: '', updatedAt: '' }),
   delete_workspace_checklist: () => undefined,
+  update_checklist_item_auto_detect: () => undefined,
+  link_checklist_item_to_task: () => undefined,
 }
 
 // ─── Mock invoke function ───────────────────────────────────────────────────

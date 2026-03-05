@@ -1,8 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { useChecklistStore } from '@/stores/checklist-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useTaskStore } from '@/stores/task-store'
+import { useColumnStore } from '@/stores/column-store'
 import { ChecklistCategorySection } from './checklist-category'
+import type { ChecklistItem } from '@/types/checklist'
 
 export function ChecklistPanel() {
   const isOpen = useChecklistStore((s) => s.isOpen)
@@ -13,8 +16,59 @@ export function ChecklistPanel() {
   const loadChecklist = useChecklistStore((s) => s.loadChecklist)
   const currentWorkspaceId = useChecklistStore((s) => s.currentWorkspaceId)
   const getProgress = useChecklistStore((s) => s.getProgress)
+  const linkItemToTask = useChecklistStore((s) => s.linkItemToTask)
+  const items = useChecklistStore((s) => s.items)
 
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const columns = useColumnStore((s) => s.columns)
+  const tasks = useTaskStore((s) => s.tasks)
+  const addTask = useTaskStore((s) => s.add)
+
+  const [isDetecting, setIsDetecting] = useState(false)
+
+  // Handle "Fix this" button - create a task linked to the checklist item
+  const handleFixThis = useCallback(async (item: ChecklistItem) => {
+    if (!activeWorkspaceId) return
+
+    // Find the first column (usually "Backlog") to add the task to
+    const firstColumn = columns[0]
+    if (!firstColumn) return
+
+    try {
+      // Get current task count to find the new one
+      const prevTaskCount = tasks.length
+
+      // Create a task with the checklist item text as the title
+      await addTask(
+        activeWorkspaceId,
+        firstColumn.id,
+        `Fix: ${item.text}`,
+        `Created from checklist item. Detection type: ${item.detectType ?? 'none'}`,
+      )
+
+      // The newly created task should be in the store now - find it
+      // Since we just added it, we can get it from the tasks array
+      // We need to wait for the state to update, so use a slight delay
+      setTimeout(() => {
+        const currentTasks = useTaskStore.getState().tasks
+        if (currentTasks.length > prevTaskCount) {
+          // Find the newest task (last one added)
+          const newTask = currentTasks[currentTasks.length - 1]
+          if (newTask) {
+            // Link the checklist item to the task
+            linkItemToTask(item.id, item.categoryId, newTask.id)
+          }
+        }
+      }, 100)
+    } catch (error) {
+      console.error('Failed to create fix task:', error)
+    }
+  }, [activeWorkspaceId, columns, tasks.length, addTask, linkItemToTask])
+
+  // Count items with detection configured
+  const detectableItemCount = Object.values(items).flat().filter(
+    (item) => item.detectType && item.detectType !== 'none'
+  ).length
 
   // Load checklist when panel opens or workspace changes
   useEffect(() => {
@@ -92,6 +146,32 @@ export function ChecklistPanel() {
                   />
                 </div>
               </div>
+
+              {/* Auto-detect button */}
+              {detectableItemCount > 0 && (
+                <button
+                  onClick={() => { setIsDetecting(true) }}
+                  disabled={isDetecting}
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-accent bg-accent/10 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+                >
+                  {isDetecting ? (
+                    <>
+                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Running detection...
+                    </>
+                  ) : (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                        <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0v2.43l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389 5.5 5.5 0 0 1 9.201-2.466l.312.311h-2.433a.75.75 0 0 0 0 1.5h4.244a.75.75 0 0 0 .53-.22Z" clipRule="evenodd" />
+                      </svg>
+                      Run Auto-detect ({detectableItemCount} items)
+                    </>
+                  )}
+                </button>
+              )}
             </div>
 
             {/* Content */}
@@ -113,7 +193,11 @@ export function ChecklistPanel() {
               ) : (
                 <div className="space-y-4">
                   {categories.map((category) => (
-                    <ChecklistCategorySection key={category.id} category={category} />
+                    <ChecklistCategorySection
+                      key={category.id}
+                      category={category}
+                      onFixThis={(item) => { void handleFixThis(item) }}
+                    />
                   ))}
                 </div>
               )}
