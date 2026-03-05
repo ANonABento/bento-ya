@@ -1,44 +1,36 @@
-//! Manages persistent Claude CLI sessions for orchestrator conversations.
+//! Manages Claude CLI sessions for orchestrator conversations.
 //!
-//! Each chat session can have a running Claude CLI process. Messages are sent
-//! via stdin and responses read via stdout. If the process dies, we fall back
-//! to --resume with the captured session ID.
+//! With --print mode, each message spawns a new CLI process that exits after
+//! responding. Multi-turn conversations use --resume with captured session IDs.
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 use tauri::{AppHandle, Emitter};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
 use tokio::sync::Mutex;
-use tokio::time::timeout;
-
-/// Timeout for reading a response from the CLI (5 minutes)
-const MESSAGE_TIMEOUT: Duration = Duration::from_secs(300);
 
 use crate::commands::orchestrator::{StreamChunkPayload, ThinkingPayload, ToolCallPayload};
 
-/// A running Claude CLI session
-struct CliSession {
-    /// The running child process
-    process: Child,
-    /// Stdin handle for sending messages
-    stdin: ChildStdin,
-    /// Stdout reader for receiving responses
-    stdout: BufReader<ChildStdout>,
-    /// CLI session ID for resume fallback (captured from first response)
+/// Stored session state (no running process, just metadata for resume)
+struct CliSessionState {
+    /// CLI session ID for --resume (captured from response)
     cli_session_id: Option<String>,
-    /// Model this session was spawned with
+    /// Model to use for this session
     model: String,
+    /// System prompt for this session
+    system_prompt: String,
+    /// CLI path
+    cli_path: String,
     /// Whether we're currently processing a message
     is_busy: bool,
 }
 
-/// Manages persistent Claude CLI sessions
+/// Manages Claude CLI sessions
 pub struct CliSessionManager {
-    /// Map of chat_session_id -> CliSession
-    sessions: HashMap<String, CliSession>,
+    /// Map of chat_session_id -> session state
+    sessions: HashMap<String, CliSessionState>,
 }
 
 impl CliSessionManager {
@@ -48,7 +40,7 @@ impl CliSessionManager {
         }
     }
 
-    /// Check if a session has a running process
+    /// Check if a session exists
     pub fn has_session(&self, session_id: &str) -> bool {
         self.sessions.contains_key(session_id)
     }
@@ -61,19 +53,19 @@ impl CliSessionManager {
             .unwrap_or(false)
     }
 
-    /// Get the CLI session ID for resume fallback
+    /// Get the CLI session ID for resume
     pub fn get_cli_session_id(&self, session_id: &str) -> Option<String> {
         self.sessions
             .get(session_id)
             .and_then(|s| s.cli_session_id.clone())
     }
 
-    /// Get the model this session was spawned with
+    /// Get the model for this session
     pub fn get_model(&self, session_id: &str) -> Option<&str> {
         self.sessions.get(session_id).map(|s| s.model.as_str())
     }
 
-    /// Spawn a new Claude CLI process for a session
+    /// Initialize or update session state (no process spawned yet)
     pub async fn spawn(
         &mut self,
         session_id: &str,
@@ -82,55 +74,21 @@ impl CliSessionManager {
         system_prompt: &str,
         resume_id: Option<&str>,
     ) -> Result<(), String> {
-        // Kill existing session if any
-        self.kill(session_id).await;
-
-        // Build command
-        let mut cmd = Command::new(cli_path);
-        cmd.arg("--output-format").arg("stream-json");
-        cmd.arg("--model").arg(model);
-        cmd.arg("--system-prompt").arg(system_prompt);
-        cmd.arg("--verbose");
-
-        // Resume from previous session if available
-        if let Some(id) = resume_id {
-            cmd.arg("--resume").arg(id);
-        }
-
-        // Set up stdio
-        cmd.stdin(std::process::Stdio::piped());
-        cmd.stdout(std::process::Stdio::piped());
-        cmd.stderr(std::process::Stdio::null());
-
-        // Spawn process
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("Failed to spawn Claude CLI: {}", e))?;
-
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| "Failed to capture stdin".to_string())?;
-
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| "Failed to capture stdout".to_string())?;
-
-        let session = CliSession {
-            process: child,
-            stdin,
-            stdout: BufReader::new(stdout),
+        // Store session state for future send_message calls
+        let state = CliSessionState {
             cli_session_id: resume_id.map(|s| s.to_string()),
             model: model.to_string(),
+            system_prompt: system_prompt.to_string(),
+            cli_path: cli_path.to_string(),
             is_busy: false,
         };
 
-        self.sessions.insert(session_id.to_string(), session);
+        self.sessions.insert(session_id.to_string(), state);
         Ok(())
     }
 
     /// Send a message and stream the response
+    /// With --print mode, this spawns a new CLI process for each message
     pub async fn send_message(
         &mut self,
         session_id: &str,
@@ -138,54 +96,102 @@ impl CliSessionManager {
         workspace_id: &str,
         app: &AppHandle,
     ) -> Result<(String, Option<String>), String> {
-        let session = self
+        let state = self
             .sessions
             .get_mut(session_id)
             .ok_or_else(|| "Session not found".to_string())?;
 
-        if session.is_busy {
+        if state.is_busy {
             return Err("Session is busy".to_string());
         }
 
-        session.is_busy = true;
+        state.is_busy = true;
 
-        // Send message to stdin (with newline to submit)
-        let msg_with_newline = format!("{}\n", message);
-        if let Err(e) = session.stdin.write_all(msg_with_newline.as_bytes()).await {
-            session.is_busy = false;
-            return Err(format!("Failed to write to stdin: {}", e));
+        // Build command with --print mode (process handles one request and exits)
+        let mut cmd = Command::new(&state.cli_path);
+        cmd.arg("--print");
+        cmd.arg("--output-format").arg("stream-json");
+        cmd.arg("--verbose");
+        cmd.arg("--model").arg(&state.model);
+        cmd.arg("--system-prompt").arg(&state.system_prompt);
+
+        // Resume from previous session if we have a CLI session ID
+        if let Some(ref cli_sid) = state.cli_session_id {
+            cmd.arg("--resume").arg(cli_sid);
         }
 
-        if let Err(e) = session.stdin.flush().await {
-            session.is_busy = false;
-            return Err(format!("Failed to flush stdin: {}", e));
-        }
+        // The message is passed as the positional prompt argument
+        cmd.arg(message);
 
-        // Read response until we get a result event or the process signals ready for next input
+        // Set up stdio
+        cmd.stdin(std::process::Stdio::null());
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        // Spawn process
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| {
+                state.is_busy = false;
+                format!("Failed to spawn Claude CLI: {}", e)
+            })?;
+
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| {
+                state.is_busy = false;
+                "Failed to capture stdout".to_string()
+            })?;
+
+        let stderr = child.stderr.take();
+
+        // Read and process stdout
+        let mut reader = BufReader::new(stdout);
         let mut full_response = String::new();
-        let mut captured_session_id: Option<String> = session.cli_session_id.clone();
+        let mut captured_session_id: Option<String> = state.cli_session_id.clone();
 
         loop {
             let mut line = String::new();
-            // Apply timeout to each line read to prevent hanging (5 min timeout)
-            let read_result = timeout(MESSAGE_TIMEOUT, session.stdout.read_line(&mut line)).await;
+            match reader.read_line(&mut line).await {
+                Err(e) => {
+                    state.is_busy = false;
+                    // Read stderr for more context
+                    let stderr_msg = if let Some(mut se) = stderr {
+                        let mut stderr_reader = BufReader::new(&mut se);
+                        let mut stderr_content = String::new();
+                        let _ = stderr_reader.read_line(&mut stderr_content).await;
+                        stderr_content
+                    } else {
+                        String::new()
+                    };
+                    return Err(format!("Failed to read stdout: {}. Stderr: {}", e, stderr_msg));
+                }
+                Ok(0) => {
+                    // EOF - process finished
+                    // Wait for process to fully exit
+                    let _ = child.wait().await;
 
-            match read_result {
-                Err(_) => {
-                    // Timeout - CLI is not responding
-                    session.is_busy = false;
-                    return Err("CLI response timed out".to_string());
+                    // Send finish event
+                    let _ = app.emit(
+                        "orchestrator:stream",
+                        &StreamChunkPayload {
+                            workspace_id: workspace_id.to_string(),
+                            delta: String::new(),
+                            finish_reason: Some("stop".to_string()),
+                            tool_use: None,
+                        },
+                    );
+
+                    // Update stored CLI session ID
+                    if captured_session_id.is_some() {
+                        state.cli_session_id = captured_session_id.clone();
+                    }
+
+                    state.is_busy = false;
+                    return Ok((full_response, captured_session_id));
                 }
-                Ok(Err(e)) => {
-                    session.is_busy = false;
-                    return Err(format!("Failed to read stdout: {}", e));
-                }
-                Ok(Ok(0)) => {
-                    // EOF - process ended
-                    session.is_busy = false;
-                    return Err("Process ended unexpectedly".to_string());
-                }
-                Ok(Ok(_)) => {
+                Ok(_) => {
                     // Successfully read a line - parse JSON
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
                         if let Some(event_type) = json.get("type").and_then(|t| t.as_str()) {
@@ -198,7 +204,6 @@ impl CliSessionManager {
                                         .and_then(|s| s.as_str())
                                     {
                                         captured_session_id = Some(sid.to_string());
-                                        session.cli_session_id = Some(sid.to_string());
                                     }
                                 }
                                 "content_block_start" => {
@@ -293,7 +298,7 @@ impl CliSessionManager {
                                     );
                                 }
                                 "result" => {
-                                    // Final result - response complete
+                                    // Final result event - capture full response if not already built
                                     if full_response.is_empty() {
                                         if let Some(result_text) =
                                             json.get("result").and_then(|r| r.as_str())
@@ -301,18 +306,13 @@ impl CliSessionManager {
                                             full_response = result_text.to_string();
                                         }
                                     }
-                                    // Send finish event
-                                    let _ = app.emit(
-                                        "orchestrator:stream",
-                                        &StreamChunkPayload {
-                                            workspace_id: workspace_id.to_string(),
-                                            delta: String::new(),
-                                            finish_reason: Some("stop".to_string()),
-                                            tool_use: None,
-                                        },
-                                    );
-                                    session.is_busy = false;
-                                    return Ok((full_response, captured_session_id));
+                                    // Capture session_id if present in result
+                                    if let Some(sid) = json
+                                        .get("session_id")
+                                        .and_then(|s| s.as_str())
+                                    {
+                                        captured_session_id = Some(sid.to_string());
+                                    }
                                 }
                                 _ => {}
                             }
@@ -323,41 +323,19 @@ impl CliSessionManager {
         }
     }
 
-    /// Kill a session's process
+    /// Remove session state (no running process to kill with --print mode)
     pub async fn kill(&mut self, session_id: &str) {
-        if let Some(mut session) = self.sessions.remove(session_id) {
-            let _ = session.process.kill().await;
-        }
+        self.sessions.remove(session_id);
     }
 
-    /// Kill all sessions
+    /// Remove all session states
     pub async fn kill_all(&mut self) {
-        let session_ids: Vec<String> = self.sessions.keys().cloned().collect();
-        for session_id in session_ids {
-            self.kill(&session_id).await;
-        }
+        self.sessions.clear();
     }
 
-    /// Check if process is still alive (removes dead sessions from map)
+    /// Check if session state exists (always "alive" with --print mode since no persistent process)
     pub fn is_alive(&mut self, session_id: &str) -> bool {
-        let is_dead = if let Some(session) = self.sessions.get_mut(session_id) {
-            // Try to check process status without blocking
-            match session.process.try_wait() {
-                Ok(None) => None,       // Still running
-                Ok(Some(_)) => Some(()), // Exited
-                Err(_) => Some(()),      // Error checking - assume dead
-            }
-        } else {
-            return false; // No session
-        };
-
-        if is_dead.is_some() {
-            // Process exited - remove from map to prevent stale entries
-            self.sessions.remove(session_id);
-            false
-        } else {
-            true
-        }
+        self.sessions.contains_key(session_id)
     }
 }
 
