@@ -307,8 +307,10 @@ export async function initAgentSession(
 export async function streamAgentChat(
   taskId: string,
   message: string,
+  model?: string,
+  thinkingBudget?: number,
 ): Promise<void> {
-  return invoke<void>('stream_agent_chat', { taskId, message })
+  return invoke<void>('stream_agent_chat', { taskId, message, model, thinkingBudget })
 }
 
 export async function cancelAgentChat(taskId: string): Promise<void> {

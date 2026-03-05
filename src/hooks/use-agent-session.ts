@@ -216,7 +216,12 @@ export function useAgentSession(config: UseAgentSessionConfig): UseAgentSessionR
       setProcessingStartTime(Date.now())
       setError(null)
 
-      void streamAgentChat(taskId, params.content).catch((err) => {
+      void streamAgentChat(
+        taskId,
+        params.content,
+        params.model,
+        params.thinkingBudget > 0 ? params.thinkingBudget : undefined,
+      ).catch((err) => {
         setError(err instanceof Error ? err.message : String(err))
         isProcessingRef.current = false
         setIsProcessing(false)

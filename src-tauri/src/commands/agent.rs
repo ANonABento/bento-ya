@@ -25,13 +25,23 @@ pub async fn init_agent_session(
 pub async fn stream_agent_chat(
     task_id: String,
     message: String,
+    model: Option<String>,
+    thinking_budget: Option<u32>,
     app_handle: AppHandle,
     agent_sessions: State<'_, Arc<TokioMutex<AgentSessionManager>>>,
 ) -> Result<(), String> {
     let mut sessions = agent_sessions.lock().await;
 
     // Send message and stream response
-    sessions.send_message(&task_id, &message, &app_handle).await?;
+    sessions
+        .send_message(
+            &task_id,
+            &message,
+            model.as_deref(),
+            thinking_budget,
+            &app_handle,
+        )
+        .await?;
 
     Ok(())
 }

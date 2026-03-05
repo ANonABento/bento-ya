@@ -52,6 +52,10 @@ struct AgentSessionState {
     working_dir: String,
     /// CLI path
     cli_path: String,
+    /// Model to use (e.g., "sonnet", "opus", "haiku")
+    model: String,
+    /// Thinking budget tokens (0 = no extended thinking)
+    thinking_budget: u32,
     /// Whether we're currently processing a message
     is_busy: bool,
 }
@@ -108,9 +112,25 @@ impl AgentSessionManager {
                 cli_session_id: resume_id.map(|s| s.to_string()).or(existing_cli_id),
                 working_dir: working_dir.to_string(),
                 cli_path: cli_path.to_string(),
+                model: "sonnet".to_string(),
+                thinking_budget: 0,
                 is_busy: false,
             },
         );
+    }
+
+    /// Update the model for a session
+    pub fn set_model(&mut self, task_id: &str, model: &str) {
+        if let Some(state) = self.sessions.get_mut(task_id) {
+            state.model = model.to_string();
+        }
+    }
+
+    /// Update the thinking budget for a session
+    pub fn set_thinking_budget(&mut self, task_id: &str, budget: u32) {
+        if let Some(state) = self.sessions.get_mut(task_id) {
+            state.thinking_budget = budget;
+        }
     }
 
     /// Send a message to the agent and stream the response
@@ -118,6 +138,8 @@ impl AgentSessionManager {
         &mut self,
         task_id: &str,
         message: &str,
+        model: Option<&str>,
+        thinking_budget: Option<u32>,
         app: &AppHandle<R>,
     ) -> Result<String, String> {
         let state = self
@@ -127,6 +149,14 @@ impl AgentSessionManager {
 
         if state.is_busy {
             return Err("Agent is busy processing another message".to_string());
+        }
+
+        // Update model and thinking if provided
+        if let Some(m) = model {
+            state.model = m.to_string();
+        }
+        if let Some(tb) = thinking_budget {
+            state.thinking_budget = tb;
         }
 
         state.is_busy = true;
@@ -146,6 +176,13 @@ impl AgentSessionManager {
         cmd.arg("--print");
         cmd.arg("--output-format").arg("stream-json");
         cmd.arg("--verbose");
+        cmd.arg("--model").arg(&state.model);
+
+        // Add thinking budget if set (extended thinking)
+        if state.thinking_budget > 0 {
+            cmd.arg("--thinking-budget")
+                .arg(state.thinking_budget.to_string());
+        }
 
         // Resume if we have a session ID
         if let Some(ref cli_sid) = state.cli_session_id {
