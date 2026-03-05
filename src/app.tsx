@@ -4,6 +4,7 @@ import { initializeTheme } from '@/lib/theme'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { usePrStatusPolling } from '@/hooks/use-pr-status-polling'
+import { useAgentEvents } from '@/hooks/use-agent-events'
 import { Board } from '@/components/layout/board'
 import { WorkspaceSetup } from '@/components/layout/workspace-setup'
 import { TabBar } from '@/components/layout/tab-bar'
@@ -28,6 +29,9 @@ function App() {
 
   // PR status polling (auto-refreshes PR status for tasks with PRs)
   usePrStatusPolling({ enabled: !!activeWorkspaceId })
+
+  // Global agent event listener (updates task cards when agent status changes)
+  useAgentEvents()
 
   useEffect(() => {
     const cleanup = initializeTheme()

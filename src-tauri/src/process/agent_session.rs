@@ -2,13 +2,16 @@
 //!
 //! Similar to cli_session.rs but for agents working on specific tasks.
 //! Uses --print mode with JSON streaming, supports --resume for multi-turn.
+//! Stores process handles for proper cancellation.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
+use tokio::process::{Child, Command};
+use tokio::sync::Mutex as TokioMutex;
 
 /// Event payloads for agent streaming
 #[derive(Clone, Serialize)]
@@ -42,9 +45,11 @@ pub struct AgentStatusPayload {
     pub task_id: String,
     pub status: String,
     pub message: Option<String>,
+    /// CLI session ID for persistence (included in complete event)
+    pub cli_session_id: Option<String>,
 }
 
-/// Stored session state (no running process, just metadata for resume)
+/// Stored session state with process handle for cancellation
 struct AgentSessionState {
     /// CLI session ID for --resume (captured from response)
     cli_session_id: Option<String>,
@@ -58,6 +63,8 @@ struct AgentSessionState {
     effort_level: String,
     /// Whether we're currently processing a message
     is_busy: bool,
+    /// Active process handle for cancellation (wrapped for shared ownership)
+    active_process: Option<Arc<TokioMutex<Option<Child>>>>,
 }
 
 /// Manages Claude CLI sessions for agents
@@ -115,8 +122,26 @@ impl AgentSessionManager {
                 model: "sonnet".to_string(),
                 effort_level: "default".to_string(),
                 is_busy: false,
+                active_process: None,
             },
         );
+    }
+
+    /// Cancel an active agent process
+    pub async fn cancel_session(&mut self, task_id: &str) -> Result<(), String> {
+        if let Some(state) = self.sessions.get_mut(task_id) {
+            // Kill the process if running
+            if let Some(ref process_holder) = state.active_process {
+                let mut guard = process_holder.lock().await;
+                if let Some(ref mut child) = *guard {
+                    let _ = child.kill().await;
+                }
+                *guard = None;
+            }
+            state.is_busy = false;
+            state.active_process = None;
+        }
+        Ok(())
     }
 
     /// Send a message to the agent and stream the response
@@ -154,6 +179,7 @@ impl AgentSessionManager {
                 task_id: task_id.to_string(),
                 status: "processing".to_string(),
                 message: None,
+                cli_session_id: None,
             },
         );
 
@@ -205,6 +231,10 @@ impl AgentSessionManager {
             .take()
             .ok_or_else(|| "Failed to capture stderr".to_string())?;
 
+        // Store process handle for cancellation
+        let process_holder = Arc::new(TokioMutex::new(Some(child)));
+        state.active_process = Some(process_holder.clone());
+
         let mut stdout_reader = BufReader::new(stdout).lines();
         let mut stderr_reader = BufReader::new(stderr).lines();
 
@@ -227,6 +257,7 @@ impl AgentSessionManager {
                             task_id: task_id_clone.clone(),
                             status: "error".to_string(),
                             message: Some(line),
+                            cli_session_id: None,
                         },
                     );
                 }
@@ -342,26 +373,33 @@ impl AgentSessionManager {
         }
 
         // Wait for process to exit
-        let status = child
-            .wait()
-            .await
-            .map_err(|e| format!("Failed to wait for CLI: {}", e))?;
+        let status = {
+            let mut guard = process_holder.lock().await;
+            if let Some(ref mut child) = *guard {
+                child.wait().await.map_err(|e| format!("Failed to wait for CLI: {}", e))?
+            } else {
+                // Process was killed
+                return Err("Process was cancelled".to_string());
+            }
+        };
 
         // Update session state
         if let Some(state) = self.sessions.get_mut(task_id) {
             state.is_busy = false;
-            if let Some(sid) = captured_session_id {
-                state.cli_session_id = Some(sid);
+            state.active_process = None;
+            if let Some(ref sid) = captured_session_id {
+                state.cli_session_id = Some(sid.clone());
             }
         }
 
-        // Emit complete event
+        // Emit complete event with cli_session_id for persistence
         let _ = app.emit(
             "agent:complete",
             AgentStatusPayload {
                 task_id: task_id.to_string(),
                 status: if status.success() { "complete" } else { "error" }.to_string(),
                 message: None,
+                cli_session_id: captured_session_id.clone(),
             },
         );
 
@@ -372,8 +410,9 @@ impl AgentSessionManager {
         }
     }
 
-    /// Kill the session for a task
+    /// Kill the session for a task (removes from memory)
     pub fn kill_session(&mut self, task_id: &str) {
+        // Note: Can't await here, but process will be cleaned up when dropped
         self.sessions.remove(task_id);
     }
 
@@ -383,6 +422,30 @@ impl AgentSessionManager {
             state.cli_session_id = None;
             state.is_busy = false;
         }
+    }
+
+    /// Kill all active sessions (for app shutdown)
+    pub async fn kill_all_sessions(&mut self) {
+        for (_, state) in self.sessions.iter_mut() {
+            if let Some(ref process_holder) = state.active_process {
+                let mut guard = process_holder.lock().await;
+                if let Some(ref mut child) = *guard {
+                    let _ = child.kill().await;
+                }
+            }
+            state.is_busy = false;
+            state.active_process = None;
+        }
+        self.sessions.clear();
+    }
+
+    /// Get list of running task IDs (for status display)
+    pub fn get_running_tasks(&self) -> Vec<String> {
+        self.sessions
+            .iter()
+            .filter(|(_, s)| s.is_busy)
+            .map(|(id, _)| id.clone())
+            .collect()
     }
 }
 

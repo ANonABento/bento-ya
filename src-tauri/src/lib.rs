@@ -38,6 +38,7 @@ pub fn run() {
 
     // Clone for shutdown handler
     let cli_manager_for_shutdown = Arc::clone(&cli_session_manager);
+    let agent_manager_for_shutdown = Arc::clone(&agent_session_manager);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -52,10 +53,15 @@ pub fn run() {
         .on_window_event(move |_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 // Kill all CLI sessions on window close
-                let manager = Arc::clone(&cli_manager_for_shutdown);
+                let cli_manager = Arc::clone(&cli_manager_for_shutdown);
+                let agent_manager = Arc::clone(&agent_manager_for_shutdown);
                 tauri::async_runtime::block_on(async {
-                    let mut m = manager.lock().await;
-                    m.kill_all().await;
+                    // Kill CLI sessions
+                    let mut cm = cli_manager.lock().await;
+                    cm.kill_all().await;
+                    // Kill agent sessions
+                    let mut am = agent_manager.lock().await;
+                    am.kill_all_sessions().await;
                 });
             }
         })
@@ -109,6 +115,14 @@ pub fn run() {
             commands::agent::stream_agent_chat,
             commands::agent::cancel_agent_chat,
             commands::agent::reset_agent_session,
+            // Agent persistence commands (DB-backed)
+            commands::agent::get_agent_session_for_task,
+            commands::agent::update_agent_cli_session_id,
+            commands::agent::update_agent_status,
+            commands::agent::get_running_agent_count,
+            commands::agent::save_agent_message,
+            commands::agent::get_agent_messages,
+            commands::agent::clear_agent_messages,
             // Pipeline commands
             commands::pipeline::mark_pipeline_complete,
             commands::pipeline::get_pipeline_state,

@@ -83,6 +83,9 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("015_pr_fields", include_str!("migrations/015_pr_fields.sql")),
         ("016_siege_fields", include_str!("migrations/016_siege_fields.sql")),
         ("017_pr_status_fields", include_str!("migrations/017_pr_status_fields.sql")),
+        ("018_notify_fields", include_str!("migrations/018_notify_fields.sql")),
+        ("019_checklist_autodetect", include_str!("migrations/019_checklist_autodetect.sql")),
+        ("020_agent_cli_sessions", include_str!("migrations/020_agent_cli_sessions.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -203,8 +206,25 @@ pub struct AgentSession {
     pub working_dir: Option<String>,
     pub scrollback: Option<String>,
     pub resumable: bool,
+    pub cli_session_id: Option<String>,
+    pub model: Option<String>,
+    pub effort_level: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMessage {
+    pub id: String,
+    pub task_id: String,
+    pub role: String,
+    pub content: String,
+    pub model: Option<String>,
+    pub effort_level: Option<String>,
+    pub tool_calls: Option<String>,
+    pub thinking_content: Option<String>,
+    pub created_at: String,
 }
 
 // ─── CRUD helpers: Workspace ───────────────────────────────────────────────
@@ -845,7 +865,7 @@ pub fn insert_agent_session(
 
 pub fn get_agent_session(conn: &Connection, id: &str) -> SqlResult<AgentSession> {
     conn.query_row(
-        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, created_at, updated_at FROM agent_sessions WHERE id = ?1",
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, cli_session_id, model, effort_level, created_at, updated_at FROM agent_sessions WHERE id = ?1",
         params![id],
         |row| {
             Ok(AgentSession {
@@ -861,8 +881,11 @@ pub fn get_agent_session(conn: &Connection, id: &str) -> SqlResult<AgentSession>
                 working_dir: row.get(9)?,
                 scrollback: row.get(10)?,
                 resumable: row.get::<_, i64>(11)? != 0,
-                created_at: row.get(12)?,
-                updated_at: row.get(13)?,
+                cli_session_id: row.get(12)?,
+                model: row.get(13)?,
+                effort_level: row.get(14)?,
+                created_at: row.get(15)?,
+                updated_at: row.get(16)?,
             })
         },
     )
@@ -870,7 +893,7 @@ pub fn get_agent_session(conn: &Connection, id: &str) -> SqlResult<AgentSession>
 
 pub fn list_agent_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<AgentSession>> {
     let mut stmt = conn.prepare(
-        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, created_at, updated_at FROM agent_sessions WHERE task_id = ?1 ORDER BY created_at DESC",
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, cli_session_id, model, effort_level, created_at, updated_at FROM agent_sessions WHERE task_id = ?1 ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map(params![task_id], |row| {
         Ok(AgentSession {
@@ -886,8 +909,11 @@ pub fn list_agent_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<Ag
             working_dir: row.get(9)?,
             scrollback: row.get(10)?,
             resumable: row.get::<_, i64>(11)? != 0,
-            created_at: row.get(12)?,
-            updated_at: row.get(13)?,
+            cli_session_id: row.get(12)?,
+            model: row.get(13)?,
+            effort_level: row.get(14)?,
+            created_at: row.get(15)?,
+            updated_at: row.get(16)?,
         })
     })?;
     rows.collect()
@@ -896,7 +922,7 @@ pub fn list_agent_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<Ag
 /// List resumable sessions for a task
 pub fn list_resumable_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<AgentSession>> {
     let mut stmt = conn.prepare(
-        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, created_at, updated_at FROM agent_sessions WHERE task_id = ?1 AND resumable = 1 ORDER BY created_at DESC",
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, cli_session_id, model, effort_level, created_at, updated_at FROM agent_sessions WHERE task_id = ?1 AND resumable = 1 ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map(params![task_id], |row| {
         Ok(AgentSession {
@@ -912,8 +938,11 @@ pub fn list_resumable_sessions(conn: &Connection, task_id: &str) -> SqlResult<Ve
             working_dir: row.get(9)?,
             scrollback: row.get(10)?,
             resumable: row.get::<_, i64>(11)? != 0,
-            created_at: row.get(12)?,
-            updated_at: row.get(13)?,
+            cli_session_id: row.get(12)?,
+            model: row.get(13)?,
+            effort_level: row.get(14)?,
+            created_at: row.get(15)?,
+            updated_at: row.get(16)?,
         })
     })?;
     rows.collect()
@@ -966,6 +995,184 @@ pub fn update_agent_session(
 
 pub fn delete_agent_session(conn: &Connection, id: &str) -> SqlResult<()> {
     conn.execute("DELETE FROM agent_sessions WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// Get or create an agent session for a task
+pub fn get_or_create_agent_session_for_task(
+    conn: &Connection,
+    task_id: &str,
+    working_dir: Option<&str>,
+) -> SqlResult<AgentSession> {
+    // Try to get existing session for this task
+    let existing = conn.query_row(
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, cli_session_id, model, effort_level, created_at, updated_at FROM agent_sessions WHERE task_id = ?1 ORDER BY created_at DESC LIMIT 1",
+        params![task_id],
+        |row| {
+            Ok(AgentSession {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                pid: row.get(2)?,
+                status: row.get(3)?,
+                pty_cols: row.get(4)?,
+                pty_rows: row.get(5)?,
+                last_output: row.get(6)?,
+                exit_code: row.get(7)?,
+                agent_type: row.get(8)?,
+                working_dir: row.get(9)?,
+                scrollback: row.get(10)?,
+                resumable: row.get::<_, i64>(11)? != 0,
+                cli_session_id: row.get(12)?,
+                model: row.get(13)?,
+                effort_level: row.get(14)?,
+                created_at: row.get(15)?,
+                updated_at: row.get(16)?,
+            })
+        },
+    );
+
+    match existing {
+        Ok(session) => Ok(session),
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            insert_agent_session(conn, task_id, "cli", working_dir)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Update agent session CLI session ID (for --resume support)
+pub fn update_agent_session_cli_id(
+    conn: &Connection,
+    id: &str,
+    cli_session_id: Option<&str>,
+) -> SqlResult<AgentSession> {
+    let ts = now();
+    conn.execute(
+        "UPDATE agent_sessions SET cli_session_id = ?1, resumable = 1, updated_at = ?2 WHERE id = ?3",
+        params![cli_session_id, ts, id],
+    )?;
+    get_agent_session(conn, id)
+}
+
+/// Update agent session status
+pub fn update_agent_session_status(
+    conn: &Connection,
+    id: &str,
+    status: &str,
+) -> SqlResult<AgentSession> {
+    let ts = now();
+    conn.execute(
+        "UPDATE agent_sessions SET status = ?1, updated_at = ?2 WHERE id = ?3",
+        params![status, ts, id],
+    )?;
+    get_agent_session(conn, id)
+}
+
+/// Get all running agent sessions (for cleanup on app shutdown)
+pub fn list_running_agent_sessions(conn: &Connection) -> SqlResult<Vec<AgentSession>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, cli_session_id, model, effort_level, created_at, updated_at FROM agent_sessions WHERE status = 'running'",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(AgentSession {
+            id: row.get(0)?,
+            task_id: row.get(1)?,
+            pid: row.get(2)?,
+            status: row.get(3)?,
+            pty_cols: row.get(4)?,
+            pty_rows: row.get(5)?,
+            last_output: row.get(6)?,
+            exit_code: row.get(7)?,
+            agent_type: row.get(8)?,
+            working_dir: row.get(9)?,
+            scrollback: row.get(10)?,
+            resumable: row.get::<_, i64>(11)? != 0,
+            cli_session_id: row.get(12)?,
+            model: row.get(13)?,
+            effort_level: row.get(14)?,
+            created_at: row.get(15)?,
+            updated_at: row.get(16)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Count running agent sessions (for max concurrent check)
+pub fn count_running_agent_sessions(conn: &Connection) -> SqlResult<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM agent_sessions WHERE status = 'running'",
+        [],
+        |row| row.get(0),
+    )
+}
+
+// ─── CRUD helpers: AgentMessage ─────────────────────────────────────────────
+
+pub fn insert_agent_message(
+    conn: &Connection,
+    task_id: &str,
+    role: &str,
+    content: &str,
+    model: Option<&str>,
+    effort_level: Option<&str>,
+    tool_calls: Option<&str>,
+    thinking_content: Option<&str>,
+) -> SqlResult<AgentMessage> {
+    let id = new_id();
+    let ts = now();
+    conn.execute(
+        "INSERT INTO agent_messages (id, task_id, role, content, model, effort_level, tool_calls, thinking_content, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![id, task_id, role, content, model, effort_level, tool_calls, thinking_content, ts],
+    )?;
+    get_agent_message(conn, &id)
+}
+
+pub fn get_agent_message(conn: &Connection, id: &str) -> SqlResult<AgentMessage> {
+    conn.query_row(
+        "SELECT id, task_id, role, content, model, effort_level, tool_calls, thinking_content, created_at FROM agent_messages WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(AgentMessage {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                role: row.get(2)?,
+                content: row.get(3)?,
+                model: row.get(4)?,
+                effort_level: row.get(5)?,
+                tool_calls: row.get(6)?,
+                thinking_content: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        },
+    )
+}
+
+pub fn list_agent_messages(conn: &Connection, task_id: &str, limit: Option<i64>) -> SqlResult<Vec<AgentMessage>> {
+    let limit_val = limit.unwrap_or(100);
+    let mut stmt = conn.prepare(
+        "SELECT id, task_id, role, content, model, effort_level, tool_calls, thinking_content, created_at FROM agent_messages WHERE task_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![task_id, limit_val], |row| {
+        Ok(AgentMessage {
+            id: row.get(0)?,
+            task_id: row.get(1)?,
+            role: row.get(2)?,
+            content: row.get(3)?,
+            model: row.get(4)?,
+            effort_level: row.get(5)?,
+            tool_calls: row.get(6)?,
+            thinking_content: row.get(7)?,
+            created_at: row.get(8)?,
+        })
+    })?;
+    let mut messages: Vec<AgentMessage> = rows.collect::<SqlResult<Vec<_>>>()?;
+    // Reverse to get chronological order
+    messages.reverse();
+    Ok(messages)
+}
+
+pub fn delete_agent_messages(conn: &Connection, task_id: &str) -> SqlResult<()> {
+    conn.execute("DELETE FROM agent_messages WHERE task_id = ?1", params![task_id])?;
     Ok(())
 }
 

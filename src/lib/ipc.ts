@@ -294,6 +294,32 @@ export type AgentStatusPayload = {
   taskId: string
   status: string
   message: string | null
+  cliSessionId: string | null
+}
+
+// ─── Agent persistence types ──────────────────────────────────────────────────
+
+export type AgentSession = {
+  id: string
+  taskId: string
+  cliSessionId: string | null
+  status: string
+  model: string | null
+  effortLevel: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type AgentMessage = {
+  id: string
+  taskId: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  model: string | null
+  effortLevel: string | null
+  toolCalls: string | null
+  thinkingContent: string | null
+  createdAt: string
 }
 
 export async function initAgentSession(
@@ -319,6 +345,64 @@ export async function cancelAgentChat(taskId: string): Promise<void> {
 
 export async function resetAgentSession(taskId: string): Promise<void> {
   return invoke<void>('reset_agent_session', { taskId })
+}
+
+// ─── Agent persistence commands (DB-backed) ─────────────────────────────────
+
+export async function getAgentSessionForTask(
+  taskId: string,
+  workingDir?: string,
+): Promise<AgentSession> {
+  return invoke<AgentSession>('get_agent_session_for_task', { taskId, workingDir })
+}
+
+export async function updateAgentCliSessionId(
+  sessionId: string,
+  cliSessionId?: string,
+): Promise<AgentSession> {
+  return invoke<AgentSession>('update_agent_cli_session_id', { sessionId, cliSessionId })
+}
+
+export async function updateAgentStatus(
+  sessionId: string,
+  status: string,
+): Promise<AgentSession> {
+  return invoke<AgentSession>('update_agent_status', { sessionId, status })
+}
+
+export async function getRunningAgentCount(): Promise<number> {
+  return invoke<number>('get_running_agent_count')
+}
+
+export async function saveAgentMessage(
+  taskId: string,
+  role: string,
+  content: string,
+  model?: string,
+  effortLevel?: string,
+  toolCalls?: string,
+  thinkingContent?: string,
+): Promise<AgentMessage> {
+  return invoke<AgentMessage>('save_agent_message', {
+    taskId,
+    role,
+    content,
+    model,
+    effortLevel,
+    toolCalls,
+    thinkingContent,
+  })
+}
+
+export async function getAgentMessages(
+  taskId: string,
+  limit?: number,
+): Promise<AgentMessage[]> {
+  return invoke<AgentMessage[]>('get_agent_messages', { taskId, limit })
+}
+
+export async function clearAgentMessages(taskId: string): Promise<void> {
+  return invoke<void>('clear_agent_messages', { taskId })
 }
 
 // ─── Agent streaming event listeners ─────────────────────────────────────────
