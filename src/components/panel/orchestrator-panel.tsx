@@ -20,7 +20,7 @@ import {
   type ThinkingEvent,
   type ToolCallEvent,
 } from '@/lib/ipc'
-import { ChatHistory } from './chat-history'
+import { ChatHistory, orchestratorActionParser } from './chat-history'
 import { PanelInput, type SendMessageParams } from './panel-input'
 import { PanelSidebar } from './panel-sidebar'
 
@@ -627,6 +627,9 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 toolCalls={Array.from(activeToolCalls.values())}
                 onCancel={handleCancel}
                 queuedMessages={messageQueue.map((m) => ({ id: m.id, content: m.content }))}
+                actionParser={orchestratorActionParser}
+                emptyStateMessage="No messages yet"
+                emptyStateHint="Ask me to create tasks for you"
               />
               <PanelInput
                 onSendMessage={handleSendMessage}
@@ -634,6 +637,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 isProcessing={isProcessing}
                 disabled={!activeSession}
                 queueCount={messageQueue.length}
+                placeholder="Ask me to create tasks..."
               />
             </div>
           </motion.div>
