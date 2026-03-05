@@ -549,3 +549,66 @@ pub async fn sync_task_deleted(
 
     Ok(true)
 }
+
+// ─── Agent Output Streaming Commands ─────────────────────────────────────────
+
+/// Register a Discord thread for agent output streaming
+#[tauri::command(rename_all = "camelCase")]
+pub async fn register_discord_thread(
+    discord: State<'_, SharedDiscordBridge>,
+    task_id: String,
+    thread_id: String,
+) -> Result<(), AppError> {
+    let mut bridge = discord.lock().await;
+
+    if !bridge.is_running() {
+        return Err(AppError::InvalidInput("Discord sidecar not running".to_string()));
+    }
+
+    bridge
+        .register_thread(&task_id, &thread_id)
+        .await
+        .map_err(AppError::CommandError)
+}
+
+/// Stream agent output to Discord
+#[tauri::command(rename_all = "camelCase")]
+pub async fn stream_agent_output(
+    discord: State<'_, SharedDiscordBridge>,
+    task_id: String,
+    delta: String,
+    output_type: Option<String>,
+) -> Result<(), AppError> {
+    let mut bridge = discord.lock().await;
+
+    if !bridge.is_running() {
+        return Ok(()); // Silently skip if Discord not running
+    }
+
+    bridge
+        .send_agent_output(&task_id, &delta, output_type.as_deref())
+        .await
+        .map_err(AppError::CommandError)
+}
+
+/// Signal agent completion to Discord
+#[tauri::command(rename_all = "camelCase")]
+pub async fn signal_agent_complete(
+    discord: State<'_, SharedDiscordBridge>,
+    task_id: String,
+    success: bool,
+    summary: String,
+    duration_ms: Option<u64>,
+    tokens_used: Option<u64>,
+) -> Result<(), AppError> {
+    let mut bridge = discord.lock().await;
+
+    if !bridge.is_running() {
+        return Ok(()); // Silently skip if Discord not running
+    }
+
+    bridge
+        .send_agent_complete(&task_id, success, &summary, duration_ms, tokens_used)
+        .await
+        .map_err(AppError::CommandError)
+}

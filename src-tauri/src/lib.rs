@@ -200,6 +200,10 @@ pub fn run() {
             commands::discord::sync_task_moved,
             commands::discord::sync_task_updated,
             commands::discord::sync_task_deleted,
+            // Discord agent streaming commands
+            commands::discord::register_discord_thread,
+            commands::discord::stream_agent_output,
+            commands::discord::signal_agent_complete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

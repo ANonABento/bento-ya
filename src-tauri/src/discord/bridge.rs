@@ -396,6 +396,57 @@ impl DiscordBridge {
             .ok_or("Missing messageId in response")?;
         Ok(message_id.to_string())
     }
+
+    // ─── Agent Output Streaming ─────────────────────────────────────────────────
+
+    /// Register a thread ID for a task (for agent output streaming)
+    pub async fn register_thread(&mut self, task_id: &str, thread_id: &str) -> Result<(), String> {
+        let payload = serde_json::json!({
+            "taskId": task_id,
+            "threadId": thread_id,
+        });
+
+        self.send_command("register_thread", payload).await?;
+        Ok(())
+    }
+
+    /// Stream agent output delta to Discord
+    pub async fn send_agent_output(
+        &mut self,
+        task_id: &str,
+        delta: &str,
+        output_type: Option<&str>,
+    ) -> Result<(), String> {
+        let payload = serde_json::json!({
+            "taskId": task_id,
+            "delta": delta,
+            "type": output_type.unwrap_or("stdout"),
+        });
+
+        self.send_command("agent_output", payload).await?;
+        Ok(())
+    }
+
+    /// Signal agent completion with summary
+    pub async fn send_agent_complete(
+        &mut self,
+        task_id: &str,
+        success: bool,
+        summary: &str,
+        duration_ms: Option<u64>,
+        tokens_used: Option<u64>,
+    ) -> Result<(), String> {
+        let payload = serde_json::json!({
+            "taskId": task_id,
+            "success": success,
+            "summary": summary,
+            "duration": duration_ms,
+            "tokensUsed": tokens_used,
+        });
+
+        self.send_command("agent_complete", payload).await?;
+        Ok(())
+    }
 }
 
 impl Default for DiscordBridge {

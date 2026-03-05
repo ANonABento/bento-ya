@@ -19,15 +19,32 @@ import type {
   CreateThreadPayload,
   PostMessagePayload,
   DiscordStatus,
+  AgentOutputPayload,
+  AgentCompletePayload,
+  RegisterThreadPayload,
 } from './types.js';
+import { OutputBuffer } from './output-buffer.js';
+import {
+  splitMessage,
+  formatAgentOutput,
+  createCompletionEmbed,
+} from './message-splitter.js';
 
 export class DiscordClient {
   private client: Client | null = null;
   private bridge: Bridge;
   private currentGuildId: string | null = null;
+  private taskThreadMap = new Map<string, string>();
+  private outputBuffer: OutputBuffer;
 
   constructor(bridge: Bridge) {
     this.bridge = bridge;
+    this.outputBuffer = new OutputBuffer(
+      async (taskId, content) => {
+        await this.streamOutputToThread(taskId, content);
+      },
+      { debounceMs: 500, maxBuffer: 4000 }
+    );
   }
 
   /**
@@ -334,6 +351,90 @@ export class DiscordClient {
 
     await thread.setName(name.slice(0, 100));
     return { updated: true };
+  }
+
+  // ─── Agent Output Streaming ─────────────────────────────────────────────────
+
+  /**
+   * Register a thread ID for a task (for output streaming)
+   */
+  registerThread(payload: RegisterThreadPayload): { registered: boolean } {
+    this.taskThreadMap.set(payload.taskId, payload.threadId);
+    return { registered: true };
+  }
+
+  /**
+   * Stream agent output to the task's Discord thread
+   */
+  async handleAgentOutput(payload: AgentOutputPayload): Promise<{ queued: boolean }> {
+    const formatted = formatAgentOutput(payload.delta, payload.type || 'stdout');
+    this.outputBuffer.append(payload.taskId, formatted);
+    return { queued: true };
+  }
+
+  /**
+   * Handle agent completion - flush output and post summary
+   */
+  async handleAgentComplete(
+    payload: AgentCompletePayload
+  ): Promise<{ completed: boolean }> {
+    // Flush any remaining output
+    await this.outputBuffer.flushAll(payload.taskId);
+
+    // Post completion embed to thread
+    const threadId = this.taskThreadMap.get(payload.taskId);
+    if (threadId && this.client?.isReady()) {
+      try {
+        const thread = (await this.client.channels.fetch(
+          threadId
+        )) as ThreadChannel | null;
+
+        if (thread && thread.isThread()) {
+          const embed = createCompletionEmbed(
+            payload.taskId,
+            payload.success,
+            payload.summary,
+            payload.duration,
+            payload.tokensUsed
+          );
+          await thread.send({ embeds: [embed] });
+        }
+      } catch (error) {
+        console.error('Failed to post completion embed:', error);
+      }
+    }
+
+    // Clean up
+    this.taskThreadMap.delete(payload.taskId);
+    return { completed: true };
+  }
+
+  /**
+   * Stream output content to a task's thread
+   */
+  private async streamOutputToThread(
+    taskId: string,
+    content: string
+  ): Promise<void> {
+    const threadId = this.taskThreadMap.get(taskId);
+    if (!threadId || !this.client?.isReady()) return;
+
+    try {
+      const thread = (await this.client.channels.fetch(
+        threadId
+      )) as ThreadChannel | null;
+
+      if (!thread || !thread.isThread()) return;
+
+      // Split content if too long
+      const chunks = splitMessage(content);
+
+      for (const chunk of chunks) {
+        await thread.send(chunk);
+      }
+    } catch (error) {
+      console.error('Failed to stream output:', error);
+    }
   }
 
   /**

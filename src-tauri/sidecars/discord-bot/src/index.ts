@@ -11,6 +11,9 @@ import type {
   SetupWorkspacePayload,
   CreateThreadPayload,
   PostMessagePayload,
+  AgentOutputPayload,
+  AgentCompletePayload,
+  RegisterThreadPayload,
 } from './types.js';
 
 // Create IPC bridge
@@ -57,6 +60,19 @@ bridge.on('post_message', async (payload) => {
 bridge.on('update_thread_name', async (payload) => {
   const { threadId, name } = payload as { threadId: string; name: string };
   return await discord.updateThreadName(threadId, name);
+});
+
+// Agent output streaming handlers
+bridge.on('register_thread', async (payload) => {
+  return discord.registerThread(payload as RegisterThreadPayload);
+});
+
+bridge.on('agent_output', async (payload) => {
+  return await discord.handleAgentOutput(payload as AgentOutputPayload);
+});
+
+bridge.on('agent_complete', async (payload) => {
+  return await discord.handleAgentComplete(payload as AgentCompletePayload);
 });
 
 // Signal ready

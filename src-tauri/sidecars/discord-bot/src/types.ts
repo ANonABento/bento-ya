@@ -18,7 +18,10 @@ export type CommandType =
   | 'create_thread'
   | 'archive_thread'
   | 'post_message'
-  | 'update_thread_name';
+  | 'update_thread_name'
+  | 'agent_output'
+  | 'agent_complete'
+  | 'register_thread';
 
 // Responses from Node to Rust
 export interface BridgeResponse {
@@ -83,4 +86,24 @@ export interface DiscordStatus {
   };
   guildId?: string;
   guildName?: string;
+}
+
+// Agent output streaming payloads
+export interface AgentOutputPayload {
+  taskId: string;
+  delta: string;
+  type?: 'stdout' | 'stderr' | 'tool';
+}
+
+export interface AgentCompletePayload {
+  taskId: string;
+  success: boolean;
+  summary: string;
+  duration?: number;
+  tokensUsed?: number;
+}
+
+export interface RegisterThreadPayload {
+  taskId: string;
+  threadId: string;
 }
