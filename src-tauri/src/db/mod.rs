@@ -84,6 +84,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("016_siege_fields", include_str!("migrations/016_siege_fields.sql")),
         ("017_pr_status_fields", include_str!("migrations/017_pr_status_fields.sql")),
         ("018_discord_integration", include_str!("migrations/018_discord_integration.sql")),
+        ("019_discord_agent_routes", include_str!("migrations/019_discord_agent_routes.sql")),
     ];
 
     for (name, sql) in migrations {
