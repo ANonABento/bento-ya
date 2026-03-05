@@ -8,6 +8,13 @@ export type PrMergeable = 'mergeable' | 'conflicted' | 'unknown'
 export type PrCiStatus = 'pending' | 'success' | 'failure' | 'error'
 export type PrReviewDecision = 'approved' | 'changes_requested' | 'review_required'
 
+// Task checklist item (stored as JSON array in task.checklist)
+export type TaskChecklistItem = {
+  id: string
+  text: string
+  checked: boolean
+}
+
 export type Task = {
   id: string
   workspaceId: string
@@ -39,6 +46,8 @@ export type Task = {
   prLabels: string  // JSON array
   prLastFetched: string | null
   prHeadSha: string | null
+  // Task checklist (JSON array of TaskChecklistItem)
+  checklist: string | null
   position: number
   createdAt: string
   updatedAt: string
