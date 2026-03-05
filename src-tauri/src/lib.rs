@@ -100,16 +100,11 @@ pub fn run() {
             commands::git::get_diff,
             commands::git::get_conflict_matrix,
             commands::git::get_commits,
-            // PTY / Agent commands
+            // PTY commands (for scripts/pipelines)
             commands::terminal::write_to_pty,
             commands::terminal::resize_pty,
             commands::terminal::get_pty_scrollback,
-            commands::agent::start_agent,
-            commands::agent::stop_agent,
-            commands::agent::force_stop_agent,
-            commands::agent::get_agent_status,
-            commands::agent::list_active_agents,
-            // Streaming agent commands (--print mode)
+            // Streaming agent commands (--print mode like orchestrator)
             commands::agent::init_agent_session,
             commands::agent::stream_agent_chat,
             commands::agent::cancel_agent_chat,

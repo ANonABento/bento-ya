@@ -269,33 +269,6 @@ export async function getConflictMatrix(repoPath: string): Promise<ConflictMatri
   return invoke<ConflictMatrix>('get_conflict_matrix', { repoPath })
 }
 
-// ─── Agent commands ───────────────────────────────────────────────────────
-
-export type AgentInfo = {
-  taskId: string
-  agentType: string
-  status: string
-  pid: number | null
-  workingDir: string
-}
-
-export async function startAgent(
-  taskId: string,
-  agentType: string,
-  workingDir: string,
-  cliPath?: string,
-): Promise<AgentInfo> {
-  return invoke<AgentInfo>('start_agent', { taskId, agentType, workingDir, cliPath })
-}
-
-export async function stopAgent(taskId: string): Promise<void> {
-  return invoke<void>('stop_agent', { taskId })
-}
-
-export async function getAgentStatus(taskId: string): Promise<AgentInfo> {
-  return invoke<AgentInfo>('get_agent_status', { taskId })
-}
-
 // ─── Streaming Agent commands (--print mode like orchestrator) ──────────────
 
 export type AgentStreamPayload = {
