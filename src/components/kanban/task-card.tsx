@@ -198,6 +198,7 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
   const moveTask = useTaskStore((s) => s.move)
   const removeTask = useTaskStore((s) => s.remove)
   const updateTask = useTaskStore((s) => s.updateTask)
+  const duplicateTask = useTaskStore((s) => s.duplicate)
 
   const {
     attributes,
@@ -292,9 +293,8 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
   }, [task.id, removeTask])
 
   const handleDuplicateTask = useCallback(() => {
-    // TODO: Implement duplicate in task store
-    console.log('Duplicate task:', task.id)
-  }, [task.id])
+    void duplicateTask(task.id)
+  }, [task.id, duplicateTask])
 
   const handleToggleAgent = useCallback(() => {
     if (task.agentStatus === 'running') {
