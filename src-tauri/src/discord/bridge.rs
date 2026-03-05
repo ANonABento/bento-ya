@@ -80,6 +80,15 @@ pub struct CreateThreadResult {
     pub message_id: String,
 }
 
+/// Queue status for rate limiter monitoring
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueStatus {
+    pub pending_count: u32,
+    pub limited_channels: Vec<String>,
+    pub last_error: Option<String>,
+}
+
 /// Discord bot sidecar bridge
 pub struct DiscordBridge {
     /// The running sidecar process
@@ -446,6 +455,12 @@ impl DiscordBridge {
 
         self.send_command("agent_complete", payload).await?;
         Ok(())
+    }
+
+    /// Get queue status from rate limiter
+    pub async fn get_queue_status(&mut self) -> Result<QueueStatus, String> {
+        let result = self.send_command("get_queue_status", serde_json::Value::Null).await?;
+        serde_json::from_value(result).map_err(|e| format!("Failed to parse queue status: {}", e))
     }
 }
 

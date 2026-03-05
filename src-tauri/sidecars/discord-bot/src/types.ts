@@ -21,7 +21,8 @@ export type CommandType =
   | 'update_thread_name'
   | 'agent_output'
   | 'agent_complete'
-  | 'register_thread';
+  | 'register_thread'
+  | 'get_queue_status';
 
 // Responses from Node to Rust
 export interface BridgeResponse {
@@ -106,4 +107,13 @@ export interface AgentCompletePayload {
 export interface RegisterThreadPayload {
   taskId: string;
   threadId: string;
+}
+
+/**
+ * Queue status for rate limiter monitoring
+ */
+export interface QueueStatus {
+  pendingCount: number;
+  limitedChannels: string[];
+  lastError: string | null;
 }

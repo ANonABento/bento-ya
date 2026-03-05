@@ -1261,6 +1261,17 @@ export async function signalAgentComplete(
   return invoke<void>('signal_agent_complete', { taskId, success, summary, durationMs, tokensUsed })
 }
 
+// Discord queue status
+export type DiscordQueueStatus = {
+  pendingCount: number
+  limitedChannels: string[]
+  lastError: string | null
+}
+
+export async function getDiscordQueueStatus(): Promise<DiscordQueueStatus> {
+  return invoke<DiscordQueueStatus>('get_discord_queue_status')
+}
+
 // Discord event listeners
 export type DiscordEvent = {
   event: string

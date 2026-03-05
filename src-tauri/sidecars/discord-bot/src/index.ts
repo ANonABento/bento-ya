@@ -75,6 +75,11 @@ bridge.on('agent_complete', async (payload) => {
   return await discord.handleAgentComplete(payload as AgentCompletePayload);
 });
 
+// Queue status handler
+bridge.on('get_queue_status', async () => {
+  return discord.getQueueStatus();
+});
+
 // Signal ready
 bridge.emit('ready', { sidecar: 'discord-bot', version: '1.0.0' });
 

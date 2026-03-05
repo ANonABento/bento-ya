@@ -204,6 +204,8 @@ pub fn run() {
             commands::discord::register_discord_thread,
             commands::discord::stream_agent_output,
             commands::discord::signal_agent_complete,
+            // Discord queue status
+            commands::discord::get_discord_queue_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,7 +1,7 @@
 //! Discord integration Tauri commands
 
 use crate::db::AppState;
-use crate::discord::bridge::{CreateThreadResult, SetupWorkspaceResult};
+use crate::discord::bridge::{CreateThreadResult, QueueStatus, SetupWorkspaceResult};
 use crate::discord::{DiscordStatus, SharedDiscordBridge};
 use crate::error::AppError;
 use tauri::{AppHandle, Manager, State};
@@ -609,6 +609,27 @@ pub async fn signal_agent_complete(
 
     bridge
         .send_agent_complete(&task_id, success, &summary, duration_ms, tokens_used)
+        .await
+        .map_err(AppError::CommandError)
+}
+
+/// Get Discord queue status for monitoring
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_discord_queue_status(
+    discord: State<'_, SharedDiscordBridge>,
+) -> Result<QueueStatus, AppError> {
+    let mut bridge = discord.lock().await;
+
+    if !bridge.is_running() {
+        return Ok(QueueStatus {
+            pending_count: 0,
+            limited_channels: vec![],
+            last_error: None,
+        });
+    }
+
+    bridge
+        .get_queue_status()
         .await
         .map_err(AppError::CommandError)
 }

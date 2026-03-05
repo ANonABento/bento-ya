@@ -22,7 +22,9 @@ import type {
   AgentOutputPayload,
   AgentCompletePayload,
   RegisterThreadPayload,
+  QueueStatus,
 } from './types.js';
+import { RateLimiter, Priority, type MessagePayload } from './rate-limiter.js';
 import { OutputBuffer } from './output-buffer.js';
 import {
   splitMessage,
@@ -36,6 +38,7 @@ export class DiscordClient {
   private currentGuildId: string | null = null;
   private taskThreadMap = new Map<string, string>();
   private outputBuffer: OutputBuffer;
+  private rateLimiter: RateLimiter;
 
   constructor(bridge: Bridge) {
     this.bridge = bridge;
@@ -45,6 +48,11 @@ export class DiscordClient {
       },
       { debounceMs: 500, maxBuffer: 4000 }
     );
+
+    // Initialize rate limiter with direct send function
+    this.rateLimiter = new RateLimiter(async (channelId, payload) => {
+      await this.sendMessageDirect(channelId, payload);
+    });
   }
 
   /**
@@ -410,7 +418,7 @@ export class DiscordClient {
   }
 
   /**
-   * Stream output content to a task's thread
+   * Stream output content to a task's thread via rate limiter
    */
   private async streamOutputToThread(
     taskId: string,
@@ -419,22 +427,53 @@ export class DiscordClient {
     const threadId = this.taskThreadMap.get(taskId);
     if (!threadId || !this.client?.isReady()) return;
 
-    try {
-      const thread = (await this.client.channels.fetch(
-        threadId
-      )) as ThreadChannel | null;
+    // Split content if too long
+    const chunks = splitMessage(content);
 
-      if (!thread || !thread.isThread()) return;
-
-      // Split content if too long
-      const chunks = splitMessage(content);
-
-      for (const chunk of chunks) {
-        await thread.send(chunk);
-      }
-    } catch (error) {
-      console.error('Failed to stream output:', error);
+    for (const chunk of chunks) {
+      await this.rateLimiter.send(
+        threadId,
+        { content: chunk },
+        Priority.OUTPUT
+      );
     }
+  }
+
+  /**
+   * Send a message directly without rate limiting (used by rate limiter callback)
+   */
+  private async sendMessageDirect(
+    channelId: string,
+    payload: MessagePayload
+  ): Promise<void> {
+    if (!this.client?.isReady()) {
+      throw new Error('Client not ready');
+    }
+
+    const channel = (await this.client.channels.fetch(channelId)) as
+      | TextChannel
+      | ThreadChannel
+      | null;
+
+    if (!channel || !('send' in channel)) {
+      throw new Error(`Channel ${channelId} not found or cannot send messages`);
+    }
+
+    await channel.send({
+      content: payload.content || undefined,
+      embeds: payload.embeds,
+    });
+  }
+
+  /**
+   * Get queue status for monitoring
+   */
+  getQueueStatus(): QueueStatus {
+    return {
+      pendingCount: this.rateLimiter.getPendingCount(),
+      limitedChannels: this.rateLimiter.getLimitedChannels(),
+      lastError: this.rateLimiter.getLastError(),
+    };
   }
 
   /**
