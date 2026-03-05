@@ -50,11 +50,11 @@ export const useChecklistStore = create<ChecklistState>()(
       isLoading: false,
       currentWorkspaceId: null,
 
-      openChecklist: () => set({ isOpen: true }),
-      closeChecklist: () => set({ isOpen: false }),
+      openChecklist: () => { set({ isOpen: true }); },
+      closeChecklist: () => { set({ isOpen: false }); },
 
-      setChecklist: (checklist) => set({ checklist }),
-      setCategories: (categories) => set({ categories }),
+      setChecklist: (checklist) => { set({ checklist }); },
+      setCategories: (categories) => { set({ categories }); },
 
       setItems: (categoryId, items) => {
         set((state) => ({
