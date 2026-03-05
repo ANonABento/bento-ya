@@ -1,6 +1,5 @@
 import { useSettingsStore } from '@/stores/settings-store'
 import { useThemeStore } from '@/stores/theme-store'
-import type { ThemePreference } from '@/lib/theme'
 import type { AppearanceConfig } from '@/types/settings'
 import { SegmentedControl } from '@/components/shared/segmented-control'
 import { AccentColorPicker } from '@/components/shared/accent-color-picker'

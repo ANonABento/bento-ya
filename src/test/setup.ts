@@ -34,7 +34,9 @@ const localStorageMock = {
     localStorageMock.store[key] = value
   }),
   removeItem: vi.fn((key: string) => {
-    delete localStorageMock.store[key]
+    localStorageMock.store = Object.fromEntries(
+      Object.entries(localStorageMock.store).filter(([k]) => k !== key)
+    )
   }),
   clear: vi.fn(() => {
     localStorageMock.store = {}

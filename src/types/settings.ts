@@ -14,7 +14,7 @@ export type AgentConfig = {
   maxConcurrentAgents: number
   envVars: Record<string, string>
   instructionsFile: string
-  modelSelection: 'auto' | string // 'auto' = orchestrator decides, or specific model ID
+  modelSelection: string // 'auto' = orchestrator decides, or specific model ID
 }
 
 export type AgentMode = {

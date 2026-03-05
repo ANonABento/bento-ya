@@ -49,7 +49,7 @@ export async function updateWorkspace(
 }
 
 export async function deleteWorkspace(id: string): Promise<void> {
-  return invoke<void>('delete_workspace', { id })
+  return invoke<undefined>('delete_workspace', { id })
 }
 
 export async function cloneWorkspace(sourceId: string, newName: string): Promise<Workspace> {
@@ -57,7 +57,7 @@ export async function cloneWorkspace(sourceId: string, newName: string): Promise
 }
 
 export const reorderWorkspaces = (ids: string[]) =>
-  invoke<void>('reorder_workspaces', { ids })
+  invoke<undefined>('reorder_workspaces', { ids })
 
 export async function updateWorkspaceConfig(
   id: string,
@@ -118,7 +118,7 @@ export async function reorderColumns(
 }
 
 export async function deleteColumn(id: string): Promise<void> {
-  return invoke<void>('delete_column', { id })
+  return invoke<undefined>('delete_column', { id })
 }
 
 // ─── Task commands ─────────────────────────────────────────────────────────
@@ -160,7 +160,7 @@ export async function reorderTasks(columnId: string, taskIds: string[]): Promise
 }
 
 export async function deleteTask(id: string): Promise<void> {
-  return invoke<void>('delete_task', { id })
+  return invoke<undefined>('delete_task', { id })
 }
 
 // ─── Review actions ─────────────────────────────────────────────────────────
@@ -196,7 +196,7 @@ export async function createTaskBranch(
 }
 
 export async function switchBranch(repoPath: string, branch: string): Promise<void> {
-  return invoke<void>('switch_branch', { repoPath, branch })
+  return invoke<undefined>('switch_branch', { repoPath, branch })
 }
 
 export async function getCurrentBranch(repoPath: string): Promise<string> {
@@ -327,7 +327,7 @@ export async function initAgentSession(
   workingDir: string,
   cliPath: string,
 ): Promise<void> {
-  return invoke<void>('init_agent_session', { taskId, workingDir, cliPath })
+  return invoke<undefined>('init_agent_session', { taskId, workingDir, cliPath })
 }
 
 export async function streamAgentChat(
@@ -336,15 +336,15 @@ export async function streamAgentChat(
   model?: string,
   effortLevel?: string,
 ): Promise<void> {
-  return invoke<void>('stream_agent_chat', { taskId, message, model, effortLevel })
+  return invoke<undefined>('stream_agent_chat', { taskId, message, model, effortLevel })
 }
 
 export async function cancelAgentChat(taskId: string): Promise<void> {
-  return invoke<void>('cancel_agent_chat', { taskId })
+  return invoke<undefined>('cancel_agent_chat', { taskId })
 }
 
 export async function resetAgentSession(taskId: string): Promise<void> {
-  return invoke<void>('reset_agent_session', { taskId })
+  return invoke<undefined>('reset_agent_session', { taskId })
 }
 
 // ─── Agent persistence commands (DB-backed) ─────────────────────────────────
@@ -402,7 +402,7 @@ export async function getAgentMessages(
 }
 
 export async function clearAgentMessages(taskId: string): Promise<void> {
-  return invoke<void>('clear_agent_messages', { taskId })
+  return invoke<undefined>('clear_agent_messages', { taskId })
 }
 
 // ─── Agent streaming event listeners ─────────────────────────────────────────
@@ -651,7 +651,7 @@ export async function createChatSession(workspaceId: string, title?: string): Pr
 }
 
 export async function deleteChatSession(sessionId: string): Promise<void> {
-  return invoke<void>('delete_chat_session', { sessionId })
+  return invoke<undefined>('delete_chat_session', { sessionId })
 }
 
 export async function getChatHistory(
@@ -662,7 +662,7 @@ export async function getChatHistory(
 }
 
 export async function clearChatHistory(sessionId: string): Promise<void> {
-  return invoke<void>('clear_chat_history', { sessionId })
+  return invoke<undefined>('clear_chat_history', { sessionId })
 }
 
 export async function processOrchestratorResponse(
@@ -751,7 +751,7 @@ export async function streamOrchestratorChat(
   model?: string,
   cliPath?: string,
 ): Promise<void> {
-  return invoke<void>('stream_orchestrator_chat', {
+  return invoke<undefined>('stream_orchestrator_chat', {
     workspaceId,
     sessionId,
     message,
@@ -766,11 +766,11 @@ export async function cancelOrchestratorChat(
   sessionId: string,
   workspaceId: string
 ): Promise<void> {
-  return invoke<void>('cancel_orchestrator_chat', { sessionId, workspaceId })
+  return invoke<undefined>('cancel_orchestrator_chat', { sessionId, workspaceId })
 }
 
 export async function resetCliSession(sessionId: string): Promise<void> {
-  return invoke<void>('reset_cli_session', { sessionId })
+  return invoke<undefined>('reset_cli_session', { sessionId })
 }
 
 // ─── Voice commands ─────────────────────────────────────────────────────────
@@ -824,7 +824,7 @@ export async function downloadWhisperModel(model: string): Promise<string> {
 }
 
 export async function deleteWhisperModel(model: string): Promise<void> {
-  return invoke<void>('delete_whisper_model', { model })
+  return invoke<undefined>('delete_whisper_model', { model })
 }
 
 export async function getWhisperModelInfo(model: string): Promise<WhisperModelInfo> {
@@ -846,15 +846,15 @@ export function onWhisperDownloadComplete(
 // ─── Native Audio Recording (bypasses webview limitations) ──────────────────
 
 export async function startNativeRecording(): Promise<void> {
-  return invoke<void>('start_native_recording')
+  return invoke<undefined>('start_native_recording')
 }
 
 export async function stopNativeRecording(): Promise<void> {
-  return invoke<void>('stop_native_recording')
+  return invoke<undefined>('stop_native_recording')
 }
 
 export async function cancelNativeRecording(): Promise<void> {
-  return invoke<void>('cancel_native_recording')
+  return invoke<undefined>('cancel_native_recording')
 }
 
 export async function isNativeRecording(): Promise<boolean> {
@@ -945,7 +945,7 @@ export async function getTaskUsageSummary(taskId: string): Promise<UsageSummary>
 }
 
 export async function clearWorkspaceUsage(workspaceId: string): Promise<void> {
-  return invoke<void>('clear_workspace_usage', { workspaceId })
+  return invoke<undefined>('clear_workspace_usage', { workspaceId })
 }
 
 // ─── Session history commands ────────────────────────────────────────────────
@@ -1005,7 +1005,7 @@ export async function getTaskHistory(taskId: string): Promise<SessionSnapshot[]>
 }
 
 export async function clearSessionHistory(sessionId: string): Promise<void> {
-  return invoke<void>('clear_session_history', { sessionId })
+  return invoke<undefined>('clear_session_history', { sessionId })
 }
 
 export type RestoreSnapshotParams = {
@@ -1115,7 +1115,7 @@ export async function createWorkspaceChecklist(
 }
 
 export async function deleteWorkspaceChecklist(workspaceId: string): Promise<void> {
-  return invoke<void>('delete_workspace_checklist', { workspaceId })
+  return invoke<undefined>('delete_workspace_checklist', { workspaceId })
 }
 
 export async function updateChecklistItemAutoDetect(

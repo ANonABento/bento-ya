@@ -77,11 +77,11 @@ export async function setupInvokeMock(responses: Record<string, unknown>) {
   const { invoke } = await import('@tauri-apps/api/core')
   const mockedInvoke = vi.mocked(invoke)
 
-  mockedInvoke.mockImplementation(async (cmd: string) => {
+  mockedInvoke.mockImplementation((cmd: string) => {
     if (cmd in responses) {
-      return responses[cmd]
+      return Promise.resolve(responses[cmd])
     }
-    throw new Error(`Unmocked command: ${cmd}`)
+    return Promise.reject(new Error(`Unmocked command: ${cmd}`))
   })
 
   return mockedInvoke

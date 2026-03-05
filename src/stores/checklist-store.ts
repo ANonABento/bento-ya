@@ -11,7 +11,7 @@ import { BUILT_IN_CHECKLIST_TEMPLATES } from '@/types/checklist'
 import * as ipc from '@/lib/ipc'
 
 // Debounce timers for notes updates
-const notesDebounceTimers: Record<string, ReturnType<typeof setTimeout>> = {}
+const notesDebounceTimers: Record<string, ReturnType<typeof setTimeout> | undefined> = {}
 const NOTES_DEBOUNCE_MS = 500
 
 type ChecklistState = {
@@ -143,7 +143,7 @@ export const useChecklistStore = create<ChecklistState>()(
         })
 
         // Persist to backend
-        ipc.updateChecklistItem(itemId, newChecked, undefined).catch((error) => {
+        ipc.updateChecklistItem(itemId, newChecked, undefined).catch((error: unknown) => {
           console.error('Failed to persist item toggle:', error)
           // Revert on error
           set((s) => {
@@ -172,7 +172,7 @@ export const useChecklistStore = create<ChecklistState>()(
         }))
 
         // Persist to backend
-        ipc.updateChecklistCategory(categoryId, newCollapsed).catch((error) => {
+        ipc.updateChecklistCategory(categoryId, newCollapsed).catch((error: unknown) => {
           console.error('Failed to persist category toggle:', error)
           // Revert on error
           set((s) => ({
@@ -202,8 +202,8 @@ export const useChecklistStore = create<ChecklistState>()(
         }
 
         notesDebounceTimers[timerKey] = setTimeout(() => {
-          delete notesDebounceTimers[timerKey]
-          ipc.updateChecklistItem(itemId, undefined, notes).catch((error) => {
+          notesDebounceTimers[timerKey] = undefined
+          ipc.updateChecklistItem(itemId, undefined, notes).catch((error: unknown) => {
             console.error('Failed to persist item notes:', error)
           })
         }, NOTES_DEBOUNCE_MS)
@@ -290,7 +290,7 @@ export const useChecklistStore = create<ChecklistState>()(
         })
 
         // Persist to backend
-        ipc.linkChecklistItemToTask(itemId, taskId).catch((error) => {
+        ipc.linkChecklistItemToTask(itemId, taskId).catch((error: unknown) => {
           console.error('Failed to link item to task:', error)
           // Revert on error
           set((state) => {
