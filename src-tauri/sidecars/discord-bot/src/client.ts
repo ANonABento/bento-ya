@@ -31,6 +31,7 @@ import {
   formatAgentOutput,
   createCompletionEmbed,
 } from './message-splitter.js';
+import { createReplyHandler, createChefHandler } from './handlers/index.js';
 
 export class DiscordClient {
   private client: Client | null = null;
@@ -39,6 +40,8 @@ export class DiscordClient {
   private taskThreadMap = new Map<string, string>();
   private outputBuffer: OutputBuffer;
   private rateLimiter: RateLimiter;
+  private replyHandler: ReturnType<typeof createReplyHandler>;
+  private chefHandler: ReturnType<typeof createChefHandler>;
 
   constructor(bridge: Bridge) {
     this.bridge = bridge;
@@ -53,6 +56,10 @@ export class DiscordClient {
     this.rateLimiter = new RateLimiter(async (channelId, payload) => {
       await this.sendMessageDirect(channelId, payload);
     });
+
+    // Initialize message handlers
+    this.replyHandler = createReplyHandler(bridge);
+    this.chefHandler = createChefHandler(bridge);
   }
 
   /**
@@ -84,9 +91,10 @@ export class DiscordClient {
     });
 
     this.client.on(Events.MessageCreate, (message) => {
-      // Don't emit bot messages
+      // Don't process bot messages
       if (message.author.bot) return;
 
+      // Emit event to Rust for logging/monitoring
       this.bridge.emit('message_received', {
         id: message.id,
         channelId: message.channelId,
@@ -103,6 +111,12 @@ export class DiscordClient {
           ? (message.channel as ThreadChannel).parentId
           : null,
       });
+
+      // Process message through handlers
+      // Reply handler for task threads
+      void this.replyHandler(message);
+      // Chef handler for #chef channel
+      void this.chefHandler(message);
     });
 
     this.client.on(Events.Error, (error) => {

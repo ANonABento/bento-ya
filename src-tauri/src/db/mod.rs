@@ -1932,6 +1932,164 @@ pub fn delete_workspace_discord_mappings(conn: &Connection, workspace_id: &str) 
     Ok(())
 }
 
+// ─── Discord Agent Routes ──────────────────────────────────────────────────
+
+/// Agent route for Discord reply handling
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscordAgentRoute {
+    pub id: String,
+    pub task_id: String,
+    pub active_session_id: Option<String>,
+    pub cli_session_id: Option<String>,
+    pub last_interaction_at: Option<String>,
+    pub created_at: String,
+}
+
+/// Get agent route for a task
+pub fn get_discord_agent_route(
+    conn: &Connection,
+    task_id: &str,
+) -> SqlResult<Option<DiscordAgentRoute>> {
+    let result = conn.query_row(
+        "SELECT id, task_id, active_session_id, cli_session_id, last_interaction_at, created_at FROM discord_agent_routes WHERE task_id = ?1",
+        params![task_id],
+        |row| {
+            Ok(DiscordAgentRoute {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                active_session_id: row.get(2)?,
+                cli_session_id: row.get(3)?,
+                last_interaction_at: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        },
+    );
+    match result {
+        Ok(route) => Ok(Some(route)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Upsert agent route for a task
+pub fn upsert_discord_agent_route(
+    conn: &Connection,
+    task_id: &str,
+    active_session_id: Option<&str>,
+    cli_session_id: Option<&str>,
+) -> SqlResult<DiscordAgentRoute> {
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Check if route exists
+    if let Some(existing) = get_discord_agent_route(conn, task_id)? {
+        // Update existing
+        conn.execute(
+            "UPDATE discord_agent_routes SET active_session_id = ?1, cli_session_id = COALESCE(?2, cli_session_id), last_interaction_at = ?3 WHERE task_id = ?4",
+            params![active_session_id, cli_session_id, now, task_id],
+        )?;
+        Ok(DiscordAgentRoute {
+            active_session_id: active_session_id.map(|s| s.to_string()),
+            cli_session_id: cli_session_id.map(|s| s.to_string()).or(existing.cli_session_id),
+            last_interaction_at: Some(now),
+            ..existing
+        })
+    } else {
+        // Insert new
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO discord_agent_routes (id, task_id, active_session_id, cli_session_id, last_interaction_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+            params![id, task_id, active_session_id, cli_session_id, now],
+        )?;
+        Ok(DiscordAgentRoute {
+            id,
+            task_id: task_id.to_string(),
+            active_session_id: active_session_id.map(|s| s.to_string()),
+            cli_session_id: cli_session_id.map(|s| s.to_string()),
+            last_interaction_at: Some(now.clone()),
+            created_at: now,
+        })
+    }
+}
+
+/// Clear active session for a task (on completion)
+pub fn clear_discord_active_session(conn: &Connection, task_id: &str) -> SqlResult<()> {
+    conn.execute(
+        "UPDATE discord_agent_routes SET active_session_id = NULL WHERE task_id = ?1",
+        params![task_id],
+    )?;
+    Ok(())
+}
+
+/// Get thread mapping by Discord thread ID
+pub fn get_discord_thread_by_thread_id(
+    conn: &Connection,
+    discord_thread_id: &str,
+) -> SqlResult<Option<DiscordTaskThread>> {
+    let result = conn.query_row(
+        "SELECT id, task_id, discord_thread_id, discord_channel_id, is_archived, created_at FROM discord_task_threads WHERE discord_thread_id = ?1",
+        params![discord_thread_id],
+        |row| {
+            Ok(DiscordTaskThread {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                discord_thread_id: row.get(2)?,
+                discord_channel_id: row.get(3)?,
+                is_archived: row.get::<_, i64>(4)? == 1,
+                created_at: row.get(5)?,
+            })
+        },
+    );
+    match result {
+        Ok(thread) => Ok(Some(thread)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Check if a channel is a chef channel for any workspace
+pub fn is_chef_channel(conn: &Connection, channel_id: &str) -> SqlResult<bool> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM workspaces WHERE discord_chef_channel_id = ?1 AND discord_enabled = 1",
+        params![channel_id],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
+/// Get workspace by chef channel ID
+pub fn get_workspace_by_chef_channel(
+    conn: &Connection,
+    channel_id: &str,
+) -> SqlResult<Option<Workspace>> {
+    let result = conn.query_row(
+        "SELECT id, name, repo_path, tab_order, is_active, config, created_at, updated_at, discord_guild_id, discord_category_id, discord_chef_channel_id, discord_notifications_channel_id, discord_enabled FROM workspaces WHERE discord_chef_channel_id = ?1 AND discord_enabled = 1",
+        params![channel_id],
+        |row| {
+            Ok(Workspace {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                repo_path: row.get(2)?,
+                tab_order: row.get(3)?,
+                is_active: row.get(4)?,
+                config: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+                discord_guild_id: row.get(8)?,
+                discord_category_id: row.get(9)?,
+                discord_chef_channel_id: row.get(10)?,
+                discord_notifications_channel_id: row.get(11)?,
+                discord_enabled: row.get(12)?,
+            })
+        },
+    );
+    match result {
+        Ok(workspace) => Ok(Some(workspace)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1964,8 +2122,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 18 migrations: 001-018
-        assert_eq!(count, 18);
+        // We have 19 migrations: 001-019
+        assert_eq!(count, 19);
     }
 
     #[test]

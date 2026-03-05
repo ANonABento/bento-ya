@@ -7,9 +7,13 @@ import * as readline from 'readline';
 import type { BridgeCommand, BridgeResponse, BridgeEvent } from './types.js';
 
 type CommandHandler = (payload: unknown) => Promise<unknown>;
+type ResponseResolver = (response: BridgeResponse) => void;
 
 export class Bridge {
   private handlers = new Map<string, CommandHandler>();
+  private eventListeners = new Map<string, Set<(payload: unknown) => void>>();
+  private pendingRequests = new Map<string, ResponseResolver>();
+  private requestCounter = 0;
   private rl: readline.Interface;
 
   constructor() {
@@ -65,41 +69,112 @@ export class Bridge {
   private async handleLine(line: string): Promise<void> {
     if (!line.trim()) return;
 
-    let command: BridgeCommand;
+    // Try to parse as a response first (for pending requests)
     try {
-      command = JSON.parse(line) as BridgeCommand;
-    } catch {
-      this.emit('error', { message: 'Invalid JSON received', line });
-      return;
-    }
+      const data = JSON.parse(line);
 
-    const handler = this.handlers.get(command.type);
-    if (!handler) {
-      const response: BridgeResponse = {
-        id: command.id,
-        success: false,
-        error: `Unknown command type: ${command.type}`,
-      };
-      this.writeLine(response);
-      return;
-    }
+      // Check if it's a response to a pending request
+      if ('id' in data && 'success' in data) {
+        const resolver = this.pendingRequests.get(data.id);
+        if (resolver) {
+          this.pendingRequests.delete(data.id);
+          resolver(data as BridgeResponse);
+          return;
+        }
+      }
 
-    try {
-      const data = await handler(command.payload);
+      // Check if it's an event
+      if ('event' in data && 'payload' in data) {
+        this.notifyEventListeners(data.event, data.payload);
+        return;
+      }
+
+      // Otherwise treat as command
+      const command = data as BridgeCommand;
+      const handler = this.handlers.get(command.type);
+      if (!handler) {
+        const response: BridgeResponse = {
+          id: command.id,
+          success: false,
+          error: `Unknown command type: ${command.type}`,
+        };
+        this.writeLine(response);
+        return;
+      }
+
+      const result = await handler(command.payload);
       const response: BridgeResponse = {
         id: command.id,
         success: true,
-        data,
+        data: result,
       };
       this.writeLine(response);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const response: BridgeResponse = {
-        id: command.id,
-        success: false,
-        error: message,
+      this.emit('error', { message: 'Failed to process line', line, error: String(err) });
+    }
+  }
+
+  /**
+   * Send a request to Rust and wait for response
+   */
+  async send(request: { type: string; payload: unknown }): Promise<unknown> {
+    this.requestCounter++;
+    const id = `node-${this.requestCounter}`;
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error(`Request ${request.type} timed out`));
+      }, 30000);
+
+      this.pendingRequests.set(id, (response) => {
+        clearTimeout(timeout);
+        if (response.success) {
+          resolve(response.data);
+        } else {
+          reject(new Error(response.error || 'Request failed'));
+        }
+      });
+
+      const command: BridgeCommand = {
+        id,
+        type: request.type as BridgeCommand['type'],
+        payload: request.payload,
       };
-      this.writeLine(response);
+      this.writeLine(command);
+    });
+  }
+
+  /**
+   * Register an event listener
+   */
+  onEvent(event: string, listener: (payload: unknown) => void): void {
+    if (!this.eventListeners.has(event)) {
+      this.eventListeners.set(event, new Set());
+    }
+    this.eventListeners.get(event)!.add(listener);
+  }
+
+  /**
+   * Remove an event listener
+   */
+  offEvent(event: string, listener: (payload: unknown) => void): void {
+    this.eventListeners.get(event)?.delete(listener);
+  }
+
+  /**
+   * Notify event listeners
+   */
+  private notifyEventListeners(event: string, payload: unknown): void {
+    const listeners = this.eventListeners.get(event);
+    if (listeners) {
+      for (const listener of listeners) {
+        try {
+          listener(payload);
+        } catch (err) {
+          console.error(`Event listener error for ${event}:`, err);
+        }
+      }
     }
   }
 
