@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { seedDemoData } from '@/lib/ipc'
+import { CommunityGallery } from '@/components/templates/community-gallery'
 
 export function WorkspaceSetup() {
   const [name, setName] = useState('')
@@ -8,6 +9,7 @@ export function WorkspaceSetup() {
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [seeding, setSeeding] = useState(false)
+  const [showGallery, setShowGallery] = useState(false)
   const addWorkspace = useWorkspaceStore((s) => s.add)
   const setActive = useWorkspaceStore((s) => s.setActive)
   const loadWorkspaces = useWorkspaceStore((s) => s.load)
@@ -157,7 +159,30 @@ export function WorkspaceSetup() {
         <p className="text-center text-xs text-text-secondary">
           Load sample tasks with PR statuses for testing
         </p>
+
+        <div className="relative flex items-center py-2">
+          <div className="flex-grow border-t border-border-default" />
+          <span className="mx-3 text-xs text-text-secondary">or</span>
+          <div className="flex-grow border-t border-border-default" />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => { setShowGallery(true) }}
+          disabled={creating || seeding}
+          className="w-full rounded-lg border border-accent/50 bg-accent/5 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Browse Templates
+        </button>
+        <p className="text-center text-xs text-text-secondary">
+          Get started with a pre-built workflow template
+        </p>
       </div>
+
+      {/* Community Gallery */}
+      {showGallery && (
+        <CommunityGallery onClose={() => { setShowGallery(false) }} />
+      )}
     </div>
   )
 }
