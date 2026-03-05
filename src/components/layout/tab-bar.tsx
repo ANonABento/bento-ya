@@ -308,7 +308,7 @@ export function TabBar() {
     }
 
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    return () => { window.removeEventListener('keydown', handleKeyDown); }
   }, [selectByIndex, selectPrev, selectNext, closeCurrentTab])
 
   // ─── Drag Handlers ──────────────────────────────────────────────────────────
@@ -361,7 +361,7 @@ export function TabBar() {
                     workspace={workspace}
                     isActive={workspace.id === activeWorkspaceId}
                     notificationCount={getUnviewedCount(workspace.id)}
-                    onSelect={() => setActive(workspace.id)}
+                    onSelect={() => { setActive(workspace.id); }}
                   />
                 ))}
               </AnimatePresence>
@@ -375,7 +375,7 @@ export function TabBar() {
 
         {/* Right: add workspace + checklist + settings */}
         <div className="ml-auto flex items-center gap-1">
-          <AddTabButton onClick={() => setShowAddDialog(true)} />
+          <AddTabButton onClick={() => { setShowAddDialog(true); }} />
           <ChecklistButton />
           <SettingsButton />
         </div>
@@ -383,7 +383,7 @@ export function TabBar() {
 
       {/* Add workspace dialog - simple placeholder for now */}
       {showAddDialog && (
-        <AddWorkspaceDialog onClose={() => setShowAddDialog(false)} />
+        <AddWorkspaceDialog onClose={() => { setShowAddDialog(false); }} />
       )}
     </>
   )
@@ -426,7 +426,7 @@ function AddWorkspaceDialog({ onClose }: { onClose: () => void }) {
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); }}
         className="w-full max-w-md rounded-xl border border-border-default bg-surface p-6 shadow-xl"
       >
         <h2 className="mb-4 text-lg font-semibold text-text-primary">Add Workspace</h2>
@@ -438,7 +438,7 @@ function AddWorkspaceDialog({ onClose }: { onClose: () => void }) {
               ref={inputRef}
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => { setName(e.target.value); }}
               placeholder="My Project"
               className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
             />
@@ -449,7 +449,7 @@ function AddWorkspaceDialog({ onClose }: { onClose: () => void }) {
             <input
               type="text"
               value={repoPath}
-              onChange={(e) => setRepoPath(e.target.value)}
+              onChange={(e) => { setRepoPath(e.target.value); }}
               placeholder="/path/to/repo"
               className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
             />

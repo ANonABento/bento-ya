@@ -1,34 +1,12 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'motion/react'
 import { getWorkspaceHistory, type SessionSnapshot } from '@/lib/ipc'
+import { formatDuration, formatDateWithTime } from '@/lib/format'
 
 type Props = {
   workspaceId: string
   onClose: () => void
   onReplay?: (snapshot: SessionSnapshot) => void
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
-  const mins = Math.floor(ms / 60000)
-  const secs = Math.floor((ms % 60000) / 1000)
-  return `${mins}m ${secs}s`
-}
-
-function formatDate(isoDate: string): string {
-  const date = new Date(isoDate)
-  const now = new Date()
-  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
-
-  if (diffDays === 0) {
-    return `Today at ${date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
-  } else if (diffDays === 1) {
-    return `Yesterday at ${date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
-  } else if (diffDays < 7) {
-    return date.toLocaleDateString('en-US', { weekday: 'long', hour: '2-digit', minute: '2-digit' })
-  }
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function getStatusColor(type: string): string {
@@ -133,7 +111,7 @@ export function HistoryPanel({ workspaceId, onClose, onReplay }: Props) {
                       </span>
                     </div>
                     <div className="text-sm text-text-primary">
-                      {formatDate(snapshot.createdAt)}
+                      {formatDateWithTime(snapshot.createdAt)}
                     </div>
                     <div className="mt-1 text-xs text-text-secondary">
                       {parseJsonArray(snapshot.filesModified).length} files modified
@@ -158,7 +136,7 @@ export function HistoryPanel({ workspaceId, onClose, onReplay }: Props) {
                     </h3>
                   </div>
                   <p className="mt-1 text-sm text-text-secondary">
-                    {formatDate(selectedSnapshot.createdAt)} • Duration: {formatDuration(selectedSnapshot.durationMs)}
+                    {formatDateWithTime(selectedSnapshot.createdAt)} • Duration: {formatDuration(selectedSnapshot.durationMs)}
                   </p>
                 </div>
                 {onReplay && (

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FileEntry } from '@/lib/ipc'
 import type { GroupedFiles, FileCategory } from '@/hooks/use-workspace-files'
+import { formatTimestampDate } from '@/lib/format'
 
 type FilesTreeProps = {
   groupedFiles: GroupedFiles
@@ -44,18 +45,6 @@ const CATEGORIES: CategoryConfig[] = [
     ),
   },
 ]
-
-function formatDate(timestamp: number): string {
-  const date = new Date(timestamp * 1000)
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-
-  if (days === 0) return 'Today'
-  if (days === 1) return 'Yesterday'
-  if (days < 7) return `${String(days)}d ago`
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
 
 export function FilesTree({ groupedFiles, selectedFile, onSelectFile, loading }: FilesTreeProps) {
   const [collapsed, setCollapsed] = useState<Record<FileCategory, boolean>>({
@@ -141,7 +130,7 @@ export function FilesTree({ groupedFiles, selectedFile, onSelectFile, loading }:
                           <path fillRule="evenodd" d="M4 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7.414A2 2 0 0 0 13.414 6L10 2.586A2 2 0 0 0 8.586 2H4Zm5 2a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H9Z" clipRule="evenodd" />
                         </svg>
                         <span className="truncate flex-1">{file.name}</span>
-                        <span className="text-text-secondary/40 text-[10px]">{formatDate(file.modifiedAt)}</span>
+                        <span className="text-text-secondary/40 text-[10px]">{formatTimestampDate(file.modifiedAt)}</span>
                       </button>
                     </li>
                   )

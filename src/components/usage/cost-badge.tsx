@@ -1,22 +1,11 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { getWorkspaceUsageSummary, getWorkspaceUsage, type UsageSummary, type UsageRecord } from '@/lib/ipc'
+import { formatCost, formatTokens } from '@/lib/format'
 
 type Props = {
   workspaceId: string
   onOpenDashboard?: () => void
-}
-
-function formatCost(usd: number): string {
-  if (usd < 0.01) return '<$0.01'
-  if (usd < 1) return `$${usd.toFixed(2)}`
-  return `$${usd.toFixed(2)}`
-}
-
-function formatTokens(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`
-  return String(count)
 }
 
 export function CostBadge({ workspaceId, onOpenDashboard }: Props) {

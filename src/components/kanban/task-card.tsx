@@ -493,7 +493,7 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
         task={task}
         columns={columns}
         position={contextMenu}
-        onClose={() => setContextMenu(null)}
+        onClose={() => { setContextMenu(null); }}
         onMoveToColumn={handleMoveToColumn}
         onOpenTask={handleClick}
         onDuplicateTask={handleDuplicateTask}

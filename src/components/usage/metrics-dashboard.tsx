@@ -1,28 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
 import { motion } from 'motion/react'
 import { getWorkspaceUsage, getWorkspaceUsageSummary, type UsageSummary, type UsageRecord } from '@/lib/ipc'
+import { formatCost, formatTokens, formatShortDate } from '@/lib/format'
 
 type Props = {
   workspaceId: string
   onClose: () => void
-}
-
-function formatCost(usd: number): string {
-  if (usd < 0.01) return '<$0.01'
-  return `$${usd.toFixed(2)}`
-}
-
-function formatTokens(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`
-  return String(count)
-}
-
-function formatDate(isoDate: string): string {
-  return new Date(isoDate).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  })
 }
 
 type ModelStats = {
@@ -177,7 +160,7 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
                           className="w-full rounded-t bg-accent transition-all hover:bg-accent/80"
                           style={{ height: `${(day.cost / maxDailyCost) * 100}%`, minHeight: day.cost > 0 ? '4px' : '0' }}
                         />
-                        <div className="mt-1 text-[10px] text-text-secondary">{formatDate(day.date)}</div>
+                        <div className="mt-1 text-[10px] text-text-secondary">{formatShortDate(day.date)}</div>
                       </div>
                     ))}
                   </div>

@@ -262,7 +262,7 @@ function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls =
       setElapsed(Math.floor((Date.now() - startTime) / 1000))
     }, 1000)
 
-    return () => clearInterval(interval)
+    return () => { clearInterval(interval); }
   }, [startTime])
 
   const hasThinking = thinkingContent.length > 0
@@ -281,7 +281,7 @@ function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls =
           <div className="border-l-2 border-accent/30 pl-2">
             <button
               type="button"
-              onClick={() => setIsThinkingExpanded(!isThinkingExpanded)}
+              onClick={() => { setIsThinkingExpanded(!isThinkingExpanded); }}
               className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors"
             >
               <svg

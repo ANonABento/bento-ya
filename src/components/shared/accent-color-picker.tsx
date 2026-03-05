@@ -1,29 +1,16 @@
 import { useRef } from 'react'
+import { ACCENT_COLOR_PRESETS } from '@/constants/colors'
 
 type AccentColorPickerProps = {
   value: string
   onChange: (color: string) => void
 }
 
-// Curated accent colors that work well in both light and dark themes
-const ACCENT_PRESETS = [
-  '#E8A87C', // Coral
-  '#E879A0', // Rose
-  '#A78BFA', // Violet
-  '#60A5FA', // Blue
-  '#22D3EE', // Cyan
-  '#2DD4BF', // Teal
-  '#4ADE80', // Green
-  '#A3E635', // Lime
-  '#FACC15', // Yellow
-  '#FB923C', // Orange
-] as const
-
 export function AccentColorPicker({ value, onChange }: AccentColorPickerProps) {
   const colorInputRef = useRef<HTMLInputElement>(null)
 
   // Check if current value is a preset or custom
-  const isCustomColor = !ACCENT_PRESETS.some(
+  const isCustomColor = !ACCENT_COLOR_PRESETS.some(
     (preset) => preset.toLowerCase() === value.toLowerCase()
   )
 
@@ -34,10 +21,10 @@ export function AccentColorPicker({ value, onChange }: AccentColorPickerProps) {
   return (
     <div className="flex items-center gap-2">
       {/* Preset colors */}
-      {ACCENT_PRESETS.map((color) => (
+      {ACCENT_COLOR_PRESETS.map((color) => (
         <button
           key={color}
-          onClick={() => onChange(color)}
+          onClick={() => { onChange(color); }}
           className="h-7 w-7 rounded-full transition-transform hover:scale-110"
           style={{ backgroundColor: color }}
         />
@@ -68,7 +55,7 @@ export function AccentColorPicker({ value, onChange }: AccentColorPickerProps) {
           ref={colorInputRef}
           type="color"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => { onChange(e.target.value); }}
           className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
         />
       </button>

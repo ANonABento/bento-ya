@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { listen } from '@tauri-apps/api/event'
 import { useUIStore } from '@/stores/ui-store'
 import { useTaskStore } from '@/stores/task-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import {
   getChatHistory,
   getActiveChatSession,
@@ -12,6 +13,7 @@ import {
   streamOrchestratorChat,
   cancelOrchestratorChat,
   resetCliSession,
+  queueAgentBatch,
   type ChatMessage,
   type ChatSession,
   type OrchestratorEvent,
@@ -45,6 +47,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const setPanelHeight = useUIStore((s) => s.setPanelHeight)
   const togglePanel = useUIStore((s) => s.togglePanel)
   const loadTasks = useTaskStore((s) => s.load)
+  const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const currentWorkspace = workspaces.find((w) => w.id === workspaceId)
 
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [activeSession, setActiveSession] = useState<ChatSession | null>(null)
@@ -203,6 +207,28 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
         }
       })
       unsubscribes.push(unsubTaskDeleted)
+
+      // Listen for queue batch requests from orchestrator tool
+      const unsubQueueBatch = await listen('queue:batch_requested', (event) => {
+        const payload = event.payload as {
+          workspace_id?: string
+          task_ids: string[]
+          prompt: string
+        }
+        if (payload.workspace_id === workspaceId && currentWorkspace) {
+          // Queue the agents for execution
+          void queueAgentBatch(
+            payload.task_ids,
+            'claude', // Default agent type
+            currentWorkspace.repoPath,
+          ).then((result) => {
+            console.log('[Orchestrator] Queued agents:', result)
+            // Reload tasks to reflect status changes
+            void loadTasks(workspaceId)
+          })
+        }
+      })
+      unsubscribes.push(unsubQueueBatch)
     }
 
     void setupListeners()
@@ -210,7 +236,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     return () => {
       unsubscribes.forEach((unsub) => { unsub() })
     }
-  }, [workspaceId, activeSession, loadTasks])
+  }, [workspaceId, activeSession, loadTasks, currentWorkspace])
 
   // Keyboard shortcut: Cmd+J to toggle
   useEffect(() => {
@@ -221,7 +247,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       }
     }
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    return () => { window.removeEventListener('keydown', handleKeyDown); }
   }, [togglePanel])
 
   // Process queue when current request completes
@@ -493,7 +519,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               {/* History button */}
               <button
                 type="button"
-                onClick={() => setSidebarMode(sidebarMode === 'history' ? null : 'history')}
+                onClick={() => { setSidebarMode(sidebarMode === 'history' ? null : 'history'); }}
                 className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
                   sidebarMode === 'history'
                     ? 'bg-surface-hover text-text-primary'
@@ -507,7 +533,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               {/* Files button */}
               <button
                 type="button"
-                onClick={() => setSidebarMode(sidebarMode === 'files' ? null : 'files')}
+                onClick={() => { setSidebarMode(sidebarMode === 'files' ? null : 'files'); }}
                 className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
                   sidebarMode === 'files'
                     ? 'bg-surface-hover text-text-primary'
@@ -657,7 +683,7 @@ function ProcessingIndicator({ startTime }: { startTime: number | null }) {
       setElapsed(Math.floor((Date.now() - startTime) / 1000))
     }, 1000)
 
-    return () => clearInterval(interval)
+    return () => { clearInterval(interval); }
   }, [startTime])
 
   return (

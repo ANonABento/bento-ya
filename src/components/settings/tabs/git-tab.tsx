@@ -23,7 +23,7 @@ export function GitTab() {
       <SettingSection title="Branch Prefix" description="Prefix for auto-generated branch names (e.g., feat/, fix/, task/)">
         <SettingInput
           value={git.branchPrefix}
-          onChange={(value) => updateGit({ branchPrefix: value })}
+          onChange={(value) => { updateGit({ branchPrefix: value }); }}
           placeholder="feat/"
           mono
         />
@@ -32,7 +32,7 @@ export function GitTab() {
       <SettingSection title="Base Branch" description="Default branch to create feature branches from">
         <SettingInput
           value={git.baseBranch}
-          onChange={(value) => updateGit({ baseBranch: value })}
+          onChange={(value) => { updateGit({ baseBranch: value }); }}
           placeholder="main"
           mono
         />
@@ -44,7 +44,7 @@ export function GitTab() {
             <SettingCard
               key={strategy.id}
               active={git.mergeStrategy === strategy.id}
-              onClick={() => updateGit({ mergeStrategy: strategy.id })}
+              onClick={() => { updateGit({ mergeStrategy: strategy.id }); }}
             >
               <span className="text-sm font-medium text-text-primary">{strategy.label}</span>
               <span className="text-xs text-text-secondary">{strategy.description}</span>
@@ -60,7 +60,7 @@ export function GitTab() {
         >
           <Toggle
             checked={git.autoPr}
-            onChange={(checked) => updateGit({ autoPr: checked })}
+            onChange={(checked) => { updateGit({ autoPr: checked }); }}
           />
         </SettingRow>
       </SettingSection>
@@ -68,7 +68,7 @@ export function GitTab() {
       <SettingSection title="PR Template" description="Default template for pull request descriptions">
         <SettingTextarea
           value={git.prTemplate}
-          onChange={(value) => updateGit({ prTemplate: value })}
+          onChange={(value) => { updateGit({ prTemplate: value }); }}
           placeholder="## Summary&#10;&#10;## Changes&#10;&#10;## Testing"
           rows={6}
         />
