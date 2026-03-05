@@ -22,6 +22,7 @@ import { useAttentionStore } from '@/stores/attention-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useChecklistStore } from '@/stores/checklist-store'
 import { Tooltip } from '@/components/shared/tooltip'
+import { HistoryPanel } from '@/components/history/history-panel'
 import { useSwipeNavigation } from '@/hooks/use-swipe'
 import type { Workspace } from '@/types'
 
@@ -209,6 +210,29 @@ function ChecklistButton() {
   )
 }
 
+// ─── HistoryButton ───────────────────────────────────────────────────────────
+
+function HistoryButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Tooltip content="Session History" side="bottom">
+      <motion.button
+        onClick={onClick}
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          className="h-4 w-4"
+        >
+          <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13a.75.75 0 0 0-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 0 0 0-1.5h-3.25V5Z" clipRule="evenodd" />
+        </svg>
+      </motion.button>
+    </Tooltip>
+  )
+}
 
 // ─── TabBar ─────────────────────────────────────────────────────────────────
 
@@ -223,6 +247,7 @@ export function TabBar() {
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false)
 
   const sortedWorkspaces = [...workspaces].sort((a, b) => a.tabOrder - b.tabOrder)
   const workspaceIds = sortedWorkspaces.map((w) => w.id)
@@ -374,17 +399,26 @@ export function TabBar() {
           </DndContext>
         </div>
 
-        {/* Right: add workspace + checklist + settings */}
+        {/* Right: add workspace + history + checklist + settings */}
         <div className="ml-auto flex items-center gap-1">
           <AddTabButton onClick={() => { setShowAddDialog(true); }} />
+          <HistoryButton onClick={() => { setShowHistoryPanel(true); }} />
           <ChecklistButton />
           <SettingsButton />
         </div>
       </header>
 
-      {/* Add workspace dialog - simple placeholder for now */}
+      {/* Add workspace dialog */}
       {showAddDialog && (
         <AddWorkspaceDialog onClose={() => { setShowAddDialog(false); }} />
+      )}
+
+      {/* History panel */}
+      {showHistoryPanel && activeWorkspaceId && (
+        <HistoryPanel
+          workspaceId={activeWorkspaceId}
+          onClose={() => { setShowHistoryPanel(false); }}
+        />
       )}
     </>
   )
