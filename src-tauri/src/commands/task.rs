@@ -405,3 +405,36 @@ pub async fn create_pr(
         task: updated_task,
     })
 }
+
+// ─── Notification Commands ─────────────────────────────────────────────────
+
+/// Update the stakeholders to notify for a task
+#[tauri::command]
+pub fn update_task_stakeholders(
+    state: State<AppState>,
+    id: String,
+    stakeholders: Option<String>,
+) -> Result<Task, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::update_task_stakeholders(&conn, &id, stakeholders.as_deref())?)
+}
+
+/// Mark a task's notification as sent
+#[tauri::command]
+pub fn mark_task_notification_sent(
+    state: State<AppState>,
+    id: String,
+) -> Result<Task, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::mark_task_notification_sent(&conn, &id)?)
+}
+
+/// Clear the notification sent timestamp
+#[tauri::command]
+pub fn clear_task_notification_sent(
+    state: State<AppState>,
+    id: String,
+) -> Result<Task, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::clear_task_notification_sent(&conn, &id)?)
+}

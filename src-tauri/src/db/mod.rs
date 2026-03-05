@@ -85,6 +85,8 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("017_pr_status_fields", include_str!("migrations/017_pr_status_fields.sql")),
         ("018_discord_integration", include_str!("migrations/018_discord_integration.sql")),
         ("019_discord_agent_routes", include_str!("migrations/019_discord_agent_routes.sql")),
+        ("020_notify_fields", include_str!("migrations/020_notify_fields.sql")),
+        ("021_agent_messages", include_str!("migrations/021_agent_messages.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -189,6 +191,9 @@ pub struct Task {
     pub pr_labels: String,
     pub pr_last_fetched: Option<String>,
     pub pr_head_sha: Option<String>,
+    // Notification fields
+    pub notify_stakeholders: Option<String>,
+    pub notification_sent_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -208,8 +213,25 @@ pub struct AgentSession {
     pub working_dir: Option<String>,
     pub scrollback: Option<String>,
     pub resumable: bool,
+    pub cli_session_id: Option<String>,
+    pub model: Option<String>,
+    pub effort_level: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMessage {
+    pub id: String,
+    pub task_id: String,
+    pub role: String,
+    pub content: String,
+    pub model: Option<String>,
+    pub effort_level: Option<String>,
+    pub tool_calls: Option<String>,
+    pub thinking_content: Option<String>,
+    pub created_at: String,
 }
 
 // ─── CRUD helpers: Workspace ───────────────────────────────────────────────
@@ -437,7 +459,7 @@ pub fn insert_task(
 
 pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
     conn.query_row(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, created_at, updated_at FROM tasks WHERE id = ?1",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, created_at, updated_at FROM tasks WHERE id = ?1",
         params![id],
         |row| {
             Ok(Task {
@@ -472,8 +494,10 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
                 pr_labels: row.get::<_, Option<String>>(28)?.unwrap_or_else(|| "[]".to_string()),
                 pr_last_fetched: row.get(29)?,
                 pr_head_sha: row.get(30)?,
-                created_at: row.get(31)?,
-                updated_at: row.get(32)?,
+                notify_stakeholders: row.get(31)?,
+                notification_sent_at: row.get(32)?,
+                created_at: row.get(33)?,
+                updated_at: row.get(34)?,
             })
         },
     )
@@ -481,7 +505,7 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
 
 pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, created_at, updated_at FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, created_at, updated_at FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
     )?;
     let rows = stmt.query_map(params![workspace_id], |row| {
         Ok(Task {
@@ -516,8 +540,10 @@ pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>>
             pr_labels: row.get::<_, Option<String>>(28)?.unwrap_or_else(|| "[]".to_string()),
             pr_last_fetched: row.get(29)?,
             pr_head_sha: row.get(30)?,
-            created_at: row.get(31)?,
-            updated_at: row.get(32)?,
+            notify_stakeholders: row.get(31)?,
+            notification_sent_at: row.get(32)?,
+            created_at: row.get(33)?,
+            updated_at: row.get(34)?,
         })
     })?;
     rows.collect()
@@ -567,7 +593,7 @@ pub fn delete_task(conn: &Connection, id: &str) -> SqlResult<()> {
 /// List tasks by column ID
 pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, created_at, updated_at FROM tasks WHERE column_id = ?1 ORDER BY position",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, created_at, updated_at FROM tasks WHERE column_id = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map(params![column_id], |row| {
         Ok(Task {
@@ -602,8 +628,10 @@ pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec
             pr_labels: row.get::<_, Option<String>>(28)?.unwrap_or_else(|| "[]".to_string()),
             pr_last_fetched: row.get(29)?,
             pr_head_sha: row.get(30)?,
-            created_at: row.get(31)?,
-            updated_at: row.get(32)?,
+            notify_stakeholders: row.get(31)?,
+            notification_sent_at: row.get(32)?,
+            created_at: row.get(33)?,
+            updated_at: row.get(34)?,
         })
     })?;
     rows.collect()
@@ -820,7 +848,7 @@ pub fn insert_agent_session(
 
 pub fn get_agent_session(conn: &Connection, id: &str) -> SqlResult<AgentSession> {
     conn.query_row(
-        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, created_at, updated_at FROM agent_sessions WHERE id = ?1",
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, cli_session_id, model, effort_level, created_at, updated_at FROM agent_sessions WHERE id = ?1",
         params![id],
         |row| {
             Ok(AgentSession {
@@ -836,8 +864,11 @@ pub fn get_agent_session(conn: &Connection, id: &str) -> SqlResult<AgentSession>
                 working_dir: row.get(9)?,
                 scrollback: row.get(10)?,
                 resumable: row.get::<_, i64>(11)? != 0,
-                created_at: row.get(12)?,
-                updated_at: row.get(13)?,
+                cli_session_id: row.get(12)?,
+                model: row.get(13)?,
+                effort_level: row.get(14)?,
+                created_at: row.get(15)?,
+                updated_at: row.get(16)?,
             })
         },
     )
@@ -845,7 +876,7 @@ pub fn get_agent_session(conn: &Connection, id: &str) -> SqlResult<AgentSession>
 
 pub fn list_agent_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<AgentSession>> {
     let mut stmt = conn.prepare(
-        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, created_at, updated_at FROM agent_sessions WHERE task_id = ?1 ORDER BY created_at DESC",
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, cli_session_id, model, effort_level, created_at, updated_at FROM agent_sessions WHERE task_id = ?1 ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map(params![task_id], |row| {
         Ok(AgentSession {
@@ -861,8 +892,11 @@ pub fn list_agent_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<Ag
             working_dir: row.get(9)?,
             scrollback: row.get(10)?,
             resumable: row.get::<_, i64>(11)? != 0,
-            created_at: row.get(12)?,
-            updated_at: row.get(13)?,
+            cli_session_id: row.get(12)?,
+            model: row.get(13)?,
+            effort_level: row.get(14)?,
+            created_at: row.get(15)?,
+            updated_at: row.get(16)?,
         })
     })?;
     rows.collect()
@@ -871,7 +905,7 @@ pub fn list_agent_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<Ag
 /// List resumable sessions for a task
 pub fn list_resumable_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<AgentSession>> {
     let mut stmt = conn.prepare(
-        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, created_at, updated_at FROM agent_sessions WHERE task_id = ?1 AND resumable = 1 ORDER BY created_at DESC",
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, cli_session_id, model, effort_level, created_at, updated_at FROM agent_sessions WHERE task_id = ?1 AND resumable = 1 ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map(params![task_id], |row| {
         Ok(AgentSession {
@@ -887,8 +921,11 @@ pub fn list_resumable_sessions(conn: &Connection, task_id: &str) -> SqlResult<Ve
             working_dir: row.get(9)?,
             scrollback: row.get(10)?,
             resumable: row.get::<_, i64>(11)? != 0,
-            created_at: row.get(12)?,
-            updated_at: row.get(13)?,
+            cli_session_id: row.get(12)?,
+            model: row.get(13)?,
+            effort_level: row.get(14)?,
+            created_at: row.get(15)?,
+            updated_at: row.get(16)?,
         })
     })?;
     rows.collect()
@@ -941,6 +978,137 @@ pub fn update_agent_session(
 
 pub fn delete_agent_session(conn: &Connection, id: &str) -> SqlResult<()> {
     conn.execute("DELETE FROM agent_sessions WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// Update CLI session fields for an agent session
+pub fn update_agent_session_cli(
+    conn: &Connection,
+    id: &str,
+    cli_session_id: Option<&str>,
+    model: Option<&str>,
+    effort_level: Option<&str>,
+) -> SqlResult<AgentSession> {
+    let ts = now();
+    conn.execute(
+        "UPDATE agent_sessions SET cli_session_id = ?1, model = ?2, effort_level = ?3, updated_at = ?4 WHERE id = ?5",
+        params![cli_session_id, model, effort_level, ts, id],
+    )?;
+    get_agent_session(conn, id)
+}
+
+/// Count running agent sessions across all tasks
+pub fn count_running_agent_sessions(conn: &Connection) -> SqlResult<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM agent_sessions WHERE status = 'running'",
+        [],
+        |row| row.get(0),
+    )
+}
+
+/// Get or create agent session for a task
+pub fn get_or_create_agent_session_for_task(
+    conn: &Connection,
+    task_id: &str,
+    agent_type: &str,
+    working_dir: Option<&str>,
+) -> SqlResult<AgentSession> {
+    // Try to find an existing idle session
+    let existing: Result<AgentSession, _> = conn.query_row(
+        "SELECT id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, cli_session_id, model, effort_level, created_at, updated_at FROM agent_sessions WHERE task_id = ?1 AND status = 'idle' ORDER BY created_at DESC LIMIT 1",
+        params![task_id],
+        |row| {
+            Ok(AgentSession {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                pid: row.get(2)?,
+                status: row.get(3)?,
+                pty_cols: row.get(4)?,
+                pty_rows: row.get(5)?,
+                last_output: row.get(6)?,
+                exit_code: row.get(7)?,
+                agent_type: row.get(8)?,
+                working_dir: row.get(9)?,
+                scrollback: row.get(10)?,
+                resumable: row.get::<_, i64>(11)? != 0,
+                cli_session_id: row.get(12)?,
+                model: row.get(13)?,
+                effort_level: row.get(14)?,
+                created_at: row.get(15)?,
+                updated_at: row.get(16)?,
+            })
+        },
+    );
+
+    match existing {
+        Ok(session) => Ok(session),
+        Err(_) => insert_agent_session(conn, task_id, agent_type, working_dir),
+    }
+}
+
+// ─── Agent Message CRUD ────────────────────────────────────────────────────
+
+pub fn insert_agent_message(
+    conn: &Connection,
+    task_id: &str,
+    role: &str,
+    content: &str,
+    model: Option<&str>,
+    effort_level: Option<&str>,
+    tool_calls: Option<&str>,
+    thinking_content: Option<&str>,
+) -> SqlResult<AgentMessage> {
+    let id = new_id();
+    let ts = now();
+    conn.execute(
+        "INSERT INTO agent_messages (id, task_id, role, content, model, effort_level, tool_calls, thinking_content, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![id, task_id, role, content, model, effort_level, tool_calls, thinking_content, ts],
+    )?;
+    get_agent_message(conn, &id)
+}
+
+pub fn get_agent_message(conn: &Connection, id: &str) -> SqlResult<AgentMessage> {
+    conn.query_row(
+        "SELECT id, task_id, role, content, model, effort_level, tool_calls, thinking_content, created_at FROM agent_messages WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(AgentMessage {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                role: row.get(2)?,
+                content: row.get(3)?,
+                model: row.get(4)?,
+                effort_level: row.get(5)?,
+                tool_calls: row.get(6)?,
+                thinking_content: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        },
+    )
+}
+
+pub fn list_agent_messages(conn: &Connection, task_id: &str) -> SqlResult<Vec<AgentMessage>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, task_id, role, content, model, effort_level, tool_calls, thinking_content, created_at FROM agent_messages WHERE task_id = ?1 ORDER BY created_at ASC",
+    )?;
+    let rows = stmt.query_map(params![task_id], |row| {
+        Ok(AgentMessage {
+            id: row.get(0)?,
+            task_id: row.get(1)?,
+            role: row.get(2)?,
+            content: row.get(3)?,
+            model: row.get(4)?,
+            effort_level: row.get(5)?,
+            tool_calls: row.get(6)?,
+            thinking_content: row.get(7)?,
+            created_at: row.get(8)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn clear_agent_messages(conn: &Connection, task_id: &str) -> SqlResult<()> {
+    conn.execute("DELETE FROM agent_messages WHERE task_id = ?1", params![task_id])?;
     Ok(())
 }
 
@@ -2091,6 +2259,42 @@ pub fn get_workspace_by_chef_channel(
     }
 }
 
+// ─── Notification Functions ────────────────────────────────────────────────
+
+/// Update the stakeholders to notify for a task
+pub fn update_task_stakeholders(
+    conn: &Connection,
+    id: &str,
+    stakeholders: Option<&str>,
+) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET notify_stakeholders = ?1, updated_at = ?2 WHERE id = ?3",
+        params![stakeholders, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Mark a task's notification as sent
+pub fn mark_task_notification_sent(conn: &Connection, id: &str) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET notification_sent_at = ?1, updated_at = ?2 WHERE id = ?3",
+        params![ts, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Clear the notification sent timestamp
+pub fn clear_task_notification_sent(conn: &Connection, id: &str) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET notification_sent_at = NULL, updated_at = ?1 WHERE id = ?2",
+        params![ts, id],
+    )?;
+    get_task(conn, id)
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -2123,8 +2327,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 19 migrations: 001-019
-        assert_eq!(count, 19);
+        // We have 21 migrations: 001-021
+        assert_eq!(count, 21);
     }
 
     #[test]

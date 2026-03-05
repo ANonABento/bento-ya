@@ -39,6 +39,9 @@ export type Task = {
   prLabels: string  // JSON array
   prLastFetched: string | null
   prHeadSha: string | null
+  // Notification fields
+  notifyStakeholders: string | null  // JSON array of stakeholder names/emails
+  notificationSentAt: string | null
   position: number
   createdAt: string
   updatedAt: string

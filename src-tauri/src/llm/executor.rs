@@ -88,6 +88,19 @@ pub fn execute_tools(
                         }));
                         tasks_deleted.push(task_id);
                     }
+                    ToolOutcome::TasksQueued(task_ids, agent_type) => {
+                        results.push(ToolResult {
+                            tool_use_id: tool_use.id.clone(),
+                            content: format!("Queued {} task(s) for {} agent processing", task_ids.len(), agent_type),
+                            is_error: false,
+                        });
+                        // Emit event for frontend to handle batch agent spawning
+                        let _ = app.emit("queue:batch_requested", json!({
+                            "workspace_id": workspace_id,
+                            "task_ids": &task_ids,
+                            "agent_type": &agent_type
+                        }));
+                    }
                 }
             }
             Err(e) => {
@@ -132,6 +145,7 @@ enum ToolOutcome {
     TaskUpdated(Task),
     TaskMoved(Task, String, String), // task, from_column, to_column
     TaskDeleted(String, String),      // task_id, title
+    TasksQueued(Vec<String>, String), // task_ids, agent_type
 }
 
 /// Execute a single tool
@@ -247,6 +261,28 @@ fn execute_single_tool(
                 .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
             Ok(ToolOutcome::TaskDeleted(task_id.to_string(), title))
+        }
+
+        "queue_tasks" => {
+            let task_ids = input
+                .get("task_ids")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| AppError::InvalidInput("Missing task_ids array".to_string()))?
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>();
+
+            if task_ids.is_empty() {
+                return Err(AppError::InvalidInput("task_ids array is empty".to_string()));
+            }
+
+            let agent_type = input
+                .get("agent_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("claude")
+                .to_string();
+
+            Ok(ToolOutcome::TasksQueued(task_ids, agent_type))
         }
 
         _ => Err(AppError::InvalidInput(format!(

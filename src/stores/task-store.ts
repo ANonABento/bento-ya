@@ -14,6 +14,7 @@ type TaskState = {
   reorder: (columnId: string, ids: string[]) => Promise<void>
   updateTask: (id: string, updates: Partial<Task>) => void
   getByColumn: (columnId: string) => Task[]
+  duplicate: (id: string) => Promise<void>
 }
 
 export const useTaskStore = create<TaskState>()(
@@ -82,6 +83,15 @@ export const useTaskStore = create<TaskState>()(
         return get()
           .tasks.filter((t) => t.columnId === columnId)
           .sort((a, b) => a.position - b.position)
+      },
+
+      duplicate: async (id) => {
+        const original = get().tasks.find((t) => t.id === id)
+        if (!original) return
+        const newTitle = original.title.endsWith(' (Copy)')
+          ? original.title
+          : `${original.title} (Copy)`
+        await get().add(original.workspaceId, original.columnId, newTitle, original.description)
       },
     }),
     { name: 'task-store' },

@@ -18,6 +18,7 @@ pub mod whisper;
 use commands::voice::RecorderState;
 use db::AppState;
 use discord::bridge::new_shared_discord_bridge;
+use process::agent_cli_session::new_shared_agent_cli_session_manager;
 use process::agent_runner::AgentRunner;
 use process::cli_session::new_shared_cli_session_manager;
 use process::pty_manager::PtyManager;
@@ -33,11 +34,13 @@ pub fn run() {
     let pty_manager = Arc::new(Mutex::new(PtyManager::new()));
     let agent_runner = Arc::new(Mutex::new(AgentRunner::new(Arc::clone(&pty_manager))));
     let cli_session_manager = new_shared_cli_session_manager();
+    let agent_cli_session_manager = new_shared_agent_cli_session_manager();
     let discord_bridge = new_shared_discord_bridge();
     let recorder_state = RecorderState(Mutex::new(AudioRecorder::new()));
 
     // Clone for shutdown handler
     let cli_manager_for_shutdown = Arc::clone(&cli_session_manager);
+    let agent_cli_for_shutdown = Arc::clone(&agent_cli_session_manager);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -45,15 +48,19 @@ pub fn run() {
         .manage(pty_manager)
         .manage(agent_runner)
         .manage(cli_session_manager)
+        .manage(agent_cli_session_manager)
         .manage(discord_bridge)
         .manage(recorder_state)
         .on_window_event(move |_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 // Kill all CLI sessions on window close
                 let manager = Arc::clone(&cli_manager_for_shutdown);
+                let agent_manager = Arc::clone(&agent_cli_for_shutdown);
                 tauri::async_runtime::block_on(async {
                     let mut m = manager.lock().await;
                     m.kill_all().await;
+                    let mut am = agent_manager.lock().await;
+                    am.kill_all().await;
                 });
             }
         })
@@ -85,6 +92,9 @@ pub fn run() {
             commands::task::approve_task,
             commands::task::reject_task,
             commands::task::create_pr,
+            commands::task::update_task_stakeholders,
+            commands::task::mark_task_notification_sent,
+            commands::task::clear_task_notification_sent,
             // Git commands
             commands::git::create_task_branch,
             commands::git::switch_branch,
@@ -104,6 +114,11 @@ pub fn run() {
             commands::agent::force_stop_agent,
             commands::agent::get_agent_status,
             commands::agent::list_active_agents,
+            commands::agent::save_agent_message,
+            commands::agent::get_agent_messages,
+            commands::agent::clear_agent_messages,
+            commands::agent::stream_agent_chat,
+            commands::agent::cancel_agent_chat,
             // Pipeline commands
             commands::pipeline::mark_pipeline_complete,
             commands::pipeline::get_pipeline_state,
