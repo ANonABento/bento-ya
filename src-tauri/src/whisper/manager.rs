@@ -148,16 +148,6 @@ pub fn get_whisper_models_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf,
     Ok(models_dir)
 }
 
-/// Check if a model is downloaded
-pub fn is_model_downloaded<R: Runtime>(app: &AppHandle<R>, model: WhisperModel) -> bool {
-    if let Ok(models_dir) = get_whisper_models_dir(app) {
-        let model_path = models_dir.join(model.filename());
-        model_path.exists()
-    } else {
-        false
-    }
-}
-
 /// Get the path to a downloaded model
 pub fn get_model_path<R: Runtime>(app: &AppHandle<R>, model: WhisperModel) -> Option<PathBuf> {
     let models_dir = get_whisper_models_dir(app).ok()?;

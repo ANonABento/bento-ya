@@ -31,7 +31,6 @@ function listen<T>(event: string, handler: (payload: T) => void): Promise<Unlist
 // ─── Workspace commands ────────────────────────────────────────────────────
 
 export const getWorkspaces = () => invoke<Workspace[]>('list_workspaces')
-export const listWorkspaces = getWorkspaces
 
 export async function createWorkspace(name: string, repoPath: string): Promise<Workspace> {
   return invoke<Workspace>('create_workspace', { name, repoPath })
@@ -73,7 +72,6 @@ export const seedDemoData = (repoPath: string) =>
 
 export const getColumns = (workspaceId: string) =>
   invoke<Column[]>('list_columns', { workspaceId })
-export const listColumns = getColumns
 
 export async function createColumn(
   workspaceId: string,
@@ -125,7 +123,6 @@ export async function deleteColumn(id: string): Promise<void> {
 
 export const getTasks = (workspaceId: string) =>
   invoke<Task[]>('list_tasks', { workspaceId })
-export const listTasks = getTasks
 
 export async function createTask(
   workspaceId: string,

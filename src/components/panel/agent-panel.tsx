@@ -8,6 +8,8 @@ import type { Task } from '@/types'
 import { useAgentSession } from '@/hooks/use-agent-session'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { ChatHistory } from './chat-history'
+import { ModelSelector, type ModelId } from '@/components/shared/model-selector'
+import { ThinkingSelector, type ThinkingLevel } from '@/components/shared/thinking-selector'
 
 type AgentPanelProps = {
   task: Task
@@ -16,6 +18,8 @@ type AgentPanelProps = {
 
 export function AgentPanel({ task, onClose }: AgentPanelProps) {
   const [inputValue, setInputValue] = useState('')
+  const [model, setModel] = useState<ModelId>('sonnet')
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('medium')
 
   // Get working directory from workspace
   const workspace = useWorkspaceStore((s) =>
@@ -46,8 +50,10 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
     const content = inputValue.trim()
     if (!content) return
     setInputValue('')
-    await sendMessage(content)
-  }, [inputValue, sendMessage])
+    // Pass model and thinking level to backend
+    const effortLevel = thinkingLevel === 'none' ? undefined : thinkingLevel
+    await sendMessage(content, model, effortLevel)
+  }, [inputValue, sendMessage, model, thinkingLevel])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -157,6 +163,13 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
 
       {/* Input */}
       <div className="border-t border-border-default p-3">
+        {/* Model/Thinking selector row */}
+        <div className="mb-2 flex items-center gap-1">
+          <ModelSelector value={model} onChange={setModel} />
+          <ThinkingSelector value={thinkingLevel} onChange={setThinkingLevel} />
+        </div>
+
+        {/* Input row */}
         <div className="flex gap-2">
           <textarea
             value={inputValue}

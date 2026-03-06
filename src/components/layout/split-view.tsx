@@ -1,12 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { useTaskStore } from '@/stores/task-store'
 import { TaskDetailPanel } from '@/components/task-detail/task-detail-panel'
-import { TerminalView } from '@/components/terminal/terminal-view'
-import { TerminalInput } from '@/components/terminal/terminal-input'
-import { useAgent } from '@/hooks/use-agent'
-import { useWorkspaceStore } from '@/stores/workspace-store'
-import { useSettingsStore } from '@/stores/settings-store'
+import { AgentPanel } from '@/components/panel/agent-panel'
 
 const SPRING = { type: 'spring' as const, stiffness: 300, damping: 28 }
 
@@ -18,50 +13,6 @@ type SplitViewProps = {
 export function SplitView({ taskId, onClose }: SplitViewProps) {
   const tasks = useTaskStore((s) => s.tasks)
   const task = tasks.find((t) => t.id === taskId)
-
-  const workspaces = useWorkspaceStore((s) => s.workspaces)
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
-  const workspace = workspaces.find((w) => w.id === activeWorkspaceId)
-
-  // Get settings to determine which CLI to use
-  const settings = useSettingsStore((s) => s.getEffective(activeWorkspaceId ?? ''))
-
-  // Find enabled provider that uses CLI mode
-  const cliProvider = settings.model.providers.find(
-    (p) => p.enabled && p.connectionMode === 'cli'
-  )
-  const cliPath = cliProvider?.cliPath ?? cliProvider?.id
-
-  const hasStartedRef = useRef(false)
-  const prevTaskIdRef = useRef(taskId)
-  const [agentError, setAgentError] = useState<string | null>(null)
-  const { status: agentStatus, startAgent, stopAgent, forceStopAgent } = useAgent({
-    taskId,
-    agentType: cliProvider?.id ?? 'claude',
-    workingDir: workspace?.repoPath,
-    cliPath,
-  })
-
-  // Reset start flag when taskId changes
-  useEffect(() => {
-    if (prevTaskIdRef.current !== taskId) {
-      hasStartedRef.current = false
-      prevTaskIdRef.current = taskId
-    }
-  }, [taskId])
-
-  // Auto-start agent when split view opens
-  useEffect(() => {
-    if (!hasStartedRef.current && workspace?.repoPath && cliPath) {
-      hasStartedRef.current = true
-      setAgentError(null)
-      startAgent().catch((err: unknown) => {
-        const errorMsg = err instanceof Error ? err.message : String(err)
-        console.error('[SplitView] Failed to start agent:', errorMsg)
-        setAgentError(errorMsg)
-      })
-    }
-  }, [workspace?.repoPath, cliPath, startAgent])
 
   if (!task) return null
 
@@ -80,7 +31,7 @@ export function SplitView({ taskId, onClose }: SplitViewProps) {
         </div>
       </motion.div>
 
-      {/* Right panel — terminal */}
+      {/* Right panel — agent chat */}
       <motion.div
         initial={{ opacity: 0, x: 40 }}
         animate={{ opacity: 1, x: 0 }}
@@ -88,30 +39,7 @@ export function SplitView({ taskId, onClose }: SplitViewProps) {
         transition={SPRING}
         className="flex flex-1 flex-col overflow-hidden"
       >
-        {/* Status/Error bar */}
-        {!cliPath && (
-          <div className="shrink-0 border-b border-border-default bg-yellow-900/20 px-4 py-2 text-xs text-yellow-400">
-            No CLI provider configured. Go to Settings → Agent to configure a provider with CLI mode.
-          </div>
-        )}
-        {agentError && (
-          <div className="shrink-0 border-b border-border-default bg-red-900/20 px-4 py-2 text-xs text-red-400">
-            Failed to start agent: {agentError}
-          </div>
-        )}
-        <div className="flex-1 overflow-hidden">
-          <TerminalView
-            taskId={taskId}
-            isActive={true}
-          />
-        </div>
-        <TerminalInput
-          taskId={taskId}
-          agentStatus={agentStatus}
-          onStop={() => { void stopAgent() }}
-          onForceStop={() => { void forceStopAgent() }}
-          autoFocus
-        />
+        <AgentPanel task={task} />
       </motion.div>
     </div>
   )

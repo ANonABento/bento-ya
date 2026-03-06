@@ -74,7 +74,8 @@ struct AgentCliSession {
     cli_session_id: Option<String>,
     /// Model this session was spawned with
     model: String,
-    /// Effort level (if specified)
+    /// Effort level (if specified) - reserved for future use
+    #[allow(dead_code)]
     effort_level: Option<String>,
     /// Whether we're currently processing a message
     is_busy: bool,
