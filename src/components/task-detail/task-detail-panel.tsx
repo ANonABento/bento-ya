@@ -19,6 +19,8 @@ type TaskDetailPanelProps = {
 }
 
 const statusVariant = {
+  idle: 'default' as const,
+  queued: 'warning' as const,
   running: 'running' as const,
   completed: 'success' as const,
   failed: 'error' as const,
@@ -177,6 +179,7 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
           <TaskChecklist
             task={task}
             onUpdate={(items) => { void handleChecklistUpdate(items) }}
+            repoPath={repoPath}
           />
         </div>
 

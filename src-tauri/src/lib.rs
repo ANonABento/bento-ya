@@ -97,6 +97,8 @@ pub fn run() {
             commands::task::update_task_stakeholders,
             commands::task::mark_task_notification_sent,
             commands::task::clear_task_notification_sent,
+            commands::task::generate_test_checklist,
+            commands::task::retry_pipeline,
             // Git commands
             commands::git::create_task_branch,
             commands::git::switch_branch,
@@ -121,6 +123,10 @@ pub fn run() {
             commands::agent::clear_agent_messages,
             commands::agent::stream_agent_chat,
             commands::agent::cancel_agent_chat,
+            commands::agent::queue_agent_tasks,
+            commands::agent::update_task_agent_status,
+            commands::agent::get_queue_status,
+            commands::agent::get_next_queued_task,
             // Pipeline commands
             commands::pipeline::mark_pipeline_complete,
             commands::pipeline::get_pipeline_state,
@@ -194,6 +200,7 @@ pub fn run() {
             commands::checklist::delete_workspace_checklist,
             commands::checklist::update_checklist_item_auto_detect,
             commands::checklist::link_checklist_item_to_task,
+            commands::checklist::run_checklist_detection,
             // Files commands
             commands::files::scan_workspace_files,
             commands::files::read_file_content,

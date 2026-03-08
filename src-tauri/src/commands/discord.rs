@@ -2,8 +2,9 @@
 
 use crate::db::AppState;
 use crate::discord::bridge::{CreateThreadResult, QueueStatus, SetupWorkspaceResult};
-use crate::discord::{DiscordStatus, SharedDiscordBridge};
+use crate::discord::{CommandContext, DiscordStatus, SharedDiscordBridge};
 use crate::error::AppError;
+use crate::process::agent_cli_session::SharedAgentCliSessionManager;
 use tauri::{AppHandle, Manager, State};
 
 /// Spawn the Discord bot sidecar
@@ -11,6 +12,7 @@ use tauri::{AppHandle, Manager, State};
 pub async fn spawn_discord_sidecar(
     app: AppHandle,
     discord: State<'_, SharedDiscordBridge>,
+    agent_cli_manager: State<'_, SharedAgentCliSessionManager>,
 ) -> Result<(), AppError> {
     // Get the sidecar path relative to the app
     let resource_path = app
@@ -34,7 +36,7 @@ pub async fn spawn_discord_sidecar(
     drop(bridge);
 
     // Start the command processor to handle incoming requests from the sidecar
-    start_discord_command_processor(&app, discord.inner().clone());
+    start_discord_command_processor(&app, discord.inner().clone(), agent_cli_manager.inner().clone());
 
     Ok(())
 }
@@ -645,6 +647,7 @@ pub async fn get_discord_queue_status(
 pub fn start_discord_command_processor(
     app: &AppHandle,
     discord_ref: SharedDiscordBridge,
+    agent_cli_manager: SharedAgentCliSessionManager,
 ) {
     let app_handle = app.clone();
 
@@ -669,12 +672,19 @@ pub fn start_discord_command_processor(
             // Get state from app handle
             let state: tauri::State<'_, AppState> = app_handle.state();
 
-            // Handle the command
+            // Build command context with all required dependencies
+            let ctx = CommandContext {
+                state: state.inner(),
+                agent_cli_manager: &agent_cli_manager,
+                app: &app_handle,
+            };
+
+            // Handle the command (now async)
             let (success, data, error) = crate::discord::handle_command(
-                state.inner(),
+                &ctx,
                 &command.cmd_type,
                 &command.payload,
-            );
+            ).await;
 
             // Send response back to sidecar
             let bridge = discord_ref.lock().await;

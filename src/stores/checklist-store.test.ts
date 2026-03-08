@@ -8,6 +8,7 @@ vi.mock('@/lib/ipc', () => ({
   updateChecklistCategory: vi.fn(),
   createWorkspaceChecklist: vi.fn(),
   deleteWorkspaceChecklist: vi.fn(),
+  runChecklistDetection: vi.fn(),
 }))
 
 import * as ipc from '@/lib/ipc'
@@ -294,6 +295,57 @@ describe('checklist-store', () => {
     it('should return built-in templates', () => {
       const templates = useChecklistStore.getState().getTemplates()
       expect(templates.length).toBeGreaterThan(0)
+    })
+  })
+
+  describe('runDetection', () => {
+    it('should run detection and update items based on results', async () => {
+      // Set up initial state with items that can be detected
+      useChecklistStore.setState({
+        checklist: { id: 'cl-1', workspaceId: 'ws-1', name: 'Test', description: null, progress: 0, totalItems: 2, createdAt: '', updatedAt: '' },
+        categories: [{ id: 'cat-1', checklistId: 'cl-1', name: 'Setup', icon: '⚙️', position: 0, progress: 0, totalItems: 2, collapsed: false }],
+        items: {
+          'cat-1': [
+            { id: 'i1', categoryId: 'cat-1', text: 'Has README', checked: false, notes: null, position: 0, detectType: 'file-exists', detectConfig: '{"pattern": "README.md"}', autoDetected: false, linkedTaskId: null, createdAt: '', updatedAt: '' },
+            { id: 'i2', categoryId: 'cat-1', text: 'Has tests', checked: false, notes: null, position: 1, detectType: 'file-exists', detectConfig: '{"pattern": "**/*.test.ts"}', autoDetected: false, linkedTaskId: null, createdAt: '', updatedAt: '' },
+          ],
+        },
+      })
+
+      // Mock detection results - README exists, tests don't
+      mockIpc.runChecklistDetection.mockResolvedValueOnce([
+        { itemId: 'i1', detected: true, message: 'File found: README.md' },
+        { itemId: 'i2', detected: false, message: 'No matching files' },
+      ])
+
+      await useChecklistStore.getState().runDetection('ws-1', '/path/to/repo')
+
+      expect(mockIpc.runChecklistDetection).toHaveBeenCalledWith('ws-1', '/path/to/repo')
+
+      const items = useChecklistStore.getState().items['cat-1']
+      expect(items?.find(i => i.id === 'i1')?.checked).toBe(true)
+      expect(items?.find(i => i.id === 'i1')?.autoDetected).toBe(true)
+      expect(items?.find(i => i.id === 'i2')?.checked).toBe(false)
+    })
+
+    it('should handle empty detection results', async () => {
+      useChecklistStore.setState({
+        checklist: { id: 'cl-1', workspaceId: 'ws-1', name: 'Test', description: null, progress: 0, totalItems: 1, createdAt: '', updatedAt: '' },
+        categories: [{ id: 'cat-1', checklistId: 'cl-1', name: 'Setup', icon: '⚙️', position: 0, progress: 0, totalItems: 1, collapsed: false }],
+        items: {
+          'cat-1': [
+            { id: 'i1', categoryId: 'cat-1', text: 'Manual item', checked: false, notes: null, position: 0, detectType: null, detectConfig: null, autoDetected: false, linkedTaskId: null, createdAt: '', updatedAt: '' },
+          ],
+        },
+      })
+
+      mockIpc.runChecklistDetection.mockResolvedValueOnce([])
+
+      await useChecklistStore.getState().runDetection('ws-1', '/path/to/repo')
+
+      // Items should remain unchanged
+      const items = useChecklistStore.getState().items['cat-1']
+      expect(items?.find(i => i.id === 'i1')?.checked).toBe(false)
     })
   })
 })

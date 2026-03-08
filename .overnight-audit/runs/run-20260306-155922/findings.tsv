@@ -1,0 +1,5 @@
+category	file	line	snippet	severity	priority
+CHECK_FAIL_lint	CHECK:lint	0	Check command failed in 4.00 seconds	P0	0
+CHECK_FAIL_type-check	CHECK:type-check	0	Check command failed in 2.00 seconds	P0	0
+CONSOLE_STATEMENT	src/components/panel/agent-panel.tsx	      console.error('[AgentPanel]', err)	      console.error('[AgentPanel]', err)	P2	2
+CONSOLE_STATEMENT	src/lib/ipc.ts	      console.error(`[queueAgentBatch] Failed to start agent for ${taskId}	`, err)	P2	2

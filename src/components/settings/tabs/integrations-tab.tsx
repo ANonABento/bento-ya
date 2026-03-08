@@ -71,7 +71,7 @@ export function IntegrationsTab() {
 
       setStatus(result)
       setTestResult('Connected successfully!')
-      setTimeout(() => setTestResult(null), 3000)
+      setTimeout(() => { setTestResult(null); }, 3000)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
@@ -167,13 +167,13 @@ export function IntegrationsTab() {
                 <input
                   type={showToken ? 'text' : 'password'}
                   value={discord.botToken}
-                  onChange={(e) => updateGlobal('discord', { ...discord, botToken: e.target.value })}
+                  onChange={(e) => { updateGlobal('discord', { ...discord, botToken: e.target.value }); }}
                   placeholder="Enter your Discord bot token"
                   className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 pr-10 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowToken(!showToken)}
+                  onClick={() => { setShowToken(!showToken); }}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary"
                 >
                   {showToken ? (
@@ -204,7 +204,7 @@ export function IntegrationsTab() {
             <input
               type="text"
               value={discord.guildId}
-              onChange={(e) => updateGlobal('discord', { ...discord, guildId: e.target.value })}
+              onChange={(e) => { updateGlobal('discord', { ...discord, guildId: e.target.value }); }}
               placeholder="Enter Discord server ID"
               className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
             />
@@ -223,7 +223,7 @@ export function IntegrationsTab() {
               <input
                 type="checkbox"
                 checked={discord.autoConnect}
-                onChange={(e) => updateGlobal('discord', { ...discord, autoConnect: e.target.checked })}
+                onChange={(e) => { updateGlobal('discord', { ...discord, autoConnect: e.target.checked }); }}
                 className="peer sr-only"
               />
               <div className="peer h-5 w-9 rounded-full bg-border-default after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-accent peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none" />

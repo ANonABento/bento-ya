@@ -77,8 +77,17 @@ pub fn clear_session_history(
     db::delete_session_snapshots(&conn, &session_id).map_err(AppError::from)
 }
 
-/// Restore a snapshot - creates a backup first, then returns the snapshot to restore
-#[tauri::command]
+/// Restore result with both snapshot and updated session
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreResult {
+    pub snapshot: SessionSnapshot,
+    pub backup_id: String,
+    pub session_updated: bool,
+}
+
+/// Restore a snapshot - creates a backup first, restores scrollback to session, returns result
+#[tauri::command(rename_all = "camelCase")]
 pub fn restore_snapshot(
     state: State<AppState>,
     app: tauri::AppHandle,
@@ -90,7 +99,7 @@ pub fn restore_snapshot(
     current_command_history: String,
     current_files_modified: String,
     current_duration_ms: i64,
-) -> Result<SessionSnapshot, AppError> {
+) -> Result<RestoreResult, AppError> {
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     // First, create a backup snapshot of current state
@@ -109,6 +118,55 @@ pub fn restore_snapshot(
     // Emit event with backup ID so frontend can notify user
     let _ = app.emit("history:backup-created", &backup.id);
 
-    // Return the snapshot to restore
-    db::get_session_snapshot(&conn, &snapshot_id).map_err(AppError::from)
+    // Get the snapshot to restore
+    let snapshot = db::get_session_snapshot(&conn, &snapshot_id).map_err(AppError::from)?;
+
+    // Try to restore scrollback to the original session if it exists
+    let session_updated = if let Ok(session) = db::get_agent_session(&conn, &snapshot.session_id) {
+        // Update the session with restored scrollback and make it resumable
+        let _ = db::update_agent_session(
+            &conn,
+            &session.id,
+            None, // pid
+            Some("idle"), // status
+            None, // exit_code
+            None, // last_output
+            Some(snapshot.scrollback_snapshot.as_deref()), // scrollback
+            Some(true), // resumable
+        );
+        true
+    } else if let Some(ref task_id) = snapshot.task_id {
+        // Original session gone, try to create/update session for the task
+        if let Ok(session) = db::get_or_create_agent_session_for_task(&conn, task_id, "claude", None) {
+            let _ = db::update_agent_session(
+                &conn,
+                &session.id,
+                None,
+                Some("idle"),
+                None,
+                None,
+                Some(snapshot.scrollback_snapshot.as_deref()),
+                Some(true),
+            );
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    // Emit restore complete event
+    let _ = app.emit("history:restored", serde_json::json!({
+        "snapshotId": snapshot.id,
+        "sessionId": snapshot.session_id,
+        "taskId": snapshot.task_id,
+        "sessionUpdated": session_updated,
+    }));
+
+    Ok(RestoreResult {
+        snapshot,
+        backup_id: backup.id,
+        session_updated,
+    })
 }

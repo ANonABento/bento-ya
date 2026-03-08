@@ -6,6 +6,7 @@ export type ExitType =
   | 'script_success'
   | 'checklist_done'
   | 'pr_approved'
+  | 'notification_sent'
 
 export type TriggerConfig = {
   type: TriggerType

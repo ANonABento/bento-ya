@@ -109,7 +109,7 @@ export function SettingInput({
     <input
       type={type}
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(e) => { onChange(e.target.value); }}
       placeholder={placeholder}
       disabled={disabled}
       className={`w-full rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:cursor-not-allowed disabled:opacity-50 ${
@@ -139,7 +139,7 @@ export function SettingTextarea({
   return (
     <textarea
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(e) => { onChange(e.target.value); }}
       placeholder={placeholder}
       disabled={disabled}
       rows={rows}

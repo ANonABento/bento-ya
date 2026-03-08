@@ -8,6 +8,8 @@ import type { AgentStatus, PipelineState, ReviewStatus, PrCiStatus, PrReviewDeci
 // ─── Agent Status ───────────────────────────────────────────────────────────
 
 export const AGENT_STATUS_LABELS: Record<AgentStatus, string> = {
+  idle: 'Idle',
+  queued: 'Queued',
   running: 'Running',
   completed: 'Completed',
   failed: 'Failed',
@@ -16,6 +18,8 @@ export const AGENT_STATUS_LABELS: Record<AgentStatus, string> = {
 }
 
 export const AGENT_STATUS_COLORS: Record<AgentStatus, string> = {
+  idle: 'text-text-secondary',
+  queued: 'text-warning',
   running: 'text-running',
   completed: 'text-success',
   failed: 'text-error',
@@ -24,6 +28,8 @@ export const AGENT_STATUS_COLORS: Record<AgentStatus, string> = {
 }
 
 export const AGENT_STATUS_BG_COLORS: Record<AgentStatus, string> = {
+  idle: 'bg-surface-hover',
+  queued: 'bg-warning',
   running: 'bg-running',
   completed: 'bg-success',
   failed: 'bg-error',

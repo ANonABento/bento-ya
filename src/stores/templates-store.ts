@@ -34,7 +34,7 @@ export const useTemplatesStore = create<TemplatesState>()(
         },
 
         saveAsTemplate: (name, description, columns) => {
-          const id = `custom-${Date.now()}`
+          const id = `custom-${String(Date.now())}`
           const template: PipelineTemplate = {
             id,
             name,
@@ -86,7 +86,7 @@ export const useTemplatesStore = create<TemplatesState>()(
           }
 
           const template: PipelineTemplate = {
-            id: `imported-${Date.now()}`,
+            id: `imported-${String(Date.now())}`,
             name: parsed.name,
             description: parsed.description ?? '',
             columns: parsed.columns,

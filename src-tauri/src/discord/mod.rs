@@ -7,4 +7,4 @@ pub mod bridge;
 pub mod handlers;
 
 pub use bridge::{DiscordBridge, DiscordStatus, IncomingCommand, SharedDiscordBridge};
-pub use handlers::handle_command;
+pub use handlers::{handle_command, CommandContext};

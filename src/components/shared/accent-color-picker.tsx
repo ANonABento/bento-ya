@@ -37,7 +37,7 @@ export function AccentColorPicker({ value, onChange }: AccentColorPickerProps) {
       {ACCENT_PRESETS.map((color) => (
         <button
           key={color}
-          onClick={() => onChange(color)}
+          onClick={() => { onChange(color); }}
           className="h-7 w-7 rounded-full transition-transform hover:scale-110"
           style={{ backgroundColor: color }}
         />
@@ -68,7 +68,7 @@ export function AccentColorPicker({ value, onChange }: AccentColorPickerProps) {
           ref={colorInputRef}
           type="color"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => { onChange(e.target.value); }}
           className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
         />
       </button>

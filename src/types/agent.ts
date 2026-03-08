@@ -1,4 +1,6 @@
 export type AgentStatus =
+  | 'idle'
+  | 'queued'
   | 'running'
   | 'completed'
   | 'failed'

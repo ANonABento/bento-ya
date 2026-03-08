@@ -96,7 +96,7 @@ export function LabeledSlider<T extends string>({
           return (
             <button
               key={option}
-              onClick={() => onChange(option)}
+              onClick={() => { onChange(option); }}
               className={`absolute text-xs capitalize transition-colors ${
                 isSelected
                   ? 'font-medium text-accent'

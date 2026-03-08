@@ -1,0 +1,2 @@
+CHECK_FAIL_lint	CHECK:lint	0	Check command failed in 5.00 seconds	P0	0
+CHECK_FAIL_type-check	CHECK:type-check	0	Check command failed in 1.00 seconds	P0	0

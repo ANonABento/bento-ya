@@ -1,0 +1,3 @@
+check	status	seconds
+lint	FAIL	7.00
+type-check	FAIL	2.00

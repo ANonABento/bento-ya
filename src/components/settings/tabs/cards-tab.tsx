@@ -21,7 +21,7 @@ function Toggle({ label, description, checked, onChange }: ToggleProps) {
         type="button"
         role="switch"
         aria-checked={checked}
-        onClick={() => onChange(!checked)}
+        onClick={() => { onChange(!checked); }}
         className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
           checked ? 'bg-accent' : 'bg-surface-hover'
         }`}
@@ -61,7 +61,7 @@ function NumberInput({ label, description, value, onChange, min = 0, max = 9999,
           <input
             type="number"
             value={value}
-            onChange={(e) => onChange(Number(e.target.value))}
+            onChange={(e) => { onChange(Number(e.target.value)); }}
             min={min}
             max={max}
             step={step}
@@ -96,25 +96,25 @@ export function CardsTab() {
             label="Description"
             description="Show task description preview (2 lines)"
             checked={cards.showDescription}
-            onChange={(v) => updateCards({ showDescription: v })}
+            onChange={(v) => { updateCards({ showDescription: v }); }}
           />
           <Toggle
             label="Branch name"
             description="Show git branch associated with task"
             checked={cards.showBranch}
-            onChange={(v) => updateCards({ showBranch: v })}
+            onChange={(v) => { updateCards({ showBranch: v }); }}
           />
           <Toggle
             label="Agent type"
             description="Show which agent is assigned (claude, codex, etc.)"
             checked={cards.showAgentType}
-            onChange={(v) => updateCards({ showAgentType: v })}
+            onChange={(v) => { updateCards({ showAgentType: v }); }}
           />
           <Toggle
             label="Timestamp"
             description="Show relative time since last update"
             checked={cards.showTimestamp}
-            onChange={(v) => updateCards({ showTimestamp: v })}
+            onChange={(v) => { updateCards({ showTimestamp: v }); }}
           />
         </div>
       </section>
@@ -129,37 +129,37 @@ export function CardsTab() {
             label="PR badge"
             description="Show PR number with link to GitHub"
             checked={cards.showPrBadge}
-            onChange={(v) => updateCards({ showPrBadge: v })}
+            onChange={(v) => { updateCards({ showPrBadge: v }); }}
           />
           <Toggle
             label="CI status"
             description="Show build/test status icon"
             checked={cards.showCiStatus}
-            onChange={(v) => updateCards({ showCiStatus: v })}
+            onChange={(v) => { updateCards({ showCiStatus: v }); }}
           />
           <Toggle
             label="Review status"
             description="Show approval/changes requested indicator"
             checked={cards.showReviewStatus}
-            onChange={(v) => updateCards({ showReviewStatus: v })}
+            onChange={(v) => { updateCards({ showReviewStatus: v }); }}
           />
           <Toggle
             label="Merge status"
             description="Show merge conflict warning"
             checked={cards.showMergeStatus}
-            onChange={(v) => updateCards({ showMergeStatus: v })}
+            onChange={(v) => { updateCards({ showMergeStatus: v }); }}
           />
           <Toggle
             label="Comment count"
             description="Show number of PR comments"
             checked={cards.showCommentCount}
-            onChange={(v) => updateCards({ showCommentCount: v })}
+            onChange={(v) => { updateCards({ showCommentCount: v }); }}
           />
           <Toggle
             label="Labels"
             description="Show GitHub labels on cards"
             checked={cards.showLabels}
-            onChange={(v) => updateCards({ showLabels: v })}
+            onChange={(v) => { updateCards({ showLabels: v }); }}
           />
         </div>
       </section>
@@ -174,7 +174,7 @@ export function CardsTab() {
             label="Enable polling"
             description="Automatically fetch PR status updates"
             checked={cards.prPollingEnabled}
-            onChange={(v) => updateCards({ prPollingEnabled: v })}
+            onChange={(v) => { updateCards({ prPollingEnabled: v }); }}
           />
 
           {cards.prPollingEnabled && (
@@ -183,7 +183,7 @@ export function CardsTab() {
                 label="Poll interval"
                 description="How often to check for updates"
                 value={cards.prPollingIntervalSeconds}
-                onChange={(v) => updateCards({ prPollingIntervalSeconds: Math.max(10, v) })}
+                onChange={(v) => { updateCards({ prPollingIntervalSeconds: Math.max(10, v) }); }}
                 min={10}
                 max={3600}
                 step={10}
@@ -193,7 +193,7 @@ export function CardsTab() {
                 label="Cache duration"
                 description="Skip refresh if data is newer than this"
                 value={cards.prCacheMaxAgeSeconds}
-                onChange={(v) => updateCards({ prCacheMaxAgeSeconds: Math.max(30, v) })}
+                onChange={(v) => { updateCards({ prCacheMaxAgeSeconds: Math.max(30, v) }); }}
                 min={30}
                 max={3600}
                 step={30}

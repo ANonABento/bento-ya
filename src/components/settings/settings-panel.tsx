@@ -154,7 +154,7 @@ export function SettingsPanel() {
                 {TABS.map((tab) => (
                   <button
                     key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
+                    onClick={() => { setActiveTab(tab.id); }}
                     className={`mb-1 flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm transition-colors ${
                       activeTab === tab.id
                         ? 'bg-accent/10 text-accent'

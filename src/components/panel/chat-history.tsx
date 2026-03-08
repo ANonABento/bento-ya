@@ -17,6 +17,7 @@ type ChatHistoryProps = {
   toolCalls?: ToolCallEvent[]
   onCancel?: () => void
   queuedMessages?: QueuedMessage[]
+  emptyState?: React.ReactNode
 }
 
 export function ChatHistory({
@@ -28,6 +29,7 @@ export function ChatHistory({
   toolCalls = [],
   onCancel,
   queuedMessages = [],
+  emptyState,
 }: ChatHistoryProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -55,12 +57,14 @@ export function ChatHistory({
   if (messages.length === 0 && !processingStartTime) {
     return (
       <div className="flex flex-1 items-center justify-center p-4">
-        <div className="text-center">
-          <p className="text-sm text-text-secondary">No messages yet</p>
-          <p className="mt-1 text-xs text-text-secondary/70">
-            Ask me to create tasks for you
-          </p>
-        </div>
+        {emptyState ?? (
+          <div className="text-center">
+            <p className="text-sm text-text-secondary">No messages yet</p>
+            <p className="mt-1 text-xs text-text-secondary/70">
+              Ask me to create tasks for you
+            </p>
+          </div>
+        )}
       </div>
     )
   }
@@ -108,9 +112,9 @@ function parseMessageContent(content: string): { displayText: string; actions: A
     try {
       const captured = match[1]
       if (!captured) continue
-      const parsed = JSON.parse(captured.trim())
+      const parsed: unknown = JSON.parse(captured.trim())
       if (Array.isArray(parsed)) {
-        actions.push(...parsed)
+        actions.push(...(parsed as Array<{ action: string; title?: string; column?: string; task_id?: string }>))
       }
     } catch {
       // Invalid JSON, ignore
@@ -127,13 +131,13 @@ function parseMessageContent(content: string): { displayText: string; actions: A
 function formatAction(action: { action: string; title?: string; column?: string; task_id?: string }): string {
   switch (action.action) {
     case 'create_task':
-      return `Created "${action.title}"${action.column ? ` in ${action.column}` : ''}`
+      return `Created "${action.title ?? 'task'}"${action.column ? ` in ${action.column}` : ''}`
     case 'update_task':
       return `Updated task${action.title ? `: "${action.title}"` : ''}`
     case 'move_task':
       return `Moved task to ${action.column ?? 'column'}`
     case 'delete_task':
-      return `Deleted task`
+      return 'Deleted task'
     default:
       return action.action
   }
@@ -262,7 +266,7 @@ function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls =
       setElapsed(Math.floor((Date.now() - startTime) / 1000))
     }, 1000)
 
-    return () => clearInterval(interval)
+    return () => { clearInterval(interval); }
   }, [startTime])
 
   const hasThinking = thinkingContent.length > 0
@@ -281,7 +285,7 @@ function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls =
           <div className="border-l-2 border-accent/30 pl-2">
             <button
               type="button"
-              onClick={() => setIsThinkingExpanded(!isThinkingExpanded)}
+              onClick={() => { setIsThinkingExpanded(!isThinkingExpanded); }}
               className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors"
             >
               <svg
@@ -350,9 +354,9 @@ function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls =
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-text-secondary flex items-center gap-1.5">
             {hasContent ? 'Typing' : hasToolCalls ? 'Using tools' : hasThinking ? 'Thinking' : 'Processing'}
-            {elapsed > 0 ? ` · ${elapsed}s` : ''}
+            {elapsed > 0 ? ` · ${String(elapsed)}s` : ''}
             {queueCount > 0 && (
-              <span className="text-accent"> · {queueCount} queued</span>
+              <span className="text-accent"> · {String(queueCount)} queued</span>
             )}
           </p>
           {onCancel && (

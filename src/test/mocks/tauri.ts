@@ -67,6 +67,7 @@ export const mockTask = (overrides: Partial<Task> = {}): Task => ({
   checklist: null,
   notifyStakeholders: null,
   notificationSentAt: null,
+  queuedAt: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   ...overrides,
@@ -77,11 +78,11 @@ export async function setupInvokeMock(responses: Record<string, unknown>) {
   const { invoke } = await import('@tauri-apps/api/core')
   const mockedInvoke = vi.mocked(invoke)
 
-  mockedInvoke.mockImplementation(async (cmd: string) => {
+  mockedInvoke.mockImplementation((cmd: string) => {
     if (cmd in responses) {
-      return responses[cmd]
+      return Promise.resolve(responses[cmd])
     }
-    throw new Error(`Unmocked command: ${cmd}`)
+    return Promise.reject(new Error(`Unmocked command: ${cmd}`))
   })
 
   return mockedInvoke

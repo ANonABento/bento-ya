@@ -98,7 +98,7 @@ export function NotificationSection({
         </h4>
         <button
           type="button"
-          onClick={() => setIsEditing(!isEditing)}
+          onClick={() => { setIsEditing(!isEditing); }}
           className="text-[10px] text-accent hover:text-accent-hover"
         >
           {isEditing ? 'Done' : 'Edit'}
@@ -151,7 +151,7 @@ export function NotificationSection({
           <input
             type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => { setInput(e.target.value); }}
             onKeyDown={handleKeyDown}
             placeholder="Add name or email..."
             className="flex-1 rounded border border-border-default bg-surface-hover px-2 py-1 text-xs text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"

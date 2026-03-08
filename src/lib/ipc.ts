@@ -20,9 +20,10 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
 
 // ─── Typed listen wrapper ──────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- T propagates to tauriListen
 function listen<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
   if (isTauri()) {
-    return tauriListen<T>(event, (e) => handler(e.payload))
+    return tauriListen<T>(event, (e) => { handler(e.payload); })
   }
   // Browser mode - events not supported
   return mockListen<T>(event, handler)
@@ -48,7 +49,7 @@ export async function updateWorkspace(
 }
 
 export async function deleteWorkspace(id: string): Promise<void> {
-  return invoke<void>('delete_workspace', { id })
+  return invoke('delete_workspace', { id })
 }
 
 export async function cloneWorkspace(sourceId: string, newName: string): Promise<Workspace> {
@@ -56,7 +57,7 @@ export async function cloneWorkspace(sourceId: string, newName: string): Promise
 }
 
 export const reorderWorkspaces = (ids: string[]) =>
-  invoke<void>('reorder_workspaces', { ids })
+  invoke('reorder_workspaces', { ids })
 
 export async function updateWorkspaceConfig(
   id: string,
@@ -116,7 +117,7 @@ export async function reorderColumns(
 }
 
 export async function deleteColumn(id: string): Promise<void> {
-  return invoke<void>('delete_column', { id })
+  return invoke('delete_column', { id })
 }
 
 // ─── Task commands ─────────────────────────────────────────────────────────
@@ -157,7 +158,7 @@ export async function reorderTasks(columnId: string, taskIds: string[]): Promise
 }
 
 export async function deleteTask(id: string): Promise<void> {
-  return invoke<void>('delete_task', { id })
+  return invoke('delete_task', { id })
 }
 
 // ─── Review actions ─────────────────────────────────────────────────────────
@@ -187,6 +188,29 @@ export async function clearTaskNotificationSent(id: string): Promise<Task> {
   return invoke<Task>('clear_task_notification_sent', { id })
 }
 
+// ─── Test Checklist Generation ───────────────────────────────────────────────
+
+export type GeneratedTestItem = {
+  text: string
+}
+
+export type GenerateTestChecklistResult = {
+  items: GeneratedTestItem[]
+  diffSummary: string
+}
+
+export async function generateTestChecklist(
+  taskId: string,
+  repoPath: string,
+  cliPath?: string,
+): Promise<GenerateTestChecklistResult> {
+  return invoke<GenerateTestChecklistResult>('generate_test_checklist', {
+    taskId,
+    repoPath,
+    cliPath,
+  })
+}
+
 // ─── PR creation ─────────────────────────────────────────────────────────────
 
 import type { CreatePrResult } from '@/types/task'
@@ -210,7 +234,7 @@ export async function createTaskBranch(
 }
 
 export async function switchBranch(repoPath: string, branch: string): Promise<void> {
-  return invoke<void>('switch_branch', { repoPath, branch })
+  return invoke('switch_branch', { repoPath, branch })
 }
 
 export async function getCurrentBranch(repoPath: string): Promise<string> {
@@ -303,7 +327,7 @@ export async function startAgent(
 }
 
 export async function stopAgent(taskId: string): Promise<void> {
-  return invoke<void>('stop_agent', { taskId })
+  return invoke('stop_agent', { taskId })
 }
 
 export async function getAgentStatus(taskId: string): Promise<AgentInfo> {
@@ -339,7 +363,7 @@ export async function getAgentMessages(taskId: string): Promise<AgentMessage[]> 
 }
 
 export async function clearAgentMessages(taskId: string): Promise<void> {
-  return invoke<void>('clear_agent_messages', { taskId })
+  return invoke('clear_agent_messages', { taskId })
 }
 
 export async function streamAgentChat(
@@ -350,7 +374,7 @@ export async function streamAgentChat(
   model?: string,
   effortLevel?: string,
 ): Promise<void> {
-  return invoke<void>('stream_agent_chat', {
+  return invoke('stream_agent_chat', {
     taskId,
     message,
     workingDir,
@@ -361,7 +385,36 @@ export async function streamAgentChat(
 }
 
 export async function cancelAgentChat(taskId: string): Promise<void> {
-  return invoke<void>('cancel_agent_chat', { taskId })
+  return invoke('cancel_agent_chat', { taskId })
+}
+
+// ─── Queue Management ──────────────────────────────────────────────────────
+
+export type QueueStatus = {
+  queuedCount: number
+  runningCount: number
+  maxConcurrent: number
+  queuedTasks: Task[]
+}
+
+export async function queueAgentTasks(taskIds: string[]): Promise<Task[]> {
+  return invoke<Task[]>('queue_agent_tasks', { taskIds })
+}
+
+export async function updateTaskAgentStatus(
+  taskId: string,
+  agentStatus: string | null,
+  queuedAt?: string | null
+): Promise<Task> {
+  return invoke<Task>('update_task_agent_status', { taskId, agentStatus, queuedAt })
+}
+
+export async function getQueueStatus(workspaceId: string): Promise<QueueStatus> {
+  return invoke<QueueStatus>('get_queue_status', { workspaceId })
+}
+
+export async function getNextQueuedTask(workspaceId: string): Promise<Task | null> {
+  return invoke<Task | null>('get_next_queued_task', { workspaceId })
 }
 
 // ─── Agent Events ──────────────────────────────────────────────────────────
@@ -544,6 +597,10 @@ export async function setPipelineError(
   return invoke<Task>('set_pipeline_error', { taskId, errorMessage })
 }
 
+export async function retryPipeline(taskId: string): Promise<Task> {
+  return invoke<Task>('retry_pipeline', { taskId })
+}
+
 export async function fireAgentTrigger(
   taskId: string,
   agentType: string,
@@ -705,7 +762,7 @@ export async function createChatSession(workspaceId: string, title?: string): Pr
 }
 
 export async function deleteChatSession(sessionId: string): Promise<void> {
-  return invoke<void>('delete_chat_session', { sessionId })
+  return invoke('delete_chat_session', { sessionId })
 }
 
 export async function getChatHistory(
@@ -716,7 +773,7 @@ export async function getChatHistory(
 }
 
 export async function clearChatHistory(sessionId: string): Promise<void> {
-  return invoke<void>('clear_chat_history', { sessionId })
+  return invoke('clear_chat_history', { sessionId })
 }
 
 export async function processOrchestratorResponse(
@@ -805,7 +862,7 @@ export async function streamOrchestratorChat(
   model?: string,
   cliPath?: string,
 ): Promise<void> {
-  return invoke<void>('stream_orchestrator_chat', {
+  return invoke('stream_orchestrator_chat', {
     workspaceId,
     sessionId,
     message,
@@ -820,11 +877,11 @@ export async function cancelOrchestratorChat(
   sessionId: string,
   workspaceId: string
 ): Promise<void> {
-  return invoke<void>('cancel_orchestrator_chat', { sessionId, workspaceId })
+  return invoke('cancel_orchestrator_chat', { sessionId, workspaceId })
 }
 
 export async function resetCliSession(sessionId: string): Promise<void> {
-  return invoke<void>('reset_cli_session', { sessionId })
+  return invoke('reset_cli_session', { sessionId })
 }
 
 // ─── Voice commands ─────────────────────────────────────────────────────────
@@ -878,7 +935,7 @@ export async function downloadWhisperModel(model: string): Promise<string> {
 }
 
 export async function deleteWhisperModel(model: string): Promise<void> {
-  return invoke<void>('delete_whisper_model', { model })
+  return invoke('delete_whisper_model', { model })
 }
 
 export async function getWhisperModelInfo(model: string): Promise<WhisperModelInfo> {
@@ -900,15 +957,15 @@ export function onWhisperDownloadComplete(
 // ─── Native Audio Recording (bypasses webview limitations) ──────────────────
 
 export async function startNativeRecording(): Promise<void> {
-  return invoke<void>('start_native_recording')
+  return invoke('start_native_recording')
 }
 
 export async function stopNativeRecording(): Promise<void> {
-  return invoke<void>('stop_native_recording')
+  return invoke('stop_native_recording')
 }
 
 export async function cancelNativeRecording(): Promise<void> {
-  return invoke<void>('cancel_native_recording')
+  return invoke('cancel_native_recording')
 }
 
 export async function isNativeRecording(): Promise<boolean> {
@@ -999,7 +1056,7 @@ export async function getTaskUsageSummary(taskId: string): Promise<UsageSummary>
 }
 
 export async function clearWorkspaceUsage(workspaceId: string): Promise<void> {
-  return invoke<void>('clear_workspace_usage', { workspaceId })
+  return invoke('clear_workspace_usage', { workspaceId })
 }
 
 // ─── Session history commands ────────────────────────────────────────────────
@@ -1059,7 +1116,7 @@ export async function getTaskHistory(taskId: string): Promise<SessionSnapshot[]>
 }
 
 export async function clearSessionHistory(sessionId: string): Promise<void> {
-  return invoke<void>('clear_session_history', { sessionId })
+  return invoke('clear_session_history', { sessionId })
 }
 
 export type RestoreSnapshotParams = {
@@ -1073,8 +1130,14 @@ export type RestoreSnapshotParams = {
   currentDurationMs: number
 }
 
-export async function restoreSnapshot(params: RestoreSnapshotParams): Promise<SessionSnapshot> {
-  return invoke<SessionSnapshot>('restore_snapshot', params)
+export type RestoreResult = {
+  snapshot: SessionSnapshot
+  backupId: string
+  sessionUpdated: boolean
+}
+
+export async function restoreSnapshot(params: RestoreSnapshotParams): Promise<RestoreResult> {
+  return invoke<RestoreResult>('restore_snapshot', params)
 }
 
 // ─── Checklist commands ──────────────────────────────────────────────────────
@@ -1169,7 +1232,7 @@ export async function createWorkspaceChecklist(
 }
 
 export async function deleteWorkspaceChecklist(workspaceId: string): Promise<void> {
-  return invoke<void>('delete_workspace_checklist', { workspaceId })
+  return invoke('delete_workspace_checklist', { workspaceId })
 }
 
 export async function updateChecklistItemAutoDetect(
@@ -1185,6 +1248,19 @@ export async function linkChecklistItemToTask(
   taskId: string | null,
 ): Promise<ChecklistItem> {
   return invoke<ChecklistItem>('link_checklist_item_to_task', { itemId, taskId })
+}
+
+export type DetectionResult = {
+  itemId: string
+  detected: boolean
+  message: string | null
+}
+
+export async function runChecklistDetection(
+  workspaceId: string,
+  repoPath: string,
+): Promise<DetectionResult[]> {
+  return invoke<DetectionResult[]>('run_checklist_detection', { workspaceId, repoPath })
 }
 
 // ─── Files commands ──────────────────────────────────────────────────────────
@@ -1336,11 +1412,11 @@ export type DiscordTaskThread = {
 }
 
 export async function spawnDiscordSidecar(): Promise<void> {
-  return invoke<void>('spawn_discord_sidecar')
+  return invoke('spawn_discord_sidecar')
 }
 
 export async function killDiscordSidecar(): Promise<void> {
-  return invoke<void>('kill_discord_sidecar')
+  return invoke('kill_discord_sidecar')
 }
 
 export async function connectDiscord(
@@ -1351,7 +1427,7 @@ export async function connectDiscord(
 }
 
 export async function disconnectDiscord(): Promise<void> {
-  return invoke<void>('disconnect_discord')
+  return invoke('disconnect_discord')
 }
 
 export async function getDiscordStatus(): Promise<DiscordStatus> {
@@ -1445,7 +1521,7 @@ export async function registerDiscordThread(
   taskId: string,
   threadId: string,
 ): Promise<void> {
-  return invoke<void>('register_discord_thread', { taskId, threadId })
+  return invoke('register_discord_thread', { taskId, threadId })
 }
 
 export async function streamAgentOutput(
@@ -1453,7 +1529,7 @@ export async function streamAgentOutput(
   delta: string,
   outputType?: string,
 ): Promise<void> {
-  return invoke<void>('stream_agent_output', { taskId, delta, outputType })
+  return invoke('stream_agent_output', { taskId, delta, outputType })
 }
 
 export async function signalAgentComplete(
@@ -1463,7 +1539,7 @@ export async function signalAgentComplete(
   durationMs?: number,
   tokensUsed?: number,
 ): Promise<void> {
-  return invoke<void>('signal_agent_complete', { taskId, success, summary, durationMs, tokensUsed })
+  return invoke('signal_agent_complete', { taskId, success, summary, durationMs, tokensUsed })
 }
 
 // Discord queue status

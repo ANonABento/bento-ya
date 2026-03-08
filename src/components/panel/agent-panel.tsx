@@ -20,6 +20,7 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
   const [inputValue, setInputValue] = useState('')
   const [model, setModel] = useState<ModelId>('sonnet')
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('medium')
+  const [error, setError] = useState<string | null>(null)
 
   // Get working directory from workspace
   const workspace = useWorkspaceStore((s) =>
@@ -43,8 +44,15 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
     cliPath,
     onError: (err) => {
       console.error('[AgentPanel]', err)
+      setError(err)
     },
   })
+
+  // Clear error when user starts typing
+  const handleInputChange = (value: string) => {
+    setInputValue(value)
+    if (error) setError(null)
+  }
 
   const handleSendMessage = useCallback(async () => {
     const content = inputValue.trim()
@@ -135,9 +143,9 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
             <button
               type="button"
               onClick={() => void cancel()}
-              className="text-[10px] text-red-500 hover:text-red-400"
+              className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-medium text-red-400 hover:bg-red-500/20 transition-colors"
             >
-              Cancel
+              Stop
             </button>
           )}
           <button
@@ -150,6 +158,23 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
         </div>
       </div>
 
+      {/* Error Banner */}
+      {error && (
+        <div className="mx-3 mt-2 flex items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+            <path d="M7 1a6 6 0 100 12A6 6 0 007 1zm0 9a.75.75 0 110-1.5.75.75 0 010 1.5zm.75-3a.75.75 0 01-1.5 0V4.5a.75.75 0 011.5 0V7z"/>
+          </svg>
+          <span className="flex-1">{error}</span>
+          <button
+            type="button"
+            onClick={() => { setError(null); }}
+            className="text-red-400 hover:text-red-300"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Chat History */}
       <ChatHistory
         messages={chatMessages}
@@ -159,6 +184,21 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
         thinkingContent={streaming.thinkingContent}
         toolCalls={toolCalls}
         onCancel={streaming.isStreaming ? () => { void cancel() } : undefined}
+        emptyState={
+          <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+            <div className="rounded-full bg-surface-hover p-3">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-secondary">
+                <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <p className="text-xs text-text-secondary">
+              Start a conversation with the agent about this task.
+            </p>
+            <p className="text-[10px] text-text-secondary/60">
+              The agent can help implement, debug, or explain code.
+            </p>
+          </div>
+        }
       />
 
       {/* Input */}
@@ -174,7 +214,7 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
           <textarea
             value={inputValue}
             onChange={(e) => {
-              setInputValue(e.target.value)
+              handleInputChange(e.target.value)
             }}
             onKeyDown={handleKeyDown}
             placeholder={`Ask agent about "${task.title}"...`}

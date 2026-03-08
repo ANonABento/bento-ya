@@ -142,7 +142,7 @@ export const Column = memo(function Column({ column }: ColumnProps) {
                       ref={addTaskInputRef}
                       type="text"
                       value={newTaskTitle}
-                      onChange={(e) => setNewTaskTitle(e.target.value)}
+                      onChange={(e) => { setNewTaskTitle(e.target.value); }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') void handleSubmitTask()
                         if (e.key === 'Escape') handleCancelAddTask()
@@ -187,7 +187,7 @@ export const Column = memo(function Column({ column }: ColumnProps) {
       {showConfigDialog && (
         <ColumnConfigDialog
           column={column}
-          onClose={() => setShowConfigDialog(false)}
+          onClose={() => { setShowConfigDialog(false); }}
         />
       )}
 
@@ -195,12 +195,12 @@ export const Column = memo(function Column({ column }: ColumnProps) {
       {showDeleteConfirm && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={() => setShowDeleteConfirm(false)}
+          onClick={() => { setShowDeleteConfirm(false); }}
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); }}
             className="w-full max-w-sm rounded border border-border-default bg-surface p-6 shadow-xl"
           >
             <h3 className="mb-2 text-lg font-semibold text-text-primary">
@@ -211,7 +211,7 @@ export const Column = memo(function Column({ column }: ColumnProps) {
             </p>
             <div className="flex justify-end gap-2">
               <button
-                onClick={() => setShowDeleteConfirm(false)}
+                onClick={() => { setShowDeleteConfirm(false); }}
                 className="rounded px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
               >
                 Cancel

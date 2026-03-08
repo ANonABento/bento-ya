@@ -1,9 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import type { Task, TaskChecklistItem } from '@/types'
+import * as ipc from '@/lib/ipc'
 
 type TaskChecklistProps = {
   task: Task
   onUpdate: (checklist: TaskChecklistItem[]) => void
+  repoPath?: string | null
 }
 
 type RawChecklistItem = { id?: string; text: string; checked?: boolean }
@@ -27,13 +29,44 @@ function generateId(): string {
   return `item-${String(Date.now())}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-export function TaskChecklist({ task, onUpdate }: TaskChecklistProps) {
+export function TaskChecklist({ task, onUpdate, repoPath }: TaskChecklistProps) {
   const [items, setItems] = useState<TaskChecklistItem[]>(() => parseChecklist(task.checklist))
   const [newItemText, setNewItemText] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [generateError, setGenerateError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
+
+  const canGenerateFromPr = !!task.prNumber && !!repoPath
+
+  const handleGenerateFromPr = useCallback(async () => {
+    if (!repoPath || !task.prNumber) return
+
+    setIsGenerating(true)
+    setGenerateError(null)
+
+    try {
+      const result = await ipc.generateTestChecklist(task.id, repoPath)
+
+      // Convert generated items to TaskChecklistItem format
+      const newItems: TaskChecklistItem[] = result.items.map((item) => ({
+        id: generateId(),
+        text: item.text,
+        checked: false,
+      }))
+
+      // Merge with existing items (append to end)
+      const mergedItems = [...items, ...newItems]
+      setItems(mergedItems)
+      onUpdate(mergedItems)
+    } catch (error) {
+      setGenerateError(error instanceof Error ? error.message : 'Failed to generate checklist')
+    } finally {
+      setIsGenerating(false)
+    }
+  }, [repoPath, task.id, task.prNumber, items, onUpdate])
 
   // Sync with task checklist when it changes externally
   useEffect(() => {
@@ -228,8 +261,40 @@ export function TaskChecklist({ task, onUpdate }: TaskChecklistProps) {
         )}
       </div>
 
+      {/* Generate from PR button */}
+      {canGenerateFromPr && (
+        <div className="mt-2 pt-2 border-t border-border-default">
+          <button
+            type="button"
+            onClick={() => { void handleGenerateFromPr() }}
+            disabled={isGenerating}
+            className="flex w-full items-center justify-center gap-1.5 rounded px-2 py-1.5 text-[11px] text-accent hover:bg-accent/10 transition-colors disabled:opacity-50"
+          >
+            {isGenerating ? (
+              <>
+                <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Generating...
+              </>
+            ) : (
+              <>
+                <svg className="h-3 w-3" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 4.264 2.559a.25.25 0 0 1 0 .428l-4.264 2.559A.25.25 0 0 1 6 10.559V5.442a.25.25 0 0 1 .379-.215Z" />
+                </svg>
+                Generate from PR #{task.prNumber}
+              </>
+            )}
+          </button>
+          {generateError && (
+            <p className="mt-1 text-[10px] text-error text-center">{generateError}</p>
+          )}
+        </div>
+      )}
+
       {/* Empty state */}
-      {items.length === 0 && !newItemText && (
+      {items.length === 0 && !newItemText && !canGenerateFromPr && (
         <p className="text-[11px] text-text-secondary/60 px-1">
           Add test items to verify before advancing this task.
         </p>

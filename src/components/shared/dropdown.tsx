@@ -39,7 +39,7 @@ export function Dropdown({
 
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
+      return () => { document.removeEventListener('mousedown', handleClickOutside); }
     }
   }, [isOpen])
 
@@ -51,7 +51,7 @@ export function Dropdown({
 
     if (isOpen) {
       document.addEventListener('keydown', handleKeyDown)
-      return () => document.removeEventListener('keydown', handleKeyDown)
+      return () => { document.removeEventListener('keydown', handleKeyDown); }
     }
   }, [isOpen])
 

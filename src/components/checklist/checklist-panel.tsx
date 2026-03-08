@@ -17,14 +17,40 @@ export function ChecklistPanel() {
   const currentWorkspaceId = useChecklistStore((s) => s.currentWorkspaceId)
   const getProgress = useChecklistStore((s) => s.getProgress)
   const linkItemToTask = useChecklistStore((s) => s.linkItemToTask)
+  const runDetection = useChecklistStore((s) => s.runDetection)
   const items = useChecklistStore((s) => s.items)
 
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const workspaces = useWorkspaceStore((s) => s.workspaces)
   const columns = useColumnStore((s) => s.columns)
   const tasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
 
   const [isDetecting, setIsDetecting] = useState(false)
+  const [detectionError, setDetectionError] = useState<string | null>(null)
+
+  // Get the active workspace's repo path
+  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId)
+  const repoPath = activeWorkspace?.repoPath
+
+  // Handle auto-detect button click
+  const handleRunDetection = useCallback(async () => {
+    if (!activeWorkspaceId || !repoPath || isDetecting) return
+
+    setIsDetecting(true)
+    setDetectionError(null)
+
+    try {
+      const results = await runDetection(activeWorkspaceId, repoPath)
+      const detectedCount = results.filter((r) => r.detected).length
+      console.log(`Detection complete: ${String(detectedCount)}/${String(results.length)} items detected`)
+    } catch (error) {
+      console.error('Detection failed:', error)
+      setDetectionError(error instanceof Error ? error.message : 'Detection failed')
+    } finally {
+      setIsDetecting(false)
+    }
+  }, [activeWorkspaceId, repoPath, isDetecting, runDetection])
 
   // Handle "Fix this" button - create a task linked to the checklist item
   const handleFixThis = useCallback(async (item: ChecklistItem) => {
@@ -148,29 +174,34 @@ export function ChecklistPanel() {
               </div>
 
               {/* Auto-detect button */}
-              {detectableItemCount > 0 && (
-                <button
-                  onClick={() => { setIsDetecting(true) }}
-                  disabled={isDetecting}
-                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-accent bg-accent/10 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
-                >
-                  {isDetecting ? (
-                    <>
-                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Running detection...
-                    </>
-                  ) : (
-                    <>
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                        <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0v2.43l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389 5.5 5.5 0 0 1 9.201-2.466l.312.311h-2.433a.75.75 0 0 0 0 1.5h4.244a.75.75 0 0 0 .53-.22Z" clipRule="evenodd" />
-                      </svg>
-                      Run Auto-detect ({detectableItemCount} items)
-                    </>
+              {detectableItemCount > 0 && repoPath && (
+                <div className="mt-4">
+                  <button
+                    onClick={() => { void handleRunDetection() }}
+                    disabled={isDetecting}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-accent bg-accent/10 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+                  >
+                    {isDetecting ? (
+                      <>
+                        <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        Running detection...
+                      </>
+                    ) : (
+                      <>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                          <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0v2.43l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389 5.5 5.5 0 0 1 9.201-2.466l.312.311h-2.433a.75.75 0 0 0 0 1.5h4.244a.75.75 0 0 0 .53-.22Z" clipRule="evenodd" />
+                        </svg>
+                        Run Auto-detect ({detectableItemCount} items)
+                      </>
+                    )}
+                  </button>
+                  {detectionError && (
+                    <p className="mt-2 text-xs text-error">{detectionError}</p>
                   )}
-                </button>
+                </div>
               )}
             </div>
 

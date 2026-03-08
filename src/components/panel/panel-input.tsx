@@ -57,7 +57,7 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
     if (!trimmed || disabled) return
 
     // Get connection settings
-    const connectionMode = (anthropicProvider?.connectionMode ?? 'api') as 'api' | 'cli'
+    const connectionMode = (anthropicProvider?.connectionMode ?? 'api')
     const apiKey = settings.agent.envVars['ANTHROPIC_API_KEY'] || undefined
     const cliPath = anthropicProvider?.cliPath || 'claude'
 
@@ -116,7 +116,7 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
         <div className="relative">
           <button
             type="button"
-            onClick={() => setShowModelPicker(!showModelPicker)}
+            onClick={() => { setShowModelPicker(!showModelPicker); }}
             disabled={isProcessing}
             className="flex h-[38px] items-center gap-1.5 rounded-lg border border-border-default bg-bg px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
           >

@@ -1,6 +1,5 @@
 import { useSettingsStore } from '@/stores/settings-store'
 import { useThemeStore } from '@/stores/theme-store'
-import type { ThemePreference } from '@/lib/theme'
 import type { AppearanceConfig } from '@/types/settings'
 import { SegmentedControl } from '@/components/shared/segmented-control'
 import { AccentColorPicker } from '@/components/shared/accent-color-picker'
@@ -52,7 +51,7 @@ export function AppearanceTab() {
           options={['system', 'light', 'dark'] as const}
           value={themePreference}
           onChange={(theme) => {
-            setThemePreference(theme as ThemePreference)
+            setThemePreference(theme)
             updateAppearance({ theme })
           }}
           icons={THEME_ICONS}
@@ -65,7 +64,7 @@ export function AppearanceTab() {
         <h3 className="mb-3 text-sm font-medium text-text-primary">Accent Color</h3>
         <AccentColorPicker
           value={appearance.accentColor}
-          onChange={(color) => updateAppearance({ accentColor: color })}
+          onChange={(color) => { updateAppearance({ accentColor: color }); }}
         />
       </section>
 
@@ -75,7 +74,7 @@ export function AppearanceTab() {
         <SegmentedControl
           options={['small', 'medium', 'large'] as const}
           value={appearance.fontSize}
-          onChange={(size) => updateAppearance({ fontSize: size })}
+          onChange={(size) => { updateAppearance({ fontSize: size }); }}
           labels={FONT_SIZE_LABELS}
         />
       </section>
@@ -85,7 +84,7 @@ export function AppearanceTab() {
         <h3 className="mb-3 text-sm font-medium text-text-primary">Card Density</h3>
         <DensityPicker
           value={appearance.cardDensity}
-          onChange={(density) => updateAppearance({ cardDensity: density })}
+          onChange={(density) => { updateAppearance({ cardDensity: density }); }}
         />
       </section>
 
@@ -95,7 +94,7 @@ export function AppearanceTab() {
         <LabeledSlider
           options={['none', 'reduced', 'normal'] as const}
           value={appearance.animationSpeed}
-          onChange={(speed) => updateAppearance({ animationSpeed: speed })}
+          onChange={(speed) => { updateAppearance({ animationSpeed: speed }); }}
           labels={{ none: 'None', reduced: 'Reduced', normal: 'Normal' }}
         />
       </section>

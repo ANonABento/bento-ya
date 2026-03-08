@@ -1,6 +1,6 @@
 # Bento-ya Architecture Overview
 
-> Last updated: 2025-03-01
+> Last updated: 2025-03-05
 
 ## Overview
 
@@ -42,7 +42,7 @@ bento-ya/
 │   │   ├── templates/            # Community gallery
 │   │   ├── terminal/             # xterm.js terminal view
 │   │   └── usage/                # Metrics dashboard
-│   ├── hooks/                    # useAgent, useWorkspace, useSwipe, etc.
+│   ├── hooks/                    # useAgentSession, usePipelineEvents, useSwipe, etc.
 │   ├── lib/                      # IPC wrappers, theme, utils
 │   ├── stores/                   # Zustand stores
 │   └── types/                    # TypeScript types
@@ -61,7 +61,7 @@ bento-ya/
 │       │   ├── voice.rs          # Whisper transcription
 │       │   └── workspace.rs      # CRUD for workspaces
 │       ├── db/                   # SQLite database
-│       │   └── migrations/       # 8 migration files
+│       │   └── migrations/       # 22 migration files
 │       ├── git/                  # Git operations
 │       │   ├── branch_manager.rs
 │       │   ├── change_tracker.rs
@@ -71,6 +71,8 @@ bento-ya/
 │       │   └── triggers.rs       # Exit criteria evaluation
 │       └── process/              # Process management
 │           ├── agent_runner.rs   # Agent session lifecycle
+│           ├── agent_cli_session.rs # Per-task CLI sessions with streaming
+│           ├── cli_session.rs    # CLI session management
 │           └── pty_manager.rs    # PTY spawning and I/O
 ```
 
@@ -139,16 +141,36 @@ Automated task progression through kanban columns based on triggers.
 
 ### 4. Orchestrator/Chat
 
-Message persistence for future LLM integration.
+Chat system with LLM integration via Claude CLI subprocess.
 
 **Key Files**:
-- `src-tauri/src/commands/orchestrator.rs` - Message storage
-- `src/components/chat/chat-input.tsx` - Input UI
-- `src/stores/chat-store.ts` - Local state
+- `src-tauri/src/commands/orchestrator.rs` - Chat message storage, CLI streaming
+- `src-tauri/src/process/cli_session.rs` - Persistent CLI sessions per workspace
+- `src/components/panel/chat-panel.tsx` - Chat UI with streaming
+- `src/stores/chat-store.ts` - Message state
 
-**Current State**: Messages stored but **no LLM calls** (see T033)
+**Features**:
+- Streaming responses via `--output-format stream-json`
+- Persistent CLI sessions with `--resume` support
+- Tool use: create_task, update_task, move_task, delete_task
+- Thinking display in collapsible blocks
 
-### 5. Settings System
+### 5. Agent Chat (Per-Task)
+
+Per-task AI chat for focused work on individual tasks.
+
+**Key Files**:
+- `src-tauri/src/process/agent_cli_session.rs` - Task-scoped CLI sessions
+- `src-tauri/src/commands/agent.rs` - stream_agent_chat, cancel_agent_chat
+- `src/hooks/use-agent-session.ts` - Streaming state management
+- `src/components/panel/agent-panel.tsx` - Task chat UI
+
+**Features**:
+- Max 5 concurrent agent sessions
+- Task context in system prompt
+- Streaming with tool call tracking
+
+### 6. Settings System
 
 Six-tab settings modal with Zustand persistence to localStorage.
 
@@ -191,70 +213,68 @@ app_handle.emit(&format!("pty:{}:output", task_id), payload)?;
 
 ## Database Schema
 
-8 migrations create these tables:
+22 migrations create these tables:
 
 | Table | Purpose |
 |-------|---------|
 | workspaces | Workspace metadata + config JSON |
 | columns | Kanban columns with trigger/exit config |
-| tasks | Task cards with pipeline state |
+| tasks | Task cards with pipeline state, agent_status, queued_at |
 | agent_sessions | Agent session metadata + resumable flag |
+| agent_messages | Per-task chat history |
 | chat_messages | Orchestrator conversation history |
 | orchestrator_sessions | Chat session metadata |
-| checklists, checklist_categories, checklist_items | Production checklists |
+| cli_sessions | CLI session persistence |
 | usage_records | LLM cost tracking per task/workspace |
 | session_snapshots | History replay data |
+| discord_guild_configs | Discord integration config |
+| discord_task_threads | Discord thread mapping |
 
 ---
 
-## Wiring Status (What's Not Connected)
+## Wiring Status
 
-See `.tickets/wiring/` for detailed tickets.
-
-| Component | Current State | Needed |
-|-----------|---------------|--------|
-| **LLM Integration (T033)** | Chat stores messages, never calls LLM | Anthropic/OpenAI API calls with streaming |
-| **Pipeline Exit Criteria (T034)** | Triggers defined but not evaluated | Wire trigger → evaluation → auto-advance |
-| **Settings Backend (T038)** | localStorage only | Sync to workspace.config for per-workspace settings |
-| **Checklist Persistence (T037)** | UI works, no backend | Save to checklists tables |
-| **Metrics Collection (T036)** | Table exists, no data | Insert usage_records on LLM calls |
+| Component | Status | Notes |
+|-----------|--------|-------|
+| **LLM Integration (T033)** | ✅ COMPLETE | Claude CLI streaming, tool use, thinking display |
+| **Pipeline Exit Criteria (T034)** | ✅ COMPLETE | All 7 exit types implemented |
+| **Pipeline Triggers (T042-T044)** | ✅ COMPLETE | Agent/Script/Skill triggers with frontend event handling |
+| **Settings Backend (T038)** | ✅ COMPLETE | Workspace config synced to DB |
+| **Checklist Persistence (T037)** | ✅ COMPLETE | Task checklist JSON field |
+| **Metrics Collection (T036)** | ✅ COMPLETE | Usage records inserted |
+| **Agent Queue System** | ✅ COMPLETE | Queue with max 5 concurrent |
+| **History Replay (T035)** | ❌ TODO | Missing `restore_snapshot` command |
+| **Discord Integration** | ⚠️ STUBBED | Handler stubs exist, need implementation |
+| **Webhook Trigger** | ⚠️ STUBBED | Defined but no-op |
 
 ---
 
 ## Recent Work (March 2025)
 
-### CLI Auto-Detection
-- Added `detect_clis()` and `detect_single_cli()` commands
-- On-demand detection when selecting CLI mode in settings
-- Auto-applies detected path without manual "Use" button
+### Agent Queue System & Pipeline Wiring (2025-03-05)
+- Agent queue system with `idle`, `queued`, `running`, `completed`, `failed` statuses
+- Max 5 concurrent agents with FIFO queue ordering
+- `use-pipeline-events.ts` hook for frontend event handling
+- Pipeline triggers now work end-to-end
 
-### Terminal/Agent IPC Fix
-- Fixed parameter mismatch: JS camelCase vs Rust snake_case
-- Added `#[tauri::command(rename_all = "camelCase")]` to all commands
+### Orchestrator Intelligence (2025-03-02)
+- LLM streaming via Claude CLI subprocess
+- Tool use: create_task, update_task, move_task, delete_task
+- Persistent CLI sessions with `--resume` support
+- Thinking display in collapsible blocks
+
+### CLI Auto-Detection (2025-03-01)
+- On-demand detection of claude/codex CLI paths
+- Auto-applies detected path in settings
+
+### Terminal/Agent IPC Fix (2025-03-01)
+- Fixed parameter naming mismatch (JS camelCase vs Rust snake_case)
 - Made `start_agent` async to fix Tokio runtime panic
-- Terminal now working end-to-end
-
-### Settings UI/UX
-- Toggle switches instead of checkboxes for provider enable/disable
-- Removed per-provider default model (orchestrator handles it)
-- Removed unused instructions file field
-- Default max concurrent agents: 10
-- "Coming Soon" section collapsed by default
 
 ---
 
 ## Next Priorities
 
-1. **T033: LLM Integration** - Core blocker for all AI features
-   - Anthropic streaming API
-   - CLI fallback for complex agents
-   - Token/cost tracking
-
-2. **v0.4: Siege Loop** - PR workflow automation
-   - T024: PR creation from Review column
-   - T025: Comment-watch loop
-   - T028: Checklist auto-detect
-
-3. **Wiring Tickets** - Connect existing UI to backend
-   - T038: Settings backend sync
-   - T034: Pipeline exit criteria evaluation
+1. **History Replay (T035)** - Add `restore_snapshot` command
+2. **Discord Integration** - Implement handler stubs
+3. **v0.4 Siege completion** - T026 (test checklists), T027 (notifications), T028 (auto-detect)

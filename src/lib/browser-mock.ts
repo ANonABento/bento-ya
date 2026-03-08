@@ -73,6 +73,7 @@ let mockTasks: Task[] = [
     checklist: null,
     notifyStakeholders: null,
     notificationSentAt: null,
+    queuedAt: null,
     position: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -216,6 +217,7 @@ const mockCommands: Record<string, CommandHandler> = {
       checklist: null,
       notifyStakeholders: null,
       notificationSentAt: null,
+      queuedAt: null,
       position: mockTasks.filter(t => t.columnId === args?.columnId).length,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -410,8 +412,10 @@ export async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>)
 
 type UnlistenFn = () => void
 
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- T needed for type compatibility with real listen
 export function mockListen<T>(
   _event: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _handler: (payload: T) => void
 ): Promise<UnlistenFn> {
   // In browser mode, events are not supported
@@ -474,6 +478,7 @@ export function resetMockData() {
       checklist: null,
       notifyStakeholders: null,
       notificationSentAt: null,
+      queuedAt: null,
       position: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -510,6 +515,7 @@ export function resetMockData() {
       checklist: null,
       notifyStakeholders: null,
       notificationSentAt: null,
+      queuedAt: null,
       position: 0,
       createdAt: new Date(Date.now() - 3600000).toISOString(),
       updatedAt: new Date(Date.now() - 1800000).toISOString(),
@@ -546,6 +552,7 @@ export function resetMockData() {
       checklist: null,
       notifyStakeholders: null,
       notificationSentAt: null,
+      queuedAt: null,
       position: 1,
       createdAt: new Date(Date.now() - 86400000).toISOString(),
       updatedAt: new Date(Date.now() - 7200000).toISOString(),

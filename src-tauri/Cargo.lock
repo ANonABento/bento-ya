@@ -165,6 +165,7 @@ dependencies = [
  "cpal",
  "futures",
  "git2",
+ "glob",
  "hound",
  "log",
  "portable-pty",

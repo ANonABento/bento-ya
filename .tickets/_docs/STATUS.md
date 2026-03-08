@@ -1,6 +1,6 @@
 # Bento-ya Implementation Status
 
-> Last updated: 2025-03-02
+> Last updated: 2025-03-05 (evening session)
 >
 > See also: [ARCHITECTURE.md](./ARCHITECTURE.md) for system overview
 
@@ -11,7 +11,7 @@
 | v0.1 | 13/13 | 0 | **COMPLETE** |
 | v0.2 | 5/5 | 0 | **COMPLETE** |
 | v0.3 | 5/5 | 0 | **COMPLETE** |
-| v0.4 | 0/5 | 5 | **NOT STARTED** |
+| v0.4 | 5/5 | 0 | **COMPLETE** |
 | v1.0 | 4/4 | 0 | **COMPLETE** |
 
 ---
@@ -73,9 +73,9 @@
 |----|-------|--------|------------|
 | T024 | PR Creation from Review Column | ✅ **COMPLETE** | M |
 | T025 | Siege Loop (Comment-Watch) | ✅ **COMPLETE** | L |
-| T026 | Manual Test Checklist Generation | ❌ TODO | M |
-| T027 | Notification Column | ❌ TODO | S |
-| T028 | Checklist Auto-Detect & Fix-This | ❌ TODO | M |
+| T026 | Manual Test Checklist Generation | ✅ **COMPLETE** | M |
+| T027 | Notification Column | ✅ **COMPLETE** | S |
+| T028 | Checklist Auto-Detect & Fix-This | ✅ **COMPLETE** | M |
 
 ---
 
@@ -88,6 +88,9 @@
 | Conflict Heatmap | Visual git conflict detection across branches | `src/components/git/conflict-heatmap.tsx` |
 | Swipe Navigation | Mobile-friendly workspace switching | `src/hooks/use-swipe.ts` |
 | CLI Auto-Detection | Detect claude/codex CLI paths automatically | `src-tauri/src/commands/cli_detect.rs` |
+| Agent Queue System | Queue tasks for parallel agent execution (max 5) | `agent_status`, `queued_at` fields, queue commands |
+| Agent Streaming Chat | Per-task CLI sessions with streaming responses | `AgentCliSessionManager`, `use-agent-session.ts` |
+| Pipeline Event Wiring | Frontend subscribes to spawn events, fires triggers | `use-pipeline-events.ts` hook |
 
 ---
 
@@ -99,7 +102,7 @@ These tickets track work needed to connect existing UI to functional backends:
 |----|-------|--------|------------|
 | T033 | LLM Integration (Anthropic/OpenAI) | ✅ **COMPLETE** | XL |
 | T034 | Pipeline Exit Criteria Evaluation | ✅ **COMPLETE** | L |
-| T035 | History Replay Backend | ❌ Missing `restore_snapshot` | M |
+| T035 | History Replay Backend | ✅ **COMPLETE** | M |
 | T036 | Metrics Data Collection | ✅ **COMPLETE** | S |
 | T037 | Checklist Persistence | ✅ **COMPLETE** | M |
 | T038 | Settings Backend Sync | ✅ **COMPLETE** | M |
@@ -113,9 +116,41 @@ These tickets track work needed to connect existing UI to functional backends:
 
 **Verified 2025-03-02**: Massive wiring session completed - T034, T037-T044 all implemented.
 
+**Updated 2025-03-05**: Pipeline trigger frontend event handling added (`use-pipeline-events.ts`). Triggers now fire end-to-end.
+
 ---
 
 ## Recent Work (March 2025)
+
+### v0.4 & Wiring Completion (2025-03-05 Evening)
+- **T035 History Replay**: Added `restore_snapshot` command that actually restores session scrollback
+- **T026 Test Checklist Generation**: Added `generate_test_checklist` command that calls `gh pr diff` + Claude CLI to generate test items from PR changes
+- **T027 Notification Column**: Added `notification_sent` exit type, pipeline evaluation, and Full CI Pipeline template with Notify column
+- **T028 Checklist Auto-Detect**: Added `run_checklist_detection` command with 4 detection types:
+  - `file-exists`: Check if files matching glob pattern exist
+  - `file-absent`: Check if files are correctly absent
+  - `file-contains`: Check if file contains specific content
+  - `command-succeeds`: Run shell command and check exit code
+- **Discord Integration**: Refactored handlers to async with full agent support:
+  - `agent:send_message` - Send messages to active agent sessions
+  - `agent:start` - Start new agent sessions for tasks
+  - `agent:resume` - Resume agent sessions with `--resume` flag
+  - `chef:message` - Route natural language messages to Chef orchestrator
+  - Added `CommandContext` struct to pass `AppState`, `AgentCliSessionManager`, and `AppHandle`
+
+### Agent Queue System & Pipeline Wiring (2025-03-05)
+- **Agent Queue System**: Tasks can be queued for parallel agent execution
+  - New `agent_status` field: `idle`, `queued`, `running`, `completed`, `failed`, `stopped`, `needs_attention`
+  - New `queued_at` timestamp for FIFO ordering
+  - `MAX_CONCURRENT_AGENTS = 5` limit
+  - IPC: `queueAgentTasks`, `getQueueStatus`, `getNextQueuedTask`, `updateTaskAgentStatus`
+  - UI: Task cards show "Queued..." indicator with warning color
+- **Pipeline Event Wiring**: Frontend now subscribes to spawn events
+  - Created `use-pipeline-events.ts` hook
+  - Listens for `pipeline:spawn_agent`, `pipeline:spawn_script`, `pipeline:spawn_skill`
+  - Calls `fireAgentTrigger()`, `fireScriptTrigger()`, `fireSkillTrigger()` IPC functions
+  - Pipeline triggers now work end-to-end (previously backend emitted events but frontend didn't listen)
+- **Codebase Cleanup**: Deleted 652 LOC of legacy code, removed unused IPC aliases
 
 ### Orchestrator Intelligence - T033 & T039 (2025-03-02)
 - **LLM Streaming**: Both API mode (direct Anthropic) and CLI mode (Claude CLI subprocess)
@@ -154,46 +189,42 @@ These tickets track work needed to connect existing UI to functional backends:
 
 ## Database Migrations
 
-| # | File | Tables Created |
-|---|------|----------------|
-| 001 | initial.sql | workspaces, columns, tasks |
-| 002 | column_config.sql | Column trigger/exit config fields |
-| 003 | pipeline_state.sql | Task pipeline state fields |
-| 004 | agent_sessions.sql | agent_sessions |
-| 005 | orchestrator.sql | chat_messages, orchestrator_sessions |
-| 006 | checklists.sql | checklists, checklist_categories, checklist_items |
-| 007 | cost_tracking.sql | usage_records |
-| 008 | session_history.sql | session_snapshots |
+| # | File | Description |
+|---|------|-------------|
+| 001 | initial.sql | workspaces, columns, tasks, agent_sessions, _migrations |
+| 002 | column_config.sql | Column trigger/exit config fields, icon, auto_advance |
+| 003 | pipeline_state.sql | Task pipeline_state, triggered_at, error, agent_session_id |
+| 004 | chat_messages.sql | chat_messages table |
+| 005 | checklists.sql | Task checklist JSON field |
+| 006 | session_resume.sql | Agent session resumable, cli_session_id, model, effort_level |
+| 007 | cost_tracking.sql | usage_records table |
+| 008 | session_history.sql | session_snapshots table |
+| 009 | chat_sessions.sql | orchestrator_sessions, chat_messages workspace_id |
+| 010 | cli_sessions.sql | cli_sessions table |
+| 011 | workspace_config.sql | Workspace config JSON field |
+| 012 | task_agent_session.sql | Task agent_session_id field |
+| 013 | task_script_exit_code.sql | Task last_script_exit_code field |
+| 014 | review_status.sql | Task review_status field |
+| 015 | pr_fields.sql | Task pr_number, pr_url fields |
+| 016 | siege_fields.sql | Task siege_iteration, siege_active, siege_max_iterations |
+| 017 | pr_status_fields.sql | Task PR/CI status fields (mergeable, ci_status, review_decision, etc.) |
+| 018 | discord_integration.sql | Discord guild_configs, task_threads tables |
+| 019 | discord_agent_routes.sql | Discord agent routing config |
+| 020 | notify_fields.sql | Task notify_stakeholders, notification_sent_at fields |
+| 021 | agent_messages.sql | agent_messages table for per-task chat history |
+| 022 | agent_queue.sql | Task agent_status, queued_at fields with index |
 
 ---
 
 ## Next Steps (Priority Order)
 
-See [OVERNIGHT-PLAN.md](./OVERNIGHT-PLAN.md) for detailed execution plan.
+### All Core Features Complete! 🎉
 
-### Phase 1: Foundation (Independent)
+v0.1–v0.4 and v1.0 are all complete. Remaining polish work:
 
-1. **T037: Checklist Persistence** - Sync checklist state to backend on toggle/notes change
-2. **T038: Settings Backend Sync** - Store workspace settings in DB, not just localStorage
-3. **T040: Files Sidebar** - Scan workspace for .md files, display in Chef sidebar
+### Integration Polish
 
-### Phase 2: Trigger Execution (Core Pipeline)
-
-4. **T042: Agent Trigger Execution** - Spawn agents when task enters column with agent trigger
-5. **T043: Script Trigger Executor** - Run scripts with exit code tracking
-6. **T044: Skill Trigger Executor** - Execute skills via Claude CLI
-
-### Phase 3: Exit Criteria (Auto-Advance)
-
-7. **T034: Pipeline Exit Criteria** - Implement `agent_complete`, `script_success`, `checklist_done`, etc.
-8. **T041: Review Actions** - Wire approve/reject buttons to pipeline state machine
-
-### Phase 4: PR Workflow (Siege)
-
-9. **T024: PR Creation** - Create GitHub PR from Review column task
-10. **T025: Siege Loop** - Watch PR comments, auto-fix, loop until approved
-
-### Future
-
-11. **T035: History Replay** - Add `restore_snapshot` command to actually restore board state
-12. **T026: Manual Test Checklist** - Generate test checklists from PR changes
+- **Discord Integration**: ✅ Async agent handlers implemented - can now send messages, start/resume agents, and route Chef messages via Discord
+- **Webhook Trigger**: Defined but stubbed (fire-and-forget placeholder)
+- **Pipeline UI Visualization**: Task cards don't prominently show pipeline state/error
+- **Agent Streaming**: Per-task CLI sessions implemented, minor polish opportunities

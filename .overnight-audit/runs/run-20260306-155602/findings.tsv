@@ -1,0 +1,3 @@
+category	file	line	snippet	severity	priority
+CHECK_FAIL_lint	CHECK:lint	0	Check command failed in 4.00 seconds	P0	0
+CHECK_FAIL_type-check	CHECK:type-check	0	Check command failed in 1.00 seconds	P0	0

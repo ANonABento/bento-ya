@@ -4,6 +4,7 @@ import { initializeTheme } from '@/lib/theme'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { usePrStatusPolling } from '@/hooks/use-pr-status-polling'
+import { usePipelineEvents } from '@/hooks/use-pipeline-events'
 import { Board } from '@/components/layout/board'
 import { WorkspaceSetup } from '@/components/layout/workspace-setup'
 import { TabBar } from '@/components/layout/tab-bar'
@@ -28,6 +29,14 @@ function App() {
 
   // PR status polling (auto-refreshes PR status for tasks with PRs)
   usePrStatusPolling({ enabled: !!activeWorkspaceId })
+
+  // Pipeline events (handles spawn triggers from backend)
+  usePipelineEvents({
+    enabled: !!activeWorkspaceId,
+    onError: (err, taskId) => {
+      console.error(`Pipeline error for task ${taskId}:`, err)
+    },
+  })
 
   useEffect(() => {
     const cleanup = initializeTheme()

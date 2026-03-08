@@ -192,3 +192,180 @@ pub fn link_checklist_item_to_task(
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::link_checklist_item_to_task(&conn, &item_id, task_id.as_deref())?)
 }
+
+// ─── Auto-Detection ───────────────────────────────────────────────────────────
+
+/// Result of running detection on a checklist item
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectionResult {
+    pub item_id: String,
+    pub detected: bool,
+    pub message: Option<String>,
+}
+
+/// Run auto-detection on all checklist items with detection configured
+#[tauri::command(rename_all = "camelCase")]
+pub async fn run_checklist_detection(
+    state: State<'_, AppState>,
+    workspace_id: String,
+    repo_path: String,
+) -> Result<Vec<DetectionResult>, AppError> {
+    use std::process::Command;
+    use glob::glob;
+
+    // Get all checklist items with detection configured
+    let items = {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        // Get the workspace's checklist
+        let checklist = db::get_workspace_checklist(&conn, &workspace_id)?;
+        let Some(cl) = checklist else {
+            return Ok(vec![]);
+        };
+
+        // Get all categories and items
+        let categories = db::list_checklist_categories(&conn, &cl.id)?;
+        let mut all_items = vec![];
+        for cat in &categories {
+            let items = db::list_checklist_items(&conn, &cat.id)?;
+            all_items.extend(items);
+        }
+        all_items
+    };
+
+    // Filter to items with detection configured
+    let detectable: Vec<_> = items
+        .into_iter()
+        .filter(|item| item.detect_type.is_some() && item.detect_type.as_deref() != Some("none"))
+        .collect();
+
+    if detectable.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut results = vec![];
+
+    for item in detectable {
+        let detect_type = item.detect_type.as_deref().unwrap_or("none");
+        let detect_config: Option<serde_json::Value> = item.detect_config
+            .as_ref()
+            .and_then(|s| serde_json::from_str(s).ok());
+
+        let (detected, message) = match detect_type {
+            "file-exists" => {
+                let pattern = detect_config
+                    .as_ref()
+                    .and_then(|c| c.get("pattern"))
+                    .and_then(|p| p.as_str())
+                    .unwrap_or("*");
+
+                let full_pattern = format!("{}/{}", repo_path, pattern);
+                let found = glob(&full_pattern)
+                    .map(|mut paths: glob::Paths| paths.next().is_some())
+                    .unwrap_or(false);
+
+                (found, if found {
+                    Some(format!("Found: {}", pattern))
+                } else {
+                    Some(format!("Not found: {}", pattern))
+                })
+            }
+            "file-absent" => {
+                let pattern = detect_config
+                    .as_ref()
+                    .and_then(|c| c.get("pattern"))
+                    .and_then(|p| p.as_str())
+                    .unwrap_or("*");
+
+                let full_pattern = format!("{}/{}", repo_path, pattern);
+                let found = glob(&full_pattern)
+                    .map(|mut paths: glob::Paths| paths.next().is_some())
+                    .unwrap_or(false);
+
+                (!found, if found {
+                    Some(format!("Found (should be absent): {}", pattern))
+                } else {
+                    Some(format!("Correctly absent: {}", pattern))
+                })
+            }
+            "file-contains" => {
+                let pattern = detect_config
+                    .as_ref()
+                    .and_then(|c| c.get("pattern"))
+                    .and_then(|p| p.as_str())
+                    .unwrap_or("*");
+                let content = detect_config
+                    .as_ref()
+                    .and_then(|c| c.get("content"))
+                    .and_then(|p| p.as_str())
+                    .unwrap_or("");
+
+                // Find first matching file and check content
+                let full_pattern = format!("{}/{}", repo_path, pattern);
+                let file_path = glob(&full_pattern)
+                    .ok()
+                    .and_then(|mut paths| paths.next())
+                    .and_then(|p| p.ok());
+
+                let found = if let Some(path) = file_path {
+                    std::fs::read_to_string(&path)
+                        .map(|contents| contents.contains(content))
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+
+                (found, if found {
+                    Some(format!("Found '{}' in {}", content, pattern))
+                } else {
+                    Some(format!("Not found '{}' in {}", content, pattern))
+                })
+            }
+            "command-succeeds" => {
+                let command = detect_config
+                    .as_ref()
+                    .and_then(|c| c.get("command"))
+                    .and_then(|p| p.as_str())
+                    .unwrap_or("true");
+
+                // Run command in a blocking thread
+                let repo_path_clone = repo_path.clone();
+                let command_clone = command.to_string();
+                let result = tokio::task::spawn_blocking(move || {
+                    Command::new("sh")
+                        .args(["-c", &command_clone])
+                        .current_dir(&repo_path_clone)
+                        .output()
+                }).await;
+
+                match result {
+                    Ok(Ok(output)) => {
+                        let success = output.status.success();
+                        (success, if success {
+                            Some(format!("Command succeeded: {}", command))
+                        } else {
+                            Some(format!("Command failed: {}", command))
+                        })
+                    }
+                    _ => (false, Some(format!("Command error: {}", command)))
+                }
+            }
+            _ => (false, Some("Unknown detection type".to_string()))
+        };
+
+        // Update item in database if detection status changed
+        if detected != item.auto_detected {
+            let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            db::update_checklist_item_auto_detect(&conn, &item.id, detected, detected)?;
+        }
+
+        results.push(DetectionResult {
+            item_id: item.id,
+            detected,
+            message,
+        });
+    }
+
+    Ok(results)
+}

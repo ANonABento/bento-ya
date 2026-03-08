@@ -24,7 +24,7 @@ export function DensityPicker({ value, onChange }: DensityPickerProps) {
         return (
           <button
             key={density.id}
-            onClick={() => onChange(density.id)}
+            onClick={() => { onChange(density.id); }}
             className={`flex flex-col items-center gap-1.5 rounded-md px-3 py-2 transition-all ${
               isSelected
                 ? 'bg-accent text-bg'

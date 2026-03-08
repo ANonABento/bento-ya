@@ -438,3 +438,182 @@ pub fn clear_task_notification_sent(
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::clear_task_notification_sent(&conn, &id)?)
 }
+
+// ─── Test Checklist Generation ────────────────────────────────────────────────
+
+/// Generated test checklist item
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeneratedTestItem {
+    pub text: String,
+}
+
+/// Result of test checklist generation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateTestChecklistResult {
+    pub items: Vec<GeneratedTestItem>,
+    pub diff_summary: String,
+}
+
+/// Generate test checklist items from PR diff using Claude CLI
+#[tauri::command(rename_all = "camelCase")]
+pub async fn generate_test_checklist(
+    state: State<'_, AppState>,
+    task_id: String,
+    repo_path: String,
+    cli_path: Option<String>,
+) -> Result<GenerateTestChecklistResult, AppError> {
+    // Get task to check PR number
+    let pr_number = {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let task = db::get_task(&conn, &task_id)?;
+        task.pr_number.ok_or_else(|| AppError::InvalidInput(
+            "Task has no PR associated".to_string()
+        ))?
+    };
+
+    // Get PR diff using gh CLI
+    let diff = tokio::task::spawn_blocking({
+        let repo_path = repo_path.clone();
+        move || -> Result<String, AppError> {
+            let output = Command::new("gh")
+                .args(["pr", "diff", &pr_number.to_string()])
+                .current_dir(&repo_path)
+                .output()
+                .map_err(|e| AppError::CommandError(format!("Failed to run gh CLI: {}", e)))?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(AppError::CommandError(format!("gh pr diff failed: {}", stderr)));
+            }
+
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        }
+    })
+    .await
+    .map_err(|e| AppError::CommandError(format!("Task join error: {}", e)))??;
+
+    // Truncate diff if too long (keep first 10KB)
+    let truncated_diff = if diff.len() > 10000 {
+        format!("{}...\n\n[Diff truncated - {} more bytes]", &diff[..10000], diff.len() - 10000)
+    } else {
+        diff.clone()
+    };
+
+    // Create prompt for Claude
+    let prompt = format!(
+        r#"Analyze this PR diff and generate a concise list of manual test items. Focus on user-facing changes that need verification.
+
+Rules:
+- Each item should be actionable and specific
+- Focus on what to test, not how
+- Include edge cases for changed functionality
+- Keep items short (under 80 chars)
+- Return 3-8 items max
+- Format: JSON array of objects with "text" field
+
+Example output:
+[
+  {{"text": "Verify login works with valid credentials"}},
+  {{"text": "Test error message when password is incorrect"}},
+  {{"text": "Check session persists after page refresh"}}
+]
+
+PR Diff:
+```
+{}
+```
+
+Return ONLY the JSON array, no other text."#,
+        truncated_diff
+    );
+
+    // Call Claude CLI to generate test items
+    let cli = cli_path.unwrap_or_else(|| "claude".to_string());
+    let items = tokio::task::spawn_blocking({
+        let cli = cli.clone();
+        let repo_path = repo_path.clone();
+        move || -> Result<Vec<GeneratedTestItem>, AppError> {
+            let output = Command::new(&cli)
+                .args([
+                    "--print",
+                    "--output-format", "text",
+                    "-p", &prompt,
+                ])
+                .current_dir(&repo_path)
+                .output()
+                .map_err(|e| AppError::CommandError(format!("Failed to run Claude CLI: {}", e)))?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(AppError::CommandError(format!("Claude CLI failed: {}", stderr)));
+            }
+
+            let stdout = String::from_utf8_lossy(&output.stdout);
+
+            // Extract JSON from response (may have markdown code blocks)
+            let json_str = stdout
+                .trim()
+                .trim_start_matches("```json")
+                .trim_start_matches("```")
+                .trim_end_matches("```")
+                .trim();
+
+            // Parse JSON array
+            let items: Vec<GeneratedTestItem> = serde_json::from_str(json_str)
+                .map_err(|e| AppError::CommandError(format!(
+                    "Failed to parse Claude response as JSON: {}. Response was: {}",
+                    e, json_str
+                )))?;
+
+            Ok(items)
+        }
+    })
+    .await
+    .map_err(|e| AppError::CommandError(format!("Task join error: {}", e)))??;
+
+    // Generate a brief summary of the diff
+    let files_changed: Vec<&str> = diff
+        .lines()
+        .filter(|l| l.starts_with("diff --git"))
+        .filter_map(|l| l.split(' ').last())
+        .take(5)
+        .collect();
+
+    let diff_summary = if files_changed.is_empty() {
+        "No files changed".to_string()
+    } else {
+        format!("{} files: {}", files_changed.len(), files_changed.join(", "))
+    };
+
+    Ok(GenerateTestChecklistResult {
+        items,
+        diff_summary,
+    })
+}
+
+/// Retry a failed pipeline trigger
+/// Clears the error and re-fires the column trigger
+#[tauri::command(rename_all = "camelCase")]
+pub fn retry_pipeline(
+    app: AppHandle,
+    state: State<AppState>,
+    task_id: String,
+) -> Result<Task, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    // Get the task
+    let task = db::get_task(&conn, &task_id)?;
+
+    // Get the current column
+    let column = db::get_column(&conn, &task.column_id)?;
+
+    // Clear the error and reset state to idle
+    db::update_task_pipeline_state(&conn, &task_id, "idle", None, None)?;
+
+    // Re-fire the trigger
+    let task = db::get_task(&conn, &task_id)?;
+    let task = pipeline::fire_trigger(&conn, &app, &task, &column)?;
+
+    Ok(task)
+}

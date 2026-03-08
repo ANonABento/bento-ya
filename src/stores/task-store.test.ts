@@ -48,6 +48,7 @@ const createMockTask = (overrides: Partial<Task> = {}): Task => ({
   siegeActive: false,
   siegeMaxIterations: 3,
   siegeLastChecked: null,
+  queuedAt: null,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
   ...overrides,

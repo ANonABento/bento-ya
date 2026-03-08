@@ -6,6 +6,7 @@
 
 use crate::db::{self, Column, Task};
 use crate::error::AppError;
+use chrono::Utc;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -126,6 +127,22 @@ pub struct SpawnSkillEvent {
     pub flags: Option<Vec<String>>,
 }
 
+/// Payload sent to webhook URLs
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookPayload {
+    pub event: String,
+    pub task_id: String,
+    pub task_title: String,
+    pub task_description: Option<String>,
+    pub column_id: String,
+    pub column_name: String,
+    pub workspace_id: String,
+    pub pr_number: Option<i64>,
+    pub pr_url: Option<String>,
+    pub timestamp: String,
+}
+
 // ─── Pipeline Engine ────────────────────────────────────────────────────────
 
 /// Fire the column trigger when a task enters.
@@ -223,7 +240,49 @@ pub fn fire_trigger(
             Ok(updated_task)
         }
         "webhook" => {
-            // Webhooks are fire-and-forget
+            // Fire webhook - HTTP POST to configured URL
+            if let Some(webhook_url) = &trigger.config.webhook {
+                let payload = WebhookPayload {
+                    event: "task_entered_column".to_string(),
+                    task_id: task.id.clone(),
+                    task_title: task.title.clone(),
+                    task_description: task.description.clone(),
+                    column_id: column.id.clone(),
+                    column_name: column.name.clone(),
+                    workspace_id: task.workspace_id.clone(),
+                    pr_number: task.pr_number,
+                    pr_url: task.pr_url.clone(),
+                    timestamp: Utc::now().to_rfc3339(),
+                };
+
+                // Fire and forget - spawn async task
+                let url = webhook_url.clone();
+                tokio::spawn(async move {
+                    let client = reqwest::Client::new();
+                    match client
+                        .post(&url)
+                        .header("Content-Type", "application/json")
+                        .header("User-Agent", "Bento-ya/1.0")
+                        .json(&payload)
+                        .timeout(std::time::Duration::from_secs(30))
+                        .send()
+                        .await
+                    {
+                        Ok(response) => {
+                            if !response.status().is_success() {
+                                eprintln!(
+                                    "Webhook failed: {} - {}",
+                                    url,
+                                    response.status()
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Webhook error: {} - {}", url, e);
+                        }
+                    }
+                });
+            }
             Ok(updated_task)
         }
         _ => {
@@ -378,6 +437,10 @@ pub fn evaluate_exit_criteria(
         "manual_approval" => {
             // Check if review_status is "approved"
             task.review_status.as_deref() == Some("approved")
+        }
+        "notification_sent" => {
+            // Check if notification has been marked as sent
+            task.notification_sent_at.is_some()
         }
         _ => false,
     };

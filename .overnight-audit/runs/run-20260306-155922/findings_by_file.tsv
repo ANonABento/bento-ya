@@ -1,0 +1,4 @@
+1	src/lib/ipc.ts
+1	src/components/panel/agent-panel.tsx
+1	CHECK:type-check
+1	CHECK:lint

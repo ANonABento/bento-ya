@@ -11,7 +11,7 @@
  */
 export function formatDuration(ms: number): string {
   if (ms < 1000) {
-    return `${Math.round(ms)}ms`
+    return `${String(Math.round(ms))}ms`
   }
 
   const seconds = Math.floor(ms / 1000)
@@ -20,24 +20,24 @@ export function formatDuration(ms: number): string {
     if (decimal > 0 && seconds < 10) {
       return `${(ms / 1000).toFixed(1)}s`
     }
-    return `${seconds}s`
+    return `${String(seconds)}s`
   }
 
   const minutes = Math.floor(seconds / 60)
   const remainingSeconds = seconds % 60
   if (minutes < 60) {
     if (remainingSeconds > 0) {
-      return `${minutes}m ${remainingSeconds}s`
+      return `${String(minutes)}m ${String(remainingSeconds)}s`
     }
-    return `${minutes}m`
+    return `${String(minutes)}m`
   }
 
   const hours = Math.floor(minutes / 60)
   const remainingMinutes = minutes % 60
   if (remainingMinutes > 0) {
-    return `${hours}h ${remainingMinutes}m`
+    return `${String(hours)}h ${String(remainingMinutes)}m`
   }
-  return `${hours}h`
+  return `${String(hours)}h`
 }
 
 /**
@@ -61,13 +61,13 @@ export function formatRelativeTime(dateStr: string): string {
     return 'now'
   }
   if (diffMinutes < 60) {
-    return `${diffMinutes}m`
+    return `${String(diffMinutes)}m`
   }
   if (diffHours < 24) {
-    return `${diffHours}h`
+    return `${String(diffHours)}h`
   }
   if (diffDays < 7) {
-    return `${diffDays}d`
+    return `${String(diffDays)}d`
   }
 
   // For older dates, show "Jan 5" format

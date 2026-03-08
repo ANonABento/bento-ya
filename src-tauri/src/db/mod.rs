@@ -87,6 +87,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("019_discord_agent_routes", include_str!("migrations/019_discord_agent_routes.sql")),
         ("020_notify_fields", include_str!("migrations/020_notify_fields.sql")),
         ("021_agent_messages", include_str!("migrations/021_agent_messages.sql")),
+        ("022_agent_queue", include_str!("migrations/022_agent_queue.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -166,6 +167,8 @@ pub struct Task {
     pub position: i64,
     pub priority: String,
     pub agent_mode: Option<String>,
+    pub agent_status: Option<String>,
+    pub queued_at: Option<String>,
     pub branch_name: Option<String>,
     pub files_touched: String,
     pub checklist: Option<String>,
@@ -459,7 +462,7 @@ pub fn insert_task(
 
 pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
     conn.query_row(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, created_at, updated_at FROM tasks WHERE id = ?1",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, created_at, updated_at, agent_status, queued_at FROM tasks WHERE id = ?1",
         params![id],
         |row| {
             Ok(Task {
@@ -471,6 +474,8 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
                 position: row.get(5)?,
                 priority: row.get(6)?,
                 agent_mode: row.get(7)?,
+                agent_status: row.get(35)?,
+                queued_at: row.get(36)?,
                 branch_name: row.get(8)?,
                 files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
                 checklist: row.get(10)?,
@@ -505,7 +510,7 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
 
 pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, created_at, updated_at FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, created_at, updated_at, agent_status, queued_at FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
     )?;
     let rows = stmt.query_map(params![workspace_id], |row| {
         Ok(Task {
@@ -517,6 +522,8 @@ pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>>
             position: row.get(5)?,
             priority: row.get(6)?,
             agent_mode: row.get(7)?,
+            agent_status: row.get(35)?,
+            queued_at: row.get(36)?,
             branch_name: row.get(8)?,
             files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
             checklist: row.get(10)?,
@@ -593,7 +600,7 @@ pub fn delete_task(conn: &Connection, id: &str) -> SqlResult<()> {
 /// List tasks by column ID
 pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, created_at, updated_at FROM tasks WHERE column_id = ?1 ORDER BY position",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, created_at, updated_at, agent_status, queued_at FROM tasks WHERE column_id = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map(params![column_id], |row| {
         Ok(Task {
@@ -605,6 +612,8 @@ pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec
             position: row.get(5)?,
             priority: row.get(6)?,
             agent_mode: row.get(7)?,
+            agent_status: row.get(35)?,
+            queued_at: row.get(36)?,
             branch_name: row.get(8)?,
             files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
             checklist: row.get(10)?,
@@ -707,6 +716,79 @@ pub fn update_task_branch(
         params![branch_name, ts, id],
     )?;
     get_task(conn, id)
+}
+
+/// Update agent_status and optionally queued_at for a task
+pub fn update_task_agent_status(
+    conn: &Connection,
+    id: &str,
+    agent_status: Option<&str>,
+    queued_at: Option<&str>,
+) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET agent_status = ?1, queued_at = ?2, updated_at = ?3 WHERE id = ?4",
+        params![agent_status, queued_at, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Get tasks with agent_status = 'queued' ordered by queued_at (oldest first)
+pub fn get_queued_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, created_at, updated_at, agent_status, queued_at FROM tasks WHERE workspace_id = ?1 AND agent_status = 'queued' ORDER BY queued_at ASC",
+    )?;
+    let rows = stmt.query_map(params![workspace_id], |row| {
+        Ok(Task {
+            id: row.get(0)?,
+            workspace_id: row.get(1)?,
+            column_id: row.get(2)?,
+            title: row.get(3)?,
+            description: row.get(4)?,
+            position: row.get(5)?,
+            priority: row.get(6)?,
+            agent_mode: row.get(7)?,
+            agent_status: row.get(35)?,
+            queued_at: row.get(36)?,
+            branch_name: row.get(8)?,
+            files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
+            checklist: row.get(10)?,
+            pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()),
+            pipeline_triggered_at: row.get(12)?,
+            pipeline_error: row.get(13)?,
+            agent_session_id: row.get(14)?,
+            last_script_exit_code: row.get(15)?,
+            review_status: row.get(16)?,
+            pr_number: row.get(17)?,
+            pr_url: row.get(18)?,
+            siege_iteration: row.get::<_, Option<i64>>(19)?.unwrap_or(0),
+            siege_active: row.get::<_, Option<i64>>(20)?.unwrap_or(0) != 0,
+            siege_max_iterations: row.get::<_, Option<i64>>(21)?.unwrap_or(5),
+            siege_last_checked: row.get(22)?,
+            pr_mergeable: row.get(23)?,
+            pr_ci_status: row.get(24)?,
+            pr_review_decision: row.get(25)?,
+            pr_comment_count: row.get::<_, Option<i64>>(26)?.unwrap_or(0),
+            pr_is_draft: row.get::<_, Option<i64>>(27)?.unwrap_or(0) != 0,
+            pr_labels: row.get::<_, Option<String>>(28)?.unwrap_or_else(|| "[]".to_string()),
+            pr_last_fetched: row.get(29)?,
+            pr_head_sha: row.get(30)?,
+            notify_stakeholders: row.get(31)?,
+            notification_sent_at: row.get(32)?,
+            created_at: row.get(33)?,
+            updated_at: row.get(34)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Count tasks with agent_status = 'running' in a workspace
+pub fn get_running_agent_count(conn: &Connection, workspace_id: &str) -> SqlResult<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND agent_status = 'running'",
+        params![workspace_id],
+        |row| row.get(0),
+    )
 }
 
 /// Update PR info for a task (pr_number and pr_url)

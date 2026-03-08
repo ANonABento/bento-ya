@@ -333,6 +333,91 @@ Be concise and helpful."#,
     Ok(())
 }
 
+// ─── Queue Management Commands ─────────────────────────────────────────────
+
+/// Maximum number of concurrent agent sessions
+const MAX_CONCURRENT_AGENTS: i64 = 5;
+
+/// Queue status response
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueStatus {
+    pub queued_count: usize,
+    pub running_count: i64,
+    pub max_concurrent: i64,
+    pub queued_tasks: Vec<db::Task>,
+}
+
+/// Queue multiple tasks for agent execution
+#[tauri::command(rename_all = "camelCase")]
+pub fn queue_agent_tasks(
+    state: State<AppState>,
+    task_ids: Vec<String>,
+) -> Result<Vec<db::Task>, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let queued_at = crate::db::now();
+    let mut updated_tasks = Vec::new();
+
+    for task_id in task_ids {
+        let task = db::update_task_agent_status(&conn, &task_id, Some("queued"), Some(&queued_at))?;
+        updated_tasks.push(task);
+    }
+
+    Ok(updated_tasks)
+}
+
+/// Update a task's agent status
+#[tauri::command(rename_all = "camelCase")]
+pub fn update_task_agent_status(
+    state: State<AppState>,
+    task_id: String,
+    agent_status: Option<String>,
+    queued_at: Option<String>,
+) -> Result<db::Task, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::update_task_agent_status(
+        &conn,
+        &task_id,
+        agent_status.as_deref(),
+        queued_at.as_deref(),
+    )?)
+}
+
+/// Get current queue status for a workspace
+#[tauri::command(rename_all = "camelCase")]
+pub fn get_queue_status(
+    state: State<AppState>,
+    workspace_id: String,
+) -> Result<QueueStatus, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let queued_tasks = db::get_queued_tasks(&conn, &workspace_id)?;
+    let running_count = db::get_running_agent_count(&conn, &workspace_id)?;
+
+    Ok(QueueStatus {
+        queued_count: queued_tasks.len(),
+        running_count,
+        max_concurrent: MAX_CONCURRENT_AGENTS,
+        queued_tasks,
+    })
+}
+
+/// Get the next task to process from the queue (if slots available)
+#[tauri::command(rename_all = "camelCase")]
+pub fn get_next_queued_task(
+    state: State<AppState>,
+    workspace_id: String,
+) -> Result<Option<db::Task>, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let running_count = db::get_running_agent_count(&conn, &workspace_id)?;
+
+    if running_count >= MAX_CONCURRENT_AGENTS {
+        return Ok(None);
+    }
+
+    let queued = db::get_queued_tasks(&conn, &workspace_id)?;
+    Ok(queued.into_iter().next())
+}
+
 /// Cancel an ongoing agent chat (kills the CLI process)
 #[tauri::command(rename_all = "camelCase")]
 pub async fn cancel_agent_chat(

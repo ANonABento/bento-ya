@@ -1,19 +1,19 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'motion/react'
-import { getWorkspaceHistory, type SessionSnapshot } from '@/lib/ipc'
+import { getWorkspaceHistory, restoreSnapshot, type SessionSnapshot } from '@/lib/ipc'
 
 type Props = {
   workspaceId: string
   onClose: () => void
-  onReplay?: (snapshot: SessionSnapshot) => void
+  onRestore?: (backupId: string) => void
 }
 
 function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
+  if (ms < 1000) return `${String(ms)}ms`
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
   const mins = Math.floor(ms / 60000)
   const secs = Math.floor((ms % 60000) / 1000)
-  return `${mins}m ${secs}s`
+  return `${String(mins)}m ${String(secs)}s`
 }
 
 function formatDate(isoDate: string): string {
@@ -47,10 +47,40 @@ function getStatusLabel(type: string): string {
   }
 }
 
-export function HistoryPanel({ workspaceId, onClose, onReplay }: Props) {
+export function HistoryPanel({ workspaceId, onClose, onRestore }: Props) {
   const [snapshots, setSnapshots] = useState<SessionSnapshot[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedSnapshot, setSelectedSnapshot] = useState<SessionSnapshot | null>(null)
+  const [isRestoring, setIsRestoring] = useState(false)
+  const [restoreError, setRestoreError] = useState<string | null>(null)
+
+  const handleRestore = useCallback(async (snapshot: SessionSnapshot) => {
+    if (isRestoring) return
+
+    setIsRestoring(true)
+    setRestoreError(null)
+
+    try {
+      const result = await restoreSnapshot({
+        snapshotId: snapshot.id,
+        currentSessionId: snapshot.sessionId,
+        currentWorkspaceId: workspaceId,
+        currentTaskId: snapshot.taskId ?? undefined,
+        currentScrollback: undefined,
+        currentCommandHistory: '[]',
+        currentFilesModified: '[]',
+        currentDurationMs: 0,
+      })
+
+      // Call onRestore callback with backup ID so parent can show notification
+      onRestore?.(result.backupId)
+      onClose()
+    } catch (err) {
+      setRestoreError(err instanceof Error ? err.message : 'Failed to restore snapshot')
+    } finally {
+      setIsRestoring(false)
+    }
+  }, [isRestoring, workspaceId, onRestore, onClose])
 
   useEffect(() => {
     const load = async () => {
@@ -161,20 +191,36 @@ export function HistoryPanel({ workspaceId, onClose, onReplay }: Props) {
                     {formatDate(selectedSnapshot.createdAt)} • Duration: {formatDuration(selectedSnapshot.durationMs)}
                   </p>
                 </div>
-                {onReplay && (
-                  <button
-                    onClick={() => { onReplay(selectedSnapshot) }}
-                    className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                      <path d="M6.3 2.84A1.5 1.5 0 0 0 4 4.11v11.78a1.5 1.5 0 0 0 2.3 1.27l9.344-5.891a1.5 1.5 0 0 0 0-2.538L6.3 2.841Z" />
-                    </svg>
-                    Replay
-                  </button>
-                )}
+                <button
+                  onClick={() => { void handleRestore(selectedSnapshot) }}
+                  disabled={isRestoring}
+                  className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
+                >
+                  {isRestoring ? (
+                    <>
+                      <svg className="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Restoring...
+                    </>
+                  ) : (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                        <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0v2.43l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
+                      </svg>
+                      Restore
+                    </>
+                  )}
+                </button>
               </div>
 
               <div className="flex-1 overflow-y-auto p-6">
+                {restoreError && (
+                  <div className="mb-4 rounded-lg border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">
+                    {restoreError}
+                  </div>
+                )}
                 <div className="space-y-6">
                   {/* Files Modified */}
                   <div>

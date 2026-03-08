@@ -257,7 +257,7 @@ export function VoiceTab() {
         <Dropdown
           options={LANGUAGES}
           value={voice.language}
-          onChange={(value) => updateVoice({ language: value })}
+          onChange={(value) => { updateVoice({ language: value }); }}
           disabled={!voice.enabled}
         />
       </SettingSection>
@@ -278,7 +278,7 @@ export function VoiceTab() {
         >
           <Toggle
             checked={voice.pushToTalk}
-            onChange={(checked) => updateVoice({ pushToTalk: checked })}
+            onChange={(checked) => { updateVoice({ pushToTalk: checked }); }}
             disabled={!voice.enabled}
           />
         </SettingRow>
@@ -290,7 +290,7 @@ export function VoiceTab() {
       >
         <SettingSlider
           value={voice.sensitivity}
-          onChange={(value) => updateVoice({ sensitivity: value })}
+          onChange={(value) => { updateVoice({ sensitivity: value }); }}
           min={0}
           max={1}
           step={0.1}

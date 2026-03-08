@@ -18,10 +18,18 @@ type TaskCardProps = {
 
 const PIPELINE_LABELS: Record<PipelineState, string> = {
   idle: '',
-  triggered: 'Starting',
-  running: 'Running',
-  evaluating: 'Checking',
-  advancing: 'Moving',
+  triggered: 'Trigger fired',
+  running: 'Agent working',
+  evaluating: 'Checking exit',
+  advancing: 'Auto-advancing',
+}
+
+const PIPELINE_COLORS: Record<PipelineState, string> = {
+  idle: '',
+  triggered: 'border-l-warning',
+  running: 'border-l-running',
+  evaluating: 'border-l-accent',
+  advancing: 'border-l-success',
 }
 
 // Helper to format relative time
@@ -34,20 +42,25 @@ function formatRelativeTime(dateStr: string): string {
   const diffDays = Math.floor(diffHours / 24)
 
   if (diffMins < 1) return 'now'
-  if (diffMins < 60) return `${diffMins}m`
-  if (diffHours < 24) return `${diffHours}h`
-  if (diffDays < 7) return `${diffDays}d`
+  if (diffMins < 60) return `${String(diffMins)}m`
+  if (diffHours < 24) return `${String(diffHours)}h`
+  if (diffDays < 7) return `${String(diffDays)}d`
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 // Get agent activity text based on status and pipeline state
-function getAgentActivity(task: Task): { text: string; type: 'active' | 'waiting' | 'idle' | 'error' } | null {
-  // Don't show activity if no agent status
-  if (!task.agentStatus) return null
+function getAgentActivity(task: Task): { text: string; type: 'active' | 'waiting' | 'idle' | 'error' | 'queued' } | null {
+  // Don't show activity if no agent status or idle
+  if (!task.agentStatus || task.agentStatus === 'idle') return null
 
   // Error state takes priority
   if (task.agentStatus === 'failed' || task.pipelineError) {
     return { text: task.pipelineError || 'Agent failed', type: 'error' }
+  }
+
+  // Queued state
+  if (task.agentStatus === 'queued') {
+    return { text: 'Queued...', type: 'queued' }
   }
 
   // Needs attention
@@ -76,15 +89,13 @@ function getAgentActivity(task: Task): { text: string; type: 'active' | 'waiting
     return { text: 'Completed', type: 'idle' }
   }
 
-  // Stopped/idle - only show if recently updated
-  if (task.agentStatus === 'stopped') {
-    const updatedMs = new Date(task.updatedAt).getTime()
-    const nowMs = new Date().getTime()
-    const hourAgo = 60 * 60 * 1000
-    // Only show "idle" if updated within the last hour
-    if (nowMs - updatedMs < hourAgo) {
-      return { text: 'Agent idle', type: 'idle' }
-    }
+  // Stopped - only show if recently updated (remaining case after all other checks)
+  const updatedMs = new Date(task.updatedAt).getTime()
+  const nowMs = Date.now()
+  const hourAgo = 60 * 60 * 1000
+  // Only show "idle" if updated within the last hour
+  if (nowMs - updatedMs < hourAgo) {
+    return { text: 'Agent idle', type: 'idle' }
   }
 
   return null
@@ -190,7 +201,7 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
   const hasAttention = useAttentionStore((s) => s.hasAttention(task.id))
   const attention = useAttentionStore((s) => s.getAttention(task.id))
   const markViewed = useAttentionStore((s) => s.markViewed)
-  const cardSettings = useSettingsStore((s) => s.global.cards) ?? DEFAULT_SETTINGS.cards
+  const cardSettings = useSettingsStore((s) => s.global.cards)
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
@@ -355,23 +366,25 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
             handleDuplicateTask()
             break
           case 'Delete':
-          case 'Backspace':
+          case 'Backspace': {
             e.preventDefault()
             // Show context menu for confirmation before archive/delete
             const rect = e.currentTarget.getBoundingClientRect()
             setContextMenu({ x: rect.right - 180, y: rect.top })
             break
+          }
           case 'm':
-          case 'M':
+          case 'M': {
             e.preventDefault()
             // Show context menu for move options
             const moveRect = e.currentTarget.getBoundingClientRect()
             setContextMenu({ x: moveRect.right - 180, y: moveRect.top })
             break
+          }
         }
       }}
       tabIndex={0}
-      className={`group relative rounded-lg border border-border-default bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent hover:border-accent/50 hover:bg-surface-hover ${isDragging ? 'z-0' : 'hover:z-10'}`}
+      className={`group relative rounded-lg border border-border-default bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent hover:border-accent/50 hover:bg-surface-hover ${isDragging ? 'z-0' : 'hover:z-10'} ${hasPipelineError ? 'border-l-4 border-l-error' : isPipelineActive ? `border-l-4 ${PIPELINE_COLORS[task.pipelineState]}` : ''}`}
     >
       {/* Quick actions on hover */}
       {!isDragging && (
@@ -419,7 +432,24 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
               <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm.75-8.25a.75.75 0 0 0-1.5 0v3.5a.75.75 0 0 0 1.5 0v-3.5ZM8 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
             </svg>
-            <span className="truncate">{task.pipelineError}</span>
+            <span className="truncate flex-1">{task.pipelineError}</span>
+            <button
+              onClick={async (e) => {
+                e.stopPropagation()
+                try {
+                  const updated = await ipc.retryPipeline(task.id)
+                  updateTask(task.id, {
+                    pipelineState: updated.pipelineState,
+                    pipelineError: updated.pipelineError,
+                  })
+                } catch (err) {
+                  console.error('Retry failed:', err)
+                }
+              }}
+              className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-error/20 hover:bg-error/30 transition-colors"
+            >
+              Retry
+            </button>
           </div>
         )}
 
@@ -437,6 +467,7 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
             waiting: 'text-attention',
             idle: 'text-text-secondary/70',
             error: 'text-error',
+            queued: 'text-warning',
           }
 
           return (

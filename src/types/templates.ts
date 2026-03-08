@@ -128,7 +128,7 @@ export const BUILT_IN_TEMPLATES: PipelineTemplate[] = [
   {
     id: 'full-ci',
     name: 'Full CI Pipeline',
-    description: 'Complete CI/CD workflow with automated triggers for testing, review, and deployment',
+    description: 'Complete CI/CD workflow with automated triggers for testing, review, deployment, and notifications',
     columns: [
       { name: 'Backlog', icon: '📋', color: null, triggerConfig: '', exitConfig: '', autoAdvance: false },
       { name: 'Spec', icon: '📝', color: null, triggerConfig: 'agent:plan', exitConfig: 'file:spec.md', autoAdvance: true },
@@ -136,6 +136,7 @@ export const BUILT_IN_TEMPLATES: PipelineTemplate[] = [
       { name: 'Test', icon: '🧪', color: null, triggerConfig: 'cmd:npm test', exitConfig: 'exit:0', autoAdvance: true },
       { name: 'Review', icon: '🔍', color: null, triggerConfig: 'agent:review', exitConfig: 'pr:approved', autoAdvance: true },
       { name: 'Deploy', icon: '🚀', color: null, triggerConfig: 'cmd:npm run deploy', exitConfig: 'exit:0', autoAdvance: true },
+      { name: 'Notify', icon: '📢', color: '#FBBF24', triggerConfig: '', exitConfig: 'notification:sent', autoAdvance: true },
       { name: 'Done', icon: '✅', color: '#4ADE80', triggerConfig: '', exitConfig: '', autoAdvance: false },
     ],
     isBuiltIn: true,

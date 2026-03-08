@@ -11,7 +11,7 @@ import { BUILT_IN_CHECKLIST_TEMPLATES } from '@/types/checklist'
 import * as ipc from '@/lib/ipc'
 
 // Debounce timers for notes updates
-const notesDebounceTimers: Record<string, ReturnType<typeof setTimeout>> = {}
+const notesDebounceTimers: Record<string, ReturnType<typeof setTimeout> | undefined> = {}
 const NOTES_DEBOUNCE_MS = 500
 
 type ChecklistState = {
@@ -40,6 +40,7 @@ type ChecklistState = {
   getProgress: () => { progress: number; total: number; percentage: number }
   getTemplates: () => ChecklistTemplate[]
   linkItemToTask: (itemId: string, categoryId: string, taskId: string | null) => void
+  runDetection: (workspaceId: string, repoPath: string) => Promise<ipc.DetectionResult[]>
 }
 
 export const useChecklistStore = create<ChecklistState>()(
@@ -52,11 +53,11 @@ export const useChecklistStore = create<ChecklistState>()(
       isLoading: false,
       currentWorkspaceId: null,
 
-      openChecklist: () => set({ isOpen: true }),
-      closeChecklist: () => set({ isOpen: false }),
+      openChecklist: () => { set({ isOpen: true }); },
+      closeChecklist: () => { set({ isOpen: false }); },
 
-      setChecklist: (checklist) => set({ checklist }),
-      setCategories: (categories) => set({ categories }),
+      setChecklist: (checklist) => { set({ checklist }); },
+      setCategories: (categories) => { set({ categories }); },
 
       setItems: (categoryId, items) => {
         set((state) => ({
@@ -143,7 +144,7 @@ export const useChecklistStore = create<ChecklistState>()(
         })
 
         // Persist to backend
-        ipc.updateChecklistItem(itemId, newChecked, undefined).catch((error) => {
+        ipc.updateChecklistItem(itemId, newChecked, undefined).catch((error: unknown) => {
           console.error('Failed to persist item toggle:', error)
           // Revert on error
           set((s) => {
@@ -172,7 +173,7 @@ export const useChecklistStore = create<ChecklistState>()(
         }))
 
         // Persist to backend
-        ipc.updateChecklistCategory(categoryId, newCollapsed).catch((error) => {
+        ipc.updateChecklistCategory(categoryId, newCollapsed).catch((error: unknown) => {
           console.error('Failed to persist category toggle:', error)
           // Revert on error
           set((s) => ({
@@ -202,8 +203,8 @@ export const useChecklistStore = create<ChecklistState>()(
         }
 
         notesDebounceTimers[timerKey] = setTimeout(() => {
-          delete notesDebounceTimers[timerKey]
-          ipc.updateChecklistItem(itemId, undefined, notes).catch((error) => {
+          notesDebounceTimers[timerKey] = undefined
+          ipc.updateChecklistItem(itemId, undefined, notes).catch((error: unknown) => {
             console.error('Failed to persist item notes:', error)
           })
         }, NOTES_DEBOUNCE_MS)
@@ -290,7 +291,7 @@ export const useChecklistStore = create<ChecklistState>()(
         })
 
         // Persist to backend
-        ipc.linkChecklistItemToTask(itemId, taskId).catch((error) => {
+        ipc.linkChecklistItemToTask(itemId, taskId).catch((error: unknown) => {
           console.error('Failed to link item to task:', error)
           // Revert on error
           set((state) => {
@@ -305,6 +306,34 @@ export const useChecklistStore = create<ChecklistState>()(
             }
           })
         })
+      },
+
+      runDetection: async (workspaceId: string, repoPath: string) => {
+        const results = await ipc.runChecklistDetection(workspaceId, repoPath)
+
+        // Update items based on detection results
+        set((state) => {
+          const updatedItems = { ...state.items }
+
+          for (const result of results) {
+            // Find which category the item belongs to
+            for (const [categoryId, categoryItems] of Object.entries(updatedItems)) {
+              const itemIndex = categoryItems.findIndex((i) => i.id === result.itemId)
+              if (itemIndex !== -1) {
+                updatedItems[categoryId] = categoryItems.map((item) =>
+                  item.id === result.itemId
+                    ? { ...item, autoDetected: result.detected, checked: result.detected }
+                    : item
+                )
+                break
+              }
+            }
+          }
+
+          return { items: updatedItems }
+        })
+
+        return results
       },
     }),
     { name: 'checklist-store' },
