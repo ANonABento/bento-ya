@@ -3,6 +3,8 @@
  * This module provides mock implementations of Tauri IPC commands.
  */
 
+/* eslint-disable @typescript-eslint/no-unnecessary-condition -- Mock data uses ?? for defensive safety with unknown runtime args */
+
 import type { Workspace, Column, Task, TriggerConfig, ExitConfig, AgentMode, AgentStatus, PipelineState } from '@/types'
 
 // Check if we're running in Tauri or in a test environment
@@ -82,7 +84,7 @@ let mockTasks: Task[] = [
 
 let idCounter = 100
 
-const generateId = (prefix: string) => `${prefix}-${++idCounter}`
+const generateId = (prefix: string) => `${prefix}-${String(++idCounter)}`
 
 // ─── Mock Command Handlers ──────────────────────────────────────────────────
 
@@ -329,7 +331,7 @@ const mockCommands: Record<string, CommandHandler> = {
 
   // Agent message commands
   save_agent_message: (args) => ({
-    id: `msg-${Date.now()}`,
+    id: `msg-${String(Date.now())}`,
     taskId: args?.taskId ?? '',
     role: args?.role ?? 'user',
     content: args?.content ?? '',
@@ -412,12 +414,12 @@ export async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>)
 
 type UnlistenFn = () => void
 
-// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- T needed for type compatibility with real listen
+/* eslint-disable @typescript-eslint/no-unnecessary-type-parameters, @typescript-eslint/no-unused-vars -- Mock function signature matches real listen for type compatibility */
 export function mockListen<T>(
   _event: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _handler: (payload: T) => void
 ): Promise<UnlistenFn> {
+  /* eslint-enable @typescript-eslint/no-unnecessary-type-parameters, @typescript-eslint/no-unused-vars */
   // In browser mode, events are not supported
   return Promise.resolve(() => {})
 }

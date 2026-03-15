@@ -5,11 +5,11 @@ export function AdvancedTab() {
   const settings = useSettingsStore((s) => s.global)
   const updateSettings = useSettingsStore((s) => s.updateGlobal)
 
-  const terminal = settings.terminal ?? DEFAULT_SETTINGS.terminal
-  const panel = settings.panel ?? DEFAULT_SETTINGS.panel
-  const gestures = settings.gestures ?? DEFAULT_SETTINGS.gestures
-  const advanced = settings.advanced ?? DEFAULT_SETTINGS.advanced
-  const workspaceDefaults = settings.workspaceDefaults ?? DEFAULT_SETTINGS.workspaceDefaults
+  const terminal = settings.terminal
+  const panel = settings.panel
+  const gestures = settings.gestures
+  const advanced = settings.advanced
+  const workspaceDefaults = settings.workspaceDefaults
 
   return (
     <div className="space-y-8">

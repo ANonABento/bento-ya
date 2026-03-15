@@ -1,0 +1,6 @@
+[env]
+# Required for whisper-rs and ggml which use C++17 std::filesystem
+MACOSX_DEPLOYMENT_TARGET = "10.15"
+# Pass to C++ compiler for cmake builds
+CXXFLAGS = "-mmacosx-version-min=10.15"
+CFLAGS = "-mmacosx-version-min=10.15"

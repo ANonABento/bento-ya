@@ -42,7 +42,7 @@ export function useSettingsSync() {
       }
     }
 
-    loadSettings()
+    void loadSettings()
   }, [activeWorkspaceId, loadWorkspaceSettings])
 
   // Save workspace settings to backend (debounced)
@@ -85,7 +85,7 @@ export function useSettingsSync() {
 
     // Debounce the save
     debounceRef.current = setTimeout(() => {
-      saveSettings(activeWorkspaceId, currentOverrides)
+      void saveSettings(activeWorkspaceId, currentOverrides)
     }, DEBOUNCE_MS)
 
     return () => {

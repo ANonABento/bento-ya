@@ -74,12 +74,12 @@ export const Column = memo(function Column({ column }: ColumnProps) {
     if (tasks.length > 0) {
       setShowDeleteConfirm(true)
     } else {
-      remove(column.id)
+      void remove(column.id)
     }
   }, [column.id, tasks.length, remove])
 
   const confirmDelete = useCallback(() => {
-    remove(column.id)
+    void remove(column.id)
     setShowDeleteConfirm(false)
   }, [column.id, remove])
 

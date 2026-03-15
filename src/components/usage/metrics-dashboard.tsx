@@ -175,7 +175,7 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
                         </div>
                         <div
                           className="w-full rounded-t bg-accent transition-all hover:bg-accent/80"
-                          style={{ height: `${(day.cost / maxDailyCost) * 100}%`, minHeight: day.cost > 0 ? '4px' : '0' }}
+                          style={{ height: `${String((day.cost / maxDailyCost) * 100)}%`, minHeight: day.cost > 0 ? '4px' : '0' }}
                         />
                         <div className="mt-1 text-[10px] text-text-secondary">{formatDate(day.date)}</div>
                       </div>
@@ -200,7 +200,7 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
                         <div className="h-2 rounded-full bg-surface">
                           <div
                             className="h-full rounded-full bg-accent"
-                            style={{ width: `${(model.cost / maxModelCost) * 100}%` }}
+                            style={{ width: `${String((model.cost / maxModelCost) * 100)}%` }}
                           />
                         </div>
                         <div className="flex gap-4 text-xs text-text-secondary">

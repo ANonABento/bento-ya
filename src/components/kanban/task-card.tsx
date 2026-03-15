@@ -434,17 +434,19 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
             </svg>
             <span className="truncate flex-1">{task.pipelineError}</span>
             <button
-              onClick={async (e) => {
+              onClick={(e) => {
                 e.stopPropagation()
-                try {
-                  const updated = await ipc.retryPipeline(task.id)
-                  updateTask(task.id, {
-                    pipelineState: updated.pipelineState,
-                    pipelineError: updated.pipelineError,
-                  })
-                } catch (err) {
-                  console.error('Retry failed:', err)
-                }
+                void (async () => {
+                  try {
+                    const updated = await ipc.retryPipeline(task.id)
+                    updateTask(task.id, {
+                      pipelineState: updated.pipelineState,
+                      pipelineError: updated.pipelineError,
+                    })
+                  } catch (err) {
+                    console.error('Retry failed:', err)
+                  }
+                })()
               }}
               className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-error/20 hover:bg-error/30 transition-colors"
             >
@@ -582,8 +584,8 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
         onDeleteTask={handleDeleteTask}
         onRunAgent={handleRunAgent}
         onStopAgent={handleStopAgent}
-        onStartSiege={handleStartSiege}
-        onStopSiege={handleStopSiege}
+        onStartSiege={() => { void handleStartSiege(); }}
+        onStopSiege={() => { void handleStopSiege(); }}
       />
     )}
     </>

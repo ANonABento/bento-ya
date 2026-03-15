@@ -47,7 +47,7 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
         console.log('[Voice] Backend availability:', available)
         setIsAvailable(available)
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         console.error('[Voice] Availability check failed:', err)
         setIsAvailable(false)
       })
@@ -183,7 +183,7 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
 
       // Clean up any [BLANK_AUDIO] markers from final transcription
       const cleanText = result.text
-        ?.replace(/\[BLANK_AUDIO\]/gi, '')
+        .replace(/\[BLANK_AUDIO\]/gi, '')
         .replace(/\s+/g, ' ')
         .trim()
 

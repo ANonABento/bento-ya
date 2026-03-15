@@ -295,7 +295,7 @@ export function VoiceTab() {
           max={1}
           step={0.1}
           disabled={!voice.enabled}
-          formatValue={(v) => `${Math.round(v * 100)}%`}
+          formatValue={(v) => `${String(Math.round(v * 100))}%`}
         />
       </SettingSection>
     </div>

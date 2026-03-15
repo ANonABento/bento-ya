@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 import type { Task, Column } from '@/types'
-import { DEFAULT_SETTINGS } from '@/types/settings'
 import { useSettingsStore } from '@/stores/settings-store'
 
 type DragOverlayContentProps = {
@@ -18,19 +17,20 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 export function DragOverlayContent({ item }: DragOverlayContentProps) {
-  const cardSettings = useSettingsStore((s) => s.global.cards) ?? DEFAULT_SETTINGS.cards
+  const cardSettings = useSettingsStore((s) => s.global.cards)
+
+  // Parse labels unconditionally to avoid conditional hook usage
+  const labels = useMemo(() => {
+    if (item.type !== 'task') return []
+    try {
+      return JSON.parse(item.data.prLabels || '[]') as string[]
+    } catch {
+      return []
+    }
+  }, [item])
 
   if (item.type === 'task') {
     const task = item.data
-
-    const labels = useMemo(() => {
-      try {
-        return JSON.parse(task.prLabels || '[]') as string[]
-      } catch {
-        return []
-      }
-    }, [task.prLabels])
-
     const hasMetadata = (cardSettings.showBranch && task.branch) ||
       (cardSettings.showAgentType && task.agentType) ||
       (cardSettings.showPrBadge && task.prNumber)

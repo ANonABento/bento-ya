@@ -54,7 +54,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | null>(null)
-  const [_error, setError] = useState<string | null>(null)
+  // Error state is set but displayed via failedMessage - kept for future error UI
+  const [, setError] = useState<string | null>(null)
   const [processingStartTime, setProcessingStartTime] = useState<number | null>(null)
   const [thinkingContent, setThinkingContent] = useState('')
   const [activeToolCalls, setActiveToolCalls] = useState<Map<string, ToolCallEvent>>(new Map())
@@ -104,7 +105,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       const unsubComplete = await listen<OrchestratorEvent>('orchestrator:complete', (event) => {
         if (event.payload.workspaceId === workspaceId && activeSession) {
           // Load messages FIRST, then clear streaming state to avoid flicker
-          Promise.all([
+          void Promise.all([
             getChatHistory(activeSession.id, 100),
             listChatSessions(workspaceId),
           ]).then(([newMessages, newSessions]) => {
@@ -238,7 +239,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
       // Add optimistic message for queued item
       const optimisticMessage: ChatMessage = {
-        id: `temp-${Date.now()}`,
+        id: `temp-${String(Date.now())}`,
         workspaceId,
         sessionId: activeSession.id,
         role: 'user',
@@ -336,7 +337,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
       // Store failed message for retry
       setFailedMessage({
-        id: `failed-${Date.now()}`,
+        id: `failed-${String(Date.now())}`,
         content: params.content,
         params,
         error: `${params.connectionMode.toUpperCase()} error: ${errorMessage}`,
@@ -354,7 +355,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
     // Add optimistic user message immediately
     const optimisticMessage: ChatMessage = {
-      id: `temp-${Date.now()}`,
+      id: `temp-${String(Date.now())}`,
       workspaceId,
       sessionId: activeSession.id,
       role: 'user',
@@ -365,7 +366,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
     // Use ref for synchronous check (avoids stale closure when clicking fast)
     if (isProcessingRef.current) {
-      setMessageQueue((prev) => [...prev, { ...params, id: `queued-${Date.now()}` }])
+      setMessageQueue((prev) => [...prev, { ...params, id: `queued-${String(Date.now())}` }])
       return
     }
 
@@ -625,12 +626,12 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 processingStartTime={processingStartTime}
                 thinkingContent={thinkingContent}
                 toolCalls={Array.from(activeToolCalls.values())}
-                onCancel={handleCancel}
+                onCancel={() => { void handleCancel(); }}
                 queuedMessages={messageQueue.map((m) => ({ id: m.id, content: m.content }))}
               />
               <PanelInput
                 onSendMessage={handleSendMessage}
-                onCancel={handleCancel}
+                onCancel={() => { void handleCancel(); }}
                 isProcessing={isProcessing}
                 disabled={!activeSession}
                 queueCount={messageQueue.length}
@@ -666,7 +667,7 @@ function ProcessingIndicator({ startTime }: { startTime: number | null }) {
         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
       </svg>
-      Thinking{elapsed > 0 ? `... ${elapsed}s` : '...'}
+      Thinking{elapsed > 0 ? `... ${String(elapsed)}s` : '...'}
     </span>
   )
 }

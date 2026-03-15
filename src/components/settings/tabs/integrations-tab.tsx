@@ -26,11 +26,6 @@ export function IntegrationsTab() {
 
   const discord = global.discord
 
-  // Fetch status on mount
-  useEffect(() => {
-    fetchStatus()
-  }, [])
-
   const fetchStatus = useCallback(async () => {
     try {
       const result = await invoke<DiscordStatus>('get_discord_status')
@@ -39,6 +34,11 @@ export function IntegrationsTab() {
       setStatus(null)
     }
   }, [])
+
+  // Fetch status on mount
+  useEffect(() => {
+    void fetchStatus()
+  }, [fetchStatus])
 
   const handleToggleEnabled = async (enabled: boolean) => {
     updateGlobal('discord', { ...discord, enabled })
@@ -151,7 +151,7 @@ export function IntegrationsTab() {
             <input
               type="checkbox"
               checked={discord.enabled}
-              onChange={(e) => handleToggleEnabled(e.target.checked)}
+              onChange={(e) => { void handleToggleEnabled(e.target.checked); }}
               className="peer sr-only"
             />
             <div className="peer h-6 w-11 rounded-full bg-border-default after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-accent peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none" />
@@ -240,7 +240,7 @@ export function IntegrationsTab() {
               />
               <span className="text-sm text-text-secondary">
                 {status?.ready
-                  ? `Connected as ${status.user?.tag}`
+                  ? `Connected as ${status.user?.tag ?? 'unknown'}`
                   : status?.connected
                   ? 'Connecting...'
                   : 'Disconnected'}
@@ -249,7 +249,7 @@ export function IntegrationsTab() {
             <div className="flex gap-2">
               {status?.ready ? (
                 <button
-                  onClick={handleDisconnect}
+                  onClick={() => { void handleDisconnect(); }}
                   disabled={loading}
                   className="rounded-lg border border-border-default bg-bg px-3 py-1.5 text-sm text-text-primary transition-colors hover:bg-surface disabled:opacity-50"
                 >
@@ -257,7 +257,7 @@ export function IntegrationsTab() {
                 </button>
               ) : (
                 <button
-                  onClick={handleTestConnection}
+                  onClick={() => { void handleTestConnection(); }}
                   disabled={loading || !discord.botToken}
                   className="rounded-lg bg-[#5865F2] px-3 py-1.5 text-sm text-white transition-colors hover:bg-[#4752C4] disabled:opacity-50"
                 >

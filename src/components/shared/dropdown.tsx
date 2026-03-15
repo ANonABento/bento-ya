@@ -64,7 +64,7 @@ export function Dropdown({
       {/* Trigger */}
       <button
         type="button"
-        onClick={() => !disabled && setIsOpen(!isOpen)}
+        onClick={() => { if (!disabled) setIsOpen(!isOpen); }}
         disabled={disabled}
         className={`flex w-full items-center justify-between rounded-lg border bg-surface px-3 py-2 text-left text-sm transition-colors ${
           isOpen

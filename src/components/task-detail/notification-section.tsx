@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import {
   updateTaskStakeholders,
   markTaskNotificationSent,
@@ -23,7 +23,14 @@ export function NotificationSection({
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
-  const stakeholderList: string[] = stakeholders ? JSON.parse(stakeholders) : []
+  const stakeholderList = useMemo<string[]>(() => {
+    if (!stakeholders) return []
+    try {
+      return JSON.parse(stakeholders) as string[]
+    } catch {
+      return []
+    }
+  }, [stakeholders])
 
   const handleAddStakeholder = useCallback(async () => {
     const trimmed = input.trim()

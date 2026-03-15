@@ -258,7 +258,7 @@ export function TabBar() {
 
   const closeCurrentTab = useCallback(() => {
     if (activeWorkspaceId && sortedWorkspaces.length > 1) {
-      remove(activeWorkspaceId)
+      void remove(activeWorkspaceId)
     }
   }, [activeWorkspaceId, sortedWorkspaces.length, remove])
 
@@ -326,7 +326,7 @@ export function TabBar() {
     const oldIndex = workspaceIds.indexOf(active.id as string)
     const newIndex = workspaceIds.indexOf(over.id as string)
     const newOrder = arrayMove(workspaceIds, oldIndex, newIndex)
-    reorder(newOrder)
+    void reorder(newOrder)
   }
 
   const draggingWorkspace = draggingId
@@ -402,7 +402,7 @@ function AddWorkspaceDialog({ onClose }: { onClose: () => void }) {
     inputRef.current?.focus()
   }, [])
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!name.trim() || !repoPath.trim() || isSubmitting) return
 
@@ -431,7 +431,7 @@ function AddWorkspaceDialog({ onClose }: { onClose: () => void }) {
       >
         <h2 className="mb-4 text-lg font-semibold text-text-primary">Add Workspace</h2>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4">
           <div>
             <label className="mb-1 block text-sm text-text-secondary">Name</label>
             <input

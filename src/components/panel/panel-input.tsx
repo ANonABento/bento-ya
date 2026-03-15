@@ -96,14 +96,14 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setMessage(e.target.value)
     e.target.style.height = 'auto'
-    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`
+    e.target.style.height = `${String(Math.min(e.target.scrollHeight, 120))}px`
   }
 
   // Auto-resize when voice liveText changes
   useEffect(() => {
     if (voice.state === 'recording' && inputRef.current) {
       inputRef.current.style.height = 'auto'
-      inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 120)}px`
+      inputRef.current.style.height = `${String(Math.min(inputRef.current.scrollHeight, 120))}px`
     }
   }, [voice.liveText, voice.state])
 
@@ -183,7 +183,7 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
         <Tooltip
           content={
             voice.state === 'recording'
-              ? `Recording (${voice.duration}s) - click to stop`
+              ? `Recording (${String(voice.duration)}s) - click to stop`
               : voice.state === 'error'
                 ? `Error: ${voice.error || 'Unknown error'}`
                 : !voice.isEnabled
@@ -247,7 +247,7 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
 
         {/* Cancel button (only when processing) */}
         {isProcessing && (
-          <Tooltip content={queueCount > 0 ? `Cancel (${queueCount} queued)` : 'Cancel'} side="top" delay={200}>
+          <Tooltip content={queueCount > 0 ? `Cancel (${String(queueCount)} queued)` : 'Cancel'} side="top" delay={200}>
             <button
               type="button"
               onClick={onCancel}

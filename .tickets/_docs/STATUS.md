@@ -1,6 +1,6 @@
 # Bento-ya Implementation Status
 
-> Last updated: 2025-03-05 (evening session)
+> Last updated: 2025-03-08
 >
 > See also: [ARCHITECTURE.md](./ARCHITECTURE.md) for system overview
 
@@ -225,6 +225,21 @@ v0.1–v0.4 and v1.0 are all complete. Remaining polish work:
 ### Integration Polish
 
 - **Discord Integration**: ✅ Async agent handlers implemented - can now send messages, start/resume agents, and route Chef messages via Discord
-- **Webhook Trigger**: Defined but stubbed (fire-and-forget placeholder)
-- **Pipeline UI Visualization**: Task cards don't prominently show pipeline state/error
-- **Agent Streaming**: Per-task CLI sessions implemented, minor polish opportunities
+- **Webhook Trigger**: ✅ Fire-and-forget implementation complete
+- **Pipeline UI Visualization**: ✅ Task cards show pipeline state with improved status badges
+- **Agent Streaming**: ✅ Per-task CLI sessions implemented with streaming support
+
+### Code Quality (2025-03-08)
+
+- **Lint Fixes**: Reduced lint errors from 263 to 0 ✅ (100% clean)
+- **Test Coverage**: 94 tests passing (column-store, task-store, checklist-store, workspace-store, settings-store, templates-store, format-time)
+- **Type Safety**: All type-check errors resolved
+- **Frontend Build**: Production vite build works (`npm run build`)
+
+### Production Build Notes
+
+- **Frontend**: ✅ Builds successfully with Vite
+- **Tauri App**: Requires macOS 10.15+ deployment target for whisper-rs dependency
+  - Added `.cargo/config.toml` with `MACOSX_DEPLOYMENT_TARGET = "10.15"`
+  - If build fails, ensure Xcode Command Line Tools are updated and SDK supports 10.15+
+  - Alternative: Remove whisper-rs for builds without voice input

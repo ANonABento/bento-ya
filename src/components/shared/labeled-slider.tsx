@@ -64,15 +64,15 @@ export function LabeledSlider<T extends string>({
         {/* Fill */}
         <div
           className="absolute inset-y-0 left-0 rounded-full bg-accent"
-          style={{ width: `${fillWidth}%` }}
+          style={{ width: `${String(fillWidth)}%` }}
         />
 
         {/* Thumb */}
         <div
           className="absolute top-1/2 h-4 w-4 rounded-full border-2 border-accent bg-bg shadow-sm"
           style={{
-            left: `${thumbPosition}%`,
-            transform: `translateX(-50%) translateY(-50%) scale(${isDragging ? 1.1 : 1})`,
+            left: `${String(thumbPosition)}%`,
+            transform: `translateX(-50%) translateY(-50%) scale(${String(isDragging ? 1.1 : 1)})`,
           }}
         />
 
@@ -81,7 +81,7 @@ export function LabeledSlider<T extends string>({
           <div
             key={index}
             className="absolute top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-text-secondary/30"
-            style={{ left: `${(index / (options.length - 1)) * 100}%` }}
+            style={{ left: `${String((index / (options.length - 1)) * 100)}%` }}
           />
         ))}
       </div>
@@ -103,7 +103,7 @@ export function LabeledSlider<T extends string>({
                   : 'text-text-secondary hover:text-text-primary'
               }`}
               style={{
-                left: `${position}%`,
+                left: `${String(position)}%`,
                 transform: 'translateX(-50%)',
               }}
             >

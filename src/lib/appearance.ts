@@ -9,15 +9,24 @@ export const DEFAULT_APPEARANCE: AppearanceConfig = {
   animationSpeed: 'normal',
 }
 
+// Shape of Zustand's persisted storage
+interface PersistedState {
+  state?: {
+    global?: {
+      appearance?: Partial<AppearanceConfig>
+    }
+  }
+}
+
 // Get stored appearance config from Zustand's persisted state
 export function getAppearanceConfig(): AppearanceConfig {
   try {
     // Read from Zustand's persisted storage key
     const stored = localStorage.getItem('bento-settings')
     if (stored) {
-      const parsed = JSON.parse(stored)
+      const parsed = JSON.parse(stored) as PersistedState
       // Zustand stores state in { state: { global: { appearance: ... } } }
-      const appearance = parsed?.state?.global?.appearance
+      const appearance = parsed.state?.global?.appearance
       if (appearance) {
         return { ...DEFAULT_APPEARANCE, ...appearance }
       }

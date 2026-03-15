@@ -70,7 +70,7 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
 
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!name.trim() || isSubmitting) return
 
@@ -119,7 +119,7 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
             Configure Column
           </h2>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-5">
             {/* Name */}
             <div>
               <label className="mb-1.5 block text-sm font-medium text-text-secondary">

@@ -260,6 +260,7 @@ export function TaskContextMenu({
       className="min-w-[180px] rounded-lg border border-border-default bg-surface p-1 shadow-xl animate-in fade-in zoom-in-95 duration-100"
     >
       {menuItems.map((item, idx) => {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime type narrowing for union discrimination
         if ('type' in item && item.type === 'divider') {
           return <div key={idx} className="my-1 h-px bg-border-default" />
         }

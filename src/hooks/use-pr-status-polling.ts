@@ -3,7 +3,6 @@ import { useTaskStore } from '@/stores/task-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { fetchPrStatusBatch, shouldRefreshPrStatus } from '@/lib/ipc'
-import { DEFAULT_SETTINGS } from '@/types/settings'
 import type { PrMergeable, PrCiStatus, PrReviewDecision } from '@/types/task'
 
 /**
@@ -21,7 +20,7 @@ export function usePrStatusPolling(options?: {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId)
-  const cardSettings = useSettingsStore((s) => s.global.cards) ?? DEFAULT_SETTINGS.cards
+  const cardSettings = useSettingsStore((s) => s.global.cards)
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isPollingRef = useRef(false)

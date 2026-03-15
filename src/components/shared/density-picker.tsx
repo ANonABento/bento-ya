@@ -32,19 +32,19 @@ export function DensityPicker({ value, onChange }: DensityPickerProps) {
             }`}
           >
             {/* Mini card stack icon */}
-            <div className="flex flex-col items-center" style={{ gap: `${2 * density.scale}px` }}>
+            <div className="flex flex-col items-center" style={{ gap: `${String(2 * density.scale)}px` }}>
               <div
                 className={`rounded ${isSelected ? 'bg-bg/30' : 'bg-text-secondary/20'}`}
                 style={{
-                  width: `${28 * density.scale}px`,
-                  height: `${8 * density.scale}px`
+                  width: `${String(28 * density.scale)}px`,
+                  height: `${String(8 * density.scale)}px`
                 }}
               />
               <div
                 className={`rounded ${isSelected ? 'bg-bg/30' : 'bg-text-secondary/20'}`}
                 style={{
-                  width: `${28 * density.scale}px`,
-                  height: `${8 * density.scale}px`
+                  width: `${String(28 * density.scale)}px`,
+                  height: `${String(8 * density.scale)}px`
                 }}
               />
             </div>
