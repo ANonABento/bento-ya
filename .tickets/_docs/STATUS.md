@@ -232,7 +232,7 @@ v0.1–v0.4 and v1.0 are all complete. Remaining polish work:
 ### Code Quality (2025-03-08)
 
 - **Lint Fixes**: Reduced lint errors from 263 to 0 ✅ (100% clean)
-- **Test Coverage**: 94 tests passing (column-store, task-store, checklist-store, workspace-store, settings-store, templates-store, format-time)
+- **Test Coverage**: 94 tests passing across 7 files (column-store, task-store, checklist-store, workspace-store, settings-store, templates-store, format-time)
 - **Type Safety**: All type-check errors resolved
 - **Frontend Build**: Production vite build works (`npm run build`)
 
