@@ -30,12 +30,14 @@ async-stream = "0.3"
 git2 = "0.19"
 log = "0.4"
 
-# Local whisper transcription
-whisper-rs = "0.15"
-hound = "3.5"  # WAV file handling
-symphonia = { version = "0.5", features = ["all"] }  # Audio decoding
-cpal = "0.15"  # Native audio recording (bypasses webview limitations)
+# Local whisper transcription (optional - requires macOS 10.15+)
+whisper-rs = { version = "0.15", optional = true }
+hound = { version = "3.5", optional = true }
+symphonia = { version = "0.5", features = ["all"], optional = true }
+cpal = { version = "0.15", optional = true }
 glob = "0.3.3"
 
 [features]
+default = []
 custom-protocol = ["tauri/custom-protocol"]
+voice = ["whisper-rs", "hound", "symphonia", "cpal"]

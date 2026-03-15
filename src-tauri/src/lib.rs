@@ -13,8 +13,10 @@ pub mod git;
 pub mod llm;
 pub mod pipeline;
 pub mod process;
+#[cfg(feature = "voice")]
 pub mod whisper;
 
+#[cfg(feature = "voice")]
 use commands::voice::RecorderState;
 use db::AppState;
 use discord::bridge::new_shared_discord_bridge;
@@ -22,6 +24,7 @@ use process::agent_cli_session::new_shared_agent_cli_session_manager;
 use process::agent_runner::AgentRunner;
 use process::cli_session::new_shared_cli_session_manager;
 use process::pty_manager::PtyManager;
+#[cfg(feature = "voice")]
 use whisper::AudioRecorder;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,13 +39,14 @@ pub fn run() {
     let cli_session_manager = new_shared_cli_session_manager();
     let agent_cli_session_manager = new_shared_agent_cli_session_manager();
     let discord_bridge = new_shared_discord_bridge();
+    #[cfg(feature = "voice")]
     let recorder_state = RecorderState(Mutex::new(AudioRecorder::new()));
 
     // Clone for shutdown handler
     let cli_manager_for_shutdown = Arc::clone(&cli_session_manager);
     let agent_cli_for_shutdown = Arc::clone(&agent_cli_session_manager);
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -51,8 +55,12 @@ pub fn run() {
         .manage(agent_runner)
         .manage(cli_session_manager)
         .manage(agent_cli_session_manager)
-        .manage(discord_bridge)
-        .manage(recorder_state)
+        .manage(discord_bridge);
+
+    #[cfg(feature = "voice")]
+    let builder = builder.manage(recorder_state);
+
+    builder
         .on_window_event(move |_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 // Kill all CLI sessions on window close

@@ -13,7 +13,12 @@ pub mod siege;
 pub mod task;
 pub mod terminal;
 pub mod usage;
+#[cfg(feature = "voice")]
 pub mod voice;
+#[cfg(not(feature = "voice"))]
+pub mod voice_stubs;
+#[cfg(not(feature = "voice"))]
+pub use voice_stubs as voice;
 pub mod workspace;
 
 #[tauri::command]
