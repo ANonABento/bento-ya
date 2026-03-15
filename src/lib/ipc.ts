@@ -427,6 +427,7 @@ export type AgentStreamEvent = {
 export type AgentThinkingEvent = {
   taskId: string
   content: string
+  isComplete: boolean
 }
 
 export type AgentToolCallEvent = {

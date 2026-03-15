@@ -1,186 +1,122 @@
+/**
+ * Orchestrator Panel - Main chat interface for workspace-level orchestration.
+ * Uses:
+ * - useOrchestratorSessions for session management (create, switch, delete)
+ * - useChatSession for chat logic (send, cancel, queue, streaming)
+ */
+
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { listen } from '@tauri-apps/api/event'
 import { useUIStore } from '@/stores/ui-store'
 import { useTaskStore } from '@/stores/task-store'
-import {
-  getChatHistory,
-  getActiveChatSession,
-  createChatSession,
-  listChatSessions,
-  deleteChatSession,
-  streamOrchestratorChat,
-  cancelOrchestratorChat,
-  resetCliSession,
-  type ChatMessage,
-  type ChatSession,
-  type OrchestratorEvent,
-  type StreamChunkEvent,
-  type ToolResultEvent,
-  type ThinkingEvent,
-  type ToolCallEvent,
-} from '@/lib/ipc'
+import { useSettingsStore } from '@/stores/settings-store'
+import { useOrchestratorSessions } from '@/hooks/use-orchestrator-sessions'
+import { useChatSession } from '@/hooks/use-chat-session'
+import { getChatHistory, type ChatMessage } from '@/lib/ipc'
 import { ChatHistory } from './chat-history'
 import { PanelInput, type SendMessageParams } from './panel-input'
 import { PanelSidebar } from './panel-sidebar'
+import { ChatErrorBoundary } from './chat-error-boundary'
 
 type OrchestratorPanelProps = {
   workspaceId: string
 }
 
-type QueuedMessage = SendMessageParams & { id: string }
-
-type FailedMessage = {
-  id: string
-  content: string
-  params: SendMessageParams
-  error: string
-}
-
 const COLLAPSED_HEIGHT = 40
 
 export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
+  // UI stores
   const panelHeight = useUIStore((s) => s.panelHeight)
   const isPanelCollapsed = useUIStore((s) => s.isPanelCollapsed)
   const setPanelHeight = useUIStore((s) => s.setPanelHeight)
   const togglePanel = useUIStore((s) => s.togglePanel)
   const loadTasks = useTaskStore((s) => s.load)
 
-  const [sessions, setSessions] = useState<ChatSession[]>([])
-  const [activeSession, setActiveSession] = useState<ChatSession | null>(null)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [isDragging, setIsDragging] = useState(false)
-  const [streamingContent, setStreamingContent] = useState('')
+  // Get settings for LLM connection
+  const settings = useSettingsStore((s) => s.global)
+  const anthropicProvider = settings.model.providers.find((p) => p.id === 'anthropic')
+  const connectionMode = anthropicProvider?.connectionMode ?? 'cli'
+  const cliPath = anthropicProvider?.cliPath || 'claude'
+  const apiKey = settings.agent.envVars['ANTHROPIC_API_KEY'] || undefined
+
+  // Session management hook
+  const {
+    sessions,
+    activeSession,
+    isLoading: sessionsLoading,
+    createSession,
+    switchSession,
+    deleteSession,
+    refreshSessions,
+    resetSession,
+  } = useOrchestratorSessions(workspaceId)
+
+  // Chat hook - uses activeSession?.id (may be undefined initially)
+  const chat = useChatSession({
+    mode: 'orchestrator',
+    workspaceId,
+    sessionId: activeSession?.id,
+    connectionMode,
+    cliPath,
+    apiKey,
+    onError: (err) => {
+      console.error('[OrchestratorPanel] Chat error:', err)
+    },
+    onToolResult: () => {
+      void loadTasks(workspaceId)
+    },
+    onComplete: () => {
+      void refreshSessions()
+    },
+  })
+
+  // Local UI state
   const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | null>(null)
-  // Error state is set but displayed via failedMessage - kept for future error UI
-  const [, setError] = useState<string | null>(null)
-  const [processingStartTime, setProcessingStartTime] = useState<number | null>(null)
-  const [thinkingContent, setThinkingContent] = useState('')
-  const [activeToolCalls, setActiveToolCalls] = useState<Map<string, ToolCallEvent>>(new Map())
-  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([])
-  const [failedMessage, setFailedMessage] = useState<FailedMessage | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
+  const [messagesLoading, setMessagesLoading] = useState(false)
+
   const panelRef = useRef<HTMLDivElement>(null)
-  // Ref for synchronous processing check (avoids stale closure issues)
-  const isProcessingRef = useRef(false)
   const dragStartY = useRef(0)
   const dragStartHeight = useRef(0)
-  const hasDragged = useRef(false)
 
-  // Load active session and sessions list on mount
+  // Load messages when active session changes
   useEffect(() => {
-    async function loadSession() {
-      setIsLoading(true)
-      try {
-        const session = await getActiveChatSession(workspaceId)
-        setActiveSession(session)
-        const sessionList = await listChatSessions(workspaceId)
-        setSessions(sessionList)
-        const history = await getChatHistory(session.id, 100)
-        setMessages(history)
-      } catch (err) {
-        console.error('Failed to load session:', err)
-      } finally {
-        setIsLoading(false)
-      }
+    if (!activeSession) {
+      setLocalMessages([])
+      return
     }
-    void loadSession()
-  }, [workspaceId])
+    setMessagesLoading(true)
+    void getChatHistory(activeSession.id, 100)
+      .then(setLocalMessages)
+      .catch((err: unknown) => {
+        console.error('[OrchestratorPanel] Failed to load messages:', err)
+      })
+      .finally(() => {
+        setMessagesLoading(false)
+      })
+  }, [activeSession])
 
-  // Listen for orchestrator events
+  // Sync chat hook messages with local messages
+  useEffect(() => {
+    if (chat.messages.length > 0) {
+      setLocalMessages(chat.messages.map((m) => ({
+        id: m.id,
+        workspaceId,
+        sessionId: activeSession?.id ?? null,
+        role: m.role,
+        content: m.content,
+        createdAt: m.createdAt,
+      })))
+    }
+  }, [chat.messages, workspaceId, activeSession?.id])
+
+  // Listen for task events to refresh board
   useEffect(() => {
     const unsubscribes: Array<() => void> = []
 
     const setupListeners = async () => {
-      const unsubProcessing = await listen<OrchestratorEvent>('orchestrator:processing', (event) => {
-        if (event.payload.workspaceId === workspaceId) {
-          setIsProcessing(true)
-          setProcessingStartTime(Date.now())
-          setError(null)
-        }
-      })
-      unsubscribes.push(unsubProcessing)
-
-      const unsubComplete = await listen<OrchestratorEvent>('orchestrator:complete', (event) => {
-        if (event.payload.workspaceId === workspaceId && activeSession) {
-          // Load messages FIRST, then clear streaming state to avoid flicker
-          void Promise.all([
-            getChatHistory(activeSession.id, 100),
-            listChatSessions(workspaceId),
-          ]).then(([newMessages, newSessions]) => {
-            setMessages(newMessages)
-            setSessions(newSessions)
-            // Clear streaming state AFTER messages are loaded
-            isProcessingRef.current = false
-            setIsProcessing(false)
-            setProcessingStartTime(null)
-            setStreamingContent('')
-            setThinkingContent('')
-            setActiveToolCalls(new Map())
-          })
-        }
-      })
-      unsubscribes.push(unsubComplete)
-
-      const unsubError = await listen<OrchestratorEvent>('orchestrator:error', (event) => {
-        if (event.payload.workspaceId === workspaceId) {
-          isProcessingRef.current = false
-          setIsProcessing(false)
-          setProcessingStartTime(null)
-          setStreamingContent('')
-          setThinkingContent('')
-          setActiveToolCalls(new Map())
-          setError(event.payload.message ?? 'An error occurred')
-        }
-      })
-      unsubscribes.push(unsubError)
-
-      const unsubStream = await listen<StreamChunkEvent>('orchestrator:stream', (event) => {
-        if (event.payload.workspaceId === workspaceId) {
-          if (event.payload.finishReason) {
-            setStreamingContent('')
-          } else if (event.payload.delta) {
-            setStreamingContent((prev) => prev + event.payload.delta)
-          }
-        }
-      })
-      unsubscribes.push(unsubStream)
-
-      // Listen for tool results to refresh the board
-      const unsubToolResult = await listen<ToolResultEvent>('orchestrator:tool_result', (event) => {
-        if (event.payload.workspaceId === workspaceId && !event.payload.isError) {
-          // Refresh tasks when tools execute successfully
-          void loadTasks(workspaceId)
-        }
-      })
-      unsubscribes.push(unsubToolResult)
-
-      // Listen for thinking events
-      const unsubThinking = await listen<ThinkingEvent>('orchestrator:thinking', (event) => {
-        if (event.payload.workspaceId === workspaceId) {
-          if (event.payload.isComplete) {
-            // Thinking block complete - keep content for display
-          } else if (event.payload.content) {
-            setThinkingContent((prev) => prev + event.payload.content)
-          }
-        }
-      })
-      unsubscribes.push(unsubThinking)
-
-      // Listen for tool call events
-      const unsubToolCall = await listen<ToolCallEvent>('orchestrator:tool_call', (event) => {
-        if (event.payload.workspaceId === workspaceId) {
-          setActiveToolCalls((prev) => {
-            const updated = new Map(prev)
-            updated.set(event.payload.toolId, event.payload)
-            return updated
-          })
-        }
-      })
-      unsubscribes.push(unsubToolCall)
-
-      // Also listen for direct task events (from tool executor)
       const unsubTaskCreated = await listen('task:created', (event) => {
         const payload = event.payload as { workspace_id?: string }
         if (payload.workspace_id === workspaceId) {
@@ -211,7 +147,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     return () => {
       unsubscribes.forEach((unsub) => { unsub() })
     }
-  }, [workspaceId, activeSession, loadTasks])
+  }, [workspaceId, loadTasks])
 
   // Keyboard shortcut: Cmd+J to toggle
   useEffect(() => {
@@ -222,51 +158,14 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       }
     }
     window.addEventListener('keydown', handleKeyDown)
-    return () => { window.removeEventListener('keydown', handleKeyDown); }
+    return () => { window.removeEventListener('keydown', handleKeyDown) }
   }, [togglePanel])
 
-  // Process queue when current request completes
-  useEffect(() => {
-    if (!isProcessing && !isProcessingRef.current && messageQueue.length > 0 && activeSession && !failedMessage) {
-      const [next, ...rest] = messageQueue
-      if (!next) return
-      setMessageQueue(rest)
-
-      // Set ref and state
-      isProcessingRef.current = true
-      setIsProcessing(true)
-      setProcessingStartTime(Date.now())
-
-      // Add optimistic message for queued item
-      const optimisticMessage: ChatMessage = {
-        id: `temp-${String(Date.now())}`,
-        workspaceId,
-        sessionId: activeSession.id,
-        role: 'user',
-        content: next.content,
-        createdAt: new Date().toISOString(),
-      }
-      setMessages((prev) => [...prev, optimisticMessage])
-
-      // Process the next message
-      void streamOrchestratorChat(
-        workspaceId,
-        activeSession.id,
-        next.content,
-        next.connectionMode,
-        next.apiKey,
-        next.model,
-        next.cliPath,
-      )
-    }
-  }, [isProcessing, messageQueue, activeSession, workspaceId, failedMessage])
-
-  // Resize handle drag handler (top edge only)
+  // Resize handle drag handler
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
-    if (isPanelCollapsed) return // Can't resize when collapsed
+    if (isPanelCollapsed) return
     e.preventDefault()
     e.stopPropagation()
-    hasDragged.current = false
     dragStartY.current = e.clientY
     dragStartHeight.current = panelHeight
     setIsDragging(true)
@@ -274,7 +173,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
   // Header click handler (toggle panel)
   const handleHeaderClick = useCallback((e: React.MouseEvent) => {
-    // Ignore if clicking on a button
     if ((e.target as HTMLElement).closest('button')) return
     togglePanel()
   }, [togglePanel])
@@ -287,11 +185,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
     const handleMouseMove = (e: MouseEvent) => {
       const deltaY = dragStartY.current - e.clientY
-      if (Math.abs(deltaY) > 3) {
-        hasDragged.current = true
-        const newHeight = dragStartHeight.current + deltaY
-        setPanelHeight(newHeight)
-      }
+      const newHeight = dragStartHeight.current + deltaY
+      setPanelHeight(newHeight)
     }
 
     const handleMouseUp = () => {
@@ -311,155 +206,54 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     }
   }, [isDragging, setPanelHeight])
 
-  // Process a single message (internal helper)
-  const processMessage = useCallback(async (params: SendMessageParams) => {
-    if (!activeSession) return
-
-    setFailedMessage(null)
-    setError(null)
-
-    try {
-      await streamOrchestratorChat(
-        workspaceId,
-        activeSession.id,
-        params.content,
-        params.connectionMode,
-        params.apiKey,
-        params.model,
-        params.cliPath,
-      )
-    } catch (err) {
-      const errorMessage = err instanceof Error
-        ? err.message
-        : typeof err === 'object' && err !== null
-          ? JSON.stringify(err)
-          : String(err)
-
-      // Store failed message for retry
-      setFailedMessage({
-        id: `failed-${String(Date.now())}`,
-        content: params.content,
-        params,
-        error: `${params.connectionMode.toUpperCase()} error: ${errorMessage}`,
-      })
-      isProcessingRef.current = false
-      setIsProcessing(false)
-      setProcessingStartTime(null)
-      // Refresh to get actual state from backend
-      void getChatHistory(activeSession.id, 100).then(setMessages)
-    }
-  }, [activeSession, workspaceId])
-
+  // Handlers
   const handleSendMessage = useCallback((params: SendMessageParams) => {
-    if (!activeSession) return
+    if (!chat.canSend) return
+    void chat.sendMessage(params.content, params.model)
+  }, [chat])
 
-    // Add optimistic user message immediately
-    const optimisticMessage: ChatMessage = {
-      id: `temp-${String(Date.now())}`,
-      workspaceId,
-      sessionId: activeSession.id,
-      role: 'user',
-      content: params.content,
-      createdAt: new Date().toISOString(),
-    }
-    setMessages((prev) => [...prev, optimisticMessage])
-
-    // Use ref for synchronous check (avoids stale closure when clicking fast)
-    if (isProcessingRef.current) {
-      setMessageQueue((prev) => [...prev, { ...params, id: `queued-${String(Date.now())}` }])
-      return
-    }
-
-    // Set ref synchronously, then state for UI
-    isProcessingRef.current = true
-    setIsProcessing(true)
-    setProcessingStartTime(Date.now())
-
-    // Process the message
-    void processMessage(params)
-  }, [activeSession, workspaceId, processMessage])
-
-  // Handle cancel
   const handleCancel = useCallback(async () => {
-    if (!activeSession) return
-    try {
-      await cancelOrchestratorChat(activeSession.id, workspaceId)
-      // Clear queue on cancel
-      setMessageQueue([])
-    } catch (err) {
-      console.error('Failed to cancel:', err)
-    }
-  }, [activeSession, workspaceId])
-
-  // Handle retry failed message
-  const handleRetry = useCallback(async () => {
-    if (!failedMessage) return
-    const params = failedMessage.params
-    setFailedMessage(null)
-    await processMessage(params)
-  }, [failedMessage, processMessage])
-
-  // Dismiss failed message
-  const handleDismissError = useCallback(() => {
-    setFailedMessage(null)
-  }, [])
+    await chat.cancel()
+  }, [chat])
 
   const handleNewChat = useCallback(async () => {
-    // Don't create new chat if current one is empty
-    if (messages.length === 0) return
-
+    if (localMessages.length === 0) return
     try {
-      // Kill the old CLI process and clear its session ID (fresh start)
       if (activeSession) {
-        await resetCliSession(activeSession.id)
+        await resetSession()
       }
-
-      const newSession = await createChatSession(workspaceId)
-      setActiveSession(newSession)
-      setMessages([])
-      setError(null)
-      // Refresh session list
-      const sessionList = await listChatSessions(workspaceId)
-      setSessions(sessionList)
+      await createSession()
+      setLocalMessages([])
     } catch (err) {
-      console.error('Failed to create new chat:', err)
+      console.error('[OrchestratorPanel] Failed to create new chat:', err)
     }
-  }, [workspaceId, messages.length, activeSession])
+  }, [localMessages.length, activeSession, resetSession, createSession])
 
-  const handleSelectSession = useCallback(async (session: ChatSession) => {
-    try {
-      setActiveSession(session)
-      setIsLoading(true)
-      const history = await getChatHistory(session.id, 100)
-      setMessages(history)
-    } catch (err) {
-      console.error('Failed to load session:', err)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
+  const handleSelectSession = useCallback((session: typeof activeSession) => {
+    if (!session) return
+    switchSession(session)
+  }, [switchSession])
 
   const handleDeleteSession = useCallback(async (sessionId: string) => {
     try {
-      await deleteChatSession(sessionId)
-      // Refresh session list
-      const sessionList = await listChatSessions(workspaceId)
-      setSessions(sessionList)
-      // If deleted active session, switch to another or create new
-      if (activeSession?.id === sessionId) {
-        const firstSession = sessionList[0]
-        if (firstSession) {
-          await handleSelectSession(firstSession)
-        } else {
-          await handleNewChat()
-        }
-      }
+      await deleteSession(sessionId)
     } catch (err) {
-      console.error('Failed to delete session:', err)
+      console.error('[OrchestratorPanel] Failed to delete session:', err)
     }
-  }, [workspaceId, activeSession, handleSelectSession, handleNewChat])
+  }, [deleteSession])
 
   const displayHeight = isPanelCollapsed ? COLLAPSED_HEIGHT : panelHeight
+  const isLoading = sessionsLoading || messagesLoading
+  const isProcessing = chat.streaming.isStreaming
+
+  // Convert tool calls to format expected by ChatHistory
+  const toolCalls = chat.streaming.toolCalls.map((tc) => ({
+    workspaceId,
+    toolId: tc.id,
+    toolName: tc.name,
+    status: tc.status === 'completed' ? 'complete' as const : tc.status === 'pending' ? 'running' as const : tc.status as 'running' | 'complete' | 'error',
+    input: tc.input ? (() => { try { return JSON.parse(tc.input) as Record<string, unknown> } catch { return { raw: tc.input } } })() : undefined,
+  }))
 
   return (
     <motion.div
@@ -477,7 +271,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
           className="absolute -top-1 left-0 right-0 h-3 z-10 group"
           style={{ cursor: 'ns-resize' }}
         >
-          {/* Visual indicator line */}
           <div className="absolute bottom-0 left-0 right-0 h-px bg-transparent group-hover:bg-accent/50 transition-colors" />
         </div>
       )}
@@ -491,10 +284,9 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
         <div className="flex items-center gap-1">
           {!isPanelCollapsed && (
             <>
-              {/* History button */}
               <button
                 type="button"
-                onClick={() => { setSidebarMode(sidebarMode === 'history' ? null : 'history'); }}
+                onClick={() => { setSidebarMode(sidebarMode === 'history' ? null : 'history') }}
                 className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
                   sidebarMode === 'history'
                     ? 'bg-surface-hover text-text-primary'
@@ -505,10 +297,9 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13a.75.75 0 0 0-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 0 0 0-1.5h-3.25V5Z" clipRule="evenodd" />
                 </svg>
               </button>
-              {/* Files button */}
               <button
                 type="button"
-                onClick={() => { setSidebarMode(sidebarMode === 'files' ? null : 'files'); }}
+                onClick={() => { setSidebarMode(sidebarMode === 'files' ? null : 'files') }}
                 className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
                   sidebarMode === 'files'
                     ? 'bg-surface-hover text-text-primary'
@@ -528,18 +319,17 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
           <span className="text-sm font-medium text-text-primary">Chef</span>
           {isProcessing && (
-            <ProcessingIndicator startTime={processingStartTime} />
+            <ProcessingIndicator startTime={chat.streaming.startTime} />
           )}
         </div>
 
         {/* Right: New chat + collapse */}
         <div className="flex items-center gap-2">
-          {/* New Chat button */}
           {!isPanelCollapsed && (
             <button
               type="button"
               onClick={() => { void handleNewChat() }}
-              disabled={messages.length === 0}
+              disabled={localMessages.length === 0}
               className="flex h-6 cursor-pointer items-center gap-1 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
@@ -587,56 +377,58 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               sessions={sessions}
               activeSessionId={activeSession?.id}
               workspaceId={workspaceId}
-              isCurrentChatEmpty={messages.length === 0}
+              isCurrentChatEmpty={localMessages.length === 0}
               onNewChat={() => { void handleNewChat() }}
-              onSelectSession={(session) => { void handleSelectSession(session) }}
+              onSelectSession={(session) => { handleSelectSession(session) }}
               onDeleteSession={(sessionId) => { void handleDeleteSession(sessionId) }}
             />
 
             {/* Main chat area */}
-            <div className="flex flex-1 flex-col overflow-hidden">
-              {/* Failed message with retry/dismiss */}
-              {failedMessage && (
-                <div className="mx-3 mt-2 rounded-md bg-red-500/10 px-3 py-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-xs text-red-400">{failedMessage.error}</p>
-                    <div className="flex shrink-0 gap-1">
-                      <button
-                        type="button"
-                        onClick={() => { void handleRetry() }}
-                        className="rounded px-2 py-0.5 text-xs text-red-400 hover:bg-red-500/20 transition-colors"
-                      >
-                        Retry
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleDismissError}
-                        className="rounded px-2 py-0.5 text-xs text-red-400/70 hover:bg-red-500/20 transition-colors"
-                      >
-                        Dismiss
-                      </button>
+            <ChatErrorBoundary panelName="Orchestrator Chat">
+              <div className="flex flex-1 flex-col overflow-hidden">
+                {/* Failed message with retry/dismiss */}
+                {chat.failedMessage && (
+                  <div className="mx-3 mt-2 rounded-md bg-red-500/10 px-3 py-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs text-red-400">{chat.failedMessage.error}</p>
+                      <div className="flex shrink-0 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => { void chat.retryFailed() }}
+                          className="rounded px-2 py-0.5 text-xs text-red-400 hover:bg-red-500/20 transition-colors"
+                        >
+                          Retry
+                        </button>
+                        <button
+                          type="button"
+                          onClick={chat.dismissFailed}
+                          className="rounded px-2 py-0.5 text-xs text-red-400/70 hover:bg-red-500/20 transition-colors"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
-              <ChatHistory
-                messages={messages}
-                isLoading={isLoading}
-                streamingContent={streamingContent}
-                processingStartTime={processingStartTime}
-                thinkingContent={thinkingContent}
-                toolCalls={Array.from(activeToolCalls.values())}
-                onCancel={() => { void handleCancel(); }}
-                queuedMessages={messageQueue.map((m) => ({ id: m.id, content: m.content }))}
-              />
-              <PanelInput
-                onSendMessage={handleSendMessage}
-                onCancel={() => { void handleCancel(); }}
-                isProcessing={isProcessing}
-                disabled={!activeSession}
-                queueCount={messageQueue.length}
-              />
-            </div>
+                )}
+                <ChatHistory
+                  messages={localMessages}
+                  isLoading={isLoading}
+                  streamingContent={chat.streaming.content}
+                  processingStartTime={chat.streaming.startTime}
+                  thinkingContent={chat.streaming.thinkingContent}
+                  toolCalls={toolCalls}
+                  onCancel={() => { void handleCancel() }}
+                  queuedMessages={chat.queue.map((m) => ({ id: m.id, content: m.content }))}
+                />
+                <PanelInput
+                  onSendMessage={handleSendMessage}
+                  onCancel={() => { void handleCancel() }}
+                  isProcessing={isProcessing}
+                  disabled={!chat.canSend}
+                  queueCount={chat.queue.length}
+                />
+              </div>
+            </ChatErrorBoundary>
           </motion.div>
         )}
       </AnimatePresence>
@@ -658,7 +450,7 @@ function ProcessingIndicator({ startTime }: { startTime: number | null }) {
       setElapsed(Math.floor((Date.now() - startTime) / 1000))
     }, 1000)
 
-    return () => { clearInterval(interval); }
+    return () => { clearInterval(interval) }
   }, [startTime])
 
   return (

@@ -1,12 +1,13 @@
 /**
  * Agent Panel - Per-task agent chat interface.
- * Uses the shared CLI chat components and agent session hook.
+ * Uses the unified chat session hook.
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import type { Task } from '@/types'
-import { useAgentSession } from '@/hooks/use-agent-session'
+import { useChatSession } from '@/hooks/use-chat-session'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useSettingsStore } from '@/stores/settings-store'
 import { ChatHistory } from './chat-history'
 import { ModelSelector, type ModelId } from '@/components/shared/model-selector'
 import { ThinkingSelector, type ThinkingLevel } from '@/components/shared/thinking-selector'
@@ -20,7 +21,7 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
   const [inputValue, setInputValue] = useState('')
   const [model, setModel] = useState<ModelId>('sonnet')
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('medium')
-  const [error, setError] = useState<string | null>(null)
+  const [localError, setLocalError] = useState<string | null>(null)
 
   // Get working directory from workspace
   const workspace = useWorkspaceStore((s) =>
@@ -28,30 +29,48 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
   )
   const workingDir = workspace?.repoPath ?? ''
 
-  // Default CLI path - could come from settings
-  const cliPath = 'claude'
+  // Get CLI path from settings
+  const settings = useSettingsStore((s) => s.global)
+  const anthropicProvider = settings.model.providers.find((p) => p.id === 'anthropic')
+  const cliPath = anthropicProvider?.cliPath || 'claude'
 
   const {
     messages,
     isLoading,
     streaming,
+    error: hookError,
+    queue,
+    failedMessage,
     sendMessage,
     cancel,
     clearMessages,
-  } = useAgentSession({
+    clearError,
+    retryFailed,
+    dismissFailed,
+  } = useChatSession({
+    mode: 'agent',
     taskId: task.id,
     workingDir,
     cliPath,
     onError: (err) => {
       console.error('[AgentPanel]', err)
-      setError(err)
+      setLocalError(err)
     },
   })
+
+  // Sync hook error to local state
+  const error = localError ?? hookError
+  useEffect(() => {
+    if (hookError) setLocalError(hookError)
+  }, [hookError])
 
   // Clear error when user starts typing
   const handleInputChange = (value: string) => {
     setInputValue(value)
-    if (error) setError(null)
+    if (error) {
+      setLocalError(null)
+      clearError()
+    }
   }
 
   const handleSendMessage = useCallback(async () => {
@@ -79,12 +98,12 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
     }
   }, [clearMessages])
 
-  // Convert AgentMessage[] to ChatMessage[] format for ChatHistory
+  // Convert UnifiedMessage[] to ChatMessage[] format for ChatHistory
   const chatMessages = messages.map((msg) => ({
     id: msg.id,
     workspaceId: task.workspaceId,
     sessionId: task.id,
-    role: msg.role as 'user' | 'assistant',
+    role: msg.role,
     content: msg.content,
     createdAt: msg.createdAt,
   }))
@@ -115,6 +134,9 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
     }
   })
 
+  // Convert queue to format expected by ChatHistory
+  const queuedMessages = queue.map((m) => ({ id: m.id, content: m.content }))
+
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
@@ -139,6 +161,11 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {queue.length > 0 && (
+            <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
+              {queue.length} queued
+            </span>
+          )}
           {streaming.isStreaming && (
             <button
               type="button"
@@ -159,7 +186,7 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
       </div>
 
       {/* Error Banner */}
-      {error && (
+      {error && !failedMessage && (
         <div className="mx-3 mt-2 flex items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
             <path d="M7 1a6 6 0 100 12A6 6 0 007 1zm0 9a.75.75 0 110-1.5.75.75 0 010 1.5zm.75-3a.75.75 0 01-1.5 0V4.5a.75.75 0 011.5 0V7z"/>
@@ -167,11 +194,36 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
           <span className="flex-1">{error}</span>
           <button
             type="button"
-            onClick={() => { setError(null); }}
+            onClick={() => { setLocalError(null); clearError(); }}
             className="text-red-400 hover:text-red-300"
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {/* Failed Message with Retry */}
+      {failedMessage && (
+        <div className="mx-3 mt-2 rounded-md bg-red-500/10 px-3 py-2">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs text-red-400">{failedMessage.error}</p>
+            <div className="flex shrink-0 gap-1">
+              <button
+                type="button"
+                onClick={() => { void retryFailed() }}
+                className="rounded px-2 py-0.5 text-xs text-red-400 hover:bg-red-500/20 transition-colors"
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                onClick={dismissFailed}
+                className="rounded px-2 py-0.5 text-xs text-red-400/70 hover:bg-red-500/20 transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -184,6 +236,7 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
         thinkingContent={streaming.thinkingContent}
         toolCalls={toolCalls}
         onCancel={streaming.isStreaming ? () => { void cancel() } : undefined}
+        queuedMessages={queuedMessages}
         emptyState={
           <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
             <div className="rounded-full bg-surface-hover p-3">
@@ -218,17 +271,17 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
             }}
             onKeyDown={handleKeyDown}
             placeholder={`Ask agent about "${task.title}"...`}
-            disabled={streaming.isStreaming}
+            disabled={streaming.isStreaming && queue.length >= 5}
             className="flex-1 resize-none rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none disabled:opacity-50"
             rows={2}
           />
           <button
             type="button"
             onClick={() => void handleSendMessage()}
-            disabled={streaming.isStreaming || !inputValue.trim()}
+            disabled={!inputValue.trim()}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
           >
-            Send
+            {streaming.isStreaming ? 'Queue' : 'Send'}
           </button>
         </div>
       </div>
