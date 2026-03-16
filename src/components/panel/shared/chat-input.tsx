@@ -121,7 +121,8 @@ export function ChatInput({
     }
   }, [voice.liveText, voice.state])
 
-  const showVoice = config.showVoiceInput && voice.isAvailable
+  // Always show voice button if enabled in config (with helpful tooltip when unavailable)
+  const showVoice = config.showVoiceInput
 
   return (
     <div className="border-t border-border-default bg-surface p-3">
@@ -154,7 +155,7 @@ export function ChatInput({
           rows={config.rows}
           readOnly={voice.state === 'recording'}
           disabled={disabled || voice.state === 'processing'}
-          className={`flex-1 resize-none rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50 ${
+          className={`flex-1 resize-none rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50 ${
             voice.state === 'recording' ? 'italic text-text-secondary' : ''
           }`}
           style={{ minHeight: '38px', maxHeight: '120px' }}
@@ -196,7 +197,9 @@ export function ChatInput({
                     ? 'border-accent bg-accent/10 text-accent'
                     : voice.state === 'error'
                       ? 'border-yellow-500 bg-yellow-500/10 text-yellow-500'
-                      : 'border-border-default bg-surface-hover text-text-primary hover:bg-bg-hover hover:border-border-hover'
+                      : !voice.isAvailable
+                        ? 'border-border-default bg-bg text-text-secondary/40 cursor-help'
+                        : 'border-border-default bg-bg text-text-primary hover:bg-bg-hover hover:border-border-hover'
               } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {voice.state === 'processing' ? (
