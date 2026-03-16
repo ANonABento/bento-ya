@@ -248,33 +248,46 @@ impl CliSessionManager {
                                         {
                                             match delta_type {
                                                 "thinking_delta" => {
-                                                    if let Some(thinking) =
-                                                        delta.get("thinking").and_then(|t| t.as_str())
-                                                    {
-                                                        let _ = app.emit(
-                                                            "orchestrator:thinking",
-                                                            &ThinkingPayload {
-                                                                workspace_id: workspace_id.to_string(),
-                                                                content: thinking.to_string(),
-                                                                is_complete: false,
-                                                            },
-                                                        );
+                                                    if let Some(thinking_value) = delta.get("thinking") {
+                                                        // Defensive: ensure thinking is a string
+                                                        if let Some(thinking) = thinking_value.as_str() {
+                                                            let _ = app.emit(
+                                                                "orchestrator:thinking",
+                                                                &ThinkingPayload {
+                                                                    workspace_id: workspace_id.to_string(),
+                                                                    content: thinking.to_string(),
+                                                                    is_complete: false,
+                                                                },
+                                                            );
+                                                        } else {
+                                                            eprintln!(
+                                                                "[orchestrator:thinking] Warning: thinking_delta contains non-string: {:?}",
+                                                                thinking_value
+                                                            );
+                                                        }
                                                     }
                                                 }
                                                 "text_delta" => {
-                                                    if let Some(text) =
-                                                        delta.get("text").and_then(|t| t.as_str())
-                                                    {
-                                                        full_response.push_str(text);
-                                                        let _ = app.emit(
-                                                            "orchestrator:stream",
-                                                            &StreamChunkPayload {
-                                                                workspace_id: workspace_id.to_string(),
-                                                                delta: text.to_string(),
-                                                                finish_reason: None,
-                                                                tool_use: None,
-                                                            },
-                                                        );
+                                                    if let Some(text_value) = delta.get("text") {
+                                                        // Defensive: ensure text is a string, not an object
+                                                        if let Some(text) = text_value.as_str() {
+                                                            full_response.push_str(text);
+                                                            let _ = app.emit(
+                                                                "orchestrator:stream",
+                                                                &StreamChunkPayload {
+                                                                    workspace_id: workspace_id.to_string(),
+                                                                    delta: text.to_string(),
+                                                                    finish_reason: None,
+                                                                    tool_use: None,
+                                                                },
+                                                            );
+                                                        } else {
+                                                            // Log unexpected type for debugging
+                                                            eprintln!(
+                                                                "[orchestrator:stream] Warning: text_delta contains non-string: {:?}",
+                                                                text_value
+                                                            );
+                                                        }
                                                     }
                                                 }
                                                 _ => {}

@@ -14,6 +14,7 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { useOrchestratorSessions } from '@/hooks/use-orchestrator-sessions'
 import { useChatSession } from '@/hooks/use-chat-session'
 import { getChatHistory, type ChatMessage } from '@/lib/ipc'
+import { useCliPath } from '@/hooks/use-cli-path'
 import { ChatHistory } from './chat-history'
 import { PanelInput, type SendMessageParams } from './panel-input'
 import { PanelSidebar } from './panel-sidebar'
@@ -37,7 +38,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const settings = useSettingsStore((s) => s.global)
   const anthropicProvider = settings.model.providers.find((p) => p.id === 'anthropic')
   const connectionMode = anthropicProvider?.connectionMode ?? 'cli'
-  const cliPath = anthropicProvider?.cliPath || 'claude'
+  const { cliPath, detectionError: cliDetectionError } = useCliPath()
   const apiKey = settings.agent.envVars['ANTHROPIC_API_KEY'] || undefined
 
   // Session management hook
@@ -62,6 +63,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     apiKey,
     onError: (err) => {
       console.error('[OrchestratorPanel] Chat error:', err)
+      setLocalError(err)
     },
     onToolResult: () => {
       void loadTasks(workspaceId)
@@ -76,6 +78,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
+  const [localError, setLocalError] = useState<string | null>(null)
 
   const panelRef = useRef<HTMLDivElement>(null)
   const dragStartY = useRef(0)
@@ -386,6 +389,24 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             {/* Main chat area */}
             <ChatErrorBoundary panelName="Orchestrator Chat">
               <div className="flex flex-1 flex-col overflow-hidden">
+                {/* Error Banner */}
+                {(localError ?? cliDetectionError) && !chat.failedMessage && (
+                  <div className="mx-3 mt-2 flex items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                      <path d="M7 1a6 6 0 100 12A6 6 0 007 1zm0 9a.75.75 0 110-1.5.75.75 0 010 1.5zm.75-3a.75.75 0 01-1.5 0V4.5a.75.75 0 011.5 0V7z"/>
+                    </svg>
+                    <span className="flex-1">{localError ?? cliDetectionError}</span>
+                    {localError && (
+                      <button
+                        type="button"
+                        onClick={() => { setLocalError(null) }}
+                        className="text-red-400 hover:text-red-300"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                )}
                 {/* Failed message with retry/dismiss */}
                 {chat.failedMessage && (
                   <div className="mx-3 mt-2 rounded-md bg-red-500/10 px-3 py-2">

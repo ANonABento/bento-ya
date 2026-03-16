@@ -19,6 +19,23 @@ import type {
   AgentCompleteEvent,
 } from '@/lib/ipc'
 
+// ─── Helper: Extract error message from various error types ───────────────────
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'string') return err
+  if (err && typeof err === 'object') {
+    // Handle Tauri error objects which often have message property
+    if ('message' in err && typeof err.message === 'string') return err.message
+    // Try to stringify if it's a plain object
+    try {
+      return JSON.stringify(err)
+    } catch {
+      return 'Unknown error'
+    }
+  }
+  return String(err)
+}
+
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 export type ChatMode = 'agent' | 'orchestrator'
@@ -177,7 +194,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         setMessages(chatMessages.map(toUnifiedMessage))
       }
     } catch (err) {
-      onErrorRef.current?.(`Failed to load messages: ${String(err)}`)
+      onErrorRef.current?.(`Failed to load messages: ${getErrorMessage(err)}`)
     } finally {
       setIsLoading(false)
     }
@@ -413,7 +430,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
             )
           }
         } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : String(err)
+          const errorMsg = getErrorMessage(err)
           setFailedMessage({
             id: next.id,
             content: next.content,
@@ -487,7 +504,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
           )
         }
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err)
+        const errorMsg = getErrorMessage(err)
         onErrorRef.current?.(`Failed to send message: ${errorMsg}`)
         setFailedMessage({
           id: `failed-${String(Date.now())}`,
@@ -533,7 +550,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
       // Clear queue on cancel
       setQueue([])
     } catch (err) {
-      onErrorRef.current?.(`Failed to cancel: ${String(err)}`)
+      onErrorRef.current?.(`Failed to cancel: ${getErrorMessage(err)}`)
     }
   }, [mode, canSend, taskId, workspaceId, sessionId])
 
@@ -546,7 +563,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
       }
       setMessages([])
     } catch (err) {
-      onErrorRef.current?.(`Failed to clear messages: ${String(err)}`)
+      onErrorRef.current?.(`Failed to clear messages: ${getErrorMessage(err)}`)
     }
   }, [mode, taskId, sessionId])
 

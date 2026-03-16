@@ -6,8 +6,8 @@
 import { useState, useCallback, useEffect } from 'react'
 import type { Task } from '@/types'
 import { useChatSession } from '@/hooks/use-chat-session'
+import { useCliPath } from '@/hooks/use-cli-path'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { useSettingsStore } from '@/stores/settings-store'
 import { ChatHistory } from './chat-history'
 import { ModelSelector, type ModelId } from '@/components/shared/model-selector'
 import { ThinkingSelector, type ThinkingLevel } from '@/components/shared/thinking-selector'
@@ -29,10 +29,8 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
   )
   const workingDir = workspace?.repoPath ?? ''
 
-  // Get CLI path from settings
-  const settings = useSettingsStore((s) => s.global)
-  const anthropicProvider = settings.model.providers.find((p) => p.id === 'anthropic')
-  const cliPath = anthropicProvider?.cliPath || 'claude'
+  // Get CLI path with auto-detection
+  const { cliPath, detectionError: cliDetectionError } = useCliPath()
 
   const {
     messages,
@@ -58,8 +56,8 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
     },
   })
 
-  // Sync hook error to local state
-  const error = localError ?? hookError
+  // Sync hook error to local state (include CLI detection error)
+  const error = localError ?? hookError ?? cliDetectionError
   useEffect(() => {
     if (hookError) setLocalError(hookError)
   }, [hookError])
