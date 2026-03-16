@@ -5,6 +5,7 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import type { Task } from '@/types'
+import { buildPromptWithAttachments } from '@/types'
 import { useChatSession } from '@/hooks/use-chat-session'
 import { useCliPath } from '@/hooks/use-cli-path'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -68,7 +69,9 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
 
   const handleSendMessage = useCallback(async (message: ChatInputMessage) => {
     const effortLevel = message.thinkingLevel === 'none' ? undefined : message.thinkingLevel
-    await sendMessage(message.content, message.model, effortLevel)
+    // Build prompt with attachment references for CLI mode
+    const prompt = buildPromptWithAttachments(message.content, message.attachments)
+    await sendMessage(prompt, message.model, effortLevel)
   }, [sendMessage])
 
   const handleClearHistory = useCallback(async () => {
@@ -217,11 +220,13 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
           showThinkingSelector: true,
           showPermissionSelector: true,
           showVoiceInput: true,
+          showAttachments: true,
           placeholder: cliDetecting ? 'Detecting CLI...' : `Ask agent about "${task.title}"...`,
         }}
         onSend={(msg) => { void handleSendMessage(msg) }}
         onCancel={() => { void cancel() }}
         onInputChange={handleInputChange}
+        onAttachmentError={(err) => { setLocalError(`${err.file}: ${err.message}`) }}
         isProcessing={streaming.isStreaming}
         disabled={cliDetecting}
         queueCount={queue.length}

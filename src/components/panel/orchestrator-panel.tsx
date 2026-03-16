@@ -14,6 +14,7 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { useOrchestratorSessions } from '@/hooks/use-orchestrator-sessions'
 import { useChatSession } from '@/hooks/use-chat-session'
 import { getChatHistory, type ChatMessage } from '@/lib/ipc'
+import { buildPromptWithAttachments } from '@/types'
 import { useCliPath } from '@/hooks/use-cli-path'
 import { ChatHistory } from './chat-history'
 import { PanelSidebar } from './panel-sidebar'
@@ -226,7 +227,9 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   // Handlers
   const handleSendMessage = useCallback((message: ChatInputMessage) => {
     if (!chat.canSend) return
-    void chat.sendMessage(message.content, message.model)
+    // Build prompt with attachment references for CLI mode
+    const prompt = buildPromptWithAttachments(message.content, message.attachments)
+    void chat.sendMessage(prompt, message.model)
   }, [chat])
 
   const handleCancel = useCallback(async () => {
@@ -437,11 +440,13 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                     showThinkingSelector: true,
                     showPermissionSelector: true,
                     showVoiceInput: true,
+                    showAttachments: true,
                     placeholder: 'Ask me to create tasks...',
                   }}
                   onSend={handleSendMessage}
                   onCancel={() => { void handleCancel() }}
                   onInputChange={handleInputChange}
+                  onAttachmentError={(err) => { setLocalError(`${err.file}: ${err.message}`) }}
                   isProcessing={isProcessing}
                   disabled={!chat.canSend || cliDetecting}
                   queueCount={chat.queue.length}
