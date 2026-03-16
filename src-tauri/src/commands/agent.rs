@@ -179,6 +179,9 @@ pub async fn stream_agent_chat(
     model: Option<String>,
     effort_level: Option<String>,
 ) -> Result<(), AppError> {
+    eprintln!("[Rust] stream_agent_chat CALLED: task_id='{}', message_len={}, working_dir='{}', cli_path='{}'",
+        task_id, message.len(), working_dir, cli_path);
+
     let model = model.unwrap_or_else(|| "sonnet".to_string());
 
     // 1. Save user message to DB
@@ -219,70 +222,44 @@ Be concise and helpful."#,
         )
     };
 
-    // 3. Get stored CLI session ID for resume
-    let stored_cli_id = {
-        let conn = state
-            .db
-            .lock()
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-        db::list_agent_sessions(&conn, &task_id)?
-            .first()
-            .and_then(|s| s.cli_session_id.clone())
-    };
-
-    // 4. Get or spawn CLI session
+    // 3. Spawn or reuse session, then send message
     let mut manager = agent_cli_manager.lock().await;
 
-    let model_changed = manager
-        .get_model(&task_id)
-        .map(|m| m != model)
-        .unwrap_or(false);
-    let needs_spawn =
-        !manager.has_session(&task_id) || !manager.is_alive(&task_id) || model_changed;
+    eprintln!("[Rust] stream_agent_chat: cli_path='{}', exists={}, working_dir='{}'",
+        cli_path, std::path::Path::new(&cli_path).exists(), working_dir);
 
-    if needs_spawn {
-        manager
-            .spawn(
-                &task_id,
-                &cli_path,
-                &working_dir,
-                &model,
-                effort_level.as_deref(),
-                &system_prompt,
-                stored_cli_id.as_deref(),
-            )
-            .await
-            .map_err(|e| AppError::InvalidInput(e))?;
-    }
+    // Get existing session's resume ID, or spawn new session
+    let resume_id = manager.get_cli_session_id(&task_id);
 
-    // 5. Send message and stream response
-    let (full_response, captured_cli_session_id) =
-        match manager.send_message(&task_id, &message, &app).await {
-            Ok(result) => result,
-            Err(_) => {
-                // Process died, try respawn with --resume
-                let resume_id = manager.get_cli_session_id(&task_id);
-                manager.kill(&task_id).await;
+    // Always spawn/update session params (the spawn now just stores params, doesn't start a process)
+    eprintln!("[Rust] stream_agent_chat: calling spawn...");
+    manager
+        .spawn(
+            &task_id,
+            &cli_path,
+            &working_dir,
+            &model,
+            effort_level.as_deref(),
+            &system_prompt,
+            resume_id.as_deref(),
+        )
+        .await
+        .map_err(|e| {
+            eprintln!("[Rust] stream_agent_chat: spawn FAILED: {}", e);
+            AppError::InvalidInput(e)
+        })?;
+    eprintln!("[Rust] stream_agent_chat: spawn succeeded");
 
-                manager
-                    .spawn(
-                        &task_id,
-                        &cli_path,
-                        &working_dir,
-                        &model,
-                        effort_level.as_deref(),
-                        &system_prompt,
-                        resume_id.as_deref(),
-                    )
-                    .await
-                    .map_err(|e| AppError::InvalidInput(e))?;
-
-                manager
-                    .send_message(&task_id, &message, &app)
-                    .await
-                    .map_err(|e| AppError::InvalidInput(e))?
-            }
-        };
+    // Send the message (this spawns the actual CLI process with positional arg)
+    eprintln!("[Rust] stream_agent_chat: calling send_message...");
+    let (full_response, captured_cli_session_id) = manager
+        .send_message(&task_id, &message, &app)
+        .await
+        .map_err(|e| {
+            eprintln!("[Rust] stream_agent_chat: send_message FAILED: {}", e);
+            AppError::InvalidInput(e)
+        })?;
+    eprintln!("[Rust] stream_agent_chat: send_message succeeded, response_len={}", full_response.len());
 
     // Drop manager lock before DB operations
     drop(manager);

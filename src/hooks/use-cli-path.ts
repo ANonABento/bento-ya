@@ -29,8 +29,10 @@ export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
   const defaultBinary = cliId // e.g., 'claude' or 'codex'
   const configuredPath = provider?.cliPath || defaultBinary
 
+  // Initialize with configured path, but track if we need detection
+  const needsDetection = !configuredPath.includes('/')
   const [resolvedPath, setResolvedPath] = useState(configuredPath)
-  const [isDetecting, setIsDetecting] = useState(false)
+  const [isDetecting, setIsDetecting] = useState(needsDetection)
   const [detectionError, setDetectionError] = useState<string | null>(null)
 
   // Track if we've already detected to avoid re-running
@@ -41,11 +43,19 @@ export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
     hasDetected.current = false
   }, [providerId])
 
+  // Sync resolvedPath when configuredPath changes (e.g., after detection updates settings)
+  useEffect(() => {
+    if (configuredPath.includes('/')) {
+      console.debug(`[useCliPath] Config has full path, using: ${configuredPath}`)
+      setResolvedPath(configuredPath)
+      setDetectionError(null)
+      setIsDetecting(false)
+    }
+  }, [configuredPath])
+
   useEffect(() => {
     // Only auto-detect if path is just a binary name (no slashes)
     if (configuredPath.includes('/')) {
-      setResolvedPath(configuredPath)
-      setDetectionError(null)
       return
     }
 
@@ -57,8 +67,10 @@ export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
     const detectPath = async () => {
       setIsDetecting(true)
       setDetectionError(null)
+      console.debug(`[useCliPath] Starting detection for ${cliId}...`)
       try {
         const detected = await detectSingleCli(cliId)
+        console.debug(`[useCliPath] Detection result for ${cliId}:`, detected)
         if (detected.isAvailable && detected.path) {
           setResolvedPath(detected.path)
           // Also update settings so this persists
@@ -83,6 +95,9 @@ export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
 
     void detectPath()
   }, [configuredPath, cliId, providerId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Debug: log what we're returning
+  console.debug(`[useCliPath] Returning for ${providerId}: path=${resolvedPath}, detecting=${isDetecting}`)
 
   return {
     cliPath: resolvedPath,

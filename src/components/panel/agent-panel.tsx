@@ -11,6 +11,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { ChatHistory } from './chat-history'
 import { ModelSelector, type ModelId } from '@/components/shared/model-selector'
 import { ThinkingSelector, type ThinkingLevel } from '@/components/shared/thinking-selector'
+import { ErrorBanner, FailedMessageBanner, CliDetectingBanner } from './shared'
 
 type AgentPanelProps = {
   task: Task
@@ -30,7 +31,7 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
   const workingDir = workspace?.repoPath ?? ''
 
   // Get CLI path with auto-detection
-  const { cliPath, detectionError: cliDetectionError } = useCliPath()
+  const { cliPath, isDetecting: cliDetecting, detectionError: cliDetectionError } = useCliPath()
 
   const {
     messages,
@@ -183,46 +184,22 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
         </div>
       </div>
 
+      {/* CLI Detection Indicator */}
+      {cliDetecting && <CliDetectingBanner />}
       {/* Error Banner */}
-      {error && !failedMessage && (
-        <div className="mx-3 mt-2 flex items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-            <path d="M7 1a6 6 0 100 12A6 6 0 007 1zm0 9a.75.75 0 110-1.5.75.75 0 010 1.5zm.75-3a.75.75 0 01-1.5 0V4.5a.75.75 0 011.5 0V7z"/>
-          </svg>
-          <span className="flex-1">{error}</span>
-          <button
-            type="button"
-            onClick={() => { setLocalError(null); clearError(); }}
-            className="text-red-400 hover:text-red-300"
-          >
-            ✕
-          </button>
-        </div>
+      {error && !failedMessage && !cliDetecting && (
+        <ErrorBanner
+          error={error}
+          onDismiss={() => { setLocalError(null); clearError(); }}
+        />
       )}
-
       {/* Failed Message with Retry */}
       {failedMessage && (
-        <div className="mx-3 mt-2 rounded-md bg-red-500/10 px-3 py-2">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-xs text-red-400">{failedMessage.error}</p>
-            <div className="flex shrink-0 gap-1">
-              <button
-                type="button"
-                onClick={() => { void retryFailed() }}
-                className="rounded px-2 py-0.5 text-xs text-red-400 hover:bg-red-500/20 transition-colors"
-              >
-                Retry
-              </button>
-              <button
-                type="button"
-                onClick={dismissFailed}
-                className="rounded px-2 py-0.5 text-xs text-red-400/70 hover:bg-red-500/20 transition-colors"
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-        </div>
+        <FailedMessageBanner
+          error={failedMessage.error}
+          onRetry={() => { void retryFailed() }}
+          onDismiss={dismissFailed}
+        />
       )}
 
       {/* Chat History */}
@@ -268,15 +245,15 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
               handleInputChange(e.target.value)
             }}
             onKeyDown={handleKeyDown}
-            placeholder={`Ask agent about "${task.title}"...`}
-            disabled={streaming.isStreaming && queue.length >= 5}
+            placeholder={cliDetecting ? 'Detecting CLI...' : `Ask agent about "${task.title}"...`}
+            disabled={cliDetecting || (streaming.isStreaming && queue.length >= 5)}
             className="flex-1 resize-none rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none disabled:opacity-50"
             rows={2}
           />
           <button
             type="button"
             onClick={() => void handleSendMessage()}
-            disabled={!inputValue.trim()}
+            disabled={cliDetecting || !inputValue.trim()}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
           >
             {streaming.isStreaming ? 'Queue' : 'Send'}

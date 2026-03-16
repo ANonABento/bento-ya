@@ -19,6 +19,7 @@ import { ChatHistory } from './chat-history'
 import { PanelInput, type SendMessageParams } from './panel-input'
 import { PanelSidebar } from './panel-sidebar'
 import { ChatErrorBoundary } from './chat-error-boundary'
+import { ErrorBanner, FailedMessageBanner, CliDetectingBanner } from './shared'
 
 type OrchestratorPanelProps = {
   workspaceId: string
@@ -38,7 +39,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const settings = useSettingsStore((s) => s.global)
   const anthropicProvider = settings.model.providers.find((p) => p.id === 'anthropic')
   const connectionMode = anthropicProvider?.connectionMode ?? 'cli'
-  const { cliPath, detectionError: cliDetectionError } = useCliPath()
+  const { cliPath, isDetecting: cliDetecting, detectionError: cliDetectionError } = useCliPath()
   const apiKey = settings.agent.envVars['ANTHROPIC_API_KEY'] || undefined
 
   // Session management hook
@@ -79,6 +80,12 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
+
+  // Sync hook error to local state (like AgentPanel does)
+  const error = localError ?? chat.error ?? cliDetectionError
+  useEffect(() => {
+    if (chat.error) setLocalError(chat.error)
+  }, [chat.error])
 
   const panelRef = useRef<HTMLDivElement>(null)
   const dragStartY = useRef(0)
@@ -208,6 +215,14 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       document.body.style.userSelect = ''
     }
   }, [isDragging, setPanelHeight])
+
+  // Clear error when user starts typing (like AgentPanel)
+  const handleInputChange = useCallback(() => {
+    if (error) {
+      setLocalError(null)
+      chat.clearError()
+    }
+  }, [error, chat])
 
   // Handlers
   const handleSendMessage = useCallback((params: SendMessageParams) => {
@@ -389,47 +404,22 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             {/* Main chat area */}
             <ChatErrorBoundary panelName="Orchestrator Chat">
               <div className="flex flex-1 flex-col overflow-hidden">
+                {/* CLI Detection Indicator */}
+                {cliDetecting && <CliDetectingBanner />}
                 {/* Error Banner */}
-                {(localError ?? cliDetectionError) && !chat.failedMessage && (
-                  <div className="mx-3 mt-2 flex items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                      <path d="M7 1a6 6 0 100 12A6 6 0 007 1zm0 9a.75.75 0 110-1.5.75.75 0 010 1.5zm.75-3a.75.75 0 01-1.5 0V4.5a.75.75 0 011.5 0V7z"/>
-                    </svg>
-                    <span className="flex-1">{localError ?? cliDetectionError}</span>
-                    {localError && (
-                      <button
-                        type="button"
-                        onClick={() => { setLocalError(null) }}
-                        className="text-red-400 hover:text-red-300"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
+                {error && !chat.failedMessage && !cliDetecting && (
+                  <ErrorBanner
+                    error={error}
+                    onDismiss={() => { setLocalError(null); chat.clearError(); }}
+                  />
                 )}
                 {/* Failed message with retry/dismiss */}
                 {chat.failedMessage && (
-                  <div className="mx-3 mt-2 rounded-md bg-red-500/10 px-3 py-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-xs text-red-400">{chat.failedMessage.error}</p>
-                      <div className="flex shrink-0 gap-1">
-                        <button
-                          type="button"
-                          onClick={() => { void chat.retryFailed() }}
-                          className="rounded px-2 py-0.5 text-xs text-red-400 hover:bg-red-500/20 transition-colors"
-                        >
-                          Retry
-                        </button>
-                        <button
-                          type="button"
-                          onClick={chat.dismissFailed}
-                          className="rounded px-2 py-0.5 text-xs text-red-400/70 hover:bg-red-500/20 transition-colors"
-                        >
-                          Dismiss
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  <FailedMessageBanner
+                    error={chat.failedMessage.error}
+                    onRetry={() => { void chat.retryFailed() }}
+                    onDismiss={chat.dismissFailed}
+                  />
                 )}
                 <ChatHistory
                   messages={localMessages}
@@ -444,8 +434,9 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 <PanelInput
                   onSendMessage={handleSendMessage}
                   onCancel={() => { void handleCancel() }}
+                  onInputChange={handleInputChange}
                   isProcessing={isProcessing}
-                  disabled={!chat.canSend}
+                  disabled={!chat.canSend || cliDetecting}
                   queueCount={chat.queue.length}
                 />
               </div>

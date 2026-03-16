@@ -417,8 +417,10 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
       const processQueued = async () => {
         try {
           if (mode === 'agent' && taskId) {
+            console.debug('[useChatSession] Queue: Agent chat with cliPath:', cliPath)
             await ipc.streamAgentChat(taskId, next.content, workingDir, cliPath, next.model, next.effortLevel)
           } else if (mode === 'orchestrator' && workspaceId && sessionId) {
+            console.debug('[useChatSession] Queue: Orchestrator chat with cliPath:', cliPath)
             await ipc.streamOrchestratorChat(
               workspaceId,
               sessionId,
@@ -491,8 +493,10 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         setFailedMessage(null)
 
         if (mode === 'agent' && taskId) {
+          console.debug('[useChatSession] Agent chat with cliPath:', cliPath)
           await ipc.streamAgentChat(taskId, content, workingDir, cliPath, model, effortLevel)
         } else if (mode === 'orchestrator' && workspaceId && sessionId) {
+          console.debug('[useChatSession] Orchestrator chat with cliPath:', cliPath, 'connectionMode:', connectionMode)
           await ipc.streamOrchestratorChat(
             workspaceId,
             sessionId,

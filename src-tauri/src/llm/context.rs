@@ -207,6 +207,8 @@ mod tests {
                 pr_head_sha: None,
                 notify_stakeholders: None,
                 notification_sent_at: None,
+                agent_status: None,
+                queued_at: None,
                 created_at: "2024-01-01".to_string(),
                 updated_at: "2024-01-01".to_string(),
             },

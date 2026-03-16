@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, memo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import ReactMarkdown from 'react-markdown'
 import type { ChatMessage, ToolCallEvent } from '@/lib/ipc'
+import { ToolCallItem } from './shared'
 
 type QueuedMessage = {
   id: string
@@ -319,26 +320,15 @@ function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls =
         {hasToolCalls && (
           <div className="space-y-1">
             {toolCalls.map((tool) => (
-              <div
+              <ToolCallItem
                 key={tool.toolId}
-                className="flex items-center gap-2 text-xs rounded bg-bg/50 px-2 py-1"
-              >
-                {tool.status === 'running' ? (
-                  <svg className="h-3 w-3 animate-spin text-accent" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                ) : tool.status === 'complete' ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-green-400">
-                    <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
-                  </svg>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-red-400">
-                    <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm2.78-4.22a.75.75 0 0 1-1.06 0L8 9.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L6.94 8 5.22 6.28a.75.75 0 0 1 1.06-1.06L8 6.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L9.06 8l1.72 1.72a.75.75 0 0 1 0 1.06Z" clipRule="evenodd" />
-                  </svg>
-                )}
-                <span className="font-mono text-text-secondary">{tool.toolName}</span>
-              </div>
+                toolCall={{
+                  toolId: tool.toolId,
+                  toolName: tool.toolName,
+                  status: tool.status,
+                  input: tool.input as Record<string, unknown> | undefined,
+                }}
+              />
             ))}
           </div>
         )}

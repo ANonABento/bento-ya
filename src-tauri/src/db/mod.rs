@@ -2480,8 +2480,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 21 migrations: 001-021
-        assert_eq!(count, 21);
+        // We have 22 migrations: 001-022
+        assert_eq!(count, 22);
     }
 
     #[test]

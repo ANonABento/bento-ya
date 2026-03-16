@@ -1,22 +1,20 @@
-//! Manages persistent Claude CLI sessions for per-task agent conversations.
+//! Manages Claude CLI invocations for per-task agent conversations.
 //!
-//! Each task can have a running Claude CLI process. Messages are sent via stdin
-//! and responses read via stdout. If the process dies, we fall back to --resume
-//! with the captured session ID.
+//! Each message spawns a new CLI process with the message as an argument.
+//! Conversation continuity is maintained via --resume with the session ID.
+//!
+//! See [`cli_shared`](super::cli_shared) for documentation on the CLI protocol.
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
-use tokio::time::timeout;
 
-/// Timeout for reading a response from the CLI (5 minutes)
-const MESSAGE_TIMEOUT: Duration = Duration::from_secs(300);
+use super::cli_shared::{
+    build_cli_command, read_cli_response, spawn_stderr_reader, CliConfig, CliEvent, ToolStatus,
+};
 
 /// Maximum concurrent agent sessions
 const MAX_AGENT_SESSIONS: usize = 5;
@@ -62,29 +60,18 @@ pub struct AgentCompletePayload {
 // Agent CLI Session
 // ============================================================================
 
-/// A running Claude CLI session for an agent
-struct AgentCliSession {
-    /// The running child process
-    process: Child,
-    /// Stdin handle for sending messages
-    stdin: ChildStdin,
-    /// Stdout reader for receiving responses
-    stdout: BufReader<ChildStdout>,
-    /// CLI session ID for resume fallback (captured from first response)
-    cli_session_id: Option<String>,
-    /// Model this session was spawned with
-    model: String,
-    /// Effort level (if specified) - reserved for future use
-    #[allow(dead_code)]
-    effort_level: Option<String>,
+/// Tracks a conversation session for an agent
+struct AgentSession {
+    /// CLI configuration
+    config: CliConfig,
     /// Whether we're currently processing a message
     is_busy: bool,
 }
 
-/// Manages persistent Claude CLI sessions for agents (task-scoped)
+/// Manages Claude CLI sessions for agents (task-scoped)
 pub struct AgentCliSessionManager {
-    /// Map of task_id -> AgentCliSession
-    sessions: HashMap<String, AgentCliSession>,
+    /// Map of task_id -> AgentSession
+    sessions: HashMap<String, AgentSession>,
     /// Maximum concurrent sessions
     max_sessions: usize,
 }
@@ -110,16 +97,16 @@ impl AgentCliSessionManager {
             .unwrap_or(false)
     }
 
-    /// Get the CLI session ID for resume fallback
+    /// Get the CLI session ID for resume
     pub fn get_cli_session_id(&self, task_id: &str) -> Option<String> {
         self.sessions
             .get(task_id)
-            .and_then(|s| s.cli_session_id.clone())
+            .and_then(|s| s.config.resume_id.clone())
     }
 
-    /// Get the model this session was spawned with
+    /// Get the model this session uses
     pub fn get_model(&self, task_id: &str) -> Option<&str> {
-        self.sessions.get(task_id).map(|s| s.model.as_str())
+        self.sessions.get(task_id).map(|s| s.config.model.as_str())
     }
 
     /// Get current session count
@@ -132,18 +119,24 @@ impl AgentCliSessionManager {
         self.sessions.len() >= self.max_sessions
     }
 
-    /// Spawn a new Claude CLI process for a task
+    /// Check if process is still alive (for compatibility - always returns true if session exists)
+    pub fn is_alive(&mut self, task_id: &str) -> bool {
+        self.sessions.contains_key(task_id)
+    }
+
+    /// Initialize or update a session with CLI params (no process spawned yet)
+    #[allow(clippy::too_many_arguments)]
     pub async fn spawn(
         &mut self,
         task_id: &str,
         cli_path: &str,
         working_dir: &str,
         model: &str,
-        effort_level: Option<&str>,
+        _effort_level: Option<&str>, // Reserved for future use
         system_prompt: &str,
         resume_id: Option<&str>,
     ) -> Result<(), String> {
-        // Check capacity first
+        // Check capacity
         if self.is_at_capacity() && !self.sessions.contains_key(task_id) {
             return Err(format!(
                 "Maximum {} concurrent agents reached. Stop an existing agent to start a new one.",
@@ -151,282 +144,207 @@ impl AgentCliSessionManager {
             ));
         }
 
-        // Kill existing session if any
-        self.kill(task_id).await;
+        eprintln!(
+            "[Rust] AgentCliSession::spawn - initialized session for task_id: {}",
+            task_id
+        );
 
-        // Build command
-        let mut cmd = Command::new(cli_path);
-        cmd.arg("--output-format").arg("stream-json");
-        cmd.arg("--model").arg(model);
-        cmd.arg("--system-prompt").arg(system_prompt);
-        cmd.arg("--verbose");
+        // Create or update session
+        self.sessions.insert(
+            task_id.to_string(),
+            AgentSession {
+                config: CliConfig {
+                    cli_path: cli_path.to_string(),
+                    model: model.to_string(),
+                    system_prompt: system_prompt.to_string(),
+                    resume_id: resume_id.map(|s| s.to_string()),
+                    working_dir: Some(working_dir.to_string()),
+                },
+                is_busy: false,
+            },
+        );
 
-        // Resume from previous session if available
-        if let Some(id) = resume_id {
-            cmd.arg("--resume").arg(id);
-        }
-
-        // Set working directory
-        cmd.current_dir(working_dir);
-
-        // Set up stdio
-        cmd.stdin(std::process::Stdio::piped());
-        cmd.stdout(std::process::Stdio::piped());
-        cmd.stderr(std::process::Stdio::null());
-
-        // Spawn process
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("Failed to spawn Claude CLI: {}", e))?;
-
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| "Failed to capture stdin".to_string())?;
-
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| "Failed to capture stdout".to_string())?;
-
-        let session = AgentCliSession {
-            process: child,
-            stdin,
-            stdout: BufReader::new(stdout),
-            cli_session_id: resume_id.map(|s| s.to_string()),
-            model: model.to_string(),
-            effort_level: effort_level.map(|s| s.to_string()),
-            is_busy: false,
-        };
-
-        self.sessions.insert(task_id.to_string(), session);
         Ok(())
     }
 
-    /// Send a message and stream the response
+    /// Send a message using stored session params (spawns a new CLI process per message)
     pub async fn send_message(
         &mut self,
         task_id: &str,
         message: &str,
         app: &AppHandle,
     ) -> Result<(String, Option<String>), String> {
+        eprintln!(
+            "[Rust] AgentCliSession::send_message - task_id: {}",
+            task_id
+        );
+
+        // Get session and mark busy
         let session = self
             .sessions
             .get_mut(task_id)
-            .ok_or_else(|| "Session not found".to_string())?;
+            .ok_or_else(|| format!("No session found for task: {}", task_id))?;
 
         if session.is_busy {
             return Err("Agent is busy processing. Wait for completion or cancel.".to_string());
         }
 
         session.is_busy = true;
+        let config = session.config.clone();
 
-        // Send message to stdin (with newline to submit)
-        let msg_with_newline = format!("{}\n", message);
-        if let Err(e) = session.stdin.write_all(msg_with_newline.as_bytes()).await {
-            session.is_busy = false;
-            return Err(format!("Failed to write to stdin: {}", e));
-        }
+        // Build and spawn CLI command
+        let mut cmd = build_cli_command(&config, message);
 
-        if let Err(e) = session.stdin.flush().await {
-            session.is_busy = false;
-            return Err(format!("Failed to flush stdin: {}", e));
-        }
+        eprintln!(
+            "[Rust] AgentCliSession::send_message - spawning CLI: {} --model {} [message len={}]",
+            config.cli_path,
+            config.model,
+            message.len()
+        );
 
-        // Read response until we get a result event
-        let mut full_response = String::new();
-        let mut captured_session_id: Option<String> = session.cli_session_id.clone();
+        let mut child = cmd.spawn().map_err(|e| {
+            eprintln!(
+                "[Rust] AgentCliSession::send_message - SPAWN FAILED: {}",
+                e
+            );
+            self.mark_not_busy(task_id);
+            format!("Failed to spawn Claude CLI: {}", e)
+        })?;
 
-        loop {
-            let mut line = String::new();
-            let read_result = timeout(MESSAGE_TIMEOUT, session.stdout.read_line(&mut line)).await;
+        eprintln!(
+            "[Rust] AgentCliSession::send_message - process spawned, pid={:?}",
+            child.id()
+        );
 
-            match read_result {
-                Err(_) => {
-                    session.is_busy = false;
-                    return Err("Agent response timed out after 5 minutes".to_string());
+        // Spawn stderr reader
+        spawn_stderr_reader(&mut child, task_id.to_string());
+
+        let stdout = child.stdout.take().ok_or_else(|| {
+            self.mark_not_busy(task_id);
+            "Failed to capture stdout".to_string()
+        })?;
+
+        // Read response with event emission
+        let task_id_owned = task_id.to_string();
+        let app_clone = app.clone();
+
+        let result = read_cli_response(
+            stdout,
+            config.resume_id.clone(),
+            task_id,
+            |event| {
+                emit_agent_event(&app_clone, &task_id_owned, event);
+            },
+        )
+        .await;
+
+        // Update session state
+        self.mark_not_busy(task_id);
+
+        match result {
+            Ok((response, session_id)) => {
+                // Update resume ID for next message
+                if let Some(session) = self.sessions.get_mut(task_id) {
+                    session.config.resume_id = session_id.clone();
                 }
-                Ok(Err(e)) => {
-                    session.is_busy = false;
-                    return Err(format!("Failed to read stdout: {}", e));
-                }
-                Ok(Ok(0)) => {
-                    session.is_busy = false;
-                    return Err("Process ended unexpectedly".to_string());
-                }
-                Ok(Ok(_)) => {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
-                        if let Some(event_type) = json.get("type").and_then(|t| t.as_str()) {
-                            match event_type {
-                                "system" => {
-                                    // Capture session ID from init event
-                                    if let Some(sid) = json
-                                        .get("session_id")
-                                        .or_else(|| json.get("conversation_id"))
-                                        .and_then(|s| s.as_str())
-                                    {
-                                        captured_session_id = Some(sid.to_string());
-                                        session.cli_session_id = Some(sid.to_string());
-                                    }
-                                }
-                                "content_block_start" => {
-                                    if let Some(content_block) = json.get("content_block") {
-                                        if let Some(block_type) =
-                                            content_block.get("type").and_then(|t| t.as_str())
-                                        {
-                                            if block_type == "thinking" {
-                                                let _ = app.emit(
-                                                    "agent:thinking",
-                                                    &AgentThinkingPayload {
-                                                        task_id: task_id.to_string(),
-                                                        content: String::new(),
-                                                        is_complete: false,
-                                                    },
-                                                );
-                                            } else if block_type == "tool_use" {
-                                                let tool_id = content_block
-                                                    .get("id")
-                                                    .and_then(|i| i.as_str())
-                                                    .unwrap_or("unknown")
-                                                    .to_string();
-                                                let tool_name = content_block
-                                                    .get("name")
-                                                    .and_then(|n| n.as_str())
-                                                    .unwrap_or("unknown")
-                                                    .to_string();
-                                                let _ = app.emit(
-                                                    "agent:tool_call",
-                                                    &AgentToolCallPayload {
-                                                        task_id: task_id.to_string(),
-                                                        tool_id,
-                                                        tool_name,
-                                                        tool_input: String::new(),
-                                                        status: "running".to_string(),
-                                                    },
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                                "content_block_delta" => {
-                                    if let Some(delta) = json.get("delta") {
-                                        if let Some(delta_type) =
-                                            delta.get("type").and_then(|t| t.as_str())
-                                        {
-                                            match delta_type {
-                                                "thinking_delta" => {
-                                                    if let Some(thinking_value) = delta.get("thinking") {
-                                                        // Defensive: ensure thinking is a string
-                                                        if let Some(thinking) = thinking_value.as_str() {
-                                                            let _ = app.emit(
-                                                                "agent:thinking",
-                                                                &AgentThinkingPayload {
-                                                                    task_id: task_id.to_string(),
-                                                                    content: thinking.to_string(),
-                                                                    is_complete: false,
-                                                                },
-                                                            );
-                                                        } else {
-                                                            eprintln!(
-                                                                "[agent:thinking] Warning: thinking_delta contains non-string: {:?}",
-                                                                thinking_value
-                                                            );
-                                                        }
-                                                    }
-                                                }
-                                                "text_delta" => {
-                                                    if let Some(text_value) = delta.get("text") {
-                                                        // Defensive: ensure text is a string, not an object
-                                                        if let Some(text) = text_value.as_str() {
-                                                            full_response.push_str(text);
-                                                            let _ = app.emit(
-                                                                "agent:stream",
-                                                                &AgentStreamPayload {
-                                                                    task_id: task_id.to_string(),
-                                                                    content: text.to_string(),
-                                                                },
-                                                            );
-                                                        } else {
-                                                            // Log unexpected type for debugging
-                                                            eprintln!(
-                                                                "[agent:stream] Warning: text_delta contains non-string: {:?}",
-                                                                text_value
-                                                            );
-                                                        }
-                                                    }
-                                                }
-                                                "input_json_delta" => {
-                                                    // Tool input being streamed - could emit if needed
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-                                    }
-                                }
-                                "content_block_stop" => {
-                                    let _ = app.emit(
-                                        "agent:thinking",
-                                        &AgentThinkingPayload {
-                                            task_id: task_id.to_string(),
-                                            content: String::new(),
-                                            is_complete: true,
-                                        },
-                                    );
-                                }
-                                "result" => {
-                                    // Final result - response complete
-                                    if full_response.is_empty() {
-                                        if let Some(result_text) =
-                                            json.get("result").and_then(|r| r.as_str())
-                                        {
-                                            full_response = result_text.to_string();
-                                        }
-                                    }
-                                    session.is_busy = false;
-                                    return Ok((full_response, captured_session_id));
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                }
+
+                // Emit completion
+                let _ = app.emit(
+                    "agent:complete",
+                    &AgentCompletePayload {
+                        task_id: task_id.to_string(),
+                        success: true,
+                        message: None,
+                    },
+                );
+
+                Ok((response, session_id))
             }
+            Err(e) => {
+                let _ = app.emit(
+                    "agent:complete",
+                    &AgentCompletePayload {
+                        task_id: task_id.to_string(),
+                        success: false,
+                        message: Some(e.clone()),
+                    },
+                );
+                Err(e)
+            }
+        }
+    }
+
+    fn mark_not_busy(&mut self, task_id: &str) {
+        if let Some(session) = self.sessions.get_mut(task_id) {
+            session.is_busy = false;
         }
     }
 
     /// Kill a session's process
     pub async fn kill(&mut self, task_id: &str) {
-        if let Some(mut session) = self.sessions.remove(task_id) {
-            let _ = session.process.kill().await;
+        if let Some(session) = self.sessions.get_mut(task_id) {
+            session.is_busy = false;
         }
+    }
+
+    /// Remove session entirely
+    pub async fn remove(&mut self, task_id: &str) {
+        self.kill(task_id).await;
+        self.sessions.remove(task_id);
     }
 
     /// Kill all sessions
     pub async fn kill_all(&mut self) {
-        let task_ids: Vec<String> = self.sessions.keys().cloned().collect();
-        for task_id in task_ids {
-            self.kill(&task_id).await;
+        for session in self.sessions.values_mut() {
+            session.is_busy = false;
         }
     }
+}
 
-    /// Check if process is still alive
-    pub fn is_alive(&mut self, task_id: &str) -> bool {
-        let is_dead = if let Some(session) = self.sessions.get_mut(task_id) {
-            match session.process.try_wait() {
-                Ok(None) => None,        // Still running
-                Ok(Some(_)) => Some(()), // Exited
-                Err(_) => Some(()),      // Error checking - assume dead
-            }
-        } else {
-            return false;
-        };
-
-        if is_dead.is_some() {
-            self.sessions.remove(task_id);
-            false
-        } else {
-            true
+/// Emit agent-specific events based on CLI events
+fn emit_agent_event(app: &AppHandle, task_id: &str, event: CliEvent) {
+    match event {
+        CliEvent::TextContent(content) => {
+            let _ = app.emit(
+                "agent:stream",
+                &AgentStreamPayload {
+                    task_id: task_id.to_string(),
+                    content,
+                },
+            );
         }
+        CliEvent::ThinkingContent { content, is_complete } => {
+            let _ = app.emit(
+                "agent:thinking",
+                &AgentThinkingPayload {
+                    task_id: task_id.to_string(),
+                    content,
+                    is_complete,
+                },
+            );
+        }
+        CliEvent::ToolUse {
+            id,
+            name,
+            input,
+            status,
+        } => {
+            let status_str = match status {
+                ToolStatus::Running => "running",
+                ToolStatus::Complete => "completed",
+            };
+            let _ = app.emit(
+                "agent:tool_call",
+                &AgentToolCallPayload {
+                    task_id: task_id.to_string(),
+                    tool_id: id,
+                    tool_name: name,
+                    tool_input: input.unwrap_or_default(),
+                    status: status_str.to_string(),
+                },
+            );
+        }
+        CliEvent::Complete | CliEvent::SessionId(_) | CliEvent::Unknown => {}
     }
 }
 

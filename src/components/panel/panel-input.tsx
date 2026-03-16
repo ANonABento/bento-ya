@@ -24,12 +24,13 @@ export type SendMessageParams = {
 type PanelInputProps = {
   onSendMessage: (params: SendMessageParams) => void
   onCancel?: () => void
+  onInputChange?: () => void
   isProcessing?: boolean
   disabled?: boolean
   queueCount?: number
 }
 
-export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disabled = false, queueCount = 0 }: PanelInputProps) {
+export function PanelInput({ onSendMessage, onCancel, onInputChange, isProcessing = false, disabled = false, queueCount = 0 }: PanelInputProps) {
   const [message, setMessage] = useState('')
   const [selectedModel, setSelectedModel] = useState<ModelId>(MODELS[0].id)
   const [showModelPicker, setShowModelPicker] = useState(false)
@@ -97,6 +98,8 @@ export function PanelInput({ onSendMessage, onCancel, isProcessing = false, disa
     setMessage(e.target.value)
     e.target.style.height = 'auto'
     e.target.style.height = `${String(Math.min(e.target.scrollHeight, 120))}px`
+    // Notify parent of input change (for error clearing)
+    onInputChange?.()
   }
 
   // Auto-resize when voice liveText changes
