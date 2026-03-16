@@ -1,7 +1,7 @@
 # Column Triggers System
 
-> **Status:** Design
-> **Updated:** 2025-03-15
+> **Status:** Implemented (V1)
+> **Updated:** 2026-03-16
 
 ## Overview
 
@@ -614,22 +614,33 @@ UPDATE columns SET triggers = json_object(
 
 ---
 
-## Files to Modify
+## Implementation
 
-| Layer | File | Changes |
-|-------|------|---------|
-| DB | `migrations/024_triggers.sql` | New columns |
-| DB | `src-tauri/src/db/mod.rs` | Types + queries |
-| Engine | `src-tauri/src/pipeline/mod.rs` | New execution logic |
-| Engine | `src-tauri/src/pipeline/template.rs` | Variable interpolation |
-| Engine | `src-tauri/src/pipeline/dependencies.rs` | Dependency resolution |
-| Commands | `src-tauri/src/commands/task.rs` | trigger_overrides, dependencies |
-| Commands | `src-tauri/src/commands/column.rs` | New triggers format |
-| Frontend | `src/types/index.ts` | New types |
-| Frontend | `src/components/kanban/task-settings-modal.tsx` | NEW |
-| Frontend | `src/components/kanban/task-context-menu.tsx` | Add Configure |
-| Frontend | `src/components/settings/column-triggers-tab.tsx` | Extend |
-| Stores | `src/stores/task-store.ts` | Handle new fields |
+### Files Modified/Created
+
+| Layer | File | Status |
+|-------|------|--------|
+| DB | `migrations/023_column_triggers.sql` | New migration |
+| DB | `src-tauri/src/db/mod.rs` | Structs + all query functions updated |
+| Engine | `src-tauri/src/pipeline/mod.rs` | V2 routing, dependency check in mark_complete |
+| Engine | `src-tauri/src/pipeline/template.rs` | Template interpolation (3 unit tests) |
+| Engine | `src-tauri/src/pipeline/triggers.rs` | V2 types, resolve_trigger, fire_on_entry/exit, execute_action |
+| Engine | `src-tauri/src/pipeline/dependencies.rs` | find_dependents, check_condition, unblocking |
+| Commands | `src-tauri/src/commands/task.rs` | create_task with deps, update_task_triggers, on_exit wiring |
+| Commands | `src-tauri/src/commands/pipeline.rs` | fire_cli_trigger IPC command |
+| Commands | `src-tauri/src/commands/column.rs` | triggers param in update_column |
+| Frontend | `src/types/column.ts` | ColumnTriggers, TriggerAction, SpawnCliAction, etc. |
+| Frontend | `src/types/task.ts` | triggerOverrides, triggerPrompt, lastOutput, dependencies, blocked |
+| Frontend | `src/components/kanban/column-config-dialog.tsx` | Tabbed UI (General/Triggers/Exit) |
+| Frontend | `src/components/kanban/task-settings-modal.tsx` | Task-level trigger config |
+| Frontend | `src/components/kanban/task-context-menu.tsx` | "Configure triggers" menu item |
+| Frontend | `src/components/kanban/task-card.tsx` | Blocked indicator, settings modal |
+| Frontend | `src/hooks/use-pipeline-events.ts` | SpawnCli event handler |
+| Frontend | `src/lib/ipc.ts` | fireCliTrigger, updateTaskTriggers, SpawnCliEvent |
+
+### Backward Compatibility
+
+The old `trigger_config`/`exit_config` system is fully preserved. `fire_trigger()` checks `column.triggers` first — if populated, routes to V2 engine. Otherwise falls through to legacy agent/skill/script/webhook handling. Both systems coexist.
 
 ---
 
@@ -644,3 +655,5 @@ UPDATE columns SET triggers = json_object(
 | Parallel actions | Multiple actions per hook |
 | DAG visualization | Show task dependency graph |
 | Cross-workspace deps | Task in workspace A triggers task in B |
+| Manual dependency editor | UI to add/remove task dependencies |
+| Dependency task name display | Show task titles instead of IDs in deps tab |

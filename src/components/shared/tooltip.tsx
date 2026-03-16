@@ -105,6 +105,7 @@ export function Tooltip({ content, children, side = 'top', delay = 100 }: Toolti
       className="inline-flex"
       onMouseEnter={showTooltip}
       onMouseLeave={hideTooltip}
+      onClick={hideTooltip}
       onFocus={showTooltip}
       onBlur={hideTooltip}
     >
