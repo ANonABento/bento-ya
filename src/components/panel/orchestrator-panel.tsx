@@ -16,10 +16,9 @@ import { useChatSession } from '@/hooks/use-chat-session'
 import { getChatHistory, type ChatMessage } from '@/lib/ipc'
 import { useCliPath } from '@/hooks/use-cli-path'
 import { ChatHistory } from './chat-history'
-import { PanelInput, type SendMessageParams } from './panel-input'
 import { PanelSidebar } from './panel-sidebar'
 import { ChatErrorBoundary } from './chat-error-boundary'
-import { ErrorBanner, FailedMessageBanner, CliDetectingBanner } from './shared'
+import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage } from './shared'
 
 type OrchestratorPanelProps = {
   workspaceId: string
@@ -225,9 +224,9 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   }, [error, chat])
 
   // Handlers
-  const handleSendMessage = useCallback((params: SendMessageParams) => {
+  const handleSendMessage = useCallback((message: ChatInputMessage) => {
     if (!chat.canSend) return
-    void chat.sendMessage(params.content, params.model)
+    void chat.sendMessage(message.content, message.model)
   }, [chat])
 
   const handleCancel = useCallback(async () => {
@@ -431,8 +430,14 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   onCancel={() => { void handleCancel() }}
                   queuedMessages={chat.queue.map((m) => ({ id: m.id, content: m.content }))}
                 />
-                <PanelInput
-                  onSendMessage={handleSendMessage}
+                <ChatInput
+                  config={{
+                    showModelSelector: true,
+                    showThinkingSelector: false,
+                    showVoiceInput: true,
+                    placeholder: 'Ask me to create tasks...',
+                  }}
+                  onSend={handleSendMessage}
                   onCancel={() => { void handleCancel() }}
                   onInputChange={handleInputChange}
                   isProcessing={isProcessing}

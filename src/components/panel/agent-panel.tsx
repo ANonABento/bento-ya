@@ -1,6 +1,6 @@
 /**
  * Agent Panel - Per-task agent chat interface.
- * Uses the unified chat session hook.
+ * Uses the unified chat session hook and shared ChatInput component.
  */
 
 import { useState, useCallback, useEffect } from 'react'
@@ -9,9 +9,7 @@ import { useChatSession } from '@/hooks/use-chat-session'
 import { useCliPath } from '@/hooks/use-cli-path'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { ChatHistory } from './chat-history'
-import { ModelSelector, type ModelId } from '@/components/shared/model-selector'
-import { ThinkingSelector, type ThinkingLevel } from '@/components/shared/thinking-selector'
-import { ErrorBanner, FailedMessageBanner, CliDetectingBanner } from './shared'
+import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage } from './shared'
 
 type AgentPanelProps = {
   task: Task
@@ -19,9 +17,6 @@ type AgentPanelProps = {
 }
 
 export function AgentPanel({ task, onClose }: AgentPanelProps) {
-  const [inputValue, setInputValue] = useState('')
-  const [model, setModel] = useState<ModelId>('sonnet')
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('medium')
   const [localError, setLocalError] = useState<string | null>(null)
 
   // Get working directory from workspace
@@ -64,32 +59,17 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
   }, [hookError])
 
   // Clear error when user starts typing
-  const handleInputChange = (value: string) => {
-    setInputValue(value)
+  const handleInputChange = useCallback(() => {
     if (error) {
       setLocalError(null)
       clearError()
     }
-  }
+  }, [error, clearError])
 
-  const handleSendMessage = useCallback(async () => {
-    const content = inputValue.trim()
-    if (!content) return
-    setInputValue('')
-    // Pass model and thinking level to backend
-    const effortLevel = thinkingLevel === 'none' ? undefined : thinkingLevel
-    await sendMessage(content, model, effortLevel)
-  }, [inputValue, sendMessage, model, thinkingLevel])
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault()
-        void handleSendMessage()
-      }
-    },
-    [handleSendMessage]
-  )
+  const handleSendMessage = useCallback(async (message: ChatInputMessage) => {
+    const effortLevel = message.thinkingLevel === 'none' ? undefined : message.thinkingLevel
+    await sendMessage(message.content, message.model, effortLevel)
+  }, [sendMessage])
 
   const handleClearHistory = useCallback(async () => {
     if (window.confirm('Clear all messages for this task?')) {
@@ -230,36 +210,20 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
       />
 
       {/* Input */}
-      <div className="border-t border-border-default p-3">
-        {/* Model/Thinking selector row */}
-        <div className="mb-2 flex items-center gap-1">
-          <ModelSelector value={model} onChange={setModel} />
-          <ThinkingSelector value={thinkingLevel} onChange={setThinkingLevel} />
-        </div>
-
-        {/* Input row */}
-        <div className="flex gap-2">
-          <textarea
-            value={inputValue}
-            onChange={(e) => {
-              handleInputChange(e.target.value)
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder={cliDetecting ? 'Detecting CLI...' : `Ask agent about "${task.title}"...`}
-            disabled={cliDetecting || (streaming.isStreaming && queue.length >= 5)}
-            className="flex-1 resize-none rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none disabled:opacity-50"
-            rows={2}
-          />
-          <button
-            type="button"
-            onClick={() => void handleSendMessage()}
-            disabled={cliDetecting || !inputValue.trim()}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
-          >
-            {streaming.isStreaming ? 'Queue' : 'Send'}
-          </button>
-        </div>
-      </div>
+      <ChatInput
+        config={{
+          showModelSelector: true,
+          showThinkingSelector: true,
+          showVoiceInput: true,
+          placeholder: cliDetecting ? 'Detecting CLI...' : `Ask agent about "${task.title}"...`,
+        }}
+        onSend={(msg) => { void handleSendMessage(msg) }}
+        onCancel={() => { void cancel() }}
+        onInputChange={handleInputChange}
+        isProcessing={streaming.isStreaming}
+        disabled={cliDetecting}
+        queueCount={queue.length}
+      />
     </div>
   )
 }
