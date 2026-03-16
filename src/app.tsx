@@ -5,6 +5,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { usePrStatusPolling } from '@/hooks/use-pr-status-polling'
 import { usePipelineEvents } from '@/hooks/use-pipeline-events'
+import { useAutoDetectClis } from '@/hooks/use-cli-path'
 import { Board } from '@/components/layout/board'
 import { WorkspaceSetup } from '@/components/layout/workspace-setup'
 import { TabBar } from '@/components/layout/tab-bar'
@@ -26,6 +27,9 @@ function App() {
   useKeyboardShortcuts([
     { key: '/', meta: true, handler: toggleAbout },
   ])
+
+  // Auto-detect CLI paths on startup
+  useAutoDetectClis()
 
   // PR status polling (auto-refreshes PR status for tasks with PRs)
   usePrStatusPolling({ enabled: !!activeWorkspaceId })
