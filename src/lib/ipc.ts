@@ -90,6 +90,9 @@ export async function updateColumn(
     position?: number
     color?: string | null
     visible?: boolean
+    // New unified triggers format
+    triggers?: string
+    // Legacy (for backward compatibility)
     triggerConfig?: string
     exitConfig?: string
     autoAdvance?: boolean
@@ -103,6 +106,7 @@ export async function updateColumn(
     position: updates.position,
     color: updates.color,
     visible: updates.visible,
+    triggers: updates.triggers,
     trigger_config: updates.triggerConfig,
     exit_config: updates.exitConfig,
     auto_advance: updates.autoAdvance,
@@ -143,6 +147,18 @@ export async function updateTask(
   updates: Partial<Task>,
 ): Promise<Task> {
   return invoke<Task>('update_task', { id, ...updates })
+}
+
+export async function updateTaskTriggers(
+  id: string,
+  updates: {
+    triggerOverrides?: string
+    triggerPrompt?: string | null
+    dependencies?: string
+    blocked?: boolean
+  },
+): Promise<Task> {
+  return invoke<Task>('update_task_triggers', { id, ...updates })
 }
 
 export async function moveTask(
@@ -611,6 +627,26 @@ export async function fireAgentTrigger(
   return invoke<Task>('fire_agent_trigger', { taskId, agentType, envVars, cliPath })
 }
 
+export async function fireCliTrigger(
+  taskId: string,
+  cliType: string,
+  command?: string,
+  prompt?: string,
+  flags?: string[],
+  useQueue?: boolean,
+  cliPath?: string,
+): Promise<Task> {
+  return invoke<Task>('fire_cli_trigger', {
+    taskId,
+    cliType,
+    command,
+    prompt: prompt ?? '',
+    flags,
+    useQueue: useQueue ?? true,
+    cliPath,
+  })
+}
+
 export async function fireScriptTrigger(
   taskId: string,
   scriptPath: string,
@@ -677,6 +713,23 @@ export const onPipelineSpawnScript = (
 export const onPipelineSpawnSkill = (
   cb: EventCallback<SpawnSkillEvent>,
 ): Promise<UnlistenFn> => listen<SpawnSkillEvent>('pipeline:spawn_skill', cb)
+
+// ─── V2 Trigger Events ──────────────────────────────────────────────────────
+
+export type SpawnCliEvent = {
+  taskId: string
+  columnId: string
+  workspaceId: string
+  cliType: string
+  command?: string
+  prompt: string
+  flags?: string[]
+  useQueue: boolean
+}
+
+export const onPipelineSpawnCli = (
+  cb: EventCallback<SpawnCliEvent>,
+): Promise<UnlistenFn> => listen<SpawnCliEvent>('pipeline:spawn_cli', cb)
 
 // ─── Orchestrator commands ──────────────────────────────────────────────────
 

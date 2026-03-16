@@ -19,7 +19,9 @@ export const isTauri = (): boolean => {
 
 // ─── Mock Data Store ────────────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-deprecated -- legacy compat
 const defaultTrigger: TriggerConfig = { type: 'none', config: {} }
+// eslint-disable-next-line @typescript-eslint/no-deprecated -- legacy compat
 const defaultExit: ExitConfig = { type: 'manual', config: {} }
 
 let mockWorkspaces: Workspace[] = [
@@ -36,10 +38,10 @@ let mockWorkspaces: Workspace[] = [
 ]
 
 let mockColumns: Column[] = [
-  { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: 'inbox', position: 0, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: 'code', position: 1, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: 'eye', position: 2, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: 'check', position: 3, color: '#4ADE80', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: 'inbox', position: 0, color: '', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: 'code', position: 1, color: '', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: 'eye', position: 2, color: '', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: 'check', position: 3, color: '#4ADE80', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
 ]
 
 let mockTasks: Task[] = [
@@ -75,6 +77,11 @@ let mockTasks: Task[] = [
     checklist: null,
     notifyStakeholders: null,
     notificationSentAt: null,
+    triggerOverrides: null,
+    triggerPrompt: null,
+    lastOutput: null,
+    dependencies: null,
+    blocked: false,
     queuedAt: null,
     position: 0,
     createdAt: new Date().toISOString(),
@@ -145,6 +152,7 @@ const mockCommands: Record<string, CommandHandler> = {
       position: args?.position as number || mockColumns.length,
       color: '',
       visible: true,
+      triggers: undefined,
       trigger: defaultTrigger,
       exitCriteria: defaultExit,
       autoAdvance: false,
@@ -162,9 +170,13 @@ const mockCommands: Record<string, CommandHandler> = {
       existing.position = (args?.position as number) ?? existing.position
       existing.color = (args?.color as string) ?? existing.color
       existing.visible = (args?.visible as boolean) ?? existing.visible
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      if (args?.triggers) existing.triggers = JSON.parse(args.triggers as string)
+      /* eslint-disable @typescript-eslint/no-deprecated -- updating legacy fields */
       existing.trigger = (args?.trigger as TriggerConfig) ?? existing.trigger
       existing.exitCriteria = (args?.exitCriteria as ExitConfig) ?? existing.exitCriteria
       existing.autoAdvance = (args?.autoAdvance as boolean) ?? existing.autoAdvance
+      /* eslint-enable @typescript-eslint/no-deprecated */
       existing.updatedAt = new Date().toISOString()
       return existing
     }
@@ -219,6 +231,11 @@ const mockCommands: Record<string, CommandHandler> = {
       checklist: null,
       notifyStakeholders: null,
       notificationSentAt: null,
+      triggerOverrides: null,
+      triggerPrompt: null,
+      lastOutput: null,
+      dependencies: null,
+      blocked: false,
       queuedAt: null,
       position: mockTasks.filter(t => t.columnId === args?.columnId).length,
       createdAt: new Date().toISOString(),
@@ -441,10 +458,10 @@ export function resetMockData() {
   ]
 
   mockColumns = [
-    { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: 'inbox', position: 0, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: 'code', position: 1, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: 'eye', position: 2, color: '', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: 'check', position: 3, color: '#4ADE80', visible: true, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: 'inbox', position: 0, color: '', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: 'code', position: 1, color: '', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: 'eye', position: 2, color: '', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: 'check', position: 3, color: '#4ADE80', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
   ]
 
   mockTasks = [
@@ -480,6 +497,11 @@ export function resetMockData() {
       checklist: null,
       notifyStakeholders: null,
       notificationSentAt: null,
+      triggerOverrides: null,
+      triggerPrompt: null,
+      lastOutput: null,
+      dependencies: null,
+      blocked: false,
       queuedAt: null,
       position: 0,
       createdAt: new Date().toISOString(),
@@ -517,6 +539,11 @@ export function resetMockData() {
       checklist: null,
       notifyStakeholders: null,
       notificationSentAt: null,
+      triggerOverrides: null,
+      triggerPrompt: null,
+      lastOutput: null,
+      dependencies: null,
+      blocked: false,
       queuedAt: null,
       position: 0,
       createdAt: new Date(Date.now() - 3600000).toISOString(),
@@ -554,6 +581,11 @@ export function resetMockData() {
       checklist: null,
       notifyStakeholders: null,
       notificationSentAt: null,
+      triggerOverrides: null,
+      triggerPrompt: null,
+      lastOutput: null,
+      dependencies: null,
+      blocked: false,
       queuedAt: null,
       position: 1,
       createdAt: new Date(Date.now() - 86400000).toISOString(),

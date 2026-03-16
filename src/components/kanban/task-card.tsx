@@ -9,6 +9,7 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { TaskContextMenu } from './task-context-menu'
+import { TaskSettingsModal } from './task-settings-modal'
 import { TaskQuickActions } from './task-quick-actions'
 import * as ipc from '@/lib/ipc'
 
@@ -203,8 +204,9 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
   const markViewed = useAttentionStore((s) => s.markViewed)
   const cardSettings = useSettingsStore((s) => s.global.cards)
 
-  // Context menu
+  // Context menu & settings modal
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
   const columns = useColumnStore((s) => s.columns)
   const moveTask = useTaskStore((s) => s.move)
   const removeTask = useTaskStore((s) => s.remove)
@@ -426,6 +428,16 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
           </div>
         )}
 
+        {/* Blocked by dependencies */}
+        {task.blocked && (
+          <div className="flex items-center gap-1.5 rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-500">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
+              <path fillRule="evenodd" d="M8 1a3.5 3.5 0 0 0-3.5 3.5V7A1.5 1.5 0 0 0 3 8.5v5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 11.5 7V4.5A3.5 3.5 0 0 0 8 1Zm2 6V4.5a2 2 0 1 0-4 0V7h4Z" clipRule="evenodd" />
+            </svg>
+            <span className="truncate">Blocked by dependencies</span>
+          </div>
+        )}
+
         {/* Pipeline error */}
         {hasPipelineError && (
           <div className="flex items-center gap-1.5 rounded bg-error/10 px-2 py-1 text-xs text-error">
@@ -586,6 +598,15 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
         onStopAgent={handleStopAgent}
         onStartSiege={() => { void handleStartSiege(); }}
         onStopSiege={() => { void handleStopSiege(); }}
+        onConfigureTask={() => { setShowSettings(true) }}
+      />
+    )}
+
+    {/* Task Settings Modal */}
+    {showSettings && (
+      <TaskSettingsModal
+        task={task}
+        onClose={() => { setShowSettings(false) }}
       />
     )}
     </>

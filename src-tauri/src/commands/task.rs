@@ -46,7 +46,7 @@ pub struct TaskDeletedEvent {
     pub title: String,
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn create_task(
     app: AppHandle,
     state: State<AppState>,
@@ -54,6 +54,8 @@ pub fn create_task(
     column_id: String,
     title: String,
     description: Option<String>,
+    trigger_prompt: Option<String>,
+    dependencies: Option<String>,
 ) -> Result<Task, AppError> {
     if title.trim().is_empty() {
         return Err(AppError::InvalidInput("Task title cannot be empty".to_string()));
@@ -68,9 +70,31 @@ pub fn create_task(
         description.as_deref(),
     )?;
 
-    // Fire column trigger for the initial column
+    // Set trigger prompt and dependencies if provided
+    let ts = db::now();
+    if trigger_prompt.is_some() || dependencies.is_some() {
+        let has_deps = dependencies.as_ref().map(|d| d != "[]" && !d.is_empty()).unwrap_or(false);
+        conn.execute(
+            "UPDATE tasks SET trigger_prompt = COALESCE(?1, trigger_prompt), dependencies = COALESCE(?2, dependencies), blocked = ?3, updated_at = ?4 WHERE id = ?5",
+            rusqlite::params![
+                trigger_prompt,
+                dependencies,
+                has_deps as i64,
+                ts,
+                task.id,
+            ],
+        ).map_err(AppError::from)?;
+    }
+
+    let task = db::get_task(&conn, &task.id)?;
+
+    // Fire column trigger for the initial column (unless blocked)
     let column = db::get_column(&conn, &column_id)?;
-    let task = pipeline::fire_trigger(&conn, &app, &task, &column)?;
+    let task = if !task.blocked {
+        pipeline::fire_trigger(&conn, &app, &task, &column)?
+    } else {
+        task
+    };
 
     // Emit Discord sync event
     let _ = app.emit("discord:task_created", TaskCreatedEvent {
@@ -155,6 +179,58 @@ pub fn update_task(
     Ok(task)
 }
 
+/// Update task trigger settings (overrides, prompt, dependencies)
+#[tauri::command(rename_all = "camelCase")]
+pub fn update_task_triggers(
+    state: State<AppState>,
+    id: String,
+    trigger_overrides: Option<String>,
+    trigger_prompt: Option<Option<String>>,
+    dependencies: Option<String>,
+    blocked: Option<bool>,
+) -> Result<Task, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let ts = db::now();
+
+    // Build dynamic UPDATE query
+    let mut updates = Vec::new();
+    let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+    if let Some(ref overrides) = trigger_overrides {
+        updates.push("trigger_overrides = ?");
+        params_vec.push(Box::new(overrides.clone()));
+    }
+    if let Some(ref prompt) = trigger_prompt {
+        updates.push("trigger_prompt = ?");
+        params_vec.push(Box::new(prompt.clone()));
+    }
+    if let Some(ref deps) = dependencies {
+        updates.push("dependencies = ?");
+        params_vec.push(Box::new(deps.clone()));
+    }
+    if let Some(b) = blocked {
+        updates.push("blocked = ?");
+        params_vec.push(Box::new(b as i64));
+    }
+
+    if updates.is_empty() {
+        return Ok(db::get_task(&conn, &id)?);
+    }
+
+    updates.push("updated_at = ?");
+    params_vec.push(Box::new(ts));
+
+    let set_clause = updates.join(", ");
+    let sql = format!("UPDATE tasks SET {} WHERE id = ?", set_clause);
+    params_vec.push(Box::new(id.clone()));
+
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+    conn.execute(&sql, params_refs.as_slice())
+        .map_err(AppError::from)?;
+
+    Ok(db::get_task(&conn, &id)?)
+}
+
 #[tauri::command]
 pub fn move_task(
     app: AppHandle,
@@ -199,6 +275,11 @@ pub fn move_task(
 
     // Fire column trigger if task moved to a new column
     if column_changed {
+        // Fire on_exit trigger on the old column (V2 triggers)
+        let old_column = db::get_column(&conn, &old_column_id)?;
+        let target_column = db::get_column(&conn, &target_column_id)?;
+        let _ = pipeline::triggers::fire_on_exit(&conn, &app, &task_before, &old_column, Some(&target_column));
+
         // Emit Discord sync event
         let _ = app.emit("discord:task_moved", TaskMovedEvent {
             task_id: task.id.clone(),
@@ -208,7 +289,6 @@ pub fn move_task(
             title: task.title.clone(),
         });
 
-        let target_column = db::get_column(&conn, &target_column_id)?;
         let task = pipeline::fire_trigger(&conn, &app, &task, &target_column)?;
         return Ok(task);
     }

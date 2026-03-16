@@ -52,6 +52,12 @@ export type Task = {
   // Notification fields
   notifyStakeholders: string | null  // JSON array of stakeholder names/emails
   notificationSentAt: string | null
+  // Trigger override fields (V1 column triggers)
+  triggerOverrides: string | null  // JSON - task-level trigger overrides
+  triggerPrompt: string | null     // Custom prompt fed to agent
+  lastOutput: string | null        // Last output from trigger execution
+  dependencies: string | null      // JSON array of dependency specs
+  blocked: boolean                 // Whether task is blocked by dependencies
   position: number
   createdAt: string
   updatedAt: string

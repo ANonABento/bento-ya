@@ -92,6 +92,31 @@ export function usePipelineEvents({
     [updateTask, onError, onTriggerStart, onTriggerComplete]
   )
 
+  // Handle V2 spawn_cli event
+  const handleSpawnCli = useCallback(
+    async (event: ipc.SpawnCliEvent) => {
+      const { taskId, cliType, command, prompt, flags, useQueue } = event
+
+      onTriggerStart?.(taskId, 'cli')
+
+      try {
+        const task = await ipc.fireCliTrigger(taskId, cliType, command, prompt, flags, useQueue, cliPath)
+        updateTask(task.id, task)
+        onTriggerComplete?.(taskId, true)
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        onError?.(errorMsg, taskId)
+        onTriggerComplete?.(taskId, false)
+        try {
+          await ipc.setPipelineError(taskId, errorMsg)
+        } catch {
+          // Ignore error setting error state
+        }
+      }
+    },
+    [cliPath, updateTask, onError, onTriggerStart, onTriggerComplete]
+  )
+
   // Handle skill spawn event
   const handleSpawnSkill = useCallback(
     async (event: ipc.SpawnSkillEvent) => {
@@ -128,6 +153,9 @@ export function usePipelineEvents({
         const unlistenAgent = await ipc.onPipelineSpawnAgent((payload) => {
           void handleSpawnAgent(payload)
         })
+        const unlistenCli = await ipc.onPipelineSpawnCli((payload) => {
+          void handleSpawnCli(payload)
+        })
         const unlistenScript = await ipc.onPipelineSpawnScript((payload) => {
           void handleSpawnScript(payload)
         })
@@ -135,7 +163,7 @@ export function usePipelineEvents({
           void handleSpawnSkill(payload)
         })
 
-        unlistenRefs.current = [unlistenAgent, unlistenScript, unlistenSkill]
+        unlistenRefs.current = [unlistenAgent, unlistenCli, unlistenScript, unlistenSkill]
       } catch (err) {
         console.error('Failed to setup pipeline event listeners:', err)
       }
@@ -147,11 +175,12 @@ export function usePipelineEvents({
       unlistenRefs.current.forEach((unlisten) => { unlisten(); })
       unlistenRefs.current = []
     }
-  }, [enabled, handleSpawnAgent, handleSpawnScript, handleSpawnSkill])
+  }, [enabled, handleSpawnAgent, handleSpawnCli, handleSpawnScript, handleSpawnSkill])
 
   return {
     // Expose manual trigger functions if needed
     fireAgentTrigger: handleSpawnAgent,
+    fireCliTrigger: handleSpawnCli,
     fireScriptTrigger: handleSpawnScript,
     fireSkillTrigger: handleSpawnSkill,
   }

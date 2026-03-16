@@ -4,6 +4,10 @@
 //! When a task enters a column, the pipeline fires the column's trigger.
 //! When exit criteria are met, the task auto-advances to the next column.
 
+pub mod dependencies;
+pub mod template;
+pub mod triggers;
+
 use crate::db::{self, Column, Task};
 use crate::error::AppError;
 use chrono::Utc;
@@ -147,13 +151,25 @@ pub struct WebhookPayload {
 
 /// Fire the column trigger when a task enters.
 /// Returns the updated task with pipeline state set.
+/// Routes to V2 triggers if `column.triggers` is populated, otherwise falls back to legacy.
 pub fn fire_trigger(
     conn: &Connection,
     app: &AppHandle,
     task: &Task,
     column: &Column,
 ) -> Result<Task, AppError> {
-    // Parse trigger config
+    // Check for V2 triggers first
+    if let Some(ref triggers_json) = column.triggers {
+        if triggers_json != "{}" && !triggers_json.is_empty() {
+            if let Ok(col_triggers) = serde_json::from_str::<triggers::ColumnTriggersV2>(triggers_json) {
+                if col_triggers.on_entry.is_some() {
+                    return triggers::fire_on_entry(conn, app, task, column, &col_triggers, None);
+                }
+            }
+        }
+    }
+
+    // Legacy trigger_config fallback
     let trigger: TriggerConfig = serde_json::from_str(&column.trigger_config)
         .unwrap_or(TriggerConfig {
             trigger_type: "none".to_string(),
@@ -599,6 +615,9 @@ pub fn mark_complete(
     let column = db::get_column(conn, &task.column_id)?;
 
     if success {
+        // Check dependents - tasks waiting on this one
+        let _ = dependencies::check_dependents(conn, app, &task);
+
         // Try to auto-advance
         if let Some(advanced_task) = try_auto_advance(conn, app, &task, &column)? {
             return Ok(advanced_task);

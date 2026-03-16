@@ -2,7 +2,9 @@ import { vi } from 'vitest'
 import type { Workspace, Column, Task, TriggerConfig, ExitConfig } from '@/types'
 
 // Default configs
+// eslint-disable-next-line @typescript-eslint/no-deprecated -- legacy compat
 const defaultTrigger: TriggerConfig = { type: 'none', config: {} }
+// eslint-disable-next-line @typescript-eslint/no-deprecated -- legacy compat
 const defaultExit: ExitConfig = { type: 'manual', config: {} }
 
 // Mock data factories
@@ -26,6 +28,7 @@ export const mockColumn = (overrides: Partial<Column> = {}): Column => ({
   position: 0,
   color: '',
   visible: true,
+  triggers: undefined,
   trigger: defaultTrigger,
   exitCriteria: defaultExit,
   autoAdvance: false,
@@ -67,6 +70,11 @@ export const mockTask = (overrides: Partial<Task> = {}): Task => ({
   checklist: null,
   notifyStakeholders: null,
   notificationSentAt: null,
+  triggerOverrides: null,
+  triggerPrompt: null,
+  lastOutput: null,
+  dependencies: null,
+  blocked: false,
   queuedAt: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),

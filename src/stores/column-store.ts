@@ -9,6 +9,9 @@ type ColumnUpdates = {
   position?: number
   color?: string | null
   visible?: boolean
+  // New unified triggers format
+  triggers?: string
+  // Legacy (for backward compatibility)
   triggerConfig?: string
   exitConfig?: string
   autoAdvance?: boolean

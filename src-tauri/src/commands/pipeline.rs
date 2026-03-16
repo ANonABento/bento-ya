@@ -136,6 +136,104 @@ pub async fn fire_agent_trigger(
     Ok(updated_task)
 }
 
+/// Fire CLI trigger (V2) - spawns CLI agent with resolved prompt
+/// Called by frontend after receiving pipeline:spawn_cli event
+#[tauri::command(rename_all = "camelCase")]
+pub async fn fire_cli_trigger(
+    task_id: String,
+    cli_type: String,
+    command: Option<String>,
+    prompt: String,
+    flags: Option<Vec<String>>,
+    use_queue: bool,
+    cli_path: Option<String>,
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+) -> Result<Task, String> {
+    // Get task and workspace
+    let (workspace, column) = {
+        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+        let task = db::get_task(&conn, &task_id).map_err(|e| format!("Task not found: {}", e))?;
+        let workspace = db::get_workspace(&conn, &task.workspace_id)
+            .map_err(|e| format!("Workspace not found: {}", e))?;
+        let column = db::get_column(&conn, &task.column_id)
+            .map_err(|e| format!("Column not found: {}", e))?;
+
+        // Store the resolved prompt in the task's trigger_prompt field
+        let ts = db::now();
+        conn.execute(
+            "UPDATE tasks SET trigger_prompt = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![prompt, ts, task_id],
+        )
+        .map_err(|e| format!("Failed to store trigger prompt: {}", e))?;
+
+        (workspace, column)
+    };
+
+    let working_dir = workspace.repo_path.clone();
+
+    // Build env vars with prompt and command info
+    let mut env_vars = HashMap::new();
+    env_vars.insert("WORKING_DIR".to_string(), working_dir.clone());
+    env_vars.insert("TRIGGER_PROMPT".to_string(), prompt.clone());
+    if let Some(ref cmd) = command {
+        env_vars.insert("TRIGGER_COMMAND".to_string(), cmd.clone());
+    }
+    if let Some(ref f) = flags {
+        env_vars.insert("TRIGGER_FLAGS".to_string(), f.join(" "));
+    }
+
+    let _ = use_queue; // Queue support handled by frontend
+
+    // Spawn the agent
+    let session = {
+        let mut runner = agent_runner
+            .lock()
+            .map_err(|e| format!("Agent runner lock error: {}", e))?;
+
+        runner.start_agent(
+            &task_id,
+            &cli_type,
+            &working_dir,
+            Some(env_vars),
+            cli_path,
+            app_handle.clone(),
+        )?
+    };
+
+    // Update task state
+    let updated_task = {
+        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+        let ts = db::now();
+
+        db::update_task_pipeline_state(
+            &conn,
+            &task_id,
+            PipelineState::Running.as_str(),
+            Some(&ts),
+            None,
+        )
+        .map_err(|e| format!("Failed to update pipeline state: {}", e))?;
+
+        db::update_task_agent_session(&conn, &task_id, Some(&session.task_id))
+            .map_err(|e| format!("Failed to link agent session: {}", e))?
+    };
+
+    let _ = app_handle.emit(
+        "pipeline:running",
+        &pipeline::PipelineEvent {
+            task_id: task_id.clone(),
+            column_id: column.id.clone(),
+            event_type: "running".to_string(),
+            state: PipelineState::Running.as_str().to_string(),
+            message: Some(format!("CLI trigger spawned: {} (pid: {:?})", cli_type, session.pid)),
+        },
+    );
+
+    Ok(updated_task)
+}
+
 /// Fire script trigger - spawns script via PTY and tracks exit code
 /// Called by frontend after receiving pipeline:spawn_script event
 #[tauri::command(rename_all = "camelCase")]
