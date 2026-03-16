@@ -6,14 +6,22 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useVoiceInput } from '@/hooks/use-voice-input'
 import { Tooltip } from '@/components/shared/tooltip'
-import { ModelSelector, type ModelId } from '@/components/shared/model-selector'
+import { ModelSelector, type ModelSelection } from '@/components/shared/model-selector'
 import { ThinkingSelector, type ThinkingLevel } from '@/components/shared/thinking-selector'
+import { PermissionSelector, type PermissionMode } from '@/components/shared/permission-selector'
+
+export type { ModelSelection }
+export type ModelId = ModelSelection['model']
 
 export type ChatInputConfig = {
   /** Show model selector */
   showModelSelector?: boolean
-  /** Show thinking level selector (agent only) */
+  /** Show 1M context toggle next to model */
+  showContextToggle?: boolean
+  /** Show thinking level selector */
   showThinkingSelector?: boolean
+  /** Show permission mode selector */
+  showPermissionSelector?: boolean
   /** Show voice input button */
   showVoiceInput?: boolean
   /** Placeholder text */
@@ -25,7 +33,9 @@ export type ChatInputConfig = {
 export type ChatInputMessage = {
   content: string
   model: ModelId
+  extendedContext?: boolean
   thinkingLevel?: ThinkingLevel
+  permissionMode?: PermissionMode
 }
 
 type ChatInputProps = {
@@ -47,7 +57,9 @@ type ChatInputProps = {
 
 const DEFAULT_CONFIG: ChatInputConfig = {
   showModelSelector: true,
+  showContextToggle: false,
   showThinkingSelector: false,
+  showPermissionSelector: false,
   showVoiceInput: false,
   placeholder: 'Type a message...',
   rows: 1,
@@ -66,7 +78,9 @@ export function ChatInput({
 
   const [message, setMessage] = useState('')
   const [model, setModel] = useState<ModelId>('sonnet')
+  const [extendedContext, setExtendedContext] = useState(false)
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('medium')
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>('plan')
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   // Voice input - append transcript to current message
@@ -80,6 +94,11 @@ export function ChatInput({
 
   const voice = useVoiceInput(handleTranscript)
 
+  const handleModelChange = useCallback((selection: ModelSelection) => {
+    setModel(selection.model)
+    setExtendedContext(selection.extendedContext)
+  }, [])
+
   const handleSubmit = useCallback(() => {
     const trimmed = message.trim()
     if (!trimmed || disabled) return
@@ -87,14 +106,16 @@ export function ChatInput({
     onSend({
       content: trimmed,
       model,
+      extendedContext: config.showContextToggle ? extendedContext : undefined,
       thinkingLevel: config.showThinkingSelector ? thinkingLevel : undefined,
+      permissionMode: config.showPermissionSelector ? permissionMode : undefined,
     })
 
     setMessage('')
     if (inputRef.current) {
       inputRef.current.style.height = 'auto'
     }
-  }, [message, disabled, onSend, model, thinkingLevel, config.showThinkingSelector])
+  }, [message, disabled, onSend, model, extendedContext, thinkingLevel, permissionMode, config])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -123,17 +144,26 @@ export function ChatInput({
 
   // Always show voice button if enabled in config (with helpful tooltip when unavailable)
   const showVoice = config.showVoiceInput
+  const showSelectorsRow = config.showModelSelector || config.showThinkingSelector || config.showPermissionSelector
 
   return (
     <div className="border-t border-border-default bg-surface p-3">
       {/* Optional selectors row */}
-      {(config.showModelSelector || config.showThinkingSelector) && (
+      {showSelectorsRow && (
         <div className="mb-2 flex items-center gap-1">
           {config.showModelSelector && (
-            <ModelSelector value={model} onChange={setModel} />
+            <ModelSelector
+              value={model}
+              extendedContext={extendedContext}
+              showContextToggle={config.showContextToggle}
+              onChange={handleModelChange}
+            />
           )}
           {config.showThinkingSelector && (
             <ThinkingSelector value={thinkingLevel} onChange={setThinkingLevel} />
+          )}
+          {config.showPermissionSelector && (
+            <PermissionSelector value={permissionMode} onChange={setPermissionMode} />
           )}
         </div>
       )}

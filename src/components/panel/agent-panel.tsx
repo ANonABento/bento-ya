@@ -213,7 +213,9 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
       <ChatInput
         config={{
           showModelSelector: true,
+          showContextToggle: true,
           showThinkingSelector: true,
+          showPermissionSelector: true,
           showVoiceInput: true,
           placeholder: cliDetecting ? 'Detecting CLI...' : `Ask agent about "${task.title}"...`,
         }}

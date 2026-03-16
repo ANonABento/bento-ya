@@ -433,7 +433,9 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 <ChatInput
                   config={{
                     showModelSelector: true,
-                    showThinkingSelector: false,
+                    showContextToggle: true,
+                    showThinkingSelector: true,
+                    showPermissionSelector: true,
                     showVoiceInput: true,
                     placeholder: 'Ask me to create tasks...',
                   }}
