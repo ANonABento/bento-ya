@@ -7,20 +7,29 @@ import { useState, useRef, useCallback } from 'react'
 import { SelectorDropdown, SelectorOption, SelectorButton } from './selector-dropdown'
 
 const THINKING_LEVELS = [
-  { id: 'none', label: 'None', description: 'No extended thinking' },
-  { id: 'low', label: 'Low', description: 'Brief reasoning' },
-  { id: 'medium', label: 'Medium', description: 'Moderate depth' },
-  { id: 'high', label: 'High', description: 'Deep analysis' },
+  { id: 'none', label: 'None', description: 'No extended thinking', cliValue: undefined },
+  { id: 'low', label: 'Low', description: 'Brief reasoning', cliValue: 'low' },
+  { id: 'medium', label: 'Medium', description: 'Moderate depth', cliValue: 'medium' },
+  { id: 'high', label: 'High', description: 'Deep analysis', cliValue: 'high' },
 ] as const
 
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number]['id']
 
+/** Map thinking level to CLI --effort value (undefined = omit flag) */
+export function thinkingToEffort(level: ThinkingLevel): string | undefined {
+  return THINKING_LEVELS.find((l) => l.id === level)?.cliValue
+}
+
+const LEVEL_ORDER = ['none', 'low', 'medium', 'high'] as const
+
 interface ThinkingSelectorProps {
   value?: ThinkingLevel
+  /** Max allowed effort for current model (e.g. haiku only supports 'low') */
+  maxLevel?: ThinkingLevel
   onChange?: (level: ThinkingLevel) => void
 }
 
-export function ThinkingSelector({ value = 'medium', onChange }: ThinkingSelectorProps) {
+export function ThinkingSelector({ value = 'medium', maxLevel, onChange }: ThinkingSelectorProps) {
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<ThinkingLevel>(value)
   const ref = useRef<HTMLDivElement>(null)
@@ -47,15 +56,20 @@ export function ThinkingSelector({ value = 'medium', onChange }: ThinkingSelecto
         onClose={() => { setOpen(false) }}
         width="w-40"
       >
-        {THINKING_LEVELS.map((level) => (
+        {THINKING_LEVELS.map((level) => {
+          const maxIdx = maxLevel ? LEVEL_ORDER.indexOf(maxLevel) : 3
+          const levelIdx = LEVEL_ORDER.indexOf(level.id)
+          const disabled = levelIdx > maxIdx
+          return (
           <SelectorOption
             key={level.id}
             selected={level.id === selected}
-            onClick={() => { handleSelect(level.id) }}
-            label={level.label}
+            onClick={() => { if (!disabled) handleSelect(level.id) }}
+            label={disabled ? `${level.label} (not available)` : level.label}
             description={level.description}
           />
-        ))}
+          )
+        })}
       </SelectorDropdown>
     </div>
   )

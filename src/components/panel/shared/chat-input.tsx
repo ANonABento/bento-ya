@@ -7,7 +7,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useVoiceInput } from '@/hooks/use-voice-input'
 import { useAttachments } from '@/hooks/use-attachments'
 import { Tooltip } from '@/components/shared/tooltip'
-import { ModelSelector, type ModelSelection } from '@/components/shared/model-selector'
+import { ModelSelector, MODEL_CAPABILITIES, type ModelSelection } from '@/components/shared/model-selector'
 import { ThinkingSelector, type ThinkingLevel } from '@/components/shared/thinking-selector'
 import { PermissionSelector, type PermissionMode } from '@/components/shared/permission-selector'
 import { AttachmentButton } from './attachment-button'
@@ -115,7 +115,16 @@ export function ChatInput({
   const handleModelChange = useCallback((selection: ModelSelection) => {
     setModel(selection.model)
     setExtendedContext(selection.extendedContext)
-  }, [])
+    // Auto-clamp thinking level if model doesn't support current level
+    const caps = MODEL_CAPABILITIES[selection.model]
+    const levelOrder = ['none', 'low', 'medium', 'high'] as const
+    const maxEffort = caps.maxEffort === 'max' ? 'high' : caps.maxEffort
+    const maxIdx = levelOrder.indexOf(maxEffort as typeof levelOrder[number])
+    const currentIdx = levelOrder.indexOf(thinkingLevel)
+    if (currentIdx > maxIdx) {
+      setThinkingLevel(maxEffort as ThinkingLevel)
+    }
+  }, [thinkingLevel])
 
   const handleSubmit = useCallback(() => {
     const trimmed = message.trim()
@@ -249,7 +258,11 @@ export function ChatInput({
               />
             )}
             {config.showThinkingSelector && (
-              <ThinkingSelector value={thinkingLevel} onChange={setThinkingLevel} />
+              <ThinkingSelector
+                value={thinkingLevel}
+                maxLevel={MODEL_CAPABILITIES[model].maxEffort === 'max' ? 'high' : MODEL_CAPABILITIES[model].maxEffort as ThinkingLevel}
+                onChange={setThinkingLevel}
+              />
             )}
             {config.showPermissionSelector && (
               <PermissionSelector value={permissionMode} onChange={setPermissionMode} />

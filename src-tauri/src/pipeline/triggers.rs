@@ -404,8 +404,8 @@ fn execute_action(
 // Note: dependency task interpolation ({dep.<id>.title}) is handled at the
 // dependency resolution level in dependencies.rs, not here.
 
-/// Resolve a column target string to a Column.
-fn resolve_column_target(
+/// Resolve a column target string ("next", "previous", or column ID) to a Column.
+pub fn resolve_column_target(
     conn: &Connection,
     task: &Task,
     target: &str,

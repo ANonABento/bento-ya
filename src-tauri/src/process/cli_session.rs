@@ -98,6 +98,7 @@ impl CliSessionManager {
                     system_prompt: system_prompt.to_string(),
                     resume_id: resume_id.map(|s| s.to_string()),
                     working_dir: None, // Orchestrator doesn't set working dir
+                    effort_level: None, // Orchestrator uses default effort
                 },
                 is_busy: false,
             },

@@ -132,7 +132,7 @@ impl AgentCliSessionManager {
         cli_path: &str,
         working_dir: &str,
         model: &str,
-        _effort_level: Option<&str>, // Reserved for future use
+        effort_level: Option<&str>,
         system_prompt: &str,
         resume_id: Option<&str>,
     ) -> Result<(), String> {
@@ -159,6 +159,7 @@ impl AgentCliSessionManager {
                     system_prompt: system_prompt.to_string(),
                     resume_id: resume_id.map(|s| s.to_string()),
                     working_dir: Some(working_dir.to_string()),
+                    effort_level: effort_level.map(|s| s.to_string()),
                 },
                 is_busy: false,
             },

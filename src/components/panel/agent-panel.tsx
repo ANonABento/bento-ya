@@ -6,6 +6,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import type { Task } from '@/types'
 import { buildPromptWithAttachments } from '@/types'
+import { thinkingToEffort } from '@/components/shared/thinking-selector'
 import { useChatSession } from '@/hooks/use-chat-session'
 import { useCliPath } from '@/hooks/use-cli-path'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -68,7 +69,7 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
   }, [error, clearError])
 
   const handleSendMessage = useCallback(async (message: ChatInputMessage) => {
-    const effortLevel = message.thinkingLevel === 'none' ? undefined : message.thinkingLevel
+    const effortLevel = message.thinkingLevel ? thinkingToEffort(message.thinkingLevel) : undefined
     // Build prompt with attachment references for CLI mode
     const prompt = buildPromptWithAttachments(message.content, message.attachments)
     await sendMessage(prompt, message.model, effortLevel)

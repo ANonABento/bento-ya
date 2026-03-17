@@ -75,6 +75,7 @@ pub struct CliConfig {
     pub system_prompt: String,
     pub resume_id: Option<String>,
     pub working_dir: Option<String>,
+    pub effort_level: Option<String>,
 }
 
 /// Build a CLI command with the given configuration and message
@@ -89,6 +90,11 @@ pub fn build_cli_command(config: &CliConfig, message: &str) -> Command {
     cmd.arg("--verbose");
     cmd.arg("--model").arg(&config.model);
     cmd.arg("--system-prompt").arg(&config.system_prompt);
+
+    // Set effort level if specified (maps to CLI --effort flag)
+    if let Some(ref effort) = config.effort_level {
+        cmd.arg("--effort").arg(effort);
+    }
 
     // Resume from previous session if available
     if let Some(ref id) = config.resume_id {
@@ -570,6 +576,7 @@ mod tests {
             system_prompt: "You are helpful".to_string(),
             resume_id: None,
             working_dir: None,
+            effort_level: None,
         };
 
         // Just verify it doesn't panic
@@ -584,6 +591,7 @@ mod tests {
             system_prompt: "System prompt".to_string(),
             resume_id: Some("session-123".to_string()),
             working_dir: Some("/tmp".to_string()),
+            effort_level: Some("high".to_string()),
         };
 
         // Just verify it doesn't panic

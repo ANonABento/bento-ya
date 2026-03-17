@@ -13,6 +13,17 @@ const MODELS = [
   { id: 'haiku', name: 'Haiku', description: 'Quick & light' },
 ] as const
 
+/** Model capability constraints */
+export const MODEL_CAPABILITIES: Record<ModelId, {
+  supportsExtendedContext: boolean
+  maxEffort: 'low' | 'medium' | 'high' | 'max'
+  contextWindow: string
+}> = {
+  opus: { supportsExtendedContext: true, maxEffort: 'max', contextWindow: '200k (1M available)' },
+  sonnet: { supportsExtendedContext: false, maxEffort: 'max', contextWindow: '200k' },
+  haiku: { supportsExtendedContext: false, maxEffort: 'low', contextWindow: '200k' },
+}
+
 export type ModelId = (typeof MODELS)[number]['id']
 
 export type ModelSelection = {
@@ -42,13 +53,20 @@ export function ModelSelector({
   const anthropicProvider = settings.model.providers.find((p) => p.id === 'anthropic')
   const connectionMode = anthropicProvider?.connectionMode ?? 'cli'
 
+  const capabilities = MODEL_CAPABILITIES[selected]
+
   const handleSelect = useCallback((modelId: ModelId) => {
     setSelected(modelId)
-    onChange?.({ model: modelId, extendedContext: extended })
+    // Auto-disable extended context if model doesn't support it
+    const newCaps = MODEL_CAPABILITIES[modelId]
+    const newExtended = newCaps.supportsExtendedContext ? extended : false
+    if (!newCaps.supportsExtendedContext && extended) setExtended(false)
+    onChange?.({ model: modelId, extendedContext: newExtended })
     setOpen(false)
   }, [extended, onChange])
 
   const handleContextToggle = useCallback(() => {
+    if (!MODEL_CAPABILITIES[selected].supportsExtendedContext) return
     const newExtended = !extended
     setExtended(newExtended)
     onChange?.({ model: selected, extendedContext: newExtended })
@@ -74,17 +92,24 @@ export function ModelSelector({
         {currentModel.name}
       </SelectorButton>
 
-      {/* Extended context toggle button */}
+      {/* Extended context toggle button - only for Opus */}
       {showContextToggle && (
         <button
           type="button"
           onClick={handleContextToggle}
+          disabled={!capabilities.supportsExtendedContext}
           className={`flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium transition-colors ${
-            extended
-              ? 'bg-accent/15 text-accent'
-              : 'text-text-muted hover:bg-surface-hover hover:text-text-secondary'
+            !capabilities.supportsExtendedContext
+              ? 'text-text-muted/30 cursor-not-allowed'
+              : extended
+                ? 'bg-accent/15 text-accent'
+                : 'text-text-muted hover:bg-surface-hover hover:text-text-secondary'
           }`}
-          title={extended ? 'Extended context enabled (1M tokens)' : 'Click to enable extended context (1M tokens)'}
+          title={
+            !capabilities.supportsExtendedContext
+              ? `1M context not available for ${currentModel.name}`
+              : extended ? 'Extended context enabled (1M tokens)' : 'Click to enable extended context (1M tokens)'
+          }
         >
           1M
         </button>
@@ -101,7 +126,7 @@ export function ModelSelector({
             selected={model.id === selected}
             onClick={() => { handleSelect(model.id) }}
             label={model.name}
-            description={model.description}
+            description={`${model.description} · ${MODEL_CAPABILITIES[model.id].contextWindow}`}
           />
         ))}
       </SelectorDropdown>

@@ -10,7 +10,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
-use super::triggers::TriggerActionV2;
+use super::triggers::{self, TriggerActionV2};
 use super::PipelineEvent;
 
 /// A dependency from one task to another.
@@ -59,13 +59,10 @@ pub fn find_dependents(conn: &Connection, task_id: &str) -> Result<Vec<(Task, Ve
 pub fn check_condition(dep: &TaskDependency, source_task: &Task, conn: &Connection) -> Result<bool, AppError> {
     match dep.condition.as_str() {
         "completed" => {
-            // Task is "completed" if it's in a column with no next column (last column)
-            // or if pipeline_state indicates completion
-            let has_next = db::get_next_column(conn, &source_task.workspace_id, {
-                let col = db::get_column(conn, &source_task.column_id)?;
-                col.position
-            })?;
-            Ok(has_next.is_none() || source_task.pipeline_state == "idle")
+            // Task is "completed" if it's in the last column (no next column)
+            let col = db::get_column(conn, &source_task.column_id)?;
+            let has_next = db::get_next_column(conn, &source_task.workspace_id, col.position)?;
+            Ok(has_next.is_none())
         }
         "moved_to_column" => {
             // Check if source task is in the specified target column
@@ -198,30 +195,13 @@ fn execute_on_met(
     Ok(())
 }
 
-/// Resolve a column target string ("next", "previous", or column ID) to a Column.
+/// Resolve a column target string — delegates to triggers::resolve_column_target.
 fn resolve_column_target(
     conn: &Connection,
     task: &Task,
     target: &str,
 ) -> Result<Option<db::Column>, AppError> {
-    let current_col = db::get_column(conn, &task.column_id)?;
-
-    match target {
-        "next" => Ok(db::get_next_column(conn, &task.workspace_id, current_col.position)?),
-        "previous" => {
-            if current_col.position > 0 {
-                // Get column at position - 1
-                let cols = db::list_columns(conn, &task.workspace_id)?;
-                Ok(cols.into_iter().find(|c| c.position == current_col.position - 1))
-            } else {
-                Ok(None)
-            }
-        }
-        col_id => {
-            // Direct column ID
-            Ok(db::get_column(conn, col_id).ok())
-        }
-    }
+    triggers::resolve_column_target(conn, task, target)
 }
 
 /// Update a task's blocked state.
