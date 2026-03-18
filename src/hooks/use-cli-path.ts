@@ -46,7 +46,6 @@ export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
   // Sync resolvedPath when configuredPath changes (e.g., after detection updates settings)
   useEffect(() => {
     if (configuredPath.includes('/')) {
-      console.debug(`[useCliPath] Config has full path, using: ${configuredPath}`)
       setResolvedPath(configuredPath)
       setDetectionError(null)
       setIsDetecting(false)
@@ -67,10 +66,8 @@ export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
     const detectPath = async () => {
       setIsDetecting(true)
       setDetectionError(null)
-      console.debug(`[useCliPath] Starting detection for ${cliId}...`)
       try {
         const detected = await detectSingleCli(cliId)
-        console.debug(`[useCliPath] Detection result for ${cliId}:`, detected)
         if (detected.isAvailable && detected.path) {
           setResolvedPath(detected.path)
           // Also update settings so this persists
@@ -78,14 +75,12 @@ export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
             p.id === providerId ? { ...p, cliPath: detected.path } : p
           )
           updateGlobal('model', { ...settings.model, providers })
-          console.debug(`[useCliPath] Auto-detected ${cliId} CLI path:`, detected.path)
         } else {
           const cliName = cliId === 'claude' ? 'Claude' : cliId === 'codex' ? 'Codex' : cliId
           setDetectionError(`${cliName} CLI not found. Please install it or set the path in Settings > Agent.`)
           setResolvedPath(configuredPath) // Fallback to configured
         }
-      } catch (err) {
-        console.error(`[useCliPath] Detection failed for ${cliId}:`, err)
+      } catch {
         setDetectionError(`Failed to detect ${cliId} CLI`)
         setResolvedPath(configuredPath)
       } finally {
@@ -95,9 +90,6 @@ export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
 
     void detectPath()
   }, [configuredPath, cliId, providerId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Debug: log what we're returning
-  console.debug(`[useCliPath] Returning for ${providerId}: path=${resolvedPath}, detecting=${isDetecting}`)
 
   return {
     cliPath: resolvedPath,
@@ -135,10 +127,9 @@ export function useAutoDetectClis(): { isDetecting: boolean } {
           const detected = await detectSingleCli(cliId)
           if (detected.isAvailable && detected.path) {
             updates.push({ providerId: provider.id, path: detected.path })
-            console.debug(`[useAutoDetectClis] Detected ${cliId}:`, detected.path)
           }
-        } catch (err) {
-          console.debug(`[useAutoDetectClis] Could not detect ${cliId}:`, err)
+        } catch {
+          // Detection failure is non-critical - CLI may not be installed
         }
       }
 

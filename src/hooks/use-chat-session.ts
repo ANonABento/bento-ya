@@ -486,10 +486,8 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
       const processQueued = async () => {
         try {
           if (mode === 'agent' && taskId) {
-            console.debug('[useChatSession] Queue: Agent chat with cliPath:', cliPath)
             await ipc.streamAgentChat(taskId, next.content, workingDir, cliPath, next.model, next.effortLevel)
           } else if (mode === 'orchestrator' && workspaceId && sessionId) {
-            console.debug('[useChatSession] Queue: Orchestrator chat with cliPath:', cliPath)
             await ipc.streamOrchestratorChat(
               workspaceId,
               sessionId,
@@ -528,10 +526,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
   const sendMessage = useCallback(
     async (content: string, model?: string, effortLevel?: string) => {
       // Guard: can't send without required IDs
-      if (!canSend) {
-        console.debug('[useChatSession] Cannot send: missing required IDs', { mode, taskId, workspaceId, sessionId })
-        return
-      }
+      if (!canSend) return
 
       // Detect model switch — insert divider and build context preamble
       let effectiveContent = content
@@ -562,7 +557,6 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         if (preamble) {
           effectiveContent = preamble + content
         }
-        console.debug(`[useChatSession] Model switched ${prevModel} -> ${model}, prepended context preamble`)
       }
 
       // Update last model ref
@@ -597,10 +591,8 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         setFailedMessage(null)
 
         if (mode === 'agent' && taskId) {
-          console.debug('[useChatSession] Agent chat with cliPath:', cliPath)
           await ipc.streamAgentChat(taskId, effectiveContent, workingDir, cliPath, model, effortLevel)
         } else if (mode === 'orchestrator' && workspaceId && sessionId) {
-          console.debug('[useChatSession] Orchestrator chat with cliPath:', cliPath, 'connectionMode:', connectionMode)
           await ipc.streamOrchestratorChat(
             workspaceId,
             sessionId,
@@ -636,7 +628,6 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
 
   const cancel = useCallback(async () => {
     if (!canSend) {
-      console.debug('[useChatSession] Cannot cancel: missing required IDs')
       // Still clear queue and reset state even without IDs
       setQueue([])
       isProcessingRef.current = false

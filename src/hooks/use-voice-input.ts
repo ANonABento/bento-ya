@@ -41,14 +41,11 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
 
   // Check if voice is available
   const checkAvailability = useCallback(() => {
-    console.log('[Voice] Checking availability...')
     isVoiceAvailable()
       .then((available) => {
-        console.log('[Voice] Backend availability:', available)
         setIsAvailable(available)
       })
-      .catch((err: unknown) => {
-        console.error('[Voice] Availability check failed:', err)
+      .catch(() => {
         setIsAvailable(false)
       })
   }, [])
@@ -93,7 +90,6 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
           .trim()
 
         if (cleanText) {
-          console.log('[Voice] Chunk transcribed:', cleanText)
           // Accumulate chunks as user speaks
           const accumulated = accumulatedTextRef.current
             ? accumulatedTextRef.current + ' ' + cleanText
@@ -102,17 +98,12 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
           setLiveText(accumulated)
         }
       }
-    } catch (err) {
-      console.error('[Voice] Chunk transcription error:', err)
+    } catch {
+      // Chunk transcription can fail intermittently during recording - non-critical
     }
   }, [])
 
   const startRecording = useCallback(async () => {
-    console.log('[Voice] Starting streaming recording...', {
-      enabled: voiceConfig.enabled,
-      available: isAvailable
-    })
-
     if (!voiceConfig.enabled || !isAvailable) {
       setError('Voice input is not enabled or available')
       setState('error')
@@ -128,7 +119,6 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
 
       // Start native recording
       await startNativeRecording()
-      console.log('[Voice] Native recording started')
 
       setState('recording')
       stateRef.current = 'recording'
@@ -145,7 +135,6 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
 
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error('[Voice] Failed to start recording:', message)
       setError(message)
       setState('error')
       stateRef.current = 'error'
@@ -153,7 +142,6 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
   }, [voiceConfig.enabled, isAvailable, transcribeChunk])
 
   const stopRecording = useCallback(async () => {
-    console.log('[Voice] stopRecording called, stateRef:', stateRef.current)
     if (stateRef.current !== 'recording') {
       return
     }
@@ -174,7 +162,6 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
     try {
       // Stop and do final transcription of ALL audio
       const config = voiceConfigRef.current
-      console.log('[Voice] Stopping and doing final transcription...')
 
       const result = await transcribeAllRecording(
         config.language || undefined,
@@ -186,8 +173,6 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
         .replace(/\[BLANK_AUDIO\]/gi, '')
         .replace(/\s+/g, ' ')
         .trim()
-
-      console.log('[Voice] Final transcription:', cleanText)
 
       // Use the final full transcription (more accurate than chunks)
       if (cleanText) {
@@ -201,7 +186,6 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       accumulatedTextRef.current = ''
 
     } catch (err) {
-      console.error('[Voice] Stop/transcription error:', err)
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
       setState('error')
@@ -221,9 +205,8 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
 
     try {
       await cancelNativeRecording()
-      console.log('[Voice] Recording cancelled')
-    } catch (err) {
-      console.error('[Voice] Failed to cancel recording:', err)
+    } catch {
+      // Cancel can fail if recording already stopped - non-critical
     }
 
     setState('idle')

@@ -41,11 +41,8 @@ export function ChecklistPanel() {
     setDetectionError(null)
 
     try {
-      const results = await runDetection(activeWorkspaceId, repoPath)
-      const detectedCount = results.filter((r) => r.detected).length
-      console.log(`Detection complete: ${String(detectedCount)}/${String(results.length)} items detected`)
+      await runDetection(activeWorkspaceId, repoPath)
     } catch (error) {
-      console.error('Detection failed:', error)
       setDetectionError(error instanceof Error ? error.message : 'Detection failed')
     } finally {
       setIsDetecting(false)
@@ -86,8 +83,8 @@ export function ChecklistPanel() {
           }
         }
       }, 100)
-    } catch (error) {
-      console.error('Failed to create fix task:', error)
+    } catch {
+      // Task creation failure handled by store
     }
   }, [activeWorkspaceId, columns, tasks.length, addTask, linkItemToTask])
 

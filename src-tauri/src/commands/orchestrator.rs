@@ -433,7 +433,6 @@ pub async fn stream_orchestrator_chat(
         }
         "cli" => {
             let cli = cli_path.clone().unwrap_or_else(|| "claude".to_string());
-            eprintln!("[Rust] stream_orchestrator_chat: cli_path={}, exists={}", cli, std::path::Path::new(&cli).exists());
             stream_via_cli(
                 app.clone(),
                 state.clone(),
@@ -696,10 +695,8 @@ async fn stream_via_cli(
     let needs_spawn = !manager.has_session(session_id) || !manager.is_alive(session_id) || model_changed;
 
     if needs_spawn {
-        eprintln!("[Rust] stream_via_cli - needs_spawn=true, spawning...");
         // Use resume_id unless model changed (CLI ignores --model on --resume)
         let effective_resume_id = if model_changed {
-            eprintln!("[Rust] stream_via_cli - model changed, dropping resume_id for fresh session");
             None
         } else {
             let stored_cli_id = manager.get_cli_session_id(session_id);
@@ -712,13 +709,7 @@ async fn stream_via_cli(
             model,
             &system_prompt,
             effective_resume_id.as_deref(),
-        ).await.map_err(|e| {
-            eprintln!("[Rust] stream_via_cli - spawn FAILED: {}", e);
-            AppError::InvalidInput(e)
-        })?;
-        eprintln!("[Rust] stream_via_cli - spawn completed, calling send_message...");
-    } else {
-        eprintln!("[Rust] stream_via_cli - needs_spawn=false, reusing session");
+        ).await.map_err(|e| AppError::InvalidInput(e))?;
     }
 
     // Send message and stream response

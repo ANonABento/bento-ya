@@ -179,9 +179,6 @@ pub async fn stream_agent_chat(
     model: Option<String>,
     effort_level: Option<String>,
 ) -> Result<(), AppError> {
-    eprintln!("[Rust] stream_agent_chat CALLED: task_id='{}', message_len={}, working_dir='{}', cli_path='{}'",
-        task_id, message.len(), working_dir, cli_path);
-
     let model = model.unwrap_or_else(|| "sonnet".to_string());
 
     // 1. Save user message to DB
@@ -225,25 +222,18 @@ Be concise and helpful."#,
     // 3. Spawn or reuse session, then send message
     let mut manager = agent_cli_manager.lock().await;
 
-    eprintln!("[Rust] stream_agent_chat: cli_path='{}', exists={}, working_dir='{}'",
-        cli_path, std::path::Path::new(&cli_path).exists(), working_dir);
-
     // Get existing session's resume ID, but drop it if model changed
     // (Claude CLI ignores --model on --resume, so we must start a new session)
     let resume_id = {
         let existing_model = manager.get_model(&task_id);
         let session_id = manager.get_cli_session_id(&task_id);
         match (existing_model, &session_id) {
-            (Some(prev), Some(_)) if prev != model => {
-                eprintln!("[Rust] stream_agent_chat: model changed ({} -> {}), starting new session", prev, model);
-                None
-            }
+            (Some(prev), Some(_)) if prev != model => None,
             _ => session_id,
         }
     };
 
     // Always spawn/update session params (the spawn now just stores params, doesn't start a process)
-    eprintln!("[Rust] stream_agent_chat: calling spawn...");
     manager
         .spawn(
             &task_id,
@@ -255,22 +245,13 @@ Be concise and helpful."#,
             resume_id.as_deref(),
         )
         .await
-        .map_err(|e| {
-            eprintln!("[Rust] stream_agent_chat: spawn FAILED: {}", e);
-            AppError::InvalidInput(e)
-        })?;
-    eprintln!("[Rust] stream_agent_chat: spawn succeeded");
+        .map_err(|e| AppError::InvalidInput(e))?;
 
     // Send the message (this spawns the actual CLI process with positional arg)
-    eprintln!("[Rust] stream_agent_chat: calling send_message...");
     let (full_response, captured_cli_session_id) = manager
         .send_message(&task_id, &message, &app)
         .await
-        .map_err(|e| {
-            eprintln!("[Rust] stream_agent_chat: send_message FAILED: {}", e);
-            AppError::InvalidInput(e)
-        })?;
-    eprintln!("[Rust] stream_agent_chat: send_message succeeded, response_len={}", full_response.len());
+        .map_err(|e| AppError::InvalidInput(e))?;
 
     // Drop manager lock before DB operations
     drop(manager);

@@ -82,12 +82,6 @@ impl CliSessionManager {
         system_prompt: &str,
         resume_id: Option<&str>,
     ) -> Result<(), String> {
-        eprintln!(
-            "[Rust] CliSessionManager::spawn - cli_path: '{}', exists: {}",
-            cli_path,
-            std::path::Path::new(cli_path).exists()
-        );
-
         // Create or update session
         self.sessions.insert(
             session_id.to_string(),
@@ -104,10 +98,6 @@ impl CliSessionManager {
             },
         );
 
-        eprintln!(
-            "[Rust] CliSessionManager::spawn - SUCCESS, session stored for: {}",
-            session_id
-        );
         Ok(())
     }
 
@@ -119,16 +109,9 @@ impl CliSessionManager {
         workspace_id: &str,
         app: &AppHandle,
     ) -> Result<(String, Option<String>), String> {
-        eprintln!(
-            "[Rust] CliSessionManager::send_message - session_id: {}",
-            session_id
-        );
-
         // Get session and mark busy
-        let session = self.sessions.get_mut(session_id).ok_or_else(|| {
-            eprintln!("[Rust] CliSessionManager::send_message - Session not found!");
-            "Session not found".to_string()
-        })?;
+        let session = self.sessions.get_mut(session_id)
+            .ok_or_else(|| "Session not found".to_string())?;
 
         if session.is_busy {
             return Err("Session is busy".to_string());
@@ -140,27 +123,10 @@ impl CliSessionManager {
         // Build and spawn CLI command
         let mut cmd = build_cli_command(&config, message);
 
-        eprintln!(
-            "[Rust] CliSessionManager::send_message - spawning CLI: {} --model {} [message len={}]",
-            config.cli_path,
-            config.model,
-            message.len()
-        );
-
         let mut child = cmd.spawn().map_err(|e| {
-            eprintln!(
-                "[Rust] CliSessionManager::send_message - SPAWN FAILED: {}",
-                e
-            );
             self.mark_not_busy(session_id);
             format!("Failed to spawn Claude CLI: {}", e)
         })?;
-
-        eprintln!(
-            "[Rust] CliSessionManager::send_message - process spawned, pid={:?}",
-            child.id()
-        );
-
         // Spawn stderr reader
         spawn_stderr_reader(&mut child, session_id.to_string());
 

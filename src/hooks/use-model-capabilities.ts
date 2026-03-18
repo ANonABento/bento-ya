@@ -53,8 +53,7 @@ export function useModelCapabilities(cliId: string = 'claude'): UseModelCapabili
         setModels(FALLBACK_MODELS)
         setIsDetected(false)
       }
-    } catch (err) {
-      console.debug('[useModelCapabilities] Detection failed, using fallbacks:', err)
+    } catch {
       setModels(FALLBACK_MODELS)
       setIsDetected(false)
     } finally {

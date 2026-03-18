@@ -144,11 +144,6 @@ impl AgentCliSessionManager {
             ));
         }
 
-        eprintln!(
-            "[Rust] AgentCliSession::spawn - initialized session for task_id: {}",
-            task_id
-        );
-
         // Create or update session
         self.sessions.insert(
             task_id.to_string(),
@@ -175,11 +170,6 @@ impl AgentCliSessionManager {
         message: &str,
         app: &AppHandle,
     ) -> Result<(String, Option<String>), String> {
-        eprintln!(
-            "[Rust] AgentCliSession::send_message - task_id: {}",
-            task_id
-        );
-
         // Get session and mark busy
         let session = self
             .sessions
@@ -196,26 +186,10 @@ impl AgentCliSessionManager {
         // Build and spawn CLI command
         let mut cmd = build_cli_command(&config, message);
 
-        eprintln!(
-            "[Rust] AgentCliSession::send_message - spawning CLI: {} --model {} [message len={}]",
-            config.cli_path,
-            config.model,
-            message.len()
-        );
-
         let mut child = cmd.spawn().map_err(|e| {
-            eprintln!(
-                "[Rust] AgentCliSession::send_message - SPAWN FAILED: {}",
-                e
-            );
             self.mark_not_busy(task_id);
             format!("Failed to spawn Claude CLI: {}", e)
         })?;
-
-        eprintln!(
-            "[Rust] AgentCliSession::send_message - process spawned, pid={:?}",
-            child.id()
-        );
 
         // Spawn stderr reader
         spawn_stderr_reader(&mut child, task_id.to_string());

@@ -132,7 +132,10 @@ pub fn spawn_stderr_reader(child: &mut Child, context_id: String) {
                 if n == 0 {
                     break;
                 }
-                eprintln!("[Rust] CLI stderr [{}]: {}", context_id, line.trim());
+                // CLI stderr output is expected (progress info, warnings) - only log errors
+                if line.contains("error") || line.contains("Error") {
+                    eprintln!("CLI stderr [{}]: {}", context_id, line.trim());
+                }
                 line.clear();
             }
         });
@@ -304,7 +307,7 @@ fn parse_content_block_delta(json: &serde_json::Value) -> CliEvent {
 pub async fn read_cli_response<F>(
     stdout: ChildStdout,
     initial_session_id: Option<String>,
-    context_id: &str,
+    _context_id: &str,
     mut on_event: F,
 ) -> Result<(String, Option<String>), String>
 where
@@ -327,7 +330,6 @@ where
             }
             Ok(Ok(0)) => {
                 // EOF - process ended
-                eprintln!("[Rust] CLI [{}] - EOF reached", context_id);
                 return Ok((full_response, captured_session_id));
             }
             Ok(Ok(_)) => {
@@ -358,7 +360,6 @@ where
                 }
 
                 let event = parse_cli_event(&line);
-                eprintln!("[Rust] CLI [{}] - event: {:?}", context_id, event_type_str(&event));
 
                 match &event {
                     CliEvent::SessionId(sid) => {
@@ -379,17 +380,6 @@ where
                 on_event(event);
             }
         }
-    }
-}
-
-fn event_type_str(event: &CliEvent) -> &'static str {
-    match event {
-        CliEvent::SessionId(_) => "session_id",
-        CliEvent::TextContent(_) => "text_content",
-        CliEvent::ThinkingContent { .. } => "thinking",
-        CliEvent::ToolUse { .. } => "tool_use",
-        CliEvent::Complete => "complete",
-        CliEvent::Unknown => "unknown",
     }
 }
 

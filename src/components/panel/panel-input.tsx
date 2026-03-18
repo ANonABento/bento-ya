@@ -201,22 +201,11 @@ export function PanelInput({ onSendMessage, onCancel, onInputChange, isProcessin
           <button
             type="button"
             onClick={() => {
-              console.log('[Voice Button] Clicked!', {
-                isAvailable: voice.isAvailable,
-                isEnabled: voice.isEnabled,
-                isApiAvailable: voice.isApiAvailable,
-                state: voice.state,
-                error: voice.error,
-              })
               if (voice.state === 'recording') {
-                console.log('[Voice Button] Stopping recording...')
                 void voice.stopRecording()
               } else if (voice.state === 'idle' && voice.isAvailable) {
-                console.log('[Voice Button] Starting recording...')
                 void voice.startRecording()
               } else if (voice.state === 'error') {
-                // Clear error state on click
-                console.log('[Voice Button] Clearing error state...')
                 void voice.startRecording()
               }
               // If not available, do nothing - tooltip will explain why
