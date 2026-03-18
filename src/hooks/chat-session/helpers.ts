@@ -7,20 +7,8 @@ import type { AgentMessage } from '@/types'
 import type { ChatMessage } from '@/lib/ipc'
 import type { UnifiedMessage } from './types'
 
-/** Extract a human-readable error message from various error shapes (Error, string, Tauri objects) */
-export function getErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message
-  if (typeof err === 'string') return err
-  if (err && typeof err === 'object') {
-    if ('message' in err && typeof err.message === 'string') return err.message
-    try {
-      return JSON.stringify(err)
-    } catch {
-      return 'Unknown error'
-    }
-  }
-  return String(err)
-}
+// Re-export from shared location for backward compatibility
+export { getErrorMessage } from '@/lib/errors'
 
 /** Convert backend message formats (AgentMessage | ChatMessage) to the unified frontend format */
 export function toUnifiedMessage(msg: AgentMessage | ChatMessage): UnifiedMessage {

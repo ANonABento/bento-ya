@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useVoiceInput } from '@/hooks/use-voice-input'
 import { Tooltip } from '@/components/shared/tooltip'
+import { LoadingSpinner } from '@/components/shared/loading-spinner'
 
 // Available models for the orchestrator (using CLI aliases)
 // Ordered by capability: Opus (most powerful) → Sonnet (balanced) → Haiku (fast)
@@ -224,10 +225,7 @@ export function PanelInput({ onSendMessage, onCancel, onInputChange, isProcessin
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {voice.state === 'processing' ? (
-              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
+              <LoadingSpinner />
             ) : (
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
                 <path d="M8 1a2 2 0 0 0-2 2v4a2 2 0 1 0 4 0V3a2 2 0 0 0-2-2Z" />
