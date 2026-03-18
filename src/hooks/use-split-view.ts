@@ -1,3 +1,5 @@
+/** Hook for managing board/task split view layout. */
+
 import { useCallback, useEffect } from 'react'
 import { useUIStore } from '@/stores/ui-store'
 

@@ -1,3 +1,5 @@
+/** Hook for streaming voice input with Whisper transcription. Records audio, transcribes chunks live, and returns final text. */
+
 import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   isVoiceAvailable,

@@ -1,3 +1,5 @@
+/** Hook for detecting touch swipe gestures (mobile/trackpad navigation). */
+
 import { useEffect, useRef, useCallback } from 'react'
 
 type SwipeDirection = 'left' | 'right'

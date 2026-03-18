@@ -1,3 +1,5 @@
+/** Hook for registering global keyboard shortcuts (Cmd+K, Escape, etc.). */
+
 import { useEffect, useCallback } from 'react'
 
 type ShortcutHandler = () => void

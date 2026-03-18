@@ -1,3 +1,8 @@
+//! Agent queue and lifecycle management.
+//!
+//! Manages PTY-based agent sessions with a configurable concurrency limit (default 5).
+//! Handles agent spawning, status tracking, and cleanup.
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

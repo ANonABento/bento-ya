@@ -1,3 +1,5 @@
+/** Hook for drag-and-drop task reordering across kanban columns (dnd-kit). */
+
 import { useState, useCallback } from 'react'
 import type {
   DragStartEvent,

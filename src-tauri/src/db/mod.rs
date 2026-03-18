@@ -1,3 +1,8 @@
+//! Database layer: SQLite with WAL mode, 23 versioned migrations.
+//!
+//! Models are in `db/models.rs`. CRUD functions are organized by domain
+//! (workspace, column, task, agent, chat, checklist, usage, history, discord).
+
 pub mod models;
 pub mod schema;
 

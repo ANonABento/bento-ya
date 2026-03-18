@@ -1,3 +1,5 @@
+/** Hook for git operations: change tracking, branch info, and diff viewing. */
+
 import { useState, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 

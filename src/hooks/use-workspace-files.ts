@@ -1,3 +1,5 @@
+/** Hook for scanning and categorizing workspace files (context, tickets, notes). */
+
 import { useState, useCallback, useEffect } from 'react'
 import { scanWorkspaceFiles, type FileEntry } from '@/lib/ipc'
 
