@@ -228,8 +228,19 @@ Be concise and helpful."#,
     eprintln!("[Rust] stream_agent_chat: cli_path='{}', exists={}, working_dir='{}'",
         cli_path, std::path::Path::new(&cli_path).exists(), working_dir);
 
-    // Get existing session's resume ID, or spawn new session
-    let resume_id = manager.get_cli_session_id(&task_id);
+    // Get existing session's resume ID, but drop it if model changed
+    // (Claude CLI ignores --model on --resume, so we must start a new session)
+    let resume_id = {
+        let existing_model = manager.get_model(&task_id);
+        let session_id = manager.get_cli_session_id(&task_id);
+        match (existing_model, &session_id) {
+            (Some(prev), Some(_)) if prev != model => {
+                eprintln!("[Rust] stream_agent_chat: model changed ({} -> {}), starting new session", prev, model);
+                None
+            }
+            _ => session_id,
+        }
+    };
 
     // Always spawn/update session params (the spawn now just stores params, doesn't start a process)
     eprintln!("[Rust] stream_agent_chat: calling spawn...");

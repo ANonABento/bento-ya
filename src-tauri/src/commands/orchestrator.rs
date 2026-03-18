@@ -697,17 +697,21 @@ async fn stream_via_cli(
 
     if needs_spawn {
         eprintln!("[Rust] stream_via_cli - needs_spawn=true, spawning...");
-        // Spawn new CLI process
-        // Use resume_id if we have one from previous session
-        let stored_cli_id = manager.get_cli_session_id(session_id);
-        let effective_resume_id = resume_id.or(stored_cli_id.as_deref());
+        // Use resume_id unless model changed (CLI ignores --model on --resume)
+        let effective_resume_id = if model_changed {
+            eprintln!("[Rust] stream_via_cli - model changed, dropping resume_id for fresh session");
+            None
+        } else {
+            let stored_cli_id = manager.get_cli_session_id(session_id);
+            resume_id.map(|s| s.to_string()).or(stored_cli_id)
+        };
 
         manager.spawn(
             session_id,
             cli_path,
             model,
             &system_prompt,
-            effective_resume_id,
+            effective_resume_id.as_deref(),
         ).await.map_err(|e| {
             eprintln!("[Rust] stream_via_cli - spawn FAILED: {}", e);
             AppError::InvalidInput(e)
