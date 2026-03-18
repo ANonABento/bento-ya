@@ -250,12 +250,14 @@ export function ChatInput({
     }
   }, [voice.liveText, voice.state])
 
-  // Auto-collapse if session already has messages on mount
+  // Auto-collapse when messages load (e.g. resuming an existing session)
+  const hasAutoCollapsed = useRef(false)
   useEffect(() => {
-    if (messageCount > 0 && !userToggledRef.current) {
+    if (messageCount > 0 && !userToggledRef.current && !hasAutoCollapsed.current) {
+      hasAutoCollapsed.current = true
       setSettingsOpen(false)
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messageCount])
 
   const showVoice = config.showVoiceInput
   const hasSelectors = config.showModelSelector || config.showThinkingSelector || config.showPermissionSelector || config.showContextToggle

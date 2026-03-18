@@ -47,15 +47,17 @@ function summarizeAssistantMessage(content: string): string {
   return trimmed.length > 200 ? trimmed.slice(0, 200) + '...' : trimmed
 }
 
-/** Build a context preamble from previous messages for a model switch */
+/** Build a context preamble from previous messages for a model switch.
+ *  Uses the last 20 messages to keep the preamble bounded. */
 function buildContextPreamble(messages: UnifiedMessage[]): string {
   if (messages.length === 0) return ''
 
   const userMessages: string[] = []
   const agentSummaries: string[] = []
 
-  // Walk all messages (they're already in chronological order)
-  for (const msg of messages) {
+  // Only look at last 20 messages to keep preamble reasonable
+  const recent = messages.slice(-20)
+  for (const msg of recent) {
     if (msg.role === 'user') {
       // Include user messages verbatim, truncate long ones
       const content = msg.content.length > 500 ? msg.content.slice(0, 500) + '...' : msg.content
@@ -80,6 +82,11 @@ function buildContextPreamble(messages: UnifiedMessage[]): string {
     }
   }
   preamble += '\n---\n'
+
+  // Hard cap at 4k chars to avoid blowing the first prompt
+  if (preamble.length > 4000) {
+    return preamble.slice(0, 3990) + '\n...\n---\n'
+  }
   return preamble
 }
 
@@ -217,6 +224,9 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
   const unlistenRefs = useRef<UnlistenFn[]>([])
   // Track last model used to detect switches
   const lastModelRef = useRef<string | null>(null)
+  // Ref for latest messages (avoids stale closure in sendMessage)
+  const messagesRef = useRef<UnifiedMessage[]>([])
+  messagesRef.current = messages
 
   // Callback refs - store latest values without causing re-renders
   const onErrorRef = useRef(onError)
@@ -529,10 +539,8 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         }
         setMessages((prev) => [...prev, dividerMessage])
 
-        // Build context preamble from previous messages
-        // Use a snapshot of current messages (before the optimistic one)
-        const currentMessages = messages
-        const preamble = buildContextPreamble(currentMessages)
+        // Build context preamble from previous messages (use ref for latest)
+        const preamble = buildContextPreamble(messagesRef.current)
         if (preamble) {
           effectiveContent = preamble + content
         }
@@ -605,7 +613,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         })
       }
     },
-    [mode, canSend, taskId, workspaceId, sessionId, workingDir, cliPath, connectionMode, apiKey, messages]
+    [mode, canSend, taskId, workspaceId, sessionId, workingDir, cliPath, connectionMode, apiKey]
   )
 
   const cancel = useCallback(async () => {
