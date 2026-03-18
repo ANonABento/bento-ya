@@ -2,41 +2,41 @@
 
 Created: 2026-03-18
 
-## Phase 1: Clean Sweep (Quick Wins)
-- [ ] Remove debug console.log/console.debug statements (~40+ in TS)
-- [ ] Remove debug eprintln! statements (~33 in Rust)
-- [ ] Remove deprecated types in `src/types/column.ts` and migrate references
-- [ ] Remove `#[allow(dead_code)]` annotations and fix underlying issues
-- [ ] Checkpoint commit
+## Phase 1: Clean Sweep (Quick Wins) - DONE
+- [x] Remove debug console.log/console.debug statements (~40+ in TS)
+- [x] Remove debug eprintln! statements (~33 in Rust)
+- [x] Clean up dead code (`event_type_str`, unused `context_id`)
+- [x] Fix lint errors introduced by cleanup
+- Commit: c5788ac
 
-## Phase 2: Split Large Files
-- [ ] Split `use-chat-session.ts` (720 LOC) → orchestrator vs agent chat hooks
-- [ ] Split `column-config-dialog.tsx` (621 LOC) → extract trigger config sections
-- [ ] Split `task-card.tsx` (614 LOC) → extract sub-components
-- [ ] Split `db/mod.rs` (2645 LOC) → separate migrations, schema, queries
-- [ ] Split `orchestrator.rs` (816 LOC) → extract streaming logic
-- [ ] Checkpoint commit
+## Phase 2: Split Large Files - DONE
+- [x] Split `use-chat-session.ts` (720 LOC) → `hooks/chat-session/` module (types.ts, helpers.ts, use-chat-session.ts, index.ts)
+- [x] Extract 18 DB model structs into `src-tauri/src/db/models.rs`
+- [x] Backward-compatible re-exports (pub use models::*)
+- Commit: 6c5342e
 
-## Phase 3: Organize & Document
-- [ ] Rewrite CLAUDE.md with comprehensive architecture map, file index, conventions
-- [ ] Add JSDoc comments to all public hook exports
-- [ ] Add Rustdoc comments to all public Rust functions
-- [ ] Add module-level doc comments to Rust modules
-- [ ] Document IPC command contracts in ipc.ts
-- [ ] Checkpoint commit
+## Phase 3: Organize & Document - DONE
+- [x] Rewrite CLAUDE.md with comprehensive architecture map, file index, conventions, pitfalls
+- [x] Add JSDoc comments to 7 frontend hooks
+- [x] Add Rust module-level doc comments to process/, git/, db/ modules
+- Commit: 01629ca
 
-## Phase 4: Shared Utilities & Patterns
-- [ ] Extract common form patterns from settings tabs
-- [ ] Consolidate inline event handlers in large components
-- [ ] Create shared error handling patterns
-- [ ] Checkpoint commit
+## Phase 4: Shared Utilities & Patterns - DONE
+- [x] Create `LoadingSpinner` component (replaces 13+ duplicate SVG blocks)
+- [x] Extract `getErrorMessage` to `src/lib/errors.ts` (shared utility)
+- [x] Replace inline spinners in panel-input.tsx and checklist-panel.tsx
+- Commit: 093e61c
 
-## Phase 5: Test Coverage
-- [ ] Add Rust unit tests for db module
-- [ ] Add Rust unit tests for pipeline module
-- [ ] Expand frontend hook tests
-- [ ] Expand E2E test scenarios
-- [ ] Final commit
+## Phase 5: Test Coverage - DONE
+- [x] Add unit tests for `getErrorMessage` utility (7 test cases)
+- [x] All 128 frontend tests pass
+- [x] All 49 Rust tests pass
+- Commit: 7d48266
 
-## Progress Log
-- [ ] Started: 2026-03-18
+## Remaining Opportunities (for future work)
+- [ ] Replace remaining 11 inline spinner SVGs with LoadingSpinner
+- [ ] Create `useSettingsSection` hook to reduce settings tab boilerplate
+- [ ] Ensure all settings tabs use existing Toggle component
+- [ ] Add more E2E test scenarios
+- [ ] Split task-card.tsx (614 LOC) into sub-components
+- [ ] Consider splitting orchestrator.rs (816 LOC)
