@@ -2,6 +2,9 @@
  * ChatInput - Unified input component for orchestrator and agent panels.
  * Owns reactive settings: 1M toggle, thinking level, permissions all
  * react to the selected model's auto-detected capabilities.
+ *
+ * Settings panel is collapsible: open by default, auto-collapses after
+ * first message sent, then user-controlled via toggle.
  */
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
@@ -20,21 +23,13 @@ export type { ModelId }
 export type ModelSelection = { model: ModelId; extendedContext: boolean }
 
 export type ChatInputConfig = {
-  /** Show model selector */
   showModelSelector?: boolean
-  /** Show 1M context toggle (auto-hidden if model doesn't support it) */
   showContextToggle?: boolean
-  /** Show thinking level selector */
   showThinkingSelector?: boolean
-  /** Show permission mode selector */
   showPermissionSelector?: boolean
-  /** Show voice input button */
   showVoiceInput?: boolean
-  /** Show attachment button */
   showAttachments?: boolean
-  /** Placeholder text */
   placeholder?: string
-  /** Number of rows for textarea */
   rows?: number
 }
 
@@ -48,22 +43,16 @@ export type ChatInputMessage = {
 }
 
 type ChatInputProps = {
-  /** Configuration for input features */
   config?: ChatInputConfig
-  /** Called when user sends a message */
   onSend: (message: ChatInputMessage) => void
-  /** Called when user cancels processing */
   onCancel?: () => void
-  /** Called when input value changes (for error clearing) */
   onInputChange?: () => void
-  /** Called when attachment error occurs */
   onAttachmentError?: (error: { file: string; message: string }) => void
-  /** Whether currently processing a message */
   isProcessing?: boolean
-  /** Whether input is disabled */
   disabled?: boolean
-  /** Number of queued messages */
   queueCount?: number
+  /** Number of existing messages (for auto-collapse logic) */
+  messageCount?: number
 }
 
 const DEFAULT_CONFIG: ChatInputConfig = {
@@ -88,6 +77,7 @@ export function ChatInput({
   isProcessing = false,
   disabled = false,
   queueCount = 0,
+  messageCount = 0,
 }: ChatInputProps) {
   const config = useMemo(() => ({ ...DEFAULT_CONFIG, ...userConfig }), [userConfig])
 
@@ -99,6 +89,11 @@ export function ChatInput({
   const [isDragOver, setIsDragOver] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // Settings panel collapse state
+  // Open by default, auto-collapses after first send, then user-controlled
+  const [settingsOpen, setSettingsOpen] = useState(true)
+  const userToggledRef = useRef(false) // true once user manually toggles
 
   // Auto-detected model capabilities
   const { models, getCapabilities } = useModelCapabilities()
@@ -129,7 +124,7 @@ export function ChatInput({
     onError: onAttachmentError,
   })
 
-  // Voice input - append transcript to current message
+  // Voice input
   const handleTranscript = useCallback((text: string) => {
     setMessage((prev) => {
       const separator = prev.trim() ? ' ' : ''
@@ -142,7 +137,6 @@ export function ChatInput({
 
   const handleModelChange = useCallback((modelId: ModelId) => {
     setModel(modelId)
-    // Effects above handle clamping thinking and clearing extended context
   }, [])
 
   const handleContextToggle = useCallback(() => {
@@ -150,14 +144,17 @@ export function ChatInput({
     setExtendedContext((prev) => !prev)
   }, [supportsExtendedContext])
 
+  const handleSettingsToggle = useCallback(() => {
+    userToggledRef.current = true
+    setSettingsOpen((prev) => !prev)
+  }, [])
+
   const handleSubmit = useCallback(() => {
     const trimmed = message.trim()
     const hasAttachments = attachments.attachments.length > 0
-
-    // Allow send if there's text OR attachments
     if ((!trimmed && !hasAttachments) || disabled) return
 
-    // Safety clamp: ensure thinking level doesn't exceed model's max at send time
+    // Safety clamp thinking level at send time
     let effectiveThinking = thinkingLevel
     if (config.showThinkingSelector) {
       const currentIdx = LEVEL_ORDER.indexOf(thinkingLevel)
@@ -180,7 +177,12 @@ export function ChatInput({
     if (inputRef.current) {
       inputRef.current.style.height = 'auto'
     }
-  }, [message, disabled, onSend, model, extendedContext, thinkingLevel, permissionMode, config, attachments, supportsExtendedContext, maxThinkingIdx, maxEffort])
+
+    // Auto-collapse settings after first send (unless user has manually toggled)
+    if (!userToggledRef.current && settingsOpen) {
+      setSettingsOpen(false)
+    }
+  }, [message, disabled, onSend, model, extendedContext, thinkingLevel, permissionMode, config, attachments, supportsExtendedContext, maxThinkingIdx, maxEffort, settingsOpen])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -202,7 +204,6 @@ export function ChatInput({
   // Handle paste event for images
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     if (!config.showAttachments) return
-
     const items = e.clipboardData.items
     let hasImages = false
     for (let i = 0; i < items.length; i++) {
@@ -211,14 +212,12 @@ export function ChatInput({
         break
       }
     }
-
     if (hasImages) {
       e.preventDefault()
       void attachments.addFromPaste(items)
     }
   }, [config.showAttachments, attachments])
 
-  // Handle drag events
   const handleDragOver = useCallback((e: React.DragEvent) => {
     if (!config.showAttachments) return
     e.preventDefault()
@@ -228,7 +227,6 @@ export function ChatInput({
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     if (!config.showAttachments) return
     e.preventDefault()
-    // Only set false if leaving the container (not entering a child)
     if (!containerRef.current?.contains(e.relatedTarget as Node)) {
       setIsDragOver(false)
     }
@@ -238,7 +236,6 @@ export function ChatInput({
     if (!config.showAttachments) return
     e.preventDefault()
     setIsDragOver(false)
-
     const files = e.dataTransfer.files
     if (files.length > 0) {
       void attachments.addFromDrop(files)
@@ -253,11 +250,20 @@ export function ChatInput({
     }
   }, [voice.liveText, voice.state])
 
-  // Always show voice button if enabled in config (with helpful tooltip when unavailable)
+  // Auto-collapse if session already has messages on mount
+  useEffect(() => {
+    if (messageCount > 0 && !userToggledRef.current) {
+      setSettingsOpen(false)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const showVoice = config.showVoiceInput
-  const showSelectorsRow = config.showModelSelector || config.showThinkingSelector || config.showPermissionSelector
-  const hasAttachments = attachments.attachments.length > 0
-  const canSend = message.trim() || hasAttachments
+  const hasSelectors = config.showModelSelector || config.showThinkingSelector || config.showPermissionSelector || config.showContextToggle
+  const hasAttachmentsPreview = attachments.attachments.length > 0
+  const canSend = message.trim() || hasAttachmentsPreview
+
+  // Model name for collapsed state
+  const currentModelName = caps.name
 
   return (
     <div
@@ -279,8 +285,8 @@ export function ChatInput({
       )}
 
       <div className="p-3">
-        {/* Optional selectors row */}
-        {showSelectorsRow && (
+        {/* Collapsible settings panel */}
+        {hasSelectors && settingsOpen && (
           <div className="mb-2 flex items-center gap-1">
             {config.showModelSelector && (
               <ModelSelector
@@ -326,6 +332,38 @@ export function ChatInput({
 
         {/* Input row */}
         <div className="flex items-end gap-2">
+          {/* Settings toggle — shows model name when collapsed */}
+          {hasSelectors && (
+            <Tooltip
+              content={settingsOpen ? 'Hide settings' : 'Show settings'}
+              side="top"
+              delay={300}
+            >
+              <button
+                type="button"
+                onClick={handleSettingsToggle}
+                className={`flex h-[38px] shrink-0 items-center gap-1 rounded-lg border px-2 text-xs transition-colors ${
+                  settingsOpen
+                    ? 'border-accent/30 bg-accent/5 text-accent'
+                    : 'border-border-default bg-bg text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+                }`}
+              >
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 10 10"
+                  fill="none"
+                  className={`transition-transform ${settingsOpen ? 'rotate-180' : ''}`}
+                >
+                  <path d="M2.5 6L5 3.5L7.5 6" stroke="currentColor" strokeWidth="1.2" />
+                </svg>
+                {!settingsOpen && (
+                  <span className="text-[10px] font-medium">{currentModelName}</span>
+                )}
+              </button>
+            </Tooltip>
+          )}
+
           {/* Attachment button */}
           {config.showAttachments && (
             <AttachmentButton
@@ -416,7 +454,7 @@ export function ChatInput({
             </Tooltip>
           )}
 
-          {/* Cancel button (only when processing) */}
+          {/* Cancel button */}
           {isProcessing && onCancel && (
             <Tooltip content={queueCount > 0 ? `Cancel (${String(queueCount)} queued)` : 'Cancel'} side="top" delay={200}>
               <button

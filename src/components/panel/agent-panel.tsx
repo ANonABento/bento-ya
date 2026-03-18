@@ -231,6 +231,7 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
         isProcessing={streaming.isStreaming}
         disabled={cliDetecting}
         queueCount={queue.length}
+        messageCount={messages.length}
       />
     </div>
   )

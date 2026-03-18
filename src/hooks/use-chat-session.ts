@@ -36,6 +36,53 @@ function getErrorMessage(err: unknown): string {
   return String(err)
 }
 
+// ─── Context Preamble Builder ───────────────────────────────────────────────
+
+/** Extract a short summary from an assistant message (first sentence/line before code) */
+function summarizeAssistantMessage(content: string): string {
+  // Take everything before the first code fence or double newline
+  const beforeCode = content.split(/```|\n\n/)[0] ?? content
+  // Truncate to ~200 chars
+  const trimmed = beforeCode.trim()
+  return trimmed.length > 200 ? trimmed.slice(0, 200) + '...' : trimmed
+}
+
+/** Build a context preamble from previous messages for a model switch */
+function buildContextPreamble(messages: UnifiedMessage[]): string {
+  if (messages.length === 0) return ''
+
+  const userMessages: string[] = []
+  const agentSummaries: string[] = []
+
+  // Walk all messages (they're already in chronological order)
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      // Include user messages verbatim, truncate long ones
+      const content = msg.content.length > 500 ? msg.content.slice(0, 500) + '...' : msg.content
+      userMessages.push(content)
+    } else if (msg.role === 'assistant') {
+      const summary = summarizeAssistantMessage(msg.content)
+      if (summary) agentSummaries.push(summary)
+    }
+  }
+
+  if (userMessages.length === 0) return ''
+
+  let preamble = '[Previous conversation context]\n\n'
+  preamble += 'User requests:\n'
+  for (const msg of userMessages) {
+    preamble += `- ${msg}\n`
+  }
+  if (agentSummaries.length > 0) {
+    preamble += '\nAgent progress:\n'
+    for (const summary of agentSummaries) {
+      preamble += `- ${summary}\n`
+    }
+  }
+  preamble += '\n---\n'
+  return preamble
+}
+
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 export type ChatMode = 'agent' | 'orchestrator'
@@ -168,6 +215,8 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
   // Ref for synchronous processing check (avoids stale closure issues)
   const isProcessingRef = useRef(false)
   const unlistenRefs = useRef<UnlistenFn[]>([])
+  // Track last model used to detect switches
+  const lastModelRef = useRef<string | null>(null)
 
   // Callback refs - store latest values without causing re-renders
   const onErrorRef = useRef(onError)
@@ -464,7 +513,36 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         return
       }
 
-      // Add optimistic user message immediately
+      // Detect model switch — insert divider and build context preamble
+      let effectiveContent = content
+      const prevModel = lastModelRef.current
+      const modelSwitched = prevModel !== null && model !== undefined && prevModel !== model
+
+      if (modelSwitched) {
+        // Insert a system divider message
+        const modelName = model.charAt(0).toUpperCase() + model.slice(1)
+        const dividerMessage: UnifiedMessage = {
+          id: `switch-${String(Date.now())}`,
+          role: 'system',
+          content: `Switched to ${modelName}`,
+          createdAt: new Date().toISOString(),
+        }
+        setMessages((prev) => [...prev, dividerMessage])
+
+        // Build context preamble from previous messages
+        // Use a snapshot of current messages (before the optimistic one)
+        const currentMessages = messages
+        const preamble = buildContextPreamble(currentMessages)
+        if (preamble) {
+          effectiveContent = preamble + content
+        }
+        console.debug(`[useChatSession] Model switched ${prevModel} -> ${model}, prepended context preamble`)
+      }
+
+      // Update last model ref
+      if (model) lastModelRef.current = model
+
+      // Add optimistic user message immediately (shows the original content, not the preamble)
       const optimisticMessage: UnifiedMessage = {
         id: `temp-${String(Date.now())}`,
         role: 'user',
@@ -475,7 +553,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
 
       // If currently processing, queue the message
       if (isProcessingRef.current) {
-        setQueue((prev) => [...prev, { id: `queued-${String(Date.now())}`, content, model, effortLevel }])
+        setQueue((prev) => [...prev, { id: `queued-${String(Date.now())}`, content: effectiveContent, model, effortLevel }])
         return
       }
 
@@ -494,13 +572,13 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
 
         if (mode === 'agent' && taskId) {
           console.debug('[useChatSession] Agent chat with cliPath:', cliPath)
-          await ipc.streamAgentChat(taskId, content, workingDir, cliPath, model, effortLevel)
+          await ipc.streamAgentChat(taskId, effectiveContent, workingDir, cliPath, model, effortLevel)
         } else if (mode === 'orchestrator' && workspaceId && sessionId) {
           console.debug('[useChatSession] Orchestrator chat with cliPath:', cliPath, 'connectionMode:', connectionMode)
           await ipc.streamOrchestratorChat(
             workspaceId,
             sessionId,
-            content,
+            effectiveContent,
             connectionMode,
             apiKey,
             model,
@@ -512,7 +590,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         onErrorRef.current?.(`Failed to send message: ${errorMsg}`)
         setFailedMessage({
           id: `failed-${String(Date.now())}`,
-          content,
+          content: effectiveContent,
           model,
           effortLevel,
           error: errorMsg,
@@ -527,7 +605,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         })
       }
     },
-    [mode, canSend, taskId, workspaceId, sessionId, workingDir, cliPath, connectionMode, apiKey]
+    [mode, canSend, taskId, workspaceId, sessionId, workingDir, cliPath, connectionMode, apiKey, messages]
   )
 
   const cancel = useCallback(async () => {

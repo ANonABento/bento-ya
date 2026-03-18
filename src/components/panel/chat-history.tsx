@@ -149,15 +149,22 @@ function MessageBubble({ message, isLatest }: MessageBubbleProps) {
   const isSystem = message.role === 'system'
 
   if (isSystem) {
+    const isModelSwitch = message.content.startsWith('Switched to ')
     return (
       <motion.div
         initial={isLatest ? { opacity: 0, y: 5 } : false}
         animate={{ opacity: 1, y: 0 }}
-        className="flex justify-center"
+        className="flex items-center gap-2 my-1"
       >
-        <span className="rounded-full bg-surface-hover px-3 py-1 text-xs text-text-secondary">
+        <div className="flex-1 border-t border-border-default" />
+        <span className={`shrink-0 px-2 py-0.5 text-[10px] ${
+          isModelSwitch
+            ? 'rounded border border-border-default text-text-secondary'
+            : 'rounded-full bg-surface-hover text-text-secondary'
+        }`}>
           {message.content}
         </span>
+        <div className="flex-1 border-t border-border-default" />
       </motion.div>
     )
   }
@@ -326,7 +333,7 @@ function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls =
                   toolId: tool.toolId,
                   toolName: tool.toolName,
                   status: tool.status,
-                  input: tool.input as Record<string, unknown> | undefined,
+                  input: tool.input,
                 }}
               />
             ))}
