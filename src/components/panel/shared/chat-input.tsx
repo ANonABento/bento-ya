@@ -1,26 +1,28 @@
 /**
  * ChatInput - Unified input component for orchestrator and agent panels.
- * Single source of truth for chat input UI.
+ * Owns reactive settings: 1M toggle, thinking level, permissions all
+ * react to the selected model's auto-detected capabilities.
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useVoiceInput } from '@/hooks/use-voice-input'
 import { useAttachments } from '@/hooks/use-attachments'
+import { useModelCapabilities, type ModelId } from '@/hooks/use-model-capabilities'
 import { Tooltip } from '@/components/shared/tooltip'
-import { ModelSelector, MODEL_CAPABILITIES, type ModelSelection } from '@/components/shared/model-selector'
+import { ModelSelector } from '@/components/shared/model-selector'
 import { ThinkingSelector, type ThinkingLevel } from '@/components/shared/thinking-selector'
 import { PermissionSelector, type PermissionMode } from '@/components/shared/permission-selector'
 import { AttachmentButton } from './attachment-button'
 import { AttachmentPreview } from './attachment-preview'
 import type { Attachment } from '@/types'
 
-export type { ModelSelection }
-export type ModelId = ModelSelection['model']
+export type { ModelId }
+export type ModelSelection = { model: ModelId; extendedContext: boolean }
 
 export type ChatInputConfig = {
   /** Show model selector */
   showModelSelector?: boolean
-  /** Show 1M context toggle next to model */
+  /** Show 1M context toggle (auto-hidden if model doesn't support it) */
   showContextToggle?: boolean
   /** Show thinking level selector */
   showThinkingSelector?: boolean
@@ -75,6 +77,8 @@ const DEFAULT_CONFIG: ChatInputConfig = {
   rows: 1,
 }
 
+const LEVEL_ORDER = ['none', 'low', 'medium', 'high'] as const
+
 export function ChatInput({
   config: userConfig,
   onSend,
@@ -85,7 +89,7 @@ export function ChatInput({
   disabled = false,
   queueCount = 0,
 }: ChatInputProps) {
-  const config = { ...DEFAULT_CONFIG, ...userConfig }
+  const config = useMemo(() => ({ ...DEFAULT_CONFIG, ...userConfig }), [userConfig])
 
   const [message, setMessage] = useState('')
   const [model, setModel] = useState<ModelId>('sonnet')
@@ -95,6 +99,30 @@ export function ChatInput({
   const [isDragOver, setIsDragOver] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // Auto-detected model capabilities
+  const { models, getCapabilities } = useModelCapabilities()
+  const caps = getCapabilities(model)
+
+  // Derived reactive state
+  const supportsExtendedContext = caps.supportsExtendedContext
+  const maxEffort = caps.maxEffort as ThinkingLevel
+  const maxThinkingIdx = LEVEL_ORDER.indexOf(maxEffort)
+
+  // Auto-clamp thinking level when model changes
+  useEffect(() => {
+    const currentIdx = LEVEL_ORDER.indexOf(thinkingLevel)
+    if (currentIdx > maxThinkingIdx) {
+      setThinkingLevel(maxEffort)
+    }
+  }, [model, maxEffort, maxThinkingIdx, thinkingLevel])
+
+  // Auto-clear extended context when switching to a model that doesn't support it
+  useEffect(() => {
+    if (!supportsExtendedContext && extendedContext) {
+      setExtendedContext(false)
+    }
+  }, [model, supportsExtendedContext, extendedContext])
 
   // Attachments hook
   const attachments = useAttachments({
@@ -112,19 +140,15 @@ export function ChatInput({
 
   const voice = useVoiceInput(handleTranscript)
 
-  const handleModelChange = useCallback((selection: ModelSelection) => {
-    setModel(selection.model)
-    setExtendedContext(selection.extendedContext)
-    // Auto-clamp thinking level if model doesn't support current level
-    const caps = MODEL_CAPABILITIES[selection.model]
-    const levelOrder = ['none', 'low', 'medium', 'high'] as const
-    const maxEffort = caps.maxEffort === 'max' ? 'high' : caps.maxEffort
-    const maxIdx = levelOrder.indexOf(maxEffort as typeof levelOrder[number])
-    const currentIdx = levelOrder.indexOf(thinkingLevel)
-    if (currentIdx > maxIdx) {
-      setThinkingLevel(maxEffort as ThinkingLevel)
-    }
-  }, [thinkingLevel])
+  const handleModelChange = useCallback((modelId: ModelId) => {
+    setModel(modelId)
+    // Effects above handle clamping thinking and clearing extended context
+  }, [])
+
+  const handleContextToggle = useCallback(() => {
+    if (!supportsExtendedContext) return
+    setExtendedContext((prev) => !prev)
+  }, [supportsExtendedContext])
 
   const handleSubmit = useCallback(() => {
     const trimmed = message.trim()
@@ -133,11 +157,20 @@ export function ChatInput({
     // Allow send if there's text OR attachments
     if ((!trimmed && !hasAttachments) || disabled) return
 
+    // Safety clamp: ensure thinking level doesn't exceed model's max at send time
+    let effectiveThinking = thinkingLevel
+    if (config.showThinkingSelector) {
+      const currentIdx = LEVEL_ORDER.indexOf(thinkingLevel)
+      if (currentIdx > maxThinkingIdx) {
+        effectiveThinking = maxEffort
+      }
+    }
+
     onSend({
       content: trimmed,
       model,
-      extendedContext: config.showContextToggle ? extendedContext : undefined,
-      thinkingLevel: config.showThinkingSelector ? thinkingLevel : undefined,
+      extendedContext: config.showContextToggle && supportsExtendedContext ? extendedContext : undefined,
+      thinkingLevel: config.showThinkingSelector ? effectiveThinking : undefined,
       permissionMode: config.showPermissionSelector ? permissionMode : undefined,
       attachments: hasAttachments ? attachments.attachments : undefined,
     })
@@ -147,7 +180,7 @@ export function ChatInput({
     if (inputRef.current) {
       inputRef.current.style.height = 'auto'
     }
-  }, [message, disabled, onSend, model, extendedContext, thinkingLevel, permissionMode, config, attachments])
+  }, [message, disabled, onSend, model, extendedContext, thinkingLevel, permissionMode, config, attachments, supportsExtendedContext, maxThinkingIdx, maxEffort])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -252,15 +285,36 @@ export function ChatInput({
             {config.showModelSelector && (
               <ModelSelector
                 value={model}
-                extendedContext={extendedContext}
-                showContextToggle={config.showContextToggle}
+                models={models}
                 onChange={handleModelChange}
               />
             )}
+
+            {/* 1M context toggle — only visible when model supports it */}
+            {config.showContextToggle && supportsExtendedContext && (
+              <Tooltip
+                content={extendedContext ? 'Extended context enabled (1M tokens)' : 'Enable extended context (1M tokens)'}
+                side="top"
+                delay={300}
+              >
+                <button
+                  type="button"
+                  onClick={handleContextToggle}
+                  className={`flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium transition-colors ${
+                    extendedContext
+                      ? 'bg-accent/15 text-accent'
+                      : 'text-text-muted hover:bg-surface-hover hover:text-text-secondary'
+                  }`}
+                >
+                  1M
+                </button>
+              </Tooltip>
+            )}
+
             {config.showThinkingSelector && (
               <ThinkingSelector
                 value={thinkingLevel}
-                maxLevel={MODEL_CAPABILITIES[model].maxEffort === 'max' ? 'high' : MODEL_CAPABILITIES[model].maxEffort as ThinkingLevel}
+                maxLevel={maxEffort}
                 onChange={setThinkingLevel}
               />
             )}

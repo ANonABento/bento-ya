@@ -14,6 +14,29 @@ pub struct DetectedCli {
     pub is_available: bool,
 }
 
+/// Per-model capability info returned to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelCapability {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub supports_extended_context: bool,
+    pub context_window: String,
+    pub max_effort: String, // "low" | "medium" | "high"
+    pub available: bool,
+}
+
+/// Full capabilities result for a CLI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliCapabilities {
+    pub cli_id: String,
+    pub cli_version: Option<String>,
+    pub models: Vec<ModelCapability>,
+    pub detected: bool,
+}
+
 /// Common locations to check for CLI tools
 fn get_search_paths() -> Vec<PathBuf> {
     let home = std::env::var("HOME").unwrap_or_default();
@@ -129,6 +152,66 @@ pub fn detect_single_cli(cli_id: String) -> DetectedCli {
             version: None,
             is_available: false,
         }
+    }
+}
+
+/// Build model capabilities for the Claude CLI based on detected version.
+fn build_claude_capabilities(version: &Option<String>) -> Vec<ModelCapability> {
+    let _ver = version.as_deref().unwrap_or("");
+
+    // Claude CLI models — capabilities based on known model specs.
+    // Opus supports 1M extended context, Haiku is limited to low effort.
+    vec![
+        ModelCapability {
+            id: "opus".to_string(),
+            name: "Opus".to_string(),
+            description: "Most powerful".to_string(),
+            supports_extended_context: true,
+            context_window: "200k".to_string(),
+            max_effort: "high".to_string(),
+            available: true,
+        },
+        ModelCapability {
+            id: "sonnet".to_string(),
+            name: "Sonnet".to_string(),
+            description: "Fast & capable".to_string(),
+            supports_extended_context: false,
+            context_window: "200k".to_string(),
+            max_effort: "high".to_string(),
+            available: true,
+        },
+        ModelCapability {
+            id: "haiku".to_string(),
+            name: "Haiku".to_string(),
+            description: "Quick & light".to_string(),
+            supports_extended_context: false,
+            context_window: "200k".to_string(),
+            max_effort: "low".to_string(),
+            available: true,
+        },
+    ]
+}
+
+/// Get model capabilities for a CLI provider.
+#[tauri::command]
+pub fn get_cli_capabilities(cli_id: String) -> CliCapabilities {
+    match cli_id.as_str() {
+        "claude" => {
+            let detected = detect_cli("claude", "Claude Code", "claude", &["--version"]);
+            let models = build_claude_capabilities(&detected.version);
+            CliCapabilities {
+                cli_id: "claude".to_string(),
+                cli_version: detected.version,
+                models,
+                detected: detected.is_available,
+            }
+        }
+        _ => CliCapabilities {
+            cli_id,
+            cli_version: None,
+            models: vec![],
+            detected: false,
+        },
     }
 }
 

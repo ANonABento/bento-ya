@@ -1,9 +1,9 @@
 /**
- * PermissionSelector - Permission mode selection for CLI.
- * Uses shared SelectorDropdown for consistent styling.
+ * PermissionSelector - Permission mode selection (fully controlled).
+ * Parent owns selected state.
  */
 
-import { useState, useRef, useCallback, type ReactNode } from 'react'
+import { useState, useCallback, type ReactNode } from 'react'
 import { SelectorDropdown, SelectorOption, SelectorButton } from './selector-dropdown'
 
 // SVG icons for permission modes
@@ -40,28 +40,25 @@ export const PERMISSION_CLI_FLAGS: Record<PermissionMode, string> = {
 }
 
 interface PermissionSelectorProps {
-  value?: PermissionMode
-  onChange?: (mode: PermissionMode) => void
+  value: PermissionMode
+  onChange: (mode: PermissionMode) => void
 }
 
-export function PermissionSelector({ value = 'plan', onChange }: PermissionSelectorProps) {
+export function PermissionSelector({ value, onChange }: PermissionSelectorProps) {
   const [open, setOpen] = useState(false)
-  const [selected, setSelected] = useState<PermissionMode>(value)
-  const ref = useRef<HTMLDivElement>(null)
 
-  const current = PERMISSION_MODES.find((m) => m.id === selected) ?? { id: 'plan' as const, label: 'Plan', description: 'Read-only, safe mode', icon: <LockIcon /> }
+  const current = PERMISSION_MODES.find((m) => m.id === value) ?? PERMISSION_MODES[0]
 
   const handleSelect = useCallback((mode: PermissionMode) => {
-    setSelected(mode)
-    onChange?.(mode)
+    onChange(mode)
     setOpen(false)
   }, [onChange])
 
   return (
-    <div ref={ref} className="relative">
+    <div className="relative">
       <SelectorButton onClick={() => { setOpen(!open) }} open={open}>
-        {current.icon}
-        {current.label}
+        {current?.icon}
+        {current?.label}
       </SelectorButton>
 
       <SelectorDropdown
@@ -72,7 +69,7 @@ export function PermissionSelector({ value = 'plan', onChange }: PermissionSelec
         {PERMISSION_MODES.map((mode) => (
           <SelectorOption
             key={mode.id}
-            selected={mode.id === selected}
+            selected={mode.id === value}
             onClick={() => { handleSelect(mode.id) }}
             label={mode.label}
             description={mode.description}

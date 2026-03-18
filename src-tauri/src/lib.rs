@@ -202,6 +202,7 @@ pub fn run() {
             commands::cli_detect::detect_clis,
             commands::cli_detect::detect_single_cli,
             commands::cli_detect::verify_cli_path,
+            commands::cli_detect::get_cli_capabilities,
             // Checklist commands
             commands::checklist::get_workspace_checklist,
             commands::checklist::update_checklist_item,

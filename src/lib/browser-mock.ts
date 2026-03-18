@@ -410,6 +410,21 @@ const mockCommands: Record<string, CommandHandler> = {
   delete_workspace_checklist: () => undefined,
   update_checklist_item_auto_detect: () => undefined,
   link_checklist_item_to_task: () => undefined,
+
+  // CLI detection / capabilities (stubs)
+  detect_clis: () => [],
+  detect_single_cli: () => ({ id: 'claude', name: 'Claude Code', path: '', version: null, isAvailable: false }),
+  verify_cli_path: () => ({ id: 'custom', name: 'Custom CLI', path: '', version: null, isAvailable: false }),
+  get_cli_capabilities: () => ({
+    cliId: 'claude',
+    cliVersion: null,
+    detected: false,
+    models: [
+      { id: 'opus', name: 'Opus', description: 'Most powerful', supportsExtendedContext: true, contextWindow: '200k', maxEffort: 'high', available: true },
+      { id: 'sonnet', name: 'Sonnet', description: 'Fast & capable', supportsExtendedContext: false, contextWindow: '200k', maxEffort: 'high', available: true },
+      { id: 'haiku', name: 'Haiku', description: 'Quick & light', supportsExtendedContext: false, contextWindow: '200k', maxEffort: 'low', available: true },
+    ],
+  }),
 }
 
 // ─── Mock invoke function ───────────────────────────────────────────────────

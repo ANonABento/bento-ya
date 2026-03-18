@@ -571,6 +571,29 @@ export async function verifyCliPath(path: string): Promise<DetectedCli> {
   return invoke<DetectedCli>('verify_cli_path', { path })
 }
 
+// ─── CLI Capabilities ──────────────────────────────────────────────────────
+
+export type ModelCapability = {
+  id: string
+  name: string
+  description: string
+  supportsExtendedContext: boolean
+  contextWindow: string
+  maxEffort: string
+  available: boolean
+}
+
+export type CliCapabilities = {
+  cliId: string
+  cliVersion: string | null
+  models: ModelCapability[]
+  detected: boolean
+}
+
+export async function getCliCapabilities(cliId: string): Promise<CliCapabilities> {
+  return invoke<CliCapabilities>('get_cli_capabilities', { cliId })
+}
+
 // ─── Event listeners ───────────────────────────────────────────────────────
 
 export type EventCallback<T> = (payload: T) => void
