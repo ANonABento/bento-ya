@@ -176,12 +176,9 @@ pub fn parse_cli_event(line: &str) -> CliEvent {
             is_complete: true,
         },
         "result" => {
-            // Check if result contains text (fallback)
-            if let Some(result_text) = json.get("result").and_then(|r| r.as_str()) {
-                if !result_text.is_empty() {
-                    return CliEvent::TextContent(result_text.to_string());
-                }
-            }
+            // The result event may contain a "result" field with the full response
+            // text, but this is a duplicate of the assistant event — always treat
+            // as Complete. The text is captured via assistant event or streaming deltas.
             CliEvent::Complete
         }
         _ => CliEvent::Unknown,
@@ -334,6 +331,32 @@ where
                 return Ok((full_response, captured_session_id));
             }
             Ok(Ok(_)) => {
+                // The CLI emits text in two ways:
+                //   1. "content_block_delta" with text_delta — streaming chunks (for UI)
+                //   2. "assistant" with full message.content — complete response (for DB)
+                // We use streaming deltas for both UI (on_event) and full_response
+                // accumulation. The "assistant" event is skipped entirely to avoid
+                // double-counting.
+                let is_assistant_event = line.contains("\"type\":\"assistant\"")
+                    || line.contains("\"type\": \"assistant\"");
+
+                if is_assistant_event {
+                    // Parse only to extract session_id or other metadata, but don't
+                    // emit text to frontend — streaming deltas already covered it.
+                    // If full_response is empty (no streaming deltas were received),
+                    // use the assistant event as fallback.
+                    let event = parse_cli_event(&line);
+                    if let CliEvent::TextContent(text) = &event {
+                        if full_response.is_empty() {
+                            full_response = text.clone();
+                            // Emit to frontend as fallback (non-streaming CLI)
+                            on_event(event);
+                        }
+                        // Otherwise skip — streaming deltas already sent to frontend
+                    }
+                    continue;
+                }
+
                 let event = parse_cli_event(&line);
                 eprintln!("[Rust] CLI [{}] - event: {:?}", context_id, event_type_str(&event));
 
@@ -342,6 +365,7 @@ where
                         captured_session_id = Some(sid.clone());
                     }
                     CliEvent::TextContent(text) => {
+                        // Streaming delta — accumulate for DB storage
                         full_response.push_str(text);
                     }
                     CliEvent::Complete => {
@@ -351,6 +375,7 @@ where
                     _ => {}
                 }
 
+                // Forward to frontend for streaming UI
                 on_event(event);
             }
         }
@@ -543,10 +568,12 @@ mod tests {
 
     #[test]
     fn test_parse_result_event_with_text() {
+        // result event always maps to Complete — the "result" field is a duplicate
+        // of the assistant event text and should not produce TextContent
         let json = r#"{"type": "result", "result": "Final answer"}"#;
         match parse_cli_event(json) {
-            CliEvent::TextContent(text) => assert_eq!(text, "Final answer"),
-            _ => panic!("Expected TextContent event"),
+            CliEvent::Complete => {}
+            _ => panic!("Expected Complete event"),
         }
     }
 

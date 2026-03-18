@@ -180,6 +180,7 @@ function toUnifiedMessage(msg: AgentMessage | ChatMessage): UnifiedMessage {
   }
 }
 
+
 // ─── Hook Implementation ───────────────────────────────────────────────────
 
 export function useChatSession(config: ChatSessionConfig): ChatSessionState & ChatSessionActions {
@@ -268,6 +269,8 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
 
   useEffect(() => {
     if (!primaryId) return
+
+    let cancelled = false // Guard against StrictMode double-invoke race
 
     const setupListeners = async () => {
       const listeners: UnlistenFn[] = []
@@ -434,12 +437,19 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         listeners.push(unlistenError)
       }
 
+      // If cleanup ran while we were awaiting, tear down immediately
+      if (cancelled) {
+        listeners.forEach((unlisten) => { unlisten() })
+        return
+      }
+
       unlistenRefs.current = listeners
     }
 
     void setupListeners()
 
     return () => {
+      cancelled = true
       unlistenRefs.current.forEach((unlisten) => { unlisten() })
       unlistenRefs.current = []
     }
@@ -529,12 +539,20 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
       const modelSwitched = prevModel !== null && model !== undefined && prevModel !== model
 
       if (modelSwitched) {
-        // Insert a system divider message
+        // Insert a system divider message — save to DB so it persists across reloads
         const modelName = model.charAt(0).toUpperCase() + model.slice(1)
+        const dividerContent = `Switched to ${modelName}`
+        if (mode === 'agent' && taskId) {
+          try {
+            await ipc.saveAgentMessage(taskId, 'system', dividerContent)
+          } catch {
+            // Non-critical, continue even if save fails
+          }
+        }
         const dividerMessage: UnifiedMessage = {
           id: `switch-${String(Date.now())}`,
           role: 'system',
-          content: `Switched to ${modelName}`,
+          content: dividerContent,
           createdAt: new Date().toISOString(),
         }
         setMessages((prev) => [...prev, dividerMessage])
@@ -651,6 +669,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
       } else if (mode === 'orchestrator' && sessionId) {
         await ipc.clearChatHistory(sessionId)
       }
+      lastModelRef.current = null
       setMessages([])
     } catch (err) {
       onErrorRef.current?.(`Failed to clear messages: ${getErrorMessage(err)}`)
