@@ -1,8 +1,11 @@
+pub mod models;
 pub mod schema;
+
+// Re-export all model types so callers can use db::Workspace, db::Task, etc.
+pub use models::*;
 
 use chrono::Utc;
 use rusqlite::{params, Connection, Result as SqlResult};
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -119,135 +122,7 @@ pub fn now() -> String {
     Utc::now().to_rfc3339()
 }
 
-// ─── Data models ───────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Workspace {
-    pub id: String,
-    pub name: String,
-    pub repo_path: String,
-    pub tab_order: i64,
-    pub is_active: bool,
-    pub config: String,
-    pub created_at: String,
-    pub updated_at: String,
-    // Discord integration fields
-    pub discord_guild_id: Option<String>,
-    pub discord_category_id: Option<String>,
-    pub discord_chef_channel_id: Option<String>,
-    pub discord_notifications_channel_id: Option<String>,
-    pub discord_enabled: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Column {
-    pub id: String,
-    pub workspace_id: String,
-    pub name: String,
-    pub icon: String,
-    pub position: i64,
-    pub color: Option<String>,
-    pub visible: bool,
-    /// New unified triggers config (JSON)
-    pub triggers: Option<String>,
-    /// @deprecated Use triggers instead
-    pub trigger_config: String,
-    /// @deprecated Use triggers instead
-    pub exit_config: String,
-    /// @deprecated Use triggers.exit_criteria.auto_advance instead
-    pub auto_advance: bool,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Task {
-    pub id: String,
-    pub workspace_id: String,
-    pub column_id: String,
-    pub title: String,
-    pub description: Option<String>,
-    pub position: i64,
-    pub priority: String,
-    pub agent_mode: Option<String>,
-    pub agent_status: Option<String>,
-    pub queued_at: Option<String>,
-    pub branch_name: Option<String>,
-    pub files_touched: String,
-    pub checklist: Option<String>,
-    pub pipeline_state: String,
-    pub pipeline_triggered_at: Option<String>,
-    pub pipeline_error: Option<String>,
-    pub agent_session_id: Option<String>,
-    pub last_script_exit_code: Option<i64>,
-    pub review_status: Option<String>,
-    pub pr_number: Option<i64>,
-    pub pr_url: Option<String>,
-    // Siege loop fields
-    pub siege_iteration: i64,
-    pub siege_active: bool,
-    pub siege_max_iterations: i64,
-    pub siege_last_checked: Option<String>,
-    // PR/CI status fields (from GitHub API)
-    pub pr_mergeable: Option<String>,
-    pub pr_ci_status: Option<String>,
-    pub pr_review_decision: Option<String>,
-    pub pr_comment_count: i64,
-    pub pr_is_draft: bool,
-    pub pr_labels: String,
-    pub pr_last_fetched: Option<String>,
-    pub pr_head_sha: Option<String>,
-    // Notification fields
-    pub notify_stakeholders: Option<String>,
-    pub notification_sent_at: Option<String>,
-    // Trigger override fields
-    pub trigger_overrides: Option<String>,
-    pub trigger_prompt: Option<String>,
-    pub last_output: Option<String>,
-    pub dependencies: Option<String>,
-    pub blocked: bool,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSession {
-    pub id: String,
-    pub task_id: String,
-    pub pid: Option<i64>,
-    pub status: String,
-    pub pty_cols: i64,
-    pub pty_rows: i64,
-    pub last_output: Option<String>,
-    pub exit_code: Option<i64>,
-    pub agent_type: String,
-    pub working_dir: Option<String>,
-    pub scrollback: Option<String>,
-    pub resumable: bool,
-    pub cli_session_id: Option<String>,
-    pub model: Option<String>,
-    pub effort_level: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentMessage {
-    pub id: String,
-    pub task_id: String,
-    pub role: String,
-    pub content: String,
-    pub model: Option<String>,
-    pub effort_level: Option<String>,
-    pub tool_calls: Option<String>,
-    pub thinking_content: Option<String>,
-    pub created_at: String,
-}
+// Data models are defined in db/models.rs and re-exported via `pub use models::*` above.
 
 // ─── CRUD helpers: Workspace ───────────────────────────────────────────────
 
@@ -1235,40 +1110,7 @@ pub fn clear_agent_messages(conn: &Connection, task_id: &str) -> SqlResult<()> {
     Ok(())
 }
 
-// ─── Data models: ChatSession & ChatMessage ─────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatSession {
-    pub id: String,
-    pub workspace_id: String,
-    pub title: String,
-    pub cli_session_id: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatMessage {
-    pub id: String,
-    pub workspace_id: String,
-    pub session_id: Option<String>,
-    pub role: String,
-    pub content: String,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OrchestratorSession {
-    pub id: String,
-    pub workspace_id: String,
-    pub status: String,
-    pub last_error: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
+// ChatSession, ChatMessage, and OrchestratorSession are in db/models.rs
 
 // ─── CRUD helpers: ChatSession ──────────────────────────────────────────────
 
@@ -1509,51 +1351,7 @@ pub fn update_orchestrator_session(
     get_orchestrator_session(conn, id)
 }
 
-// ─── Checklist types ──────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Checklist {
-    pub id: String,
-    pub workspace_id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub progress: i64,
-    pub total_items: i64,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChecklistCategory {
-    pub id: String,
-    pub checklist_id: String,
-    pub name: String,
-    pub icon: String,
-    pub position: i64,
-    pub progress: i64,
-    pub total_items: i64,
-    pub collapsed: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChecklistItem {
-    pub id: String,
-    pub category_id: String,
-    pub text: String,
-    pub checked: bool,
-    pub notes: Option<String>,
-    pub position: i64,
-    // Auto-detect fields
-    pub detect_type: Option<String>,
-    pub detect_config: Option<String>,
-    pub auto_detected: bool,
-    pub linked_task_id: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
+// Checklist, ChecklistCategory, ChecklistItem are in db/models.rs
 
 // ─── Checklist CRUD ────────────────────────────────────────────────────────
 
@@ -1868,31 +1666,7 @@ pub fn link_checklist_item_to_task(
     get_checklist_item(conn, id)
 }
 
-// ─── Usage tracking types ──────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UsageRecord {
-    pub id: String,
-    pub workspace_id: String,
-    pub task_id: Option<String>,
-    pub session_id: Option<String>,
-    pub provider: String,
-    pub model: String,
-    pub input_tokens: i64,
-    pub output_tokens: i64,
-    pub cost_usd: f64,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UsageSummary {
-    pub total_input_tokens: i64,
-    pub total_output_tokens: i64,
-    pub total_cost_usd: f64,
-    pub record_count: i64,
-}
+// UsageRecord, UsageSummary are in db/models.rs
 
 // ─── Usage tracking CRUD ───────────────────────────────────────────────────
 
@@ -2009,22 +1783,7 @@ pub fn delete_workspace_usage(conn: &Connection, workspace_id: &str) -> SqlResul
     Ok(())
 }
 
-// ─── Session history types ─────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionSnapshot {
-    pub id: String,
-    pub session_id: String,
-    pub workspace_id: String,
-    pub task_id: Option<String>,
-    pub snapshot_type: String,
-    pub scrollback_snapshot: Option<String>,
-    pub command_history: String,
-    pub files_modified: String,
-    pub duration_ms: i64,
-    pub created_at: String,
-}
+// SessionSnapshot is in db/models.rs
 
 // ─── Session history CRUD ──────────────────────────────────────────────────
 
@@ -2137,28 +1896,7 @@ pub fn delete_session_snapshots(conn: &Connection, session_id: &str) -> SqlResul
 }
 
 // ─── Discord Integration ─────────────────────────────────────────────────────
-
-/// Discord column channel mapping
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscordColumnChannel {
-    pub id: String,
-    pub column_id: String,
-    pub discord_channel_id: String,
-    pub created_at: String,
-}
-
-/// Discord task thread mapping
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscordTaskThread {
-    pub id: String,
-    pub task_id: String,
-    pub discord_thread_id: String,
-    pub discord_channel_id: String,
-    pub is_archived: bool,
-    pub created_at: String,
-}
+// DiscordColumnChannel, DiscordTaskThread, DiscordAgentRoute are in db/models.rs
 
 /// Update workspace with Discord settings
 pub fn update_workspace_discord(
@@ -2296,18 +2034,7 @@ pub fn delete_workspace_discord_mappings(conn: &Connection, workspace_id: &str) 
 }
 
 // ─── Discord Agent Routes ──────────────────────────────────────────────────
-
-/// Agent route for Discord reply handling
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscordAgentRoute {
-    pub id: String,
-    pub task_id: String,
-    pub active_session_id: Option<String>,
-    pub cli_session_id: Option<String>,
-    pub last_interaction_at: Option<String>,
-    pub created_at: String,
-}
+// DiscordAgentRoute is in db/models.rs
 
 /// Get agent route for a task
 pub fn get_discord_agent_route(

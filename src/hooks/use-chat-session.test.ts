@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
-import { useChatSession, type ChatSessionConfig } from './use-chat-session'
+import { useChatSession, type ChatSessionConfig } from './chat-session'
 
 // Mock IPC module
 vi.mock('@/lib/ipc', () => ({
