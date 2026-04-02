@@ -265,4 +265,34 @@ mod tests {
         assert_eq!(context["tasks"][0]["title"], "Fix login bug");
         assert_eq!(context["tasks"][0]["column"], "Backlog");
     }
+
+    #[test]
+    fn test_build_board_context_includes_triggers() {
+        let workspace = mock_workspace();
+        let mut columns = mock_columns();
+        // Set triggers on the second column
+        columns[1].triggers = Some(r#"{"on_entry":{"type":"spawn_cli","cli":"claude"},"exit_criteria":{"type":"agent_complete","auto_advance":true}}"#.to_string());
+        let tasks = mock_tasks();
+        let context = build_board_context(&workspace, &columns, &tasks);
+
+        let col_with_triggers = &context["columns"][1];
+        assert_eq!(col_with_triggers["name"], "In Progress");
+        assert_eq!(col_with_triggers["triggers"]["on_entry"]["type"], "spawn_cli");
+        assert_eq!(col_with_triggers["triggers"]["exit_criteria"]["auto_advance"], true);
+
+        // Column without triggers should not have triggers field
+        assert!(context["columns"][0]["triggers"].is_null());
+    }
+
+    #[test]
+    fn test_system_prompt_mentions_configure_triggers() {
+        let workspace = mock_workspace();
+        let columns = mock_columns();
+
+        let api_prompt = build_system_prompt(&workspace, &columns);
+        assert!(api_prompt.contains("configure_triggers"));
+
+        let cli_prompt = build_cli_system_prompt(&workspace, &columns);
+        assert!(cli_prompt.contains("configure_triggers"));
+    }
 }

@@ -153,57 +153,40 @@ cd /Users/bentomac/bento-ya/src-tauri && cargo check
 | MCP automation | `mcp-tauri-automation` | Registered, patched for Tauri 2 IPC |
 | Task sync | `useTaskSync` hook + `tasks:changed` event | Wired into App.tsx |
 | Unit tests | Vitest (128) + cargo test (49) | All passing, unchanged |
-| Trigger NL input | Textarea + generate button in column config | WIP — needs refactor to route through chef |
+| Trigger NL input | Textarea + generate button in column config | Done — routes through chef/orchestrator |
 
-## Next Up: Chef Trigger Tool + Provider Abstraction
+## Completed: Chef Trigger Tool + Provider Abstraction
 
-### Context
-Added a hardcoded `generate_trigger_config` Tauri command that calls Anthropic Haiku directly to convert natural language → V2 trigger JSON. Frontend has textarea + "Generate Triggers" button wired to it. **But this is wrong** — it should route through the existing chef/orchestrator which already handles API vs CLI mode and provider selection.
+### What was done (2026-04-02)
 
-### Phase A: Add `configure_triggers` tool to chef
-1. **`src-tauri/src/llm/tools.rs`** — Add `configure_triggers` tool definition:
-   - Input: `column` (name), `description` (natural language trigger description)
-   - The chef interprets the description and generates the V2 JSON
-2. **`src-tauri/src/llm/executor.rs`** — Add execution:
-   - New `ToolOutcome::TriggersConfigured(column_id, triggers_json)`
-   - Find column by name, parse/build trigger JSON, call `db::update_column_triggers()`
-   - Emit `column:updated` event for frontend
-3. **`src-tauri/src/llm/tools.rs`** `parse_cli_action_blocks()` — Add `"configure_triggers"` to CLI action mapping
-4. **`src-tauri/src/llm/context.rs`** — Update both system prompts:
-   - API prompt: chef already gets tool schema automatically
-   - CLI prompt: add `configure_triggers` action block format
-   - Include current column trigger configs in board context (`build_board_context()`)
+**Phase A: `configure_triggers` tool added to chef**
+- Tool definition in `tools.rs` — accepts `column`, `on_entry`, `on_exit`, `exit_criteria`
+- Execution in `executor.rs` — `TriggersConfigured` outcome, saves to DB via `db::update_column()`, emits `column:updated`
+- CLI action block support in `parse_cli_action_blocks()`
+- Both system prompts updated with trigger config docs + board context includes existing triggers per column
+- Tests: tool count (5→6), tool names, CLI action block parsing
 
-### Phase B: Fix API mode to be provider-based
-1. **`src-tauri/src/commands/orchestrator.rs`** — `stream_orchestrator_chat`:
-   - Accept `provider_id` from frontend (or read from settings)
-   - Read `apiKeyEnvVar` from provider config to get the right API key
-   - Route to correct API client based on provider (currently only Anthropic, but extensible)
-   - Remove hardcoded `ANTHROPIC_API_KEY` fallback
-2. **Frontend** — Pass the active provider config when calling orchestrator
+**Phase B: Provider-based API key resolution**
+- `stream_orchestrator_chat` now accepts `api_key_env_var` param
+- Backend reads API key from the provider's specified env var (not hardcoded `ANTHROPIC_API_KEY`)
+- Frontend threads `apiKeyEnvVar` through `panel-input` → `useChatSession` → IPC
+- `orchestrator-panel.tsx` uses provider's `apiKeyEnvVar` for key lookup
 
-### Phase C: Frontend trigger tab → routes through chef
-1. **Remove** `generate_trigger_config` command from `pipeline.rs` + `lib.rs` + `ipc.ts`
-2. **Remove** `complete()` method from `anthropic.rs` (dead code after removal)
-3. **`column-config-dialog.tsx`** — "Generate Triggers" button sends message to orchestrator:
-   - Message: "Configure triggers for column [name]: [user's description]"
-   - Chef uses `configure_triggers` tool → saves to DB
-   - Frontend listens for column update event → refreshes trigger config in dialog
-4. Keep the advanced editor for manual tweaking
+**Phase C: Frontend trigger generation routes through chef**
+- Removed hardcoded `generate_trigger_config` Tauri command from `pipeline.rs` + `lib.rs`
+- Removed `AnthropicClient::complete()` method (dead code)
+- Removed `generateTriggerConfig` from `ipc.ts`
+- Column-config-dialog "Generate Triggers" button sends message to orchestrator
+- Chef uses `configure_triggers` tool → saves to DB → dialog reloads columns
 
-### Phase D: Tests + docs
-1. Add unit tests for `configure_triggers` in `executor.rs` tests
-2. Update `tools.rs` tests (tool count, name list)
-3. Update `parse_cli_action_blocks` tests
-4. Run full test suite: `npm run test:run` + `cargo test --lib` + `npm run test:webdriver`
-5. Update CLAUDE.md and SESSION.md
+**Phase D: Tests + cleanup**
+- 3 new Rust tests: CLI action block with configure_triggers, board context with triggers, system prompt assertions
+- Updated tool count test (5→6), tool name test
+- Updated `useChatSession` test for new `apiKeyEnvVar` param
+- **Results: 52 Rust tests + 128 frontend tests, all passing**
 
-### Key Files
-- `src-tauri/src/llm/tools.rs` — Tool definitions + CLI action parser
-- `src-tauri/src/llm/executor.rs` — Tool execution
-- `src-tauri/src/llm/context.rs` — System prompts + board context
-- `src-tauri/src/commands/orchestrator.rs` — API/CLI routing (provider fix)
-- `src-tauri/src/commands/pipeline.rs` — Remove hardcoded generate command
-- `src-tauri/src/llm/anthropic.rs` — Remove `complete()` method
-- `src/components/kanban/column-config-dialog.tsx` — Frontend trigger UI
-- `src/lib/ipc.ts` — Remove `generateTriggerConfig`, add orchestrator message helper
+## Next Up
+
+- [ ] Test the full flow end-to-end (type description → chef generates triggers → column updates)
+- [ ] Add more providers beyond Anthropic (OpenAI API support)
+- [ ] Address remaining known issues (port 1420 squatting, CLI streaming reliability)

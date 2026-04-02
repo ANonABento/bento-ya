@@ -369,4 +369,24 @@ Moved task-1 to Done and deleted task-2."#;
         let tool_uses = parse_cli_action_blocks(response);
         assert!(tool_uses.is_empty());
     }
+
+    #[test]
+    fn test_parse_cli_action_blocks_configure_triggers() {
+        let response = r#"I'll set up the triggers for that column.
+
+```action
+[
+  {"action": "configure_triggers", "column": "In Progress", "on_entry": {"type": "spawn_cli", "cli": "claude", "command": "/start-task", "use_queue": true}, "exit_criteria": {"type": "agent_complete", "auto_advance": true}}
+]
+```
+
+Done! Triggers configured for "In Progress"."#;
+
+        let tool_uses = parse_cli_action_blocks(response);
+        assert_eq!(tool_uses.len(), 1);
+        assert_eq!(tool_uses[0].name, "configure_triggers");
+        assert_eq!(tool_uses[0].input["column"], "In Progress");
+        assert_eq!(tool_uses[0].input["on_entry"]["type"], "spawn_cli");
+        assert_eq!(tool_uses[0].input["exit_criteria"]["auto_advance"], true);
+    }
 }
