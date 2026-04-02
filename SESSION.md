@@ -132,5 +132,24 @@ cd /Users/bentomac/bento-ya/src-tauri && cargo check
 - Found env issue: another Tauri app (Clanker Spanker) was squatting port 1420
 - Pipeline trigger auto-advance verified working end-to-end (move_column trigger)
 - Set up mcp-tauri-automation MCP server (cloned to ~/tools/mcp-tauri-automation)
-- Registered as MCP server for bento-ya project with env vars
-- Next: Restart Claude Code session to pick up new MCP tools, then test driving the app
+- Registered as MCP server for bento-ya and choomfie projects (project-scoped, not global)
+- MCP test drive: launch_app, click_element, capture_screenshot, get_element_text all working
+- Found bug: clicking task card opens blank full-screen detail view with no way back (escape doesn't work)
+- Found `execute_tauri_command` broken — was using sync execute + wrong Tauri API (`__TAURI__` vs `__TAURI_INTERNALS__`)
+- Patched mcp-tauri-automation: now uses `executeAsync` + callback pattern for IPC, supports both Tauri 1 and 2
+- Documented all quirks: port 1420 conflicts, SVG click limitation, sync-only executeScript
+- Updated CLAUDE.md with full MCP automation docs
+
+### Known Bugs Found
+- [ ] **Task detail blank screen** — clicking a task card opens detail view that takes over full screen with no content and no way to dismiss (escape doesn't work). Board disappears entirely.
+- [ ] **Port 1420 squatting** — other Tauri apps (e.g. Clanker Spanker) can hold port 1420, causing bento-ya to load wrong frontend
+
+### What's Set Up (summary)
+| Layer | Tool | Status |
+|-------|------|--------|
+| Rust plugin | `tauri-plugin-webdriver-automation` | Integrated, feature-gated as `webdriver` |
+| WebDriver server | `tauri-wd` CLI | Installed at `~/.cargo/bin/tauri-wd` |
+| Automated tests | WebDriverIO + mocha | 17/17 passing (`npm run test:webdriver`) |
+| MCP automation | `mcp-tauri-automation` | Registered, patched for Tauri 2 IPC |
+| Task sync | `useTaskSync` hook + `tasks:changed` event | Wired into App.tsx |
+| Unit tests | Vitest (128) + cargo test (49) | All passing, unchanged |

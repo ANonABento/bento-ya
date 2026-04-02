@@ -165,6 +165,24 @@ Real E2E tests run against the actual Tauri app with real Rust backend + SQLite 
 
 **Task sync:** The pipeline engine emits `tasks:changed` events when it mutates tasks (move_column triggers, pipeline advance, mark complete). The `useTaskSync` hook in the frontend re-fetches the task store on these events.
 
+### MCP App Automation (Claude drives the app)
+The `tauri-automation` MCP server wraps tauri-webdriver so Claude Code can interactively drive the running app. Located at `~/tools/mcp-tauri-automation`.
+
+**Prerequisites (two background processes):**
+```bash
+npm run dev                  # Vite on port 1420 (tauri loads from devUrl)
+tauri-wd --port 4444         # WebDriver server
+```
+
+**MCP tools:** `launch_app`, `close_app`, `capture_screenshot`, `click_element`, `type_text`, `wait_for_element`, `get_element_text`, `execute_script`, `execute_tauri_command`, `get_page_title`, `get_page_url`, `get_app_state`
+
+**Known quirks:**
+- Port 1420 must be free — check `lsof -i :1420` before starting (other Tauri apps may squat it)
+- SVG elements can't be clicked directly in WKWebView — click the parent `<button>` instead
+- `execute_script` is sync only (WebDriver spec) — use `execute_tauri_command` for async IPC
+- `execute_tauri_command` uses `executeAsync` + callback pattern internally to handle Promises
+- Tauri 2 uses `window.__TAURI_INTERNALS__` (not `window.__TAURI__` from Tauri 1)
+
 ## Pitfalls
 
 ### Cursor Styles on macOS WebView
