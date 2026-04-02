@@ -140,9 +140,9 @@ cd /Users/bentomac/bento-ya/src-tauri && cargo check
 - Documented all quirks: port 1420 conflicts, SVG click limitation, sync-only executeScript
 - Updated CLAUDE.md with full MCP automation docs
 
-### Known Bugs Found
-- [ ] **Task detail blank screen** — clicking a task card opens detail view that takes over full screen with no content and no way to dismiss (escape doesn't work). Board disappears entirely.
+### Known Issues
 - [ ] **Port 1420 squatting** — other Tauri apps (e.g. Clanker Spanker) can hold port 1420, causing bento-ya to load wrong frontend
+- [x] ~~**Task detail blank screen**~~ — FALSE ALARM. Was screenshotting mid-animation (framer-motion `width: 0` → `240px`). The UI works correctly after animation completes. Lesson: always wait for animations before screenshotting.
 
 ### What's Set Up (summary)
 | Layer | Tool | Status |
