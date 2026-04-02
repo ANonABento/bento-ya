@@ -186,20 +186,43 @@ pub async fn fire_cli_trigger(
 
     let _ = use_queue; // Queue support handled by frontend
 
-    // Spawn the agent
+    // Build initial prompt: prepend slash command if provided
+    let initial_prompt = if let Some(ref cmd) = command {
+        if prompt.is_empty() {
+            cmd.clone()
+        } else {
+            format!("{}\n\n{}", cmd, prompt)
+        }
+    } else {
+        prompt.clone()
+    };
+
+    // Spawn the agent and send the initial prompt
     let session = {
         let mut runner = agent_runner
             .lock()
             .map_err(|e| format!("Agent runner lock error: {}", e))?;
 
-        runner.start_agent(
-            &task_id,
-            &cli_type,
-            &working_dir,
-            Some(env_vars),
-            cli_path,
-            app_handle.clone(),
-        )?
+        if initial_prompt.is_empty() {
+            runner.start_agent(
+                &task_id,
+                &cli_type,
+                &working_dir,
+                Some(env_vars),
+                cli_path,
+                app_handle.clone(),
+            )?
+        } else {
+            runner.start_agent_with_prompt(
+                &task_id,
+                &cli_type,
+                &working_dir,
+                Some(env_vars),
+                cli_path,
+                &initial_prompt,
+                app_handle.clone(),
+            )?
+        }
     };
 
     // Update task state
