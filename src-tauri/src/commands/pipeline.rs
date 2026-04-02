@@ -423,3 +423,4 @@ pub fn update_script_exit_code(
     let success = exit_code == 0;
     pipeline::mark_complete(&conn, &app, &task_id, success)
 }
+

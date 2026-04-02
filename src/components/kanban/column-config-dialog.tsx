@@ -12,7 +12,10 @@ import type {
   ActionType,
 } from '@/types'
 import { useColumnStore } from '@/stores/column-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useSettingsStore } from '@/stores/settings-store'
 import { DEFAULT_SPAWN_CLI, migrateTriggerConfig } from '@/types/column'
+import * as ipc from '@/lib/ipc'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -207,10 +210,12 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
               )}
               {tab === 'triggers' && (
                 <TriggersTab
+                  columnName={column.name}
                   onEntry={onEntry}
                   setOnEntry={setOnEntry}
                   onExit={onExit}
                   setOnExit={setOnExit}
+                  setExitCriteria={setExitCriteria}
                 />
               )}
               {tab === 'exit' && (
@@ -322,43 +327,162 @@ function GeneralTab({
 // ─── Triggers Tab ───────────────────────────────────────────────────────────
 
 function TriggersTab({
+  columnName,
   onEntry,
   setOnEntry,
   onExit,
   setOnExit,
+  setExitCriteria,
 }: {
+  columnName: string
   onEntry: TriggerAction
   setOnEntry: (v: TriggerAction) => void
   onExit: TriggerAction
   setOnExit: (v: TriggerAction) => void
+  setExitCriteria: (v: ExitCriteria) => void
 }) {
+  const [prompt, setPrompt] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [genError, setGenError] = useState<string | null>(null)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const settings = useSettingsStore((s) => s.global)
+  const anthropicProvider = settings.model.providers.find((p) => p.id === 'anthropic')
+  const refreshColumns = useColumnStore((s) => s.load)
+
+  const handleGenerate = async () => {
+    if (!prompt.trim() || generating || !activeWorkspaceId) return
+    setGenerating(true)
+    setGenError(null)
+    try {
+      // Get or create a session to route through the orchestrator
+      const session = await ipc.getActiveChatSession(activeWorkspaceId)
+
+      // Build the message for the orchestrator
+      const message = `Configure triggers for column "${columnName}": ${prompt.trim()}`
+
+      // Get connection settings
+      const connectionMode = anthropicProvider?.connectionMode ?? 'cli'
+      const apiKeyEnvVar = anthropicProvider?.apiKeyEnvVar || 'ANTHROPIC_API_KEY'
+      const apiKey = connectionMode === 'api'
+        ? (settings.agent.envVars[apiKeyEnvVar] || undefined)
+        : undefined
+      const cliPath = anthropicProvider?.cliPath || 'claude'
+
+      // Send through the orchestrator (chef will use configure_triggers tool)
+      await ipc.streamOrchestratorChat(
+        activeWorkspaceId,
+        session.id,
+        message,
+        connectionMode,
+        apiKey,
+        apiKeyEnvVar,
+        'haiku', // Use fast model for trigger generation
+        cliPath,
+      )
+
+      // Reload columns to pick up trigger changes saved by the chef
+      await reloadTriggers(activeWorkspaceId)
+      setShowAdvanced(true)
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  // Reload triggers from the database after the chef saves them
+  const reloadTriggers = async (workspaceId: string) => {
+    try {
+      const columns = await ipc.getColumns(workspaceId)
+      const updated = columns.find((c) => c.name === columnName)
+      if (updated?.triggers) {
+        const parsed = (typeof updated.triggers === 'string'
+          ? JSON.parse(updated.triggers)
+          : updated.triggers) as ColumnTriggers
+        if (parsed.on_entry) setOnEntry(parsed.on_entry)
+        if (parsed.on_exit) setOnExit(parsed.on_exit)
+        if (parsed.exit_criteria) setExitCriteria(parsed.exit_criteria)
+      }
+      // Also refresh the column store
+      void refreshColumns(workspaceId)
+    } catch {
+      // Non-critical — user can still see the advanced editor
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {/* On Entry */}
+      {/* Natural Language Input */}
       <div>
-        <h3 className="mb-3 text-sm font-semibold text-text-primary flex items-center gap-2">
-          <span className="flex h-5 w-5 items-center justify-center rounded bg-success/20 text-success text-xs">→</span>
-          On Entry
-        </h3>
-        <p className="mb-3 text-xs text-text-secondary">
-          Fires when a task enters this column (created, moved, or auto-advanced)
-        </p>
-        <ActionEditor action={onEntry} setAction={setOnEntry} />
+        <label className="mb-1.5 block text-sm font-medium text-text-secondary">
+          Describe your automation
+        </label>
+        <textarea
+          value={prompt}
+          onChange={(e) => { setPrompt(e.target.value) }}
+          placeholder={"e.g. Run claude with /start-task when tasks enter this column.\nAuto-advance to next column when the agent completes."}
+          rows={3}
+          className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
+        />
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            type="button"
+            disabled={!prompt.trim() || generating}
+            onClick={() => { void handleGenerate() }}
+            className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-bg transition-opacity disabled:opacity-50"
+          >
+            {generating ? 'Generating...' : 'Generate Triggers'}
+          </button>
+          {genError && (
+            <span className="text-xs text-error">{genError}</span>
+          )}
+        </div>
       </div>
 
       <div className="border-t border-border-default" />
 
-      {/* On Exit */}
-      <div>
-        <h3 className="mb-3 text-sm font-semibold text-text-primary flex items-center gap-2">
-          <span className="flex h-5 w-5 items-center justify-center rounded bg-error/20 text-error text-xs">←</span>
-          On Exit
-        </h3>
-        <p className="mb-3 text-xs text-text-secondary">
-          Fires when exit criteria are met (before task leaves column)
-        </p>
-        <ActionEditor action={onExit} setAction={setOnExit} showMoveColumn />
-      </div>
+      {/* Advanced Toggle */}
+      <button
+        type="button"
+        onClick={() => { setShowAdvanced(!showAdvanced) }}
+        className="flex items-center gap-1.5 text-xs font-medium text-text-secondary hover:text-text-primary"
+      >
+        <span className={`transition-transform ${showAdvanced ? 'rotate-90' : ''}`}>▶</span>
+        {showAdvanced ? 'Hide' : 'Show'} advanced editor
+      </button>
+
+      {/* Advanced: Manual Trigger Editor */}
+      {showAdvanced && (
+        <>
+          {/* On Entry */}
+          <div>
+            <h3 className="mb-3 text-sm font-semibold text-text-primary flex items-center gap-2">
+              <span className="flex h-5 w-5 items-center justify-center rounded bg-success/20 text-success text-xs">→</span>
+              On Entry
+            </h3>
+            <p className="mb-3 text-xs text-text-secondary">
+              Fires when a task enters this column (created, moved, or auto-advanced)
+            </p>
+            <ActionEditor action={onEntry} setAction={setOnEntry} />
+          </div>
+
+          <div className="border-t border-border-default" />
+
+          {/* On Exit */}
+          <div>
+            <h3 className="mb-3 text-sm font-semibold text-text-primary flex items-center gap-2">
+              <span className="flex h-5 w-5 items-center justify-center rounded bg-error/20 text-error text-xs">←</span>
+              On Exit
+            </h3>
+            <p className="mb-3 text-xs text-text-secondary">
+              Fires when exit criteria are met (before task leaves column)
+            </p>
+            <ActionEditor action={onExit} setAction={setOnExit} showMoveColumn />
+          </div>
+        </>
+      )}
     </div>
   )
 }

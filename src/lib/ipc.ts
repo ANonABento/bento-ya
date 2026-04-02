@@ -686,13 +686,6 @@ export async function fireSkillTrigger(
   return invoke<Task>('fire_skill_trigger', { taskId, skillName, envVars, cliPath })
 }
 
-export async function generateTriggerConfig(
-  description: string,
-  apiKey?: string,
-): Promise<string> {
-  return invoke<string>('generate_trigger_config', { description, apiKey })
-}
-
 // ─── Pipeline event listeners ───────────────────────────────────────────────
 
 export const onPipelineTriggered = (cb: EventCallback<PipelineEvent>): Promise<UnlistenFn> =>
