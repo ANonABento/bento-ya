@@ -5,6 +5,7 @@
 use crate::db::{self, Column, Task};
 use crate::error::AppError;
 use crate::llm::tools::{ToolResult, ToolUse};
+use crate::pipeline;
 use rusqlite::Connection;
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
@@ -40,6 +41,18 @@ pub fn execute_tools(
                 // Track what was done
                 match outcome {
                     ToolOutcome::TaskCreated(task) => {
+                        // Fire column trigger for the new task (on_entry)
+                        let task = if !task.blocked {
+                            let column = columns.iter().find(|c| c.id == task.column_id);
+                            if let Some(col) = column {
+                                pipeline::fire_trigger(conn, app, &task, col).unwrap_or(task)
+                            } else {
+                                task
+                            }
+                        } else {
+                            task
+                        };
+
                         results.push(ToolResult {
                             tool_use_id: tool_use.id.clone(),
                             content: format!("Created task: \"{}\" in {}", task.title, get_column_name(&task.column_id, columns)),
@@ -49,6 +62,10 @@ pub fn execute_tools(
                         let _ = app.emit("task:created", json!({
                             "workspace_id": workspace_id,
                             "task": &task
+                        }));
+                        // Emit tasks:changed so frontend refreshes
+                        let _ = app.emit("tasks:changed", json!({
+                            "workspace_id": workspace_id
                         }));
                         tasks_created.push(task);
                     }
@@ -65,6 +82,18 @@ pub fn execute_tools(
                         tasks_updated.push(task);
                     }
                     ToolOutcome::TaskMoved(task, from_col, to_col) => {
+                        // Fire trigger on the new column (on_entry)
+                        let task = if !task.blocked {
+                            let new_column = columns.iter().find(|c| c.id == task.column_id);
+                            if let Some(col) = new_column {
+                                pipeline::fire_trigger(conn, app, &task, col).unwrap_or(task)
+                            } else {
+                                task
+                            }
+                        } else {
+                            task
+                        };
+
                         results.push(ToolResult {
                             tool_use_id: tool_use.id.clone(),
                             content: format!("Moved \"{}\" from {} to {}", task.title, from_col, to_col),
@@ -73,6 +102,10 @@ pub fn execute_tools(
                         let _ = app.emit("task:updated", json!({
                             "workspace_id": workspace_id,
                             "task": &task
+                        }));
+                        // Emit tasks:changed so frontend refreshes
+                        let _ = app.emit("tasks:changed", json!({
+                            "workspace_id": workspace_id
                         }));
                         tasks_updated.push(task);
                     }
