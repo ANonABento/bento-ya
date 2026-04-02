@@ -142,8 +142,28 @@ Backend models are in `src-tauri/src/db/models.rs` — each struct maps 1:1 to a
 ### Testing
 - Frontend: Vitest + Testing Library (stores and hooks tested)
 - Backend: `cargo test` (49 tests for DB operations)
-- E2E: Playwright (`e2e/app.spec.ts`)
+- E2E (mock): Playwright against Vite dev server (`e2e/app.spec.ts`)
+- E2E (real): WebDriverIO + tauri-webdriver against real Tauri app (`tests/webdriver/`)
 - Run: `npx tsc --noEmit` (type-check), `npm run lint`, `cargo check`, `cargo test`
+
+### WebDriver E2E Testing
+Real E2E tests run against the actual Tauri app with real Rust backend + SQLite via `tauri-webdriver`.
+
+**Setup:**
+1. Build with webdriver feature: `cd src-tauri && cargo build --features webdriver`
+2. Start Vite dev server: `npm run dev` (must be on port 1420)
+3. Start WebDriver server: `tauri-wd --port 4444`
+4. Run tests: `npm run test:webdriver`
+
+**Key files:**
+- `wdio.conf.mjs` — WebDriverIO config
+- `tests/webdriver/core-flow.spec.mjs` — Core pipeline flow tests (17 tests)
+- `src-tauri/Cargo.toml` — `webdriver` feature flag
+- `src/hooks/use-task-sync.ts` — Listens for `tasks:changed` events to keep UI in sync
+
+**IPC in tests:** Use `executeAsync` (not `executeScript`) for Tauri invoke calls since they return Promises. See the `tauriInvoke()` helper in the test file.
+
+**Task sync:** The pipeline engine emits `tasks:changed` events when it mutates tasks (move_column triggers, pipeline advance, mark complete). The `useTaskSync` hook in the frontend re-fetches the task store on these events.
 
 ## Pitfalls
 

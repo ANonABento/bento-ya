@@ -98,6 +98,23 @@ pub struct PipelineEvent {
     pub message: Option<String>,
 }
 
+/// Global event emitted when tasks are mutated (created, moved, deleted) by the pipeline.
+/// Frontend listens for this to re-fetch task store.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TasksChangedEvent {
+    pub workspace_id: String,
+    pub reason: String,
+}
+
+/// Emit a global tasks:changed event so the frontend re-fetches.
+pub fn emit_tasks_changed(app: &AppHandle, workspace_id: &str, reason: &str) {
+    let _ = app.emit("tasks:changed", &TasksChangedEvent {
+        workspace_id: workspace_id.to_string(),
+        reason: reason.to_string(),
+    });
+}
+
 /// Event emitted when pipeline needs to spawn an agent
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -558,6 +575,9 @@ pub fn try_auto_advance(
                 message: Some(format!("Moved from {} to {}", current_column.name, next_col.name)),
             });
 
+            // Notify frontend that tasks changed
+            emit_tasks_changed(app, &task.workspace_id, "pipeline_advanced");
+
             // Fire trigger on the new column
             let _ = fire_trigger(conn, app, &updated_task, &next_col)?;
 
@@ -640,6 +660,9 @@ pub fn mark_complete(
         state: PipelineState::Idle.as_str().to_string(),
         message: Some(if success { "Success" } else { "Failed" }.to_string()),
     });
+
+    // Notify frontend that tasks changed
+    emit_tasks_changed(app, &task.workspace_id, "pipeline_complete");
 
     Ok(updated_task)
 }

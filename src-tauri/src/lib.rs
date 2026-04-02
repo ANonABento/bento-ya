@@ -46,7 +46,7 @@ pub fn run() {
     let cli_manager_for_shutdown = Arc::clone(&cli_session_manager);
     let agent_cli_for_shutdown = Arc::clone(&agent_cli_session_manager);
 
-    let builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -57,8 +57,15 @@ pub fn run() {
         .manage(agent_cli_session_manager)
         .manage(discord_bridge);
 
+    #[cfg(feature = "webdriver")]
+    {
+        builder = builder.plugin(tauri_plugin_webdriver_automation::init());
+    }
+
     #[cfg(feature = "voice")]
-    let builder = builder.manage(recorder_state);
+    {
+        builder = builder.manage(recorder_state);
+    }
 
     builder
         .on_window_event(move |_window, event| {

@@ -322,6 +322,8 @@ fn execute_action(
                 );
 
                 let moved_task = db::get_task(conn, &task.id)?;
+                // Notify frontend that tasks changed
+                super::emit_tasks_changed(app, &task.workspace_id, "trigger_move_column");
                 // Fire on_entry on the new column
                 let _ = super::fire_trigger(conn, app, &moved_task, &col);
                 return Ok(db::get_task(conn, &task.id)?);
