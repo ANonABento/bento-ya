@@ -23,9 +23,21 @@ Triggers chain → Tasks complete
 | **MCP automation** | mcp-tauri-automation wraps WebDriver for Claude Code | Needs tauri-webdriver first |
 
 **Plan:**
-1. Expand Playwright tests for core flow (create workspace → add columns with triggers → create task → move task → verify triggers fire)
-2. Integrate `tauri-plugin-webdriver-automation` into src-tauri for real WKWebView testing
-3. Set up MCP integration so Claude can drive the running app
+1. ~~Expand Playwright tests for core flow~~ Done via WebDriverIO (17 tests, all passing)
+2. ~~Integrate `tauri-plugin-webdriver-automation`~~ Done (feature-gated as `webdriver`)
+3. ~~Set up MCP integration~~ Done (mcp-tauri-automation registered as MCP server)
+
+**MCP Integration (Claude drives the app):**
+```bash
+# Terminal 1: Vite dev server (port 1420 — tauri debug binary loads from devUrl)
+cd /Users/bentomac/bento-ya && npm run dev
+
+# Terminal 2: WebDriver server
+tauri-wd --port 4444
+
+# Then Claude Code can use: launch_app, click_element, type_text,
+# capture_screenshot, execute_tauri_command, get_element_text, etc.
+```
 
 **Won't work:**
 - Official `tauri-driver` — macOS NOT supported (no WKWebView WebDriver from Apple)
@@ -119,4 +131,6 @@ cd /Users/bentomac/bento-ya/src-tauri && cargo check
 - Found + fixed UI reactivity bug: backend task mutations (pipeline) now emit `tasks:changed` event, frontend `useTaskSync` hook re-fetches store
 - Found env issue: another Tauri app (Clanker Spanker) was squatting port 1420
 - Pipeline trigger auto-advance verified working end-to-end (move_column trigger)
-- Next: Set up MCP integration for Claude-driven testing
+- Set up mcp-tauri-automation MCP server (cloned to ~/tools/mcp-tauri-automation)
+- Registered as MCP server for bento-ya project with env vars
+- Next: Restart Claude Code session to pick up new MCP tools, then test driving the app
