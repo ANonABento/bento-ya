@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react'
+import { listen } from '@tauri-apps/api/event'
 import * as ipc from '@/lib/ipc'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useTaskStore } from '@/stores/task-store'
@@ -100,8 +101,21 @@ export function usePipelineEvents({
       onTriggerStart?.(taskId, 'cli')
 
       try {
+        // Register PTY exit listener BEFORE spawning to avoid race condition
+        // (agent may exit before listener is registered if it fails fast)
+        const unlisten = await listen<{ taskId: string }>(`pty:${taskId}:exit`, async () => {
+          unlisten()
+          try {
+            const completed = await ipc.markPipelineComplete(taskId, true)
+            updateTask(completed.id, completed)
+          } catch {
+            // Ignore - task may have already been moved or deleted
+          }
+        })
+
         const task = await ipc.fireCliTrigger(taskId, cliType, command, prompt, flags, useQueue, cliPath)
         updateTask(task.id, task)
+
         onTriggerComplete?.(taskId, true)
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)

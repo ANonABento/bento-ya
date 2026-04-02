@@ -516,8 +516,15 @@ pub fn try_auto_advance(
     task: &Task,
     current_column: &Column,
 ) -> Result<Option<Task>, AppError> {
-    // Check if auto-advance is enabled
-    if !current_column.auto_advance {
+    // Check if auto-advance is enabled (V2 triggers or legacy field)
+    let v2_auto_advance = current_column
+        .triggers
+        .as_deref()
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        .and_then(|v| v.get("exit_criteria")?.get("auto_advance")?.as_bool())
+        .unwrap_or(false);
+
+    if !current_column.auto_advance && !v2_auto_advance {
         return Ok(None);
     }
 
