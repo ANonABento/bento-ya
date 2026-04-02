@@ -101,6 +101,17 @@ pub fn execute_tools(
                             "agent_type": &agent_type
                         }));
                     }
+                    ToolOutcome::TriggersConfigured(column_id, column_name, triggers_json) => {
+                        results.push(ToolResult {
+                            tool_use_id: tool_use.id.clone(),
+                            content: format!("Configured triggers for column \"{}\":\n{}", column_name, triggers_json),
+                            is_error: false,
+                        });
+                        let _ = app.emit("column:updated", json!({
+                            "workspace_id": workspace_id,
+                            "column_id": &column_id
+                        }));
+                    }
                 }
             }
             Err(e) => {
@@ -143,9 +154,10 @@ pub fn execute_tools(
 enum ToolOutcome {
     TaskCreated(Task),
     TaskUpdated(Task),
-    TaskMoved(Task, String, String), // task, from_column, to_column
-    TaskDeleted(String, String),      // task_id, title
-    TasksQueued(Vec<String>, String), // task_ids, agent_type
+    TaskMoved(Task, String, String),          // task, from_column, to_column
+    TaskDeleted(String, String),              // task_id, title
+    TasksQueued(Vec<String>, String),         // task_ids, agent_type
+    TriggersConfigured(String, String, String), // column_id, column_name, triggers_json
 }
 
 /// Execute a single tool
@@ -283,6 +295,38 @@ fn execute_single_tool(
                 .to_string();
 
             Ok(ToolOutcome::TasksQueued(task_ids, agent_type))
+        }
+
+        "configure_triggers" => {
+            let column_name = input
+                .get("column")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?;
+
+            // Find column by name
+            let column_id = find_column_id(columns, Some(column_name))?;
+            let col_name = get_column_name(&column_id, columns);
+
+            // Build triggers JSON from structured input
+            let triggers = json!({
+                "on_entry": input.get("on_entry").cloned().unwrap_or(json!(null)),
+                "on_exit": input.get("on_exit").cloned().unwrap_or(json!(null)),
+                "exit_criteria": input.get("exit_criteria").cloned().unwrap_or(json!({"type": "manual", "auto_advance": false})),
+            });
+            let triggers_json = serde_json::to_string(&triggers)
+                .map_err(|e| AppError::InvalidInput(format!("Failed to serialize triggers: {}", e)))?;
+
+            // Save to database
+            db::update_column(
+                conn,
+                &column_id,
+                None, None, None, None, None,
+                Some(&triggers_json), // triggers
+                None, None, None,
+            )
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+            Ok(ToolOutcome::TriggersConfigured(column_id, col_name, triggers_json))
         }
 
         _ => Err(AppError::InvalidInput(format!(

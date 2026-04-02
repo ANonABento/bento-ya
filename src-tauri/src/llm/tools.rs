@@ -127,6 +127,43 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
                 "required": ["task_ids"]
             }),
         },
+        ToolDefinition {
+            name: "configure_triggers".to_string(),
+            description: r#"Configure automation triggers for a column. Set what happens when tasks enter/exit a column.
+
+Action types for on_entry/on_exit:
+- {"type": "spawn_cli", "cli": "claude"|"codex"|"aider", "command": "/start-task", "prompt_template": "{task.title}\n\n{task.description}", "use_queue": true}
+- {"type": "move_column", "target": "next"|"previous"}
+- {"type": "none"}
+
+Exit criteria types: "manual", "agent_complete", "script_success", "checklist_done", "time_elapsed", "pr_approved"
+
+Template variables: {task.title}, {task.description}, {task.trigger_prompt}, {column.name}, {workspace.path}
+
+Default: spawn_cli with claude and /start-task. Set auto_advance: true for automatic progression."#.to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "column": {
+                        "type": "string",
+                        "description": "The column name to configure triggers for"
+                    },
+                    "on_entry": {
+                        "type": "object",
+                        "description": "Action to fire when a task enters this column (or null for no action)"
+                    },
+                    "on_exit": {
+                        "type": "object",
+                        "description": "Action to fire when exit criteria are met (or null for no action)"
+                    },
+                    "exit_criteria": {
+                        "type": "object",
+                        "description": "When the on_exit trigger should fire. Object with 'type' (string), 'auto_advance' (bool), optional 'timeout' (seconds)"
+                    }
+                },
+                "required": ["column"]
+            }),
+        },
     ]
 }
 
@@ -203,6 +240,7 @@ pub fn parse_cli_action_blocks(response: &str) -> Vec<ToolUse> {
                             "move_task" => "move_task",
                             "delete_task" => "delete_task",
                             "queue_tasks" => "queue_tasks",
+                            "configure_triggers" => "configure_triggers",
                             _ => continue,
                         };
 
@@ -242,7 +280,7 @@ mod tests {
     #[test]
     fn test_orchestrator_tools_count() {
         let tools = orchestrator_tools();
-        assert_eq!(tools.len(), 5);
+        assert_eq!(tools.len(), 6);
     }
 
     #[test]
@@ -254,6 +292,7 @@ mod tests {
         assert!(names.contains(&"move_task"));
         assert!(names.contains(&"delete_task"));
         assert!(names.contains(&"queue_tasks"));
+        assert!(names.contains(&"configure_triggers"));
     }
 
     #[test]

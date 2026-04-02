@@ -21,7 +21,9 @@ Columns: {columns}
 - Use markdown for formatting (bold, lists, code).
 - Ask clarifying questions if the request is ambiguous.
 
-Use the provided tools to modify the board. Briefly confirm actions taken."#,
+Use the provided tools to modify the board. Briefly confirm actions taken.
+
+You can also configure column automation triggers using the configure_triggers tool."#,
         workspace_name = workspace.name,
         columns = columns_str
     )
@@ -50,9 +52,17 @@ To modify the board, output an action block:
   {{"action": "create_task", "title": "...", "column": "...", "description": "..."}},
   {{"action": "update_task", "task_id": "...", "title": "...", "description": "..."}},
   {{"action": "move_task", "task_id": "...", "column": "..."}},
-  {{"action": "delete_task", "task_id": "..."}}
+  {{"action": "delete_task", "task_id": "..."}},
+  {{"action": "configure_triggers", "column": "...", "on_entry": {{}}, "on_exit": {{}}, "exit_criteria": {{}}}}
 ]
 ```
+
+### configure_triggers action
+Sets automation for a column. Action types for on_entry/on_exit:
+- `{{"type": "spawn_cli", "cli": "claude", "command": "/start-task", "prompt_template": "{{task.title}}\n\n{{task.description}}", "use_queue": true}}`
+- `{{"type": "move_column", "target": "next"}}`
+- `{{"type": "none"}}`
+Exit criteria: `{{"type": "agent_complete", "auto_advance": true}}`
 
 Use task IDs from the board state. Column names are case-insensitive. Briefly confirm actions taken."#,
         workspace_name = workspace.name,
@@ -74,11 +84,19 @@ pub fn build_board_context(
 
     json!({
         "workspace": workspace.name,
-        "columns": columns.iter().map(|c| json!({
-            "id": c.id,
-            "name": c.name,
-            "position": c.position
-        })).collect::<Vec<_>>(),
+        "columns": columns.iter().map(|c| {
+            let mut col = json!({
+                "id": c.id,
+                "name": c.name,
+                "position": c.position
+            });
+            if let Some(triggers) = &c.triggers {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(triggers) {
+                    col["triggers"] = parsed;
+                }
+            }
+            col
+        }).collect::<Vec<_>>(),
         "tasks": tasks.iter().map(|t| {
             let column_name = column_map.get(t.column_id.as_str()).unwrap_or(&"Unknown");
             json!({
