@@ -51,8 +51,13 @@ impl AgentRunner {
         cli_path: Option<String>,
         app_handle: AppHandle,
     ) -> Result<AgentSession, String> {
+        // If a session already exists for this task, clean it up first
+        // (can happen from React strict mode double-mount or stale sessions)
         if self.sessions.contains_key(task_id) {
-            return Err(format!("Agent already running for task: {}", task_id));
+            log::warn!("Cleaning up stale agent session for task: {}", task_id);
+            let mut pty = self.pty_manager.lock().map_err(|e| format!("PTY lock error: {}", e))?;
+            pty.kill(task_id);
+            self.sessions.remove(task_id);
         }
 
         // Use provided cli_path, or fall back to agent_type as command name
