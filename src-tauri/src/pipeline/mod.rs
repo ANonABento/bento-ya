@@ -339,12 +339,22 @@ pub fn evaluate_exit_criteria(
     task: &Task,
     column: &Column,
 ) -> Result<bool, AppError> {
-    // Parse exit config
+    // Check V2 triggers first for exit criteria type
+    let v2_exit_type = column
+        .triggers
+        .as_deref()
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        .and_then(|v| v.get("exit_criteria")?.get("type")?.as_str().map(|s| s.to_string()));
+
+    // Parse legacy exit config as fallback
     let exit: ExitConfig = serde_json::from_str(&column.exit_config)
         .unwrap_or(ExitConfig {
-            exit_type: "manual".to_string(),
+            exit_type: v2_exit_type.clone().unwrap_or_else(|| "manual".to_string()),
             config: ExitParams::default(),
         });
+
+    // V2 exit type overrides legacy
+    let exit_type = v2_exit_type.as_deref().unwrap_or(&exit.exit_type);
 
     // Set state to evaluating
     let _ = db::update_task_pipeline_state(
@@ -360,16 +370,16 @@ pub fn evaluate_exit_criteria(
         column_id: column.id.clone(),
         event_type: "evaluating".to_string(),
         state: PipelineState::Evaluating.as_str().to_string(),
-        message: Some(format!("Exit type: {}", exit.exit_type)),
+        message: Some(format!("Exit type: {}", exit_type)),
     });
 
-    let exit_met = match exit.exit_type.as_str() {
+    let exit_met = match exit_type {
         "manual" => {
             // Manual exit never auto-advances
             false
         }
         "agent_complete" => {
-            // Check if agent linked to this task has completed successfully
+            // Check if agent linked to this task has completed
             if let Some(ref session_id) = task.agent_session_id {
                 // Look up the agent session in the database
                 match db::get_agent_session(conn, session_id) {
@@ -378,7 +388,12 @@ pub fn evaluate_exit_criteria(
                         session.status == "completed"
                             || (session.status == "stopped" && session.exit_code == Some(0))
                     }
-                    Err(_) => false,
+                    Err(_) => {
+                        // No DB session found — CLI trigger agents are tracked in-memory only.
+                        // If mark_complete(success=true) was called, pipeline was running,
+                        // so the agent has completed. Trust the caller.
+                        task.pipeline_state == "running" || task.pipeline_state == "complete"
+                    }
                 }
             } else {
                 false
