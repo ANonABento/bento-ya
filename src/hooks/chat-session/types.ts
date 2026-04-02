@@ -63,6 +63,7 @@ export type ChatSessionConfig = {
   cliPath?: string
   connectionMode?: 'api' | 'cli'
   apiKey?: string
+  apiKeyEnvVar?: string
   onError?: (error: string) => void
   /** Called when tools execute (for refreshing board) */
   onToolResult?: () => void

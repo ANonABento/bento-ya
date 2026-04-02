@@ -19,6 +19,7 @@ export type SendMessageParams = {
   model: ModelId
   connectionMode: 'api' | 'cli'
   apiKey?: string
+  apiKeyEnvVar?: string
   cliPath: string
 }
 
@@ -58,9 +59,10 @@ export function PanelInput({ onSendMessage, onCancel, onInputChange, isProcessin
     // Don't block on isProcessing - parent will queue the message
     if (!trimmed || disabled) return
 
-    // Get connection settings
+    // Get connection settings from active provider
     const connectionMode = (anthropicProvider?.connectionMode ?? 'api')
-    const apiKey = settings.agent.envVars['ANTHROPIC_API_KEY'] || undefined
+    const apiKeyEnvVar = anthropicProvider?.apiKeyEnvVar || 'ANTHROPIC_API_KEY'
+    const apiKey = settings.agent.envVars[apiKeyEnvVar] || undefined
     const cliPath = anthropicProvider?.cliPath || 'claude'
 
     // Emit message immediately - parent handles queueing
@@ -69,6 +71,7 @@ export function PanelInput({ onSendMessage, onCancel, onInputChange, isProcessin
       model: selectedModel,
       connectionMode,
       apiKey,
+      apiKeyEnvVar,
       cliPath,
     })
 

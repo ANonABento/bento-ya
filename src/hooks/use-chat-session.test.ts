@@ -232,6 +232,7 @@ describe('useChatSession', () => {
         'Hello',
         'cli',
         undefined,
+        undefined,
         'sonnet',
         'claude'
       )

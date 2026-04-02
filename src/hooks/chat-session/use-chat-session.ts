@@ -42,6 +42,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
     cliPath = 'claude',
     connectionMode = 'cli',
     apiKey,
+    apiKeyEnvVar,
     onError,
     onToolResult,
     onComplete,
@@ -257,7 +258,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
           if (mode === 'agent' && taskId) {
             await ipc.streamAgentChat(taskId, next.content, workingDir, cliPath, next.model, next.effortLevel)
           } else if (mode === 'orchestrator' && workspaceId && sessionId) {
-            await ipc.streamOrchestratorChat(workspaceId, sessionId, next.content, connectionMode, apiKey, next.model, cliPath)
+            await ipc.streamOrchestratorChat(workspaceId, sessionId, next.content, connectionMode, apiKey, apiKeyEnvVar, next.model, cliPath)
           }
         } catch (err) {
           setFailedMessage({ id: next.id, content: next.content, model: next.model, effortLevel: next.effortLevel, error: getErrorMessage(err) })
@@ -267,7 +268,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
       }
       void processQueued()
     }
-  }, [streaming.isStreaming, queue, failedMessage, canSend, mode, taskId, workspaceId, sessionId, workingDir, cliPath, connectionMode, apiKey])
+  }, [streaming.isStreaming, queue, failedMessage, canSend, mode, taskId, workspaceId, sessionId, workingDir, cliPath, connectionMode, apiKey, apiKeyEnvVar])
 
   // ─── Actions ───────────────────────────────────────────────────────────
 
@@ -324,7 +325,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         if (mode === 'agent' && taskId) {
           await ipc.streamAgentChat(taskId, effectiveContent, workingDir, cliPath, model, effortLevel)
         } else if (mode === 'orchestrator' && workspaceId && sessionId) {
-          await ipc.streamOrchestratorChat(workspaceId, sessionId, effectiveContent, connectionMode, apiKey, model, cliPath)
+          await ipc.streamOrchestratorChat(workspaceId, sessionId, effectiveContent, connectionMode, apiKey, apiKeyEnvVar, model, cliPath)
         }
       } catch (err) {
         const errorMsg = getErrorMessage(err)
@@ -334,7 +335,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         setStreaming(INITIAL_STREAMING_STATE)
       }
     },
-    [mode, canSend, taskId, workspaceId, sessionId, workingDir, cliPath, connectionMode, apiKey]
+    [mode, canSend, taskId, workspaceId, sessionId, workingDir, cliPath, connectionMode, apiKey, apiKeyEnvVar]
   )
 
   const cancel = useCallback(async () => {

@@ -369,6 +369,7 @@ pub async fn stream_orchestrator_chat(
     message: String,
     connection_mode: String,
     api_key: Option<String>,
+    api_key_env_var: Option<String>,
     model: Option<String>,
     cli_path: Option<String>,
 ) -> Result<(), AppError> {
@@ -424,10 +425,11 @@ pub async fn stream_orchestrator_chat(
     // Handle based on connection mode
     match connection_mode.as_str() {
         "api" => {
-            // Get API key from param or environment
+            // Get API key: explicit param > env var from provider config > ANTHROPIC_API_KEY fallback
+            let env_var_name = api_key_env_var.as_deref().unwrap_or("ANTHROPIC_API_KEY");
             let api_key = api_key
-                .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
-                .ok_or_else(|| AppError::InvalidInput("No API key provided and ANTHROPIC_API_KEY not set".to_string()))?;
+                .or_else(|| std::env::var(env_var_name).ok())
+                .ok_or_else(|| AppError::InvalidInput(format!("No API key provided and {} not set", env_var_name)))?;
 
             stream_via_api(app.clone(), state.clone(), &workspace_id, &actual_session_id, &orch_session_id, &api_key, &model, history).await
         }

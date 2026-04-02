@@ -40,7 +40,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const anthropicProvider = settings.model.providers.find((p) => p.id === 'anthropic')
   const connectionMode = anthropicProvider?.connectionMode ?? 'cli'
   const { cliPath, isDetecting: cliDetecting, detectionError: cliDetectionError } = useCliPath()
-  const apiKey = settings.agent.envVars['ANTHROPIC_API_KEY'] || undefined
+  const apiKeyEnvVar = anthropicProvider?.apiKeyEnvVar || 'ANTHROPIC_API_KEY'
+  const apiKey = settings.agent.envVars[apiKeyEnvVar] || undefined
 
   // Session management hook
   const {
@@ -62,6 +63,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     connectionMode,
     cliPath,
     apiKey,
+    apiKeyEnvVar,
     onError: (err) => {
       console.error('[OrchestratorPanel] Chat error:', err)
       setLocalError(err)
