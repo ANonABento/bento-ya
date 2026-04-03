@@ -1,10 +1,27 @@
 //! ChatTransport trait — the abstraction over PTY and pipe-based CLI sessions.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 
 use super::events::ChatEvent;
+
+// ============================================================================
+// Shared constants used by both transports
+// ============================================================================
+
+/// Timeout for reading a response from the CLI (5 minutes).
+/// Used by PipeTransport and legacy cli_shared.
+pub const MESSAGE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Interval for flushing buffered PTY output to the event channel.
+/// Used by PtyTransport and legacy PtyManager.
+pub const OUTPUT_BUFFER_INTERVAL_MS: u64 = 16;
+
+/// Maximum scrollback buffer size (5000 lines * 200 bytes estimated).
+/// Used by PtyTransport and legacy PtyManager.
+pub const DEFAULT_SCROLLBACK_BYTES: usize = 5000 * 200;
 
 /// Configuration for spawning a transport process.
 #[derive(Debug, Clone)]

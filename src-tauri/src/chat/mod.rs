@@ -18,4 +18,7 @@ pub mod transport;
 pub use events::{base64_encode, parse_json_event, spawn_stderr_reader, ChatEvent, ToolStatus};
 pub use pipe_transport::PipeTransport;
 pub use pty_transport::PtyTransport;
-pub use transport::{ChatTransport, SpawnConfig, TransportEvent};
+pub use transport::{
+    ChatTransport, SpawnConfig, TransportEvent,
+    DEFAULT_SCROLLBACK_BYTES, MESSAGE_TIMEOUT, OUTPUT_BUFFER_INTERVAL_MS,
+};

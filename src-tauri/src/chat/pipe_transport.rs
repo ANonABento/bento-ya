@@ -8,7 +8,6 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -16,10 +15,7 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 use super::events::{parse_json_event, spawn_stderr_reader, ChatEvent};
-use super::transport::{ChatTransport, SpawnConfig, TransportEvent};
-
-/// Timeout for reading a response from the CLI (5 minutes)
-const MESSAGE_TIMEOUT: Duration = Duration::from_secs(300);
+use super::transport::{ChatTransport, SpawnConfig, TransportEvent, MESSAGE_TIMEOUT};
 
 /// Pipe transport — structured JSON streaming via CLI.
 ///
@@ -102,19 +98,11 @@ impl ChatTransport for PipeTransport {
 
                 match read_result {
                     Err(_) => {
-                        let _ = event_tx
-                            .send(TransportEvent::Chat(ChatEvent::TextContent(
-                                "[error: CLI response timed out after 5 minutes]".to_string(),
-                            )))
-                            .await;
+                        eprintln!("CLI pipe transport: response timed out after 5 minutes");
                         break;
                     }
                     Ok(Err(e)) => {
-                        let _ = event_tx
-                            .send(TransportEvent::Chat(ChatEvent::TextContent(
-                                format!("[error: Failed to read stdout: {}]", e),
-                            )))
-                            .await;
+                        eprintln!("CLI pipe transport: failed to read stdout: {}", e);
                         break;
                     }
                     Ok(Ok(0)) => {

@@ -17,10 +17,10 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use super::events::{base64_encode, ChatEvent};
-use super::transport::{ChatTransport, SpawnConfig, TransportEvent};
-
-const OUTPUT_BUFFER_INTERVAL_MS: u64 = 16;
-const DEFAULT_SCROLLBACK_BYTES: usize = 5000 * 200;
+use super::transport::{
+    ChatTransport, SpawnConfig, TransportEvent,
+    DEFAULT_SCROLLBACK_BYTES, OUTPUT_BUFFER_INTERVAL_MS,
+};
 
 /// PTY transport — interactive terminal session.
 pub struct PtyTransport {
@@ -85,16 +85,18 @@ impl ChatTransport for PtyTransport {
             .map_err(|e| format!("Failed to spawn PTY process: {}", e))?;
 
         let pid = child.id();
-        self.child_pid = Some(pid);
-        self.alive.store(true, Ordering::SeqCst);
 
-        // Dup the PTY fd for the reader thread
+        // Dup the PTY fd for the reader thread — do this before setting
+        // child_pid/alive so we don't leave stale state on failure
         let pty_fd = pty.as_raw_fd();
         let dup_fd = unsafe { libc::dup(pty_fd) };
         if dup_fd < 0 {
             return Err("Failed to dup PTY fd".to_string());
         }
         let reader_file = unsafe { std::fs::File::from_raw_fd(dup_fd) };
+
+        self.child_pid = Some(pid);
+        self.alive.store(true, Ordering::SeqCst);
 
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
         let (data_tx, mut data_rx) = mpsc::channel::<Vec<u8>>(256);

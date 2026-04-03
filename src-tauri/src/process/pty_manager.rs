@@ -10,10 +10,9 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::chat::events::base64_encode;
+use crate::chat::transport::{DEFAULT_SCROLLBACK_BYTES, OUTPUT_BUFFER_INTERVAL_MS};
 
-const DEFAULT_SCROLLBACK_BYTES: usize = 5000 * 200;
 const MAX_CONCURRENT_PTYS: usize = 5;
-const OUTPUT_BUFFER_INTERVAL_MS: u64 = 16;
 
 #[derive(Error, Debug)]
 pub enum PtyError {
@@ -324,5 +323,3 @@ impl Drop for PtyManager {
         self.shutdown_all();
     }
 }
-
-// base64_encode is imported from chat::events (single source of truth)

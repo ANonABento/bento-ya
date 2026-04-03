@@ -36,19 +36,12 @@
 //! source of truth). `CliEvent` wraps `ChatEvent` via `From` conversion.
 //! This module will be removed in Phase 6 of the unified chat migration.
 
-use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, ChildStdout, Command};
 use tokio::time::timeout;
 
-use crate::chat::events::{
-    self,
-    ChatEvent,
-    ToolStatus as ChatToolStatus,
-};
-
-/// Timeout for reading a response from the CLI (5 minutes)
-pub const MESSAGE_TIMEOUT: Duration = Duration::from_secs(300);
+use crate::chat::events::{self, ChatEvent, ToolStatus as ChatToolStatus};
+use crate::chat::transport::MESSAGE_TIMEOUT;
 
 /// Result of parsing a CLI event.
 ///
