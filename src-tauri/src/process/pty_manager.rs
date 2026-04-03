@@ -114,11 +114,7 @@ impl PtyManager {
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
         let (data_tx, mut data_rx) = mpsc::channel::<Vec<u8>>(256);
 
-        // Channel for child process exit notification
-        let (child_exit_tx, mut child_exit_rx) = mpsc::channel::<()>(1);
-
         // Dedicated reader thread (blocking I/O on PTY)
-        let data_tx_clone = data_tx.clone();
         std::thread::spawn(move || {
             let mut reader = reader;
             let mut buf = [0u8; 4096];
@@ -126,7 +122,7 @@ impl PtyManager {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        if data_tx_clone.blocking_send(buf[..n].to_vec()).is_err() {
+                        if data_tx.blocking_send(buf[..n].to_vec()).is_err() {
                             break;
                         }
                     }
@@ -134,12 +130,14 @@ impl PtyManager {
             }
         });
 
-        // Child process watcher thread — waitpid to detect exit on macOS
-        // (PTY read may not return EOF after child exits on macOS)
+        // Child process watcher — uses child.wait() to detect exit on macOS
+        // (PTY read may block forever after child exits on macOS)
+        let child_exit_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let child_exit_flag_writer = Arc::clone(&child_exit_flag);
         std::thread::spawn(move || {
-            let _ = child.wait(); // blocks until child exits
-            drop(data_tx); // drop the other sender to signal reader task
-            let _ = child_exit_tx.blocking_send(());
+            // wait() blocks until child exits and reaps it (no zombie)
+            let _ = child.wait();
+            child_exit_flag_writer.store(true, std::sync::atomic::Ordering::SeqCst);
         });
 
         let scrollback: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
@@ -155,25 +153,6 @@ impl PtyManager {
             loop {
                 tokio::select! {
                     _ = shutdown_rx.recv() => {
-                        break;
-                    }
-                    _ = child_exit_rx.recv() => {
-                        // Child process exited (waitpid returned)
-                        // Drain any remaining data from the reader
-                        while let Ok(bytes) = data_rx.try_recv() {
-                            buffer.extend_from_slice(&bytes);
-                        }
-                        if !buffer.is_empty() {
-                            let _ = app_handle.emit(
-                                &format!("pty:{}:output", task_id_emit),
-                                base64_encode(&buffer),
-                            );
-                            buffer.clear();
-                        }
-                        let _ = app_handle.emit(
-                            &format!("pty:{}:exit", task_id_emit),
-                            serde_json::json!({ "taskId": task_id_emit }),
-                        );
                         break;
                     }
                     data = data_rx.recv() => {
@@ -213,6 +192,24 @@ impl PtyManager {
                                 base64_encode(&buffer),
                             );
                             buffer.clear();
+                        }
+
+                        // Check if child process exited (macOS PTY fix)
+                        if child_exit_flag.load(std::sync::atomic::Ordering::SeqCst) {
+                            // Drain any remaining data
+                            while let Ok(bytes) = data_rx.try_recv() {
+                                if !bytes.is_empty() {
+                                    let _ = app_handle.emit(
+                                        &format!("pty:{}:output", task_id_emit),
+                                        base64_encode(&bytes),
+                                    );
+                                }
+                            }
+                            let _ = app_handle.emit(
+                                &format!("pty:{}:exit", task_id_emit),
+                                serde_json::json!({ "taskId": task_id_emit }),
+                            );
+                            break;
                         }
                     }
                 }
