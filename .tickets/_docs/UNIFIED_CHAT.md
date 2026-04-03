@@ -183,11 +183,23 @@ User can override per-task from the task card UI (toggle button).
 - Existing managers unchanged — additive only
 - 67 tests passing (10 new session/registry tests)
 
-### Phase 3: Trigger Refactor
-- Change `fire_trigger` to route through `UnifiedChatSession`
-- Remove `fire_cli_trigger`, `fire_agent_trigger`, `fire_skill_trigger` from pipeline commands
-- Triggers become messages, not process spawns
-- Frontend `use-pipeline-events.ts` simplified (no more spawn event listeners)
+### Phase 3: Trigger Refactor — IN PROGRESS
+**Phase 3a: V2 SpawnCli triggers — DONE**
+- `bridge.rs`: `bridge_pty_to_tauri()` forwards transport events to Tauri events
+- `bridge.rs`: `spawn_cli_trigger_task()` runs CLI trigger as background tokio task
+  - Spawns PtyTransport directly, writes initial prompt, bridges events to frontend
+  - Opens fresh DB connection on exit to call `mark_complete` (safe with WAL mode)
+  - Error path sets pipeline error state via `handle_trigger_failure`
+- `triggers.rs`: SpawnCli branch now spawns background task instead of emitting
+  `pipeline:spawn_cli` event — no frontend round-trip needed
+- `lib.rs`: `SharedSessionRegistry` registered as Tauri managed state + shutdown cleanup
+- Legacy triggers (agent/skill/script from V1) still use frontend round-trip
+- 67 tests passing
+
+**Remaining (Phase 3b-c):**
+- Wire legacy V1 triggers (agent/skill/script) to use unified sessions
+- Remove `fire_cli_trigger`, `fire_agent_trigger`, `fire_skill_trigger` IPC commands
+- Simplify frontend `use-pipeline-events.ts` (remove spawn listeners)
 
 ### Phase 4: Chef Layer
 - Create `ChefSession` that wraps `UnifiedChatSession`

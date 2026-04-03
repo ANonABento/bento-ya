@@ -13,6 +13,7 @@
 //! live in `events` and are reused by the legacy `process::cli_shared` module
 //! to avoid duplication during the migration.
 
+pub mod bridge;
 pub mod events;
 pub mod pipe_transport;
 pub mod pty_transport;

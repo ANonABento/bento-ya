@@ -20,6 +20,7 @@ pub mod whisper;
 #[cfg(feature = "voice")]
 use commands::voice::RecorderState;
 use db::AppState;
+use chat::registry::new_shared_session_registry;
 use discord::bridge::new_shared_discord_bridge;
 use process::agent_cli_session::new_shared_agent_cli_session_manager;
 use process::agent_runner::AgentRunner;
@@ -62,6 +63,7 @@ pub fn run() {
     let agent_runner = Arc::new(Mutex::new(AgentRunner::new(Arc::clone(&pty_manager))));
     let cli_session_manager = new_shared_cli_session_manager();
     let agent_cli_session_manager = new_shared_agent_cli_session_manager();
+    let session_registry = new_shared_session_registry();
     let discord_bridge = new_shared_discord_bridge();
     #[cfg(feature = "voice")]
     let recorder_state = RecorderState(Mutex::new(AudioRecorder::new()));
@@ -71,6 +73,7 @@ pub fn run() {
     let agent_cli_for_shutdown = Arc::clone(&agent_cli_session_manager);
     let pty_for_shutdown = Arc::clone(&pty_manager);
     let agent_runner_for_shutdown = Arc::clone(&agent_runner);
+    let session_registry_for_shutdown = Arc::clone(&session_registry);
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -81,6 +84,7 @@ pub fn run() {
         .manage(agent_runner)
         .manage(cli_session_manager)
         .manage(agent_cli_session_manager)
+        .manage(session_registry)
         .manage(discord_bridge);
 
     #[cfg(feature = "webdriver")]
@@ -111,6 +115,12 @@ pub fn run() {
                 let _ = pty.lock().map(|mut pty_mgr| pty_mgr.shutdown_all());
                 // Clean up agent runner sessions
                 let _ = runner.lock().map(|mut ar| ar.cleanup_all());
+                // Kill unified chat sessions
+                let registry = Arc::clone(&session_registry_for_shutdown);
+                tauri::async_runtime::block_on(async {
+                    let mut reg = registry.lock().await;
+                    reg.kill_all();
+                });
             }
         })
         .invoke_handler(tauri::generate_handler![

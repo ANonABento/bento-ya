@@ -293,9 +293,24 @@ Files:
 
 **Test results:** 67 Rust tests, all passing (10 new)
 
+## Completed: Unified Chat System Phase 3a (2026-04-03)
+
+**V2 SpawnCli triggers now execute directly in the backend** — no frontend round-trip.
+
+Old flow: backend emits `pipeline:spawn_cli` → frontend catches → frontend calls `fire_cli_trigger` IPC → backend spawns PTY
+New flow: backend spawns PTY directly in a background tokio task, bridges events to frontend, calls `mark_complete` on exit
+
+Files:
+- `bridge.rs` — `bridge_pty_to_tauri()` + `spawn_cli_trigger_task()` background runner
+- `triggers.rs` — SpawnCli branch spawns background task instead of emitting event
+- `lib.rs` — `SharedSessionRegistry` registered as managed state + shutdown cleanup
+
+**Test results:** 67 Rust tests, all passing
+
 ## Next Up
 
-- [ ] Unified Chat Phase 3: Trigger refactor (triggers → messages, not process spawns)
+- [ ] Unified Chat Phase 3b: Wire legacy V1 triggers (agent/skill/script) to unified sessions
+- [ ] Unified Chat Phase 3c: Remove old fire_*_trigger IPC commands + frontend listeners
 - [ ] Add more providers beyond Anthropic (OpenAI API support)
 - [ ] Agent chat streaming to task card UI (terminal output visible in card)
 - [ ] Address remaining known issues (port 1420 squatting)

@@ -65,6 +65,7 @@ Transport abstraction + session layer (Phase 1-2 complete, replacing process lay
 - `pipe_transport.rs` — `PipeTransport` (structured JSON streaming, chat bubbles)
 - `session.rs` — `UnifiedChatSession` (lifecycle: idle/running/suspended, resume ID tracking, pipe + PTY modes)
 - `registry.rs` — `SessionRegistry` (max concurrent sessions, get-or-create, idle timeout)
+- `bridge.rs` — Tauri event bridge (`bridge_pty_to_tauri`) + background trigger runner (`spawn_cli_trigger_task`)
 
 See `.tickets/_docs/UNIFIED_CHAT.md` for the full migration plan (6 phases).
 

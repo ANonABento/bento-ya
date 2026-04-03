@@ -3,6 +3,7 @@
 //! Handles the new unified `triggers` JSON format on columns,
 //! supporting spawn_cli, move_column, trigger_task actions.
 
+use crate::chat::bridge;
 use crate::db::{self, Column, Task};
 use crate::error::AppError;
 use rusqlite::Connection;
@@ -244,7 +245,7 @@ fn execute_action(
             prompt_template,
             prompt,
             flags,
-            use_queue,
+            use_queue: _,
         } => {
             // Build template context
             let workspace = db::get_workspace(conn, &task.workspace_id)?;
@@ -281,20 +282,69 @@ fn execute_action(
 
             let cli_type = cli.as_deref().unwrap_or("claude").to_string();
 
-            // Emit spawn_cli event for frontend
-            let event = SpawnCliEvent {
-                task_id: task.id.clone(),
-                column_id: column.id.clone(),
-                workspace_id: task.workspace_id.clone(),
-                cli_type: cli_type.clone(),
-                command: command.clone(),
-                prompt: resolved_prompt,
-                flags: flags.clone(),
-                use_queue: use_queue.unwrap_or(true),
+            // Build initial prompt: prepend slash command if provided
+            let initial_prompt = if let Some(ref cmd) = command {
+                if resolved_prompt.is_empty() {
+                    cmd.clone()
+                } else {
+                    format!("{}\n\n{}", cmd, resolved_prompt)
+                }
+            } else {
+                resolved_prompt
             };
-            let _ = app.emit("pipeline:spawn_cli", &event);
 
-            Ok(task.clone())
+            // Store resolved prompt in task
+            let ts = db::now();
+            let _ = conn.execute(
+                "UPDATE tasks SET trigger_prompt = ?1, updated_at = ?2 WHERE id = ?3",
+                rusqlite::params![initial_prompt, ts, task.id],
+            );
+
+            // Set pipeline state to Running
+            let updated_task = db::update_task_pipeline_state(
+                conn,
+                &task.id,
+                PipelineState::Running.as_str(),
+                Some(&ts),
+                Option::None,
+            )?;
+
+            // Build env vars
+            let mut env_vars = HashMap::new();
+            env_vars.insert("WORKING_DIR".to_string(), workspace.repo_path.clone());
+            env_vars.insert("TRIGGER_PROMPT".to_string(), initial_prompt.clone());
+            if let Some(ref cmd) = command {
+                env_vars.insert("TRIGGER_COMMAND".to_string(), cmd.clone());
+            }
+            if let Some(ref f) = flags {
+                env_vars.insert("TRIGGER_FLAGS".to_string(), f.join(" "));
+            }
+
+            // Emit running event for frontend state visualization
+            let _ = app.emit(
+                "pipeline:running",
+                &PipelineEvent {
+                    task_id: task.id.clone(),
+                    column_id: column.id.clone(),
+                    event_type: "running".to_string(),
+                    state: PipelineState::Running.as_str().to_string(),
+                    message: Some(format!("CLI trigger: {}", cli_type)),
+                },
+            );
+
+            // Spawn background task — directly runs PTY session, monitors exit,
+            // calls mark_complete. No frontend round-trip needed.
+            bridge::spawn_cli_trigger_task(
+                app.clone(),
+                task.id.clone(),
+                column.id.clone(),
+                cli_type,
+                workspace.repo_path.clone(),
+                initial_prompt,
+                Some(env_vars),
+            );
+
+            Ok(updated_task)
         }
 
         TriggerActionV2::MoveColumn { target } => {
