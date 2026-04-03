@@ -2,6 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
+pub mod chat;
 pub mod checklist;
 pub mod commands;
 pub mod config;
