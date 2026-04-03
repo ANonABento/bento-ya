@@ -65,8 +65,6 @@ pub struct UnifiedChatSession {
     is_busy: bool,
     /// Last activity timestamp for idle timeout
     last_activity: Instant,
-    /// Event receiver from active transport (PTY mode continuous streaming)
-    event_rx: Option<mpsc::Receiver<TransportEvent>>,
 }
 
 impl UnifiedChatSession {
@@ -79,7 +77,6 @@ impl UnifiedChatSession {
             state: SessionState::Idle,
             is_busy: false,
             last_activity: Instant::now(),
-            event_rx: None,
         }
     }
 
@@ -164,10 +161,13 @@ impl UnifiedChatSession {
             e
         })?;
 
-        // Consume events
+        // Store transport so kill() can cancel mid-message
+        self.transport = Some(Box::new(transport));
+
+        // Consume events — pipe transport already handles assistant-event dedup,
+        // so we just accumulate all TextContent events
         let mut full_response = String::new();
         let mut captured_session_id = self.resume_id.clone();
-        let mut got_streaming_text = false;
 
         while let Some(event) = event_rx.recv().await {
             match event {
@@ -177,16 +177,7 @@ impl UnifiedChatSession {
                             captured_session_id = Some(sid.clone());
                         }
                         ChatEvent::TextContent(text) => {
-                            // Check if this is from an assistant event (fallback)
-                            // vs streaming delta. We track via got_streaming_text.
-                            if got_streaming_text || text.len() < 200 {
-                                // Streaming delta — accumulate
-                                full_response.push_str(text);
-                                got_streaming_text = true;
-                            } else if full_response.is_empty() {
-                                // First large text block with no prior streaming — assistant fallback
-                                full_response = text.clone();
-                            }
+                            full_response.push_str(text);
                         }
                         ChatEvent::Complete => {
                             on_event(chat_event);
@@ -202,7 +193,8 @@ impl UnifiedChatSession {
             }
         }
 
-        // Update state
+        // Update state — transport is done, clear it
+        self.transport = None;
         self.resume_id = captured_session_id.clone();
         self.is_busy = false;
         self.state = SessionState::Idle;
@@ -257,19 +249,6 @@ impl UnifiedChatSession {
         transport.resize(cols, rows)
     }
 
-    /// Get the PTY scrollback buffer (base64-encoded).
-    pub fn get_scrollback(&self) -> Option<String> {
-        // Downcast to PtyTransport to access scrollback
-        // This is safe because we only set transport to PtyTransport in start_pty
-        if self.transport_type == TransportType::Pty {
-            // Can't downcast Box<dyn ChatTransport> without Any, so we skip for now.
-            // The session registry or caller can access PtyManager directly if needed.
-            None
-        } else {
-            None
-        }
-    }
-
     // -- Lifecycle --
 
     /// Suspend the session: save resume ID, kill the transport.
@@ -279,7 +258,6 @@ impl UnifiedChatSession {
             transport.kill()?;
         }
         self.transport = None;
-        self.event_rx = None;
         self.is_busy = false;
         self.state = SessionState::Suspended;
         Ok(())
@@ -291,7 +269,6 @@ impl UnifiedChatSession {
             transport.kill()?;
         }
         self.transport = None;
-        self.event_rx = None;
         self.is_busy = false;
         self.resume_id = None;
         self.state = SessionState::Idle;

@@ -78,8 +78,11 @@ impl SessionRegistry {
         Ok(self.sessions.get_mut(key).unwrap())
     }
 
-    /// Create or replace a session.
+    /// Create or replace a session. Kills the existing session if present.
     pub fn insert(&mut self, key: &str, session: UnifiedChatSession) {
+        if let Some(mut old) = self.sessions.remove(key) {
+            let _ = old.kill();
+        }
         self.sessions.insert(key.to_string(), session);
     }
 
