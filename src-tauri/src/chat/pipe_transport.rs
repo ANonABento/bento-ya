@@ -70,18 +70,19 @@ impl ChatTransport for PipeTransport {
             .spawn()
             .map_err(|e| format!("Failed to spawn CLI: {}", e))?;
 
-        self.alive.store(true, Ordering::SeqCst);
-
         // Spawn stderr reader (shared with legacy cli_shared)
         if let Some(stderr) = child.stderr.take() {
             spawn_stderr_reader(stderr, config.command.clone());
         }
 
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| "Failed to capture stdout".to_string())?;
+        // Take stdout before setting alive/child — if this fails, we don't
+        // want is_alive() returning true with no reader, or a leaked child
+        let stdout = child.stdout.take().ok_or_else(|| {
+            let _ = child.start_kill();
+            "Failed to capture stdout".to_string()
+        })?;
 
+        self.alive.store(true, Ordering::SeqCst);
         self.child = Some(child);
 
         let (event_tx, event_rx) = mpsc::channel::<TransportEvent>(256);
