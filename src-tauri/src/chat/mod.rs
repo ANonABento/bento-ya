@@ -14,6 +14,7 @@
 //! to avoid duplication during the migration.
 
 pub mod bridge;
+pub mod chef;
 pub mod events;
 pub mod pipe_transport;
 pub mod pty_transport;
@@ -21,6 +22,7 @@ pub mod registry;
 pub mod session;
 pub mod transport;
 
+pub use chef::{ChefMode, ChefSession};
 pub use events::{base64_encode, parse_json_event, spawn_stderr_reader, ChatEvent, ToolStatus};
 pub use pipe_transport::PipeTransport;
 pub use pty_transport::PtyTransport;

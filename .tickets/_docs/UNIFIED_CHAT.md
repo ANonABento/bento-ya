@@ -212,10 +212,18 @@ User can override per-task from the task card UI (toggle button).
 - Removed `usePipelineEvents` hook usage from `app.tsx`
 - Removed dead IPC functions + spawn event types from `ipc.ts`
 
-### Phase 4: Chef Layer
-- Create `ChefSession` that wraps `UnifiedChatSession`
-- Move board context injection, action parsing, tool execution from `orchestrator.rs`
-- Chef uses same transport as task agents (user's setting)
+### Phase 4: Chef Layer — IN PROGRESS
+**Phase 4a: ChefSession struct — DONE**
+- `chef.rs`: `ChefSession` wraps `UnifiedChatSession` with orchestrator capabilities
+- Board context building: `build_board_context()`, `augment_message()`, `format_context_message()`
+- System prompt variants: API mode (native tools) vs CLI mode (action blocks)
+- Tool execution: `execute_response_actions()` parses action blocks + runs `execute_tools`
+- Dual mode: `ChefMode::Cli` vs `ChefMode::Api`
+- 71 tests passing (4 new chef tests)
+
+**Remaining (Phase 4b-c):**
+- 4b: Rewire `stream_orchestrator_chat` CLI mode to use ChefSession
+- 4c: Rewire `stream_agent_chat` to use UnifiedChatSession
 
 ### Phase 5: Frontend Unification
 - Single chat component that renders bubble or terminal based on setting
@@ -244,7 +252,7 @@ User can override per-task from the task card UI (toggle button).
 - `src-tauri/src/chat/session.rs` — UnifiedChatSession (DONE)
 - `src-tauri/src/chat/registry.rs` — session registry (DONE)
 - `src-tauri/src/chat/bridge.rs` — Tauri event bridge + trigger runner (DONE)
-- `src-tauri/src/chat/chef.rs` — ChefSession layer (Phase 4)
+- `src-tauri/src/chat/chef.rs` — ChefSession layer (DONE)
 - `src-tauri/src/commands/chat.rs` — unified IPC commands (Phase 2)
 - `src/components/chat/chat-panel.tsx` — unified chat component (Phase 5)
 - `src/components/chat/bubble-view.tsx` — bubble renderer (Phase 5)

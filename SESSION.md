@@ -334,9 +334,23 @@ Frontend:
 
 **Test results:** 67 Rust + 128 Frontend = 195 tests, all passing. TypeScript clean.
 
+## Completed: Unified Chat System Phase 4a (2026-04-03)
+
+**Created `ChefSession`** — orchestrator layer on top of `UnifiedChatSession`.
+
+- `chef.rs` — wraps session with board context + tool execution
+  - `ChefMode::Cli` (action blocks) vs `ChefMode::Api` (native tools)
+  - `build_system_prompt()` — mode-aware prompt with column names
+  - `augment_message()` — injects board state (columns + tasks) into user message
+  - `execute_response_actions()` — parses ```action blocks, runs execute_tools
+  - `send_message_with_context()` — loads workspace state, augments, delegates to session
+
+**Test results:** 71 Rust tests, all passing (4 new)
+
 ## Next Up
 
-- [ ] Unified Chat Phase 4: Chef layer
+- [ ] Unified Chat Phase 4b: Rewire orchestrator CLI mode to use ChefSession
+- [ ] Unified Chat Phase 4c: Rewire agent chat to use UnifiedChatSession
 - [ ] Unified Chat Phase 5: Frontend unification
 - [ ] Unified Chat Phase 6: Final cleanup (remove old managers)
 - [ ] Add more providers beyond Anthropic (OpenAI API support)
