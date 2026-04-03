@@ -124,6 +124,28 @@ Frontend types are in `src/types/`:
 
 Backend models are in `src-tauri/src/db/models.rs` — each struct maps 1:1 to a DB table.
 
+## Backend → Frontend Events
+
+All backend events use `#[serde(rename_all = "camelCase")]` structs. **Never use raw `json!()` for events** — always use the typed structs/helpers to ensure camelCase field names match frontend expectations.
+
+### Event Helpers
+- `pipeline::emit_tasks_changed(app, workspace_id, reason)` — use for any task mutation
+- Pipeline events use `PipelineEvent` struct
+- Orchestrator events use `OrchestratorEvent` struct
+
+### Key Events
+| Event | Direction | Used By |
+|-------|-----------|---------|
+| `tasks:changed` | Backend → Frontend | `useTaskSync` re-fetches task store |
+| `pipeline:spawn_cli` | Backend → Frontend | `usePipelineEvents` calls `fireCliTrigger` |
+| `pipeline:spawn_agent` | Backend → Frontend | `usePipelineEvents` calls `fireAgentTrigger` |
+| `pty:{taskId}:exit` | Backend → Frontend | `usePipelineEvents` calls `markPipelineComplete` |
+| `orchestrator:stream` | Backend → Frontend | Chat panel shows streaming response |
+| `orchestrator:complete` | Backend → Frontend | Chat panel marks response done |
+
+### Pitfall
+Backend `json!({ "workspace_id": ... })` → snake_case. Frontend expects `workspaceId` (camelCase). Always use typed structs with `#[serde(rename_all = "camelCase")]` or the existing helper functions.
+
 ## Conventions
 
 ### TypeScript
@@ -203,6 +225,18 @@ CSS cursor classes (Tailwind's `cursor-pointer`, etc.) do NOT work reliably on m
 ### CLI Session Model Changes
 
 When the user switches models mid-conversation, the CLI session must be restarted (Claude CLI ignores `--model` on `--resume`). The chat session hook handles this by dropping the resume ID and building a context preamble from previous messages.
+
+### Stale CLI Sessions on App Restart
+
+`cli_session_id` values in the `chat_sessions` DB table reference Claude CLI sessions from previous app instances. These are invalid after restart. Startup cleanup in `lib.rs` clears all stale `cli_session_id` references. If an empty response is received from the CLI, `stream_via_cli` retries without `--resume`.
+
+### PTY Exit Detection on macOS
+
+`portable-pty` and `std::process::Child::wait()` block forever on macOS PTY processes because the master fd keeps the process group alive. The fix uses `libc::waitpid(pid, WNOHANG)` polling in a separate thread with `mem::forget(child)` to prevent destructor interference. See `pty_manager.rs`.
+
+### Event Payload Casing
+
+Backend events must use typed structs with `#[serde(rename_all = "camelCase")]`. Using raw `json!()` produces snake_case field names that don't match frontend expectations. Use `pipeline::emit_tasks_changed()` for task mutations, not manual `app.emit("tasks:changed", json!(...))`.
 
 ## Design Docs
 
