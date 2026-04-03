@@ -11,7 +11,15 @@ type ModalState = {
 // Panel constants
 const DEFAULT_PANEL_HEIGHT = 300
 const MIN_PANEL_HEIGHT = 150
-const MAX_PANEL_HEIGHT = 600
+const MAX_PANEL_HEIGHT = 600 // absolute max, also clamped to 70% of viewport
+const MIN_BOARD_HEIGHT = 200 // board always gets at least this much space
+
+/** Get the effective max panel height based on current viewport */
+function getMaxPanelHeight(): number {
+  if (typeof window === 'undefined') return MAX_PANEL_HEIGHT
+  const viewportMax = Math.floor(window.innerHeight - MIN_BOARD_HEIGHT)
+  return Math.min(MAX_PANEL_HEIGHT, viewportMax)
+}
 
 type UIState = {
   viewMode: ViewMode
@@ -66,7 +74,8 @@ export const useUIStore = create<UIState>()(
         },
 
         setPanelHeight: (height) => {
-          const clamped = Math.min(Math.max(height, MIN_PANEL_HEIGHT), MAX_PANEL_HEIGHT)
+          const max = getMaxPanelHeight()
+          const clamped = Math.min(Math.max(height, MIN_PANEL_HEIGHT), max)
           set({ panelHeight: clamped })
         },
 
@@ -94,4 +103,4 @@ export const useUIStore = create<UIState>()(
   ),
 )
 
-export { MIN_PANEL_HEIGHT, MAX_PANEL_HEIGHT, DEFAULT_PANEL_HEIGHT }
+export { MIN_PANEL_HEIGHT, MAX_PANEL_HEIGHT, DEFAULT_PANEL_HEIGHT, MIN_BOARD_HEIGHT }

@@ -218,6 +218,18 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     }
   }, [isDragging, setPanelHeight])
 
+  // Re-clamp panel height on mount and window resize (prevent board from being squished)
+  useEffect(() => {
+    // Clamp on mount in case persisted value exceeds current viewport
+    setPanelHeight(panelHeight)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- clamp once on mount
+
+  useEffect(() => {
+    const handleResize = () => { setPanelHeight(panelHeight) }
+    window.addEventListener('resize', handleResize)
+    return () => { window.removeEventListener('resize', handleResize) }
+  }, [panelHeight, setPanelHeight])
+
   // Clear error when user starts typing (like AgentPanel)
   const handleInputChange = useCallback(() => {
     if (error) {
