@@ -105,6 +105,16 @@ describe('Bento-ya Core Flow', () => {
       // Sort by position to get first column
       const sorted = colResult.data.sort((a, b) => a.position - b.position)
       firstColumnId = sorted[0].id
+
+      // Clean slate: delete any leftover test tasks from previous runs
+      const tasksResult = await tauriInvoke(browser, 'list_tasks', { workspaceId })
+      if (tasksResult.ok) {
+        for (const task of tasksResult.data) {
+          if (task.title === 'E2E Test Task' || task.title === 'Trigger Test Task' || task.title === 'CLI Trigger Test') {
+            await tauriInvoke(browser, 'delete_task', { id: task.id })
+          }
+        }
+      }
     })
 
     it('should create a task via IPC', async () => {
