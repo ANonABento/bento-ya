@@ -30,6 +30,29 @@ use whisper::AudioRecorder;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let conn = db::init().expect("Failed to initialize database");
+
+    // Reset stale pipeline states from previous app instance (crash recovery)
+    let reset_count: i64 = conn
+        .execute(
+            "UPDATE tasks SET pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = 'App restarted — pipeline state reset' WHERE pipeline_state IN ('running', 'triggered', 'evaluating', 'advancing')",
+            [],
+        )
+        .unwrap_or(0) as i64;
+    if reset_count > 0 {
+        eprintln!("[startup] Reset {} task(s) with stale pipeline state to idle", reset_count);
+    }
+
+    // Clear stale cli_session_id references (previous app sessions are dead)
+    let cli_reset: i64 = conn
+        .execute(
+            "UPDATE chat_sessions SET cli_session_id = NULL WHERE cli_session_id IS NOT NULL",
+            [],
+        )
+        .unwrap_or(0) as i64;
+    if cli_reset > 0 {
+        eprintln!("[startup] Cleared {} stale CLI session reference(s)", cli_reset);
+    }
+
     let state = AppState {
         db: Mutex::new(conn),
     };
@@ -45,6 +68,8 @@ pub fn run() {
     // Clone for shutdown handler
     let cli_manager_for_shutdown = Arc::clone(&cli_session_manager);
     let agent_cli_for_shutdown = Arc::clone(&agent_cli_session_manager);
+    let pty_for_shutdown = Arc::clone(&pty_manager);
+    let agent_runner_for_shutdown = Arc::clone(&agent_runner);
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -70,15 +95,21 @@ pub fn run() {
     builder
         .on_window_event(move |_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
-                // Kill all CLI sessions on window close
+                // Kill all sessions and processes on window close
                 let manager = Arc::clone(&cli_manager_for_shutdown);
                 let agent_manager = Arc::clone(&agent_cli_for_shutdown);
+                let pty = Arc::clone(&pty_for_shutdown);
+                let runner = Arc::clone(&agent_runner_for_shutdown);
                 tauri::async_runtime::block_on(async {
                     let mut m = manager.lock().await;
                     m.kill_all().await;
                     let mut am = agent_manager.lock().await;
                     am.kill_all().await;
                 });
+                // Kill PTY-managed processes (agents, scripts)
+                let _ = pty.lock().map(|mut pty_mgr| pty_mgr.shutdown_all());
+                // Clean up agent runner sessions
+                let _ = runner.lock().map(|mut ar| ar.cleanup_all());
             }
         })
         .invoke_handler(tauri::generate_handler![

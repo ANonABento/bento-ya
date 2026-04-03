@@ -173,6 +173,17 @@ impl AgentRunner {
             .collect()
     }
 
+    /// Kill all agent sessions and clean up PTY processes
+    pub fn cleanup_all(&mut self) {
+        let task_ids: Vec<String> = self.sessions.keys().cloned().collect();
+        if let Ok(mut pty) = self.pty_manager.lock() {
+            for task_id in &task_ids {
+                let _ = pty.kill(task_id);
+            }
+        }
+        self.sessions.clear();
+    }
+
     pub fn mark_exited(&mut self, task_id: &str) {
         if let Some(session) = self.sessions.get_mut(task_id) {
             session.status = AgentStatus::Stopped;

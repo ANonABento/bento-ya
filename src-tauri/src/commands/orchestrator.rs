@@ -721,22 +721,61 @@ async fn stream_via_cli(
         workspace_id,
         &app,
     ).await {
-        Ok(result) => result,
-        Err(_) => {
-            // Process died, try to respawn with --resume
-            let resume_id = manager.get_cli_session_id(session_id);
+        Ok(result) => {
+            // Check for empty response (stale --resume session)
+            if result.0.is_empty() {
+                log::warn!("Empty CLI response — likely stale --resume session, retrying without resume");
+                manager.kill(session_id).await;
 
-            // Kill the dead session
+                // Respawn WITHOUT resume (fresh session)
+                manager.spawn(
+                    session_id,
+                    cli_path,
+                    model,
+                    &system_prompt,
+                    None, // No resume — start fresh
+                ).await.map_err(AppError::InvalidInput)?;
+
+                // Clear stale cli_session_id from DB
+                {
+                    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+                    let _ = db::update_chat_session_cli_id(&conn, session_id, None);
+                }
+
+                manager.send_message(
+                    session_id,
+                    &full_message,
+                    workspace_id,
+                    &app,
+                ).await.map_err(AppError::InvalidInput)?
+            } else {
+                result
+            }
+        }
+        Err(_) => {
+            // Process died — try to respawn
+            let resume_id = manager.get_cli_session_id(session_id);
             manager.kill(session_id).await;
 
-            // Respawn with resume
-            manager.spawn(
+            // Try with resume first, fall back to fresh session
+            let spawn_result = manager.spawn(
                 session_id,
                 cli_path,
                 model,
                 &system_prompt,
                 resume_id.as_deref(),
-            ).await.map_err(AppError::InvalidInput)?;
+            ).await;
+
+            if spawn_result.is_err() {
+                log::warn!("Resume spawn failed, retrying without resume");
+                manager.spawn(
+                    session_id,
+                    cli_path,
+                    model,
+                    &system_prompt,
+                    None,
+                ).await.map_err(AppError::InvalidInput)?;
+            }
 
             // Retry the message
             manager.send_message(
