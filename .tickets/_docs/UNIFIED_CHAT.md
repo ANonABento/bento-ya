@@ -222,14 +222,11 @@ User can override per-task from the task card UI (toggle button).
 - `src-tauri/src/commands/pipeline.rs` (fire_*_trigger commands)
 - `src/hooks/use-pipeline-events.ts` (spawn listeners)
 
-## Open Questions
+## Decisions (Resolved)
 
-1. **Script triggers** — `fire_script_trigger` runs arbitrary shell scripts, not claude. Should this stay separate or also go through unified chat? (Probably separate — scripts aren't chat sessions.)
-
-2. **Skill triggers** — `fire_skill_trigger` sends a slash command to claude. In unified chat, this is just `send_message("/skill-name")`. Should work naturally.
-
-3. **Queue system** — current `use_queue` flag on triggers manages concurrent agent count. In unified chat, the session registry's `maxConcurrentSessions` handles this. Need to make sure the queue still works.
-
-4. **PTY terminal in bubble mode** — if user is in bubble view but the agent does something that needs terminal (interactive prompt), should it auto-switch to terminal? Or show a "switch to terminal" button?
-
-5. **Resume across app restarts** — startup cleanup currently resets pipeline states. With suspend/resume, should we auto-resume suspended sessions on app start? Or wait for user to click into the task?
+1. **Script triggers** — Unify. Scripts go through unified chat as a different command type.
+2. **Skill triggers** — Natural fit: `send_message("/skill-name")`.
+3. **Auto-switch view** — No. Build on existing chat controls. Transport dictates view: PTY → terminal, pipe → bubble. No mismatch possible.
+4. **Resume on startup** — Lazy. Don't auto-resume. Wait for user click or trigger fire.
+5. **Fallback** — If somehow PTY transport is active but bubble view requested, render raw output as code block. Shouldn't happen in practice since transport = view, but add fallback defensively.
+6. **Queue system** — Session registry's `maxConcurrentSessions` replaces `use_queue` flag.
