@@ -219,21 +219,44 @@ Phase 3 (LOW):
 - React strict mode listener dedup with cancelled flag
 - PTY exit detection via child.wait() + AtomicBool polling (partial — see below)
 
-## Known Issue: PTY Exit Detection on macOS
+## Completed: PTY Migration + Exit Detection Fix (2026-04-03 continued)
 
-**Status: NOT WORKING — needs architecture change**
+**Migrated from `portable-pty` to `pty-process` crate.**
 
-portable_pty's `child.wait()` blocks because the PTY master fd keeps the process group alive.
-Three approaches tried (channel, PID polling, AtomicBool) — all blocked by the same root cause.
+portable-pty's `child.wait()` blocked forever on macOS because the PTY master fd kept the process group alive. Tried 4 approaches before finding the fix:
 
-**Fix needed:** Trigger agents should use `std::process::Command` instead of PTY spawning.
-They're non-interactive (stdin prompt + stdout response) — PTY is overkill.
+1. Channel from child.wait() — blocked (process group)
+2. AtomicBool from child.wait() — same block
+3. kill -0 PID polling — zombie not reaped
+4. **libc::waitpid(WNOHANG) polling — WORKS** ← final solution
 
-**Workaround:** Manual `markPipelineComplete` or retry button in UI.
+Fix: spawn a watcher thread that calls `libc::waitpid(pid, WNOHANG)` every 250ms. Uses `mem::forget(child)` to prevent Child destructor interference. When waitpid returns the PID (exited), sends on exit channel → `pty:exit` event fires → `markPipelineComplete` → auto-advance.
+
+**E2E verified:** Full automation chain confirmed working end-to-end:
+- create task in Working → trigger fires → agent spawns → agent exits → waitpid detects → auto-advance to Review
+
+## Completed: Frontend Task Sync Fix (2026-04-03)
+
+**RCA:** executor.rs emitted `tasks:changed` with snake_case `json!({ "workspace_id": ... })` but `useTaskSync` checks `payload.workspaceId` (camelCase). Event fired but workspace filter never matched.
+
+**Fix:** Replaced raw `json!()` with `pipeline::emit_tasks_changed()` helper which uses `TasksChangedEvent` struct with `#[serde(rename_all = "camelCase")]`.
+
+**Scope:** Only affected tasks created/moved by the orchestrator chef. Frontend-created tasks and pipeline auto-advance already used the correct helper.
+
+## Session Stats (2026-04-02 — 2026-04-03)
+
+**19 commits total:**
+- 4 commits: Chef trigger tool + provider abstraction (Phases A-D)
+- 8 commits: Pipeline bug fixes (trigger firing, agent spawn, auto-advance, V2 exit criteria)
+- 4 commits: Graceful recovery (stale sessions, startup cleanup, process lifecycle)
+- 2 commits: PTY migration (portable-pty → pty-process + waitpid)
+- 1 commit: Frontend task sync fix (camelCase event payload)
+
+**Test results:** 52 Rust + 128 Frontend = 180 tests, all passing
 
 ## Next Up
 
-- [ ] **Refactor fire_cli_trigger** — use Command-based spawning for trigger agents (not PTY)
 - [ ] Add more providers beyond Anthropic (OpenAI API support)
-- [ ] Agent chat streaming to task card UI
+- [ ] Agent chat streaming to task card UI (terminal output visible in card)
 - [ ] Address remaining known issues (port 1420 squatting)
+- [ ] Improve claude startup time for trigger agents (MCP server loading is slow)
