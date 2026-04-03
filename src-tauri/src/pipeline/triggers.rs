@@ -295,10 +295,12 @@ fn execute_action(
 
             // Store resolved prompt in task
             let ts = db::now();
-            let _ = conn.execute(
+            if let Err(e) = conn.execute(
                 "UPDATE tasks SET trigger_prompt = ?1, updated_at = ?2 WHERE id = ?3",
                 rusqlite::params![initial_prompt, ts, task.id],
-            );
+            ) {
+                log::warn!("Failed to store trigger prompt for task {}: {}", task.id, e);
+            }
 
             // Set pipeline state to Running
             let updated_task = db::update_task_pipeline_state(

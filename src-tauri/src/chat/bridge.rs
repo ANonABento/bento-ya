@@ -78,9 +78,9 @@ pub fn spawn_cli_trigger_task(
                 .spawn(spawn_config)
                 .map_err(|e| format!("Failed to spawn CLI trigger: {}", e))?;
 
-            // Send initial prompt if provided
+            // Send initial prompt if provided — write immediately, kernel
+            // PTY buffer holds the data until the child process reads it
             if !initial_prompt.is_empty() {
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 let prompt_bytes = format!("{}\n", initial_prompt);
                 transport
                     .write(prompt_bytes.as_bytes())
