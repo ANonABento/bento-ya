@@ -3,7 +3,6 @@
 //! The orchestrator is a dedicated agent that interprets natural language
 //! and creates/manages tasks on the board.
 
-use crate::chat::chef::{ChefMode, ChefSession};
 use crate::chat::events::{ChatEvent, ToolStatus};
 use crate::chat::registry::SharedSessionRegistry;
 use crate::chat::session::{SessionConfig, TransportType};
@@ -672,13 +671,11 @@ async fn stream_via_api(
     Ok(())
 }
 
-/// Stream orchestrator chat via unified CLI session (ChefSession).
+/// Stream orchestrator chat via unified CLI session.
 ///
 /// Replaces the old `stream_via_cli` which used `CliSessionManager`.
-/// Now uses `ChefSession` from the `SessionRegistry` with:
-/// - Board context injection via `chef.send_message_with_context()`
-/// - Action block parsing via `chef.execute_response_actions()`
-/// - Retry logic for stale resume IDs
+/// Uses `UnifiedChatSession` from the `SessionRegistry` with board
+/// context injection and retry logic for stale resume IDs.
 async fn stream_via_unified_cli(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -693,35 +690,26 @@ async fn stream_via_unified_cli(
 ) -> Result<(), AppError> {
     let registry_key = format!("chef:{}:{}", workspace_id, session_id);
 
-    // Send message via ChefSession
+    // Send message via unified session
     let (full_response, captured_cli_session_id) = {
         let mut registry = session_registry.lock().await;
 
         let config = SessionConfig {
             cli_path: cli_path.to_string(),
             model: model.to_string(),
-            system_prompt: String::new(), // ChefSession builds this from workspace state
+            system_prompt: String::new(), // Built from workspace state below
             working_dir: None,
             effort_level: None,
         };
 
-        // Get or create chef session
+        // Get or create session
         if !registry.has(&registry_key) {
-            let mut chef = ChefSession::new_cli(workspace_id.to_string(), config);
+            let mut session = crate::chat::session::UnifiedChatSession::new(config, TransportType::Pipe);
             // Set resume ID from DB if available
             if let Some(rid) = resume_id {
-                chef.session_mut().set_resume_id(Some(rid.to_string()));
+                session.set_resume_id(Some(rid.to_string()));
             }
-            registry.insert(&registry_key, crate::chat::session::UnifiedChatSession::new(
-                SessionConfig {
-                    cli_path: cli_path.to_string(),
-                    model: model.to_string(),
-                    system_prompt: String::new(),
-                    working_dir: None,
-                    effort_level: None,
-                },
-                TransportType::Pipe,
-            ));
+            registry.insert(&registry_key, session);
         }
 
         let session = registry.get_mut(&registry_key).unwrap();
