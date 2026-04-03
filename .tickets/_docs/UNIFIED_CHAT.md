@@ -173,10 +173,15 @@ User can override per-task from the task card UI (toggle button).
 - Existing managers unchanged — additive only, no breaking changes
 - 57 tests passing (eliminated 13 duplicated parsing tests)
 
-### Phase 2: UnifiedChatSession
-- Create `UnifiedChatSession` struct that wraps a transport
-- Implement session lifecycle (spawn, suspend, resume, kill)
-- Session registry: `HashMap<String, UnifiedChatSession>` (keyed by task_id or "chef:{workspace_id}")
+### Phase 2: UnifiedChatSession -- DONE
+- `session.rs`: `UnifiedChatSession` wraps transport with lifecycle (idle/running/suspended)
+- Pipe mode: `send_message()` spawns fresh CLI per message, returns (response, session_id)
+- PTY mode: `start_pty()` spawns once, `write_pty()`/`resize_pty()` for interaction
+- Resume ID tracking: captured from SessionId events, cleared on model change
+- `registry.rs`: `SessionRegistry` with max concurrent sessions, get-or-create, suspend-idle
+- `SharedSessionRegistry` (Arc<Mutex>) for Tauri managed state
+- Existing managers unchanged — additive only
+- 67 tests passing (10 new session/registry tests)
 
 ### Phase 3: Trigger Refactor
 - Change `fire_trigger` to route through `UnifiedChatSession`
@@ -209,8 +214,8 @@ User can override per-task from the task card UI (toggle button).
 - `src-tauri/src/chat/transport.rs` — ChatTransport trait, SpawnConfig, TransportEvent (DONE)
 - `src-tauri/src/chat/pty_transport.rs` — PtyTransport (DONE)
 - `src-tauri/src/chat/pipe_transport.rs` — PipeTransport (DONE)
-- `src-tauri/src/chat/session.rs` — UnifiedChatSession (Phase 2)
-- `src-tauri/src/chat/registry.rs` — session registry (Phase 2)
+- `src-tauri/src/chat/session.rs` — UnifiedChatSession (DONE)
+- `src-tauri/src/chat/registry.rs` — session registry (DONE)
 - `src-tauri/src/chat/chef.rs` — ChefSession layer (Phase 4)
 - `src-tauri/src/commands/chat.rs` — unified IPC commands (Phase 2)
 - `src/components/chat/chat-panel.tsx` — unified chat component (Phase 5)

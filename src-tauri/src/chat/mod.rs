@@ -4,7 +4,10 @@
 //! - `PtyTransport`: Full PTY terminal (interactive, xterm.js rendering)
 //! - `PipeTransport`: Piped CLI with `--print --output-format stream-json` (chat bubbles)
 //!
-//! Both transports emit unified `ChatEvent` types to the frontend.
+//! `UnifiedChatSession` wraps a transport with session lifecycle (spawn, suspend,
+//! resume, kill) and resume ID tracking for conversation continuity.
+//!
+//! `SessionRegistry` manages multiple sessions with concurrency limits.
 //!
 //! Shared utilities (`parse_json_event`, `base64_encode`, `spawn_stderr_reader`)
 //! live in `events` and are reused by the legacy `process::cli_shared` module
@@ -13,11 +16,15 @@
 pub mod events;
 pub mod pipe_transport;
 pub mod pty_transport;
+pub mod registry;
+pub mod session;
 pub mod transport;
 
 pub use events::{base64_encode, parse_json_event, spawn_stderr_reader, ChatEvent, ToolStatus};
 pub use pipe_transport::PipeTransport;
 pub use pty_transport::PtyTransport;
+pub use registry::{new_shared_session_registry, SessionRegistry, SharedSessionRegistry};
+pub use session::{SessionConfig, SessionState, TransportType, UnifiedChatSession};
 pub use transport::{
     ChatTransport, SpawnConfig, TransportEvent,
     DEFAULT_SCROLLBACK_BYTES, MESSAGE_TIMEOUT, OUTPUT_BUFFER_INTERVAL_MS,

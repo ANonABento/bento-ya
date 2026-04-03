@@ -276,9 +276,25 @@ Bug fix:
 
 **Test results:** 57 Rust tests, all passing
 
+## Completed: Unified Chat System Phase 2 (2026-04-03)
+
+**Created `UnifiedChatSession` + `SessionRegistry`** — session lifecycle on top of Phase 1 transports.
+
+Files:
+- `session.rs` — `UnifiedChatSession` wrapping transport with state machine (Idle/Running/Suspended)
+  - Pipe mode: `send_message()` spawns fresh CLI per message, accumulates response, captures resume ID
+  - PTY mode: `start_pty()` for interactive, `write_pty()`/`resize_pty()` for input
+  - Resume ID auto-cleared on model change (CLI ignores `--model` on `--resume`)
+  - Suspend preserves resume ID, kill clears it
+- `registry.rs` — `SessionRegistry` with max concurrent sessions (default 5)
+  - `get_or_create()` for trigger integration (lazy session creation)
+  - `suspend_idle()` for idle timeout cleanup
+  - `SharedSessionRegistry` (Arc<Mutex>) for Tauri managed state
+
+**Test results:** 67 Rust tests, all passing (10 new)
+
 ## Next Up
 
-- [ ] Unified Chat Phase 2: `UnifiedChatSession` + session registry
 - [ ] Unified Chat Phase 3: Trigger refactor (triggers → messages, not process spawns)
 - [ ] Add more providers beyond Anthropic (OpenAI API support)
 - [ ] Agent chat streaming to task card UI (terminal output visible in card)

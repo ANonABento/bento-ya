@@ -58,11 +58,13 @@ Columns define `on_entry`/`on_exit` triggers. Tasks can override. See `.tickets/
 
 ### Unified Chat System (`src-tauri/src/chat/`)
 
-New transport abstraction layer (Phase 1 complete, replacing process layer incrementally):
+Transport abstraction + session layer (Phase 1-2 complete, replacing process layer incrementally):
 - `events.rs` — Unified `ChatEvent` type + JSON parsing + `base64_encode` + `spawn_stderr_reader` (single source of truth)
-- `transport.rs` — `ChatTransport` trait + `SpawnConfig` + `TransportEvent`
+- `transport.rs` — `ChatTransport` trait + `SpawnConfig` + `TransportEvent` + shared constants
 - `pty_transport.rs` — `PtyTransport` (interactive terminal, xterm.js)
 - `pipe_transport.rs` — `PipeTransport` (structured JSON streaming, chat bubbles)
+- `session.rs` — `UnifiedChatSession` (lifecycle: idle/running/suspended, resume ID tracking, pipe + PTY modes)
+- `registry.rs` — `SessionRegistry` (max concurrent sessions, get-or-create, idle timeout)
 
 See `.tickets/_docs/UNIFIED_CHAT.md` for the full migration plan (6 phases).
 
