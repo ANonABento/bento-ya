@@ -225,10 +225,14 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps -- clamp once on mount
 
   useEffect(() => {
-    const handleResize = () => { setPanelHeight(panelHeight) }
+    const handleResize = () => {
+      // Read latest panelHeight from store (avoids re-registering listener on every drag)
+      const current = useUIStore.getState().panelHeight
+      setPanelHeight(current)
+    }
     window.addEventListener('resize', handleResize)
     return () => { window.removeEventListener('resize', handleResize) }
-  }, [panelHeight, setPanelHeight])
+  }, [setPanelHeight])
 
   // Clear error when user starts typing (like AgentPanel)
   const handleInputChange = useCallback(() => {

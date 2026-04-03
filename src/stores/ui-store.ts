@@ -11,7 +11,7 @@ type ModalState = {
 // Panel constants
 const DEFAULT_PANEL_HEIGHT = 300
 const MIN_PANEL_HEIGHT = 150
-const MAX_PANEL_HEIGHT = 600 // absolute max, also clamped to 70% of viewport
+const MAX_PANEL_HEIGHT = 600 // absolute max, also clamped to leave MIN_BOARD_HEIGHT
 const MIN_BOARD_HEIGHT = 200 // board always gets at least this much space
 
 /** Get the effective max panel height based on current viewport */
