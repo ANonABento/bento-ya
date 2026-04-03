@@ -222,6 +222,24 @@ mod tests {
         }
     }
 
+    fn test_workspace() -> Workspace {
+        Workspace {
+            id: "ws-1".to_string(),
+            name: "Test".to_string(),
+            repo_path: "/test".to_string(),
+            tab_order: 0,
+            is_active: true,
+            config: "{}".to_string(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            discord_guild_id: None,
+            discord_category_id: None,
+            discord_chef_channel_id: None,
+            discord_notifications_channel_id: None,
+            discord_enabled: None,
+        }
+    }
+
     #[test]
     fn test_new_cli_chef() {
         let chef = ChefSession::new_cli("ws-1".to_string(), test_config());
@@ -240,54 +258,20 @@ mod tests {
     #[test]
     fn test_augment_message() {
         let chef = ChefSession::new_cli("ws-1".to_string(), test_config());
-
-        let workspace = Workspace {
-            id: "ws-1".to_string(),
-            name: "Test".to_string(),
-            repo_path: "/test".to_string(),
-            tab_order: 0,
-            is_active: true,
-            config: "{}".to_string(),
-            created_at: String::new(),
-            updated_at: String::new(),
-            discord_guild_id: None,
-            discord_category_id: None,
-            discord_chef_channel_id: None,
-            discord_notifications_channel_id: None,
-            discord_enabled: None,
-        };
-        let columns = vec![];
-        let tasks = vec![];
-
-        let augmented = chef.augment_message("create a task", &workspace, &columns, &tasks);
+        let augmented = chef.augment_message("create a task", &test_workspace(), &[], &[]);
         assert!(augmented.contains("board state"));
         assert!(augmented.contains("create a task"));
     }
 
     #[test]
     fn test_build_system_prompt_cli_vs_api() {
-        let workspace = Workspace {
-            id: "ws-1".to_string(),
-            name: "Test".to_string(),
-            repo_path: "/test".to_string(),
-            tab_order: 0,
-            is_active: true,
-            config: "{}".to_string(),
-            created_at: String::new(),
-            updated_at: String::new(),
-            discord_guild_id: None,
-            discord_category_id: None,
-            discord_chef_channel_id: None,
-            discord_notifications_channel_id: None,
-            discord_enabled: None,
-        };
-        let columns = vec![];
+        let workspace = test_workspace();
 
         let cli_chef = ChefSession::new_cli("ws-1".to_string(), test_config());
         let api_chef = ChefSession::new_api("ws-1".to_string(), test_config());
 
-        let cli_prompt = cli_chef.build_system_prompt(&workspace, &columns);
-        let api_prompt = api_chef.build_system_prompt(&workspace, &columns);
+        let cli_prompt = cli_chef.build_system_prompt(&workspace, &[]);
+        let api_prompt = api_chef.build_system_prompt(&workspace, &[]);
 
         // CLI mode has action block instructions
         assert!(cli_prompt.contains("```action"));
