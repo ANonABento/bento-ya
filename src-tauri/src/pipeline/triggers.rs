@@ -78,23 +78,6 @@ pub struct TaskTriggerOverrides {
     pub skip_triggers: Option<bool>,
 }
 
-// ─── Events ────────────────────────────────────────────────────────────────
-
-/// Event emitted when a spawn_cli trigger needs to execute.
-/// Frontend listens for this and spawns the appropriate CLI.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SpawnCliEvent {
-    pub task_id: String,
-    pub column_id: String,
-    pub workspace_id: String,
-    pub cli_type: String,
-    pub command: Option<String>,
-    pub prompt: String,
-    pub flags: Option<Vec<String>>,
-    pub use_queue: bool,
-}
-
 // ─── Trigger Resolution ────────────────────────────────────────────────────
 
 /// Resolve the effective trigger action for a given hook (on_entry/on_exit),

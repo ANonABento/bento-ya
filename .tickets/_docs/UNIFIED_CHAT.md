@@ -203,9 +203,14 @@ User can override per-task from the task card UI (toggle button).
 - All three bypass frontend round-trip, use `spawn_cli_trigger_task` from bridge.rs
 - State goes Triggered → Running within same function call (no frontend delay)
 
-**Remaining (Phase 3c):**
-- Remove `fire_cli_trigger`, `fire_agent_trigger`, `fire_skill_trigger`, `fire_script_trigger` IPC commands
-- Simplify frontend `use-pipeline-events.ts` (remove spawn listeners)
+**Phase 3c: Dead code cleanup — DONE**
+- Removed `fire_agent_trigger`, `fire_cli_trigger`, `fire_script_trigger`, `fire_skill_trigger` IPC commands from `commands/pipeline.rs`
+- Removed from `lib.rs` invoke_handler registration
+- Removed `SpawnAgentEvent`, `SpawnScriptEvent`, `SpawnSkillEvent` from `pipeline/mod.rs`
+- Removed `SpawnCliEvent` from `pipeline/triggers.rs`
+- Deleted `src/hooks/use-pipeline-events.ts` (entire file — all it did was relay spawn events)
+- Removed `usePipelineEvents` hook usage from `app.tsx`
+- Removed dead IPC functions + spawn event types from `ipc.ts`
 
 ### Phase 4: Chef Layer
 - Create `ChefSession` that wraps `UnifiedChatSession`

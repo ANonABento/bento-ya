@@ -319,9 +319,26 @@ Files:
 
 **Test results:** 67 Rust tests, all passing
 
+## Completed: Unified Chat System Phase 3c (2026-04-03)
+
+**Removed all dead trigger relay code.**
+
+Backend:
+- Removed `fire_agent_trigger`, `fire_cli_trigger`, `fire_script_trigger`, `fire_skill_trigger` from commands + invoke_handler
+- Removed `SpawnAgentEvent`, `SpawnScriptEvent`, `SpawnSkillEvent`, `SpawnCliEvent` structs
+
+Frontend:
+- Deleted `use-pipeline-events.ts` entirely
+- Removed `usePipelineEvents` from `app.tsx`
+- Removed 4 `fire*Trigger` functions + 4 spawn event types + 4 event listeners from `ipc.ts`
+
+**Test results:** 67 Rust + 128 Frontend = 195 tests, all passing. TypeScript clean.
+
 ## Next Up
 
-- [ ] Unified Chat Phase 3c: Remove old fire_*_trigger IPC commands + frontend listeners
+- [ ] Unified Chat Phase 4: Chef layer
+- [ ] Unified Chat Phase 5: Frontend unification
+- [ ] Unified Chat Phase 6: Final cleanup (remove old managers)
 - [ ] Add more providers beyond Anthropic (OpenAI API support)
 - [ ] Agent chat streaming to task card UI (terminal output visible in card)
 - [ ] Address remaining known issues (port 1420 squatting)

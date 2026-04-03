@@ -56,6 +56,8 @@ Columns define `on_entry`/`on_exit` triggers. Tasks can override. See `.tickets/
 
 **Action types:** `spawn_cli`, `move_column`, `trigger_task`, `none`
 
+**Trigger execution:** All trigger types (agent, skill, script, spawn_cli) execute directly in the backend via `chat::bridge::spawn_cli_trigger_task()`. No frontend round-trip — the old `pipeline:spawn_*` events and `fire_*_trigger` IPC commands have been removed.
+
 ### Unified Chat System (`src-tauri/src/chat/`)
 
 Transport abstraction + session layer (Phase 1-2 complete, replacing process layer incrementally):

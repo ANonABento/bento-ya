@@ -187,10 +187,6 @@ pub fn run() {
             commands::pipeline::get_pipeline_state,
             commands::pipeline::try_advance_task,
             commands::pipeline::set_pipeline_error,
-            commands::pipeline::fire_agent_trigger,
-            commands::pipeline::fire_cli_trigger,
-            commands::pipeline::fire_script_trigger,
-            commands::pipeline::fire_skill_trigger,
             commands::pipeline::update_script_exit_code,
             // Siege loop commands
             commands::siege::start_siege,

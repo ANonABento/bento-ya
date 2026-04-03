@@ -118,39 +118,6 @@ pub fn emit_tasks_changed(app: &AppHandle, workspace_id: &str, reason: &str) {
     });
 }
 
-/// Event emitted when pipeline needs to spawn an agent
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SpawnAgentEvent {
-    pub task_id: String,
-    pub column_id: String,
-    pub workspace_id: String,
-    pub agent_type: String,
-    pub flags: Option<Vec<String>>,
-}
-
-/// Event emitted when pipeline needs to spawn a script
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SpawnScriptEvent {
-    pub task_id: String,
-    pub column_id: String,
-    pub workspace_id: String,
-    pub script_path: String,
-    pub task_title: String,
-}
-
-/// Event emitted when pipeline needs to spawn a skill
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SpawnSkillEvent {
-    pub task_id: String,
-    pub column_id: String,
-    pub workspace_id: String,
-    pub skill_name: String,
-    pub flags: Option<Vec<String>>,
-}
-
 /// Payload sent to webhook URLs
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

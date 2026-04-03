@@ -641,51 +641,6 @@ export async function retryPipeline(taskId: string): Promise<Task> {
   return invoke<Task>('retry_pipeline', { taskId })
 }
 
-export async function fireAgentTrigger(
-  taskId: string,
-  agentType: string,
-  envVars?: Record<string, string>,
-  cliPath?: string,
-): Promise<Task> {
-  return invoke<Task>('fire_agent_trigger', { taskId, agentType, envVars, cliPath })
-}
-
-export async function fireCliTrigger(
-  taskId: string,
-  cliType: string,
-  command?: string,
-  prompt?: string,
-  flags?: string[],
-  useQueue?: boolean,
-  cliPath?: string,
-): Promise<Task> {
-  return invoke<Task>('fire_cli_trigger', {
-    taskId,
-    cliType,
-    command,
-    prompt: prompt ?? '',
-    flags,
-    useQueue: useQueue ?? true,
-    cliPath,
-  })
-}
-
-export async function fireScriptTrigger(
-  taskId: string,
-  scriptPath: string,
-): Promise<Task> {
-  return invoke<Task>('fire_script_trigger', { taskId, scriptPath })
-}
-
-export async function fireSkillTrigger(
-  taskId: string,
-  skillName: string,
-  envVars?: Record<string, string>,
-  cliPath?: string,
-): Promise<Task> {
-  return invoke<Task>('fire_skill_trigger', { taskId, skillName, envVars, cliPath })
-}
-
 // ─── Pipeline event listeners ───────────────────────────────────────────────
 
 export const onPipelineTriggered = (cb: EventCallback<PipelineEvent>): Promise<UnlistenFn> =>
@@ -698,61 +653,6 @@ export const onPipelineComplete = (cb: EventCallback<PipelineEvent>): Promise<Un
   listen<PipelineEvent>('pipeline:complete', cb)
 export const onPipelineError = (cb: EventCallback<PipelineEvent>): Promise<UnlistenFn> =>
   listen<PipelineEvent>('pipeline:error', cb)
-
-// ─── Pipeline spawn event types ─────────────────────────────────────────────
-
-export type SpawnAgentEvent = {
-  taskId: string
-  columnId: string
-  workspaceId: string
-  agentType: string
-  flags?: string[]
-}
-
-export type SpawnScriptEvent = {
-  taskId: string
-  columnId: string
-  workspaceId: string
-  scriptPath: string
-  taskTitle: string
-}
-
-export type SpawnSkillEvent = {
-  taskId: string
-  columnId: string
-  workspaceId: string
-  skillName: string
-  flags?: string[]
-}
-
-export const onPipelineSpawnAgent = (
-  cb: EventCallback<SpawnAgentEvent>,
-): Promise<UnlistenFn> => listen<SpawnAgentEvent>('pipeline:spawn_agent', cb)
-
-export const onPipelineSpawnScript = (
-  cb: EventCallback<SpawnScriptEvent>,
-): Promise<UnlistenFn> => listen<SpawnScriptEvent>('pipeline:spawn_script', cb)
-
-export const onPipelineSpawnSkill = (
-  cb: EventCallback<SpawnSkillEvent>,
-): Promise<UnlistenFn> => listen<SpawnSkillEvent>('pipeline:spawn_skill', cb)
-
-// ─── V2 Trigger Events ──────────────────────────────────────────────────────
-
-export type SpawnCliEvent = {
-  taskId: string
-  columnId: string
-  workspaceId: string
-  cliType: string
-  command?: string
-  prompt: string
-  flags?: string[]
-  useQueue: boolean
-}
-
-export const onPipelineSpawnCli = (
-  cb: EventCallback<SpawnCliEvent>,
-): Promise<UnlistenFn> => listen<SpawnCliEvent>('pipeline:spawn_cli', cb)
 
 // ─── Orchestrator commands ──────────────────────────────────────────────────
 
