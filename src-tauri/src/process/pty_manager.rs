@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::os::fd::FromRawFd;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use tauri::{AppHandle, Emitter};
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -28,9 +28,8 @@ pub enum PtyError {
 }
 
 struct PtySession {
-    #[allow(dead_code)]
-    master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    /// Blocking PTY handle for write + resize (kept on main thread)
+    pty: pty_process::blocking::Pty,
     scrollback: Arc<Mutex<Vec<u8>>>,
     #[allow(dead_code)]
     reader_handle: Option<JoinHandle<()>>,
@@ -67,56 +66,49 @@ impl PtyManager {
             return Err(PtyError::MaxReached(self.max_ptys));
         }
 
-        let pty_system = native_pty_system();
-        let size = PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        };
+        // Open blocking PTY (used for write/resize from sync context)
+        let (pty, pts) =
+            pty_process::blocking::open().map_err(|e| PtyError::SpawnFailed(e.to_string()))?;
 
-        let pair = pty_system
-            .openpty(size)
-            .map_err(|e| PtyError::SpawnFailed(e.to_string()))?;
+        pty.resize(pty_process::Size::new(rows, cols))
+            .map_err(|e| PtyError::ResizeFailed(e.to_string()))?;
 
-        let mut cmd = CommandBuilder::new(command);
+        // Build and spawn the command
+        let mut cmd = pty_process::blocking::Command::new(command);
         for arg in args {
-            cmd.arg(arg);
+            cmd = cmd.arg(arg);
         }
-
         if let Some(dir) = working_dir {
-            cmd.cwd(dir);
+            cmd = cmd.current_dir(dir);
         }
-
         if let Some(vars) = env_vars {
             for (key, value) in vars {
-                cmd.env(key, value);
+                cmd = cmd.env(key, value);
             }
         }
 
-        let mut child = pair
-            .slave
-            .spawn_command(cmd)
+        let mut child = cmd
+            .spawn(pts)
             .map_err(|e| PtyError::SpawnFailed(e.to_string()))?;
 
-        let pid = child.process_id();
+        let pid = child.id();
 
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|e| PtyError::SpawnFailed(e.to_string()))?;
-
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| PtyError::SpawnFailed(e.to_string()))?;
+        // Dup the PTY fd for the reader thread (blocking::Pty doesn't have try_clone)
+        use std::os::fd::AsRawFd;
+        let pty_fd = pty.as_raw_fd();
+        let dup_fd = unsafe { libc::dup(pty_fd) };
+        if dup_fd < 0 {
+            return Err(PtyError::SpawnFailed("Failed to dup PTY fd".to_string()));
+        }
+        let reader_file = unsafe { std::fs::File::from_raw_fd(dup_fd) };
 
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
         let (data_tx, mut data_rx) = mpsc::channel::<Vec<u8>>(256);
+        let (exit_tx, mut exit_rx) = mpsc::channel::<()>(1);
 
-        // Dedicated reader thread (blocking I/O on PTY)
+        // Blocking reader thread — reads PTY output via duped fd
         std::thread::spawn(move || {
-            let mut reader = reader;
+            let mut reader = reader_file;
             let mut buf = [0u8; 4096];
             loop {
                 match reader.read(&mut buf) {
@@ -130,21 +122,19 @@ impl PtyManager {
             }
         });
 
-        // Child process watcher — uses child.wait() to detect exit on macOS
-        // (PTY read may block forever after child exits on macOS)
-        let child_exit_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let child_exit_flag_writer = Arc::clone(&child_exit_flag);
+        // Child exit watcher thread — std::process::Child::wait() uses waitpid
+        // This is the KEY fix: tokio/std waitpid detects exit via SIGCHLD,
+        // completely independent of the PTY fd state
         std::thread::spawn(move || {
-            // wait() blocks until child exits and reaps it (no zombie)
-            let _ = child.wait();
-            child_exit_flag_writer.store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ = child.wait(); // blocks until child exits, reaps zombie
+            let _ = exit_tx.blocking_send(());
         });
 
         let scrollback: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
         let scrollback_writer = Arc::clone(&scrollback);
         let task_id_emit = task_id.to_string();
 
-        // Async task: buffer output at ~60fps and emit Tauri events
+        // Async task: buffer output and emit Tauri events
         let reader_handle = tokio::spawn(async move {
             let mut buffer = Vec::new();
             let mut interval =
@@ -155,11 +145,34 @@ impl PtyManager {
                     _ = shutdown_rx.recv() => {
                         break;
                     }
+                    _ = exit_rx.recv() => {
+                        // Child exited (waitpid returned)
+                        // Drain remaining data
+                        while let Ok(bytes) = data_rx.try_recv() {
+                            buffer.extend_from_slice(&bytes);
+                        }
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        while let Ok(bytes) = data_rx.try_recv() {
+                            buffer.extend_from_slice(&bytes);
+                        }
+                        // Flush
+                        if !buffer.is_empty() {
+                            let _ = app_handle.emit(
+                                &format!("pty:{}:output", task_id_emit),
+                                base64_encode(&buffer),
+                            );
+                            buffer.clear();
+                        }
+                        let _ = app_handle.emit(
+                            &format!("pty:{}:exit", task_id_emit),
+                            serde_json::json!({ "taskId": task_id_emit }),
+                        );
+                        break;
+                    }
                     data = data_rx.recv() => {
                         match data {
                             Some(bytes) => {
                                 buffer.extend_from_slice(&bytes);
-
                                 if let Ok(mut sb) = scrollback_writer.lock() {
                                     sb.extend_from_slice(&bytes);
                                     if sb.len() > DEFAULT_SCROLLBACK_BYTES {
@@ -169,7 +182,7 @@ impl PtyManager {
                                 }
                             }
                             None => {
-                                // Reader thread exited — flush and emit exit
+                                // Reader thread exited (EOF) — flush and exit
                                 if !buffer.is_empty() {
                                     let _ = app_handle.emit(
                                         &format!("pty:{}:output", task_id_emit),
@@ -193,40 +206,21 @@ impl PtyManager {
                             );
                             buffer.clear();
                         }
-
-                        // Check if child process exited (macOS PTY fix)
-                        if child_exit_flag.load(std::sync::atomic::Ordering::SeqCst) {
-                            // Drain any remaining data
-                            while let Ok(bytes) = data_rx.try_recv() {
-                                if !bytes.is_empty() {
-                                    let _ = app_handle.emit(
-                                        &format!("pty:{}:output", task_id_emit),
-                                        base64_encode(&bytes),
-                                    );
-                                }
-                            }
-                            let _ = app_handle.emit(
-                                &format!("pty:{}:exit", task_id_emit),
-                                serde_json::json!({ "taskId": task_id_emit }),
-                            );
-                            break;
-                        }
                     }
                 }
             }
         });
 
         let session = PtySession {
-            master: pair.master,
-            writer,
+            pty,
             scrollback,
             reader_handle: Some(reader_handle),
             shutdown_tx: Some(shutdown_tx),
-            pid,
+            pid: Some(pid),
         };
 
         self.sessions.insert(task_id.to_string(), session);
-        Ok(pid.unwrap_or(0))
+        Ok(pid)
     }
 
     pub fn write(&mut self, task_id: &str, data: &[u8]) -> Result<(), PtyError> {
@@ -236,12 +230,12 @@ impl PtyManager {
             .ok_or_else(|| PtyError::NotFound(task_id.to_string()))?;
 
         session
-            .writer
+            .pty
             .write_all(data)
             .map_err(|e| PtyError::WriteFailed(e.to_string()))?;
 
         session
-            .writer
+            .pty
             .flush()
             .map_err(|e| PtyError::WriteFailed(e.to_string()))?;
 
@@ -255,13 +249,8 @@ impl PtyManager {
             .ok_or_else(|| PtyError::NotFound(task_id.to_string()))?;
 
         session
-            .master
-            .resize(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
+            .pty
+            .resize(pty_process::Size::new(rows, cols))
             .map_err(|e| PtyError::ResizeFailed(e.to_string()))?;
 
         Ok(())
