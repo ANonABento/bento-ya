@@ -185,8 +185,55 @@ cd /Users/bentomac/bento-ya/src-tauri && cargo check
 - Updated `useChatSession` test for new `apiKeyEnvVar` param
 - **Results: 52 Rust tests + 128 frontend tests, all passing**
 
+## Completed: Pipeline Bug Fixes + E2E Validation (2026-04-02 continued)
+
+**8 pipeline bugs found and fixed via WebDriver E2E audit:**
+
+1. `executor.rs` — calls `pipeline::fire_trigger()` after TaskCreated/TaskMoved (was missing)
+2. `pipeline.rs` — `fire_cli_trigger` uses `start_agent_with_prompt()` (was spawning idle)
+3. `agent_runner.rs` — cleans up stale sessions instead of "Agent already running" error
+4. `pipeline/mod.rs` — `try_auto_advance` checks V2 `exit_criteria.auto_advance`
+5. `pipeline/mod.rs` — `evaluate_exit_criteria` reads V2 triggers JSON, trusts mark_complete for CLI agents
+6. `use-pipeline-events.ts` — PTY exit listener registered BEFORE spawning agent (race fix)
+7. Chef CLI empty response — caused by stale `--resume` session (startup cleanup fixes this)
+8. Chef CLI task creation works with fresh sessions (verified via WebDriver)
+
+**E2E verified:** create task → trigger fires → agent spawns → mark_complete → auto-advance Working→Review
+
+## Completed: Graceful Recovery (2026-04-03)
+
+**11 graceful error handling fixes across 3 phases:**
+
+Phase 1 (HIGH):
+- CLI resume fallback — detect empty response, retry without resume, clear dead DB refs
+- Startup cleanup — reset stale pipeline states (running/triggered → idle)
+- Startup cleanup — clear all stale cli_session_id references
+- App close — kill PTY + agent runner processes (was orphaning them)
+
+Phase 2 (MEDIUM):
+- Workspace repo_path validation before agent spawn
+- Column-deleted guard in fire_trigger
+- Error surfacing — log CLI action failures instead of swallowing
+
+Phase 3 (LOW):
+- React strict mode listener dedup with cancelled flag
+- PTY exit detection via child.wait() + AtomicBool polling (partial — see below)
+
+## Known Issue: PTY Exit Detection on macOS
+
+**Status: NOT WORKING — needs architecture change**
+
+portable_pty's `child.wait()` blocks because the PTY master fd keeps the process group alive.
+Three approaches tried (channel, PID polling, AtomicBool) — all blocked by the same root cause.
+
+**Fix needed:** Trigger agents should use `std::process::Command` instead of PTY spawning.
+They're non-interactive (stdin prompt + stdout response) — PTY is overkill.
+
+**Workaround:** Manual `markPipelineComplete` or retry button in UI.
+
 ## Next Up
 
-- [ ] Test the full flow end-to-end (type description → chef generates triggers → column updates)
+- [ ] **Refactor fire_cli_trigger** — use Command-based spawning for trigger agents (not PTY)
 - [ ] Add more providers beyond Anthropic (OpenAI API support)
-- [ ] Address remaining known issues (port 1420 squatting, CLI streaming reliability)
+- [ ] Agent chat streaming to task card UI
+- [ ] Address remaining known issues (port 1420 squatting)
