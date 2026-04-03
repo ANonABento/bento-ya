@@ -8,6 +8,8 @@ pub mod dependencies;
 pub mod template;
 pub mod triggers;
 
+use std::collections::HashMap;
+
 use crate::chat::bridge;
 use crate::db::{self, Column, Task};
 use crate::error::AppError;
@@ -319,7 +321,7 @@ pub fn fire_trigger(
             let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
 
             // Build env vars for script
-            let mut env_vars = std::collections::HashMap::new();
+            let mut env_vars = HashMap::new();
             env_vars.insert("TASK_ID".to_string(), task.id.clone());
             env_vars.insert("WORKSPACE_PATH".to_string(), workspace.repo_path.clone());
             env_vars.insert("TASK_TITLE".to_string(), task.title.clone());
