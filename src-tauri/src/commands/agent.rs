@@ -4,12 +4,15 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
+use crate::chat::registry::SharedSessionRegistry;
+use crate::chat::session::SessionConfig;
+use crate::chat::events::{ChatEvent, ToolStatus};
+use crate::chat::session::TransportType;
 use crate::db::{self, AppState, AgentMessage};
 use crate::error::AppError;
-use crate::process::agent_cli_session::{
-    AgentCompletePayload, SharedAgentCliSessionManager,
-};
 use crate::process::agent_runner::{AgentRunner, AgentSession};
+
+// ─── Types ────────────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,6 +47,45 @@ impl From<AgentSession> for AgentInfo {
         }
     }
 }
+
+/// Agent completion payload for frontend
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCompletePayload {
+    pub task_id: String,
+    pub success: bool,
+    pub message: Option<String>,
+}
+
+/// Agent stream payload for frontend
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentStreamPayload {
+    task_id: String,
+    content: String,
+}
+
+/// Agent thinking payload for frontend
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentThinkingPayload {
+    task_id: String,
+    content: String,
+    is_complete: bool,
+}
+
+/// Agent tool call payload for frontend
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentToolCallPayload {
+    task_id: String,
+    tool_id: String,
+    tool_name: String,
+    tool_input: String,
+    status: String,
+}
+
+// ─── PTY Agent Commands (unchanged — used by terminal view) ───────────────
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn start_agent(
@@ -164,14 +206,17 @@ pub fn clear_agent_messages(
     Ok(())
 }
 
-// ─── Agent CLI Session Commands ────────────────────────────────────────────
+// ─── Agent CLI Chat (via UnifiedChatSession) ──────────────────────────────
 
-/// Stream a message to the per-task agent CLI and emit response chunks
+/// Stream a message to the per-task agent CLI and emit response chunks.
+///
+/// Uses `UnifiedChatSession` from the `SessionRegistry` instead of the
+/// legacy `AgentCliSessionManager`.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn stream_agent_chat(
     app: AppHandle,
     state: State<'_, AppState>,
-    agent_cli_manager: State<'_, SharedAgentCliSessionManager>,
+    session_registry: State<'_, SharedSessionRegistry>,
     task_id: String,
     message: String,
     working_dir: String,
@@ -219,51 +264,44 @@ Be concise and helpful."#,
         )
     };
 
-    // 3. Spawn or reuse session, then send message
-    let mut manager = agent_cli_manager.lock().await;
+    // 3. Get or create session from registry
+    let (full_response, captured_cli_session_id) = {
+        let mut registry = session_registry.lock().await;
 
-    // Get existing session's resume ID, but drop it if model changed
-    // (Claude CLI ignores --model on --resume, so we must start a new session)
-    let resume_id = {
-        let existing_model = manager.get_model(&task_id);
-        let session_id = manager.get_cli_session_id(&task_id);
-        match (existing_model, &session_id) {
-            (Some(prev), Some(_)) if prev != model => None,
-            _ => session_id,
-        }
+        let config = SessionConfig {
+            cli_path,
+            model: model.clone(),
+            system_prompt,
+            working_dir: Some(working_dir.clone()),
+            effort_level: effort_level.clone(),
+        };
+
+        let session = registry
+            .get_or_create(&task_id, config, TransportType::Pipe)
+            .map_err(|e| AppError::InvalidInput(e))?;
+
+        // Handle model change (clears resume ID)
+        session.set_model(model.clone());
+
+        // Send message with event forwarding to frontend
+        let task_id_for_events = task_id.clone();
+        let app_for_events = app.clone();
+
+        session
+            .send_message(&message, move |event| {
+                emit_agent_event(&app_for_events, &task_id_for_events, event);
+            })
+            .await
+            .map_err(|e| AppError::InvalidInput(e))?
     };
 
-    // Always spawn/update session params (the spawn now just stores params, doesn't start a process)
-    manager
-        .spawn(
-            &task_id,
-            &cli_path,
-            &working_dir,
-            &model,
-            effort_level.as_deref(),
-            &system_prompt,
-            resume_id.as_deref(),
-        )
-        .await
-        .map_err(|e| AppError::InvalidInput(e))?;
-
-    // Send the message (this spawns the actual CLI process with positional arg)
-    let (full_response, captured_cli_session_id) = manager
-        .send_message(&task_id, &message, &app)
-        .await
-        .map_err(|e| AppError::InvalidInput(e))?;
-
-    // Drop manager lock before DB operations
-    drop(manager);
-
-    // 6. Save cli_session_id and assistant message
+    // 4. Save cli_session_id and assistant message
     {
         let conn = state
             .db
             .lock()
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-        // Update agent_session with cli_session_id if we have one
         if let Some(cli_sid) = &captured_cli_session_id {
             let agent_session =
                 db::get_or_create_agent_session_for_task(&conn, &task_id, "claude", Some(&working_dir))?;
@@ -276,7 +314,6 @@ Be concise and helpful."#,
             )?;
         }
 
-        // Save assistant message
         db::insert_agent_message(
             &conn,
             &task_id,
@@ -289,7 +326,7 @@ Be concise and helpful."#,
         )?;
     }
 
-    // 7. Emit completion event
+    // 5. Emit completion event
     let _ = app.emit(
         "agent:complete",
         &AgentCompletePayload {
@@ -302,12 +339,36 @@ Be concise and helpful."#,
     Ok(())
 }
 
-// ─── Queue Management Commands ─────────────────────────────────────────────
+/// Cancel an ongoing agent chat (kills the session)
+#[tauri::command(rename_all = "camelCase")]
+pub async fn cancel_agent_chat(
+    app: AppHandle,
+    session_registry: State<'_, SharedSessionRegistry>,
+    task_id: String,
+) -> Result<(), AppError> {
+    {
+        let mut registry = session_registry.lock().await;
+        if let Some(session) = registry.get_mut(&task_id) {
+            let _ = session.kill();
+        }
+    }
 
-/// Maximum number of concurrent agent sessions
+    let _ = app.emit(
+        "agent:complete",
+        &AgentCompletePayload {
+            task_id: task_id.clone(),
+            success: false,
+            message: Some("Cancelled".to_string()),
+        },
+    );
+
+    Ok(())
+}
+
+// ─── Queue Management Commands ────────────────────────────────────────────
+
 const MAX_CONCURRENT_AGENTS: i64 = 5;
 
-/// Queue status response
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueStatus {
@@ -317,7 +378,6 @@ pub struct QueueStatus {
     pub queued_tasks: Vec<db::Task>,
 }
 
-/// Queue multiple tasks for agent execution
 #[tauri::command(rename_all = "camelCase")]
 pub fn queue_agent_tasks(
     state: State<AppState>,
@@ -335,7 +395,6 @@ pub fn queue_agent_tasks(
     Ok(updated_tasks)
 }
 
-/// Update a task's agent status
 #[tauri::command(rename_all = "camelCase")]
 pub fn update_task_agent_status(
     state: State<AppState>,
@@ -352,7 +411,6 @@ pub fn update_task_agent_status(
     )?)
 }
 
-/// Get current queue status for a workspace
 #[tauri::command(rename_all = "camelCase")]
 pub fn get_queue_status(
     state: State<AppState>,
@@ -370,7 +428,6 @@ pub fn get_queue_status(
     })
 }
 
-/// Get the next task to process from the queue (if slots available)
 #[tauri::command(rename_all = "camelCase")]
 pub fn get_next_queued_task(
     state: State<AppState>,
@@ -387,27 +444,51 @@ pub fn get_next_queued_task(
     Ok(queued.into_iter().next())
 }
 
-/// Cancel an ongoing agent chat (kills the CLI process)
-#[tauri::command(rename_all = "camelCase")]
-pub async fn cancel_agent_chat(
-    app: AppHandle,
-    agent_cli_manager: State<'_, SharedAgentCliSessionManager>,
-    task_id: String,
-) -> Result<(), AppError> {
-    {
-        let mut manager = agent_cli_manager.lock().await;
-        manager.kill(&task_id).await;
+// ─── Event Forwarding ─────────────────────────────────────────────────────
+
+/// Forward ChatEvent to agent-specific Tauri events for the frontend.
+fn emit_agent_event(app: &AppHandle, task_id: &str, event: ChatEvent) {
+    match event {
+        ChatEvent::TextContent(content) => {
+            let _ = app.emit(
+                "agent:stream",
+                &AgentStreamPayload {
+                    task_id: task_id.to_string(),
+                    content,
+                },
+            );
+        }
+        ChatEvent::ThinkingContent { content, is_complete } => {
+            let _ = app.emit(
+                "agent:thinking",
+                &AgentThinkingPayload {
+                    task_id: task_id.to_string(),
+                    content,
+                    is_complete,
+                },
+            );
+        }
+        ChatEvent::ToolUse {
+            id,
+            name,
+            input,
+            status,
+        } => {
+            let status_str = match status {
+                ToolStatus::Running => "running",
+                ToolStatus::Complete => "completed",
+            };
+            let _ = app.emit(
+                "agent:tool_call",
+                &AgentToolCallPayload {
+                    task_id: task_id.to_string(),
+                    tool_id: id,
+                    tool_name: name,
+                    tool_input: input.unwrap_or_default(),
+                    status: status_str.to_string(),
+                },
+            );
+        }
+        ChatEvent::Complete | ChatEvent::SessionId(_) | ChatEvent::RawOutput(_) | ChatEvent::Unknown => {}
     }
-
-    // Emit cancelled event
-    let _ = app.emit(
-        "agent:complete",
-        &AgentCompletePayload {
-            task_id: task_id.clone(),
-            success: false,
-            message: Some("Cancelled".to_string()),
-        },
-    );
-
-    Ok(())
 }

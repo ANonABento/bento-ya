@@ -347,10 +347,22 @@ Frontend:
 
 **Test results:** 71 Rust tests, all passing (4 new)
 
+## Completed: Unified Chat System Phase 4c (2026-04-03)
+
+**Rewired `stream_agent_chat` and `cancel_agent_chat` to use `UnifiedChatSession`.**
+
+- `stream_agent_chat` now uses `SharedSessionRegistry` instead of `SharedAgentCliSessionManager`
+- Sessions keyed by `task_id` in the registry with `get_or_create`
+- `cancel_agent_chat` kills session via registry
+- Event forwarding: `emit_agent_event()` converts `ChatEvent` → agent-specific Tauri events
+- `AgentCompletePayload` + event payload structs moved to `commands/agent.rs` (no longer imported from legacy module)
+- `SharedAgentCliSessionManager` kept in managed state for Discord commands (Phase 6 cleanup)
+
+**Test results:** 71 Rust tests, all passing
+
 ## Next Up
 
 - [ ] Unified Chat Phase 4b: Rewire orchestrator CLI mode to use ChefSession
-- [ ] Unified Chat Phase 4c: Rewire agent chat to use UnifiedChatSession
 - [ ] Unified Chat Phase 5: Frontend unification
 - [ ] Unified Chat Phase 6: Final cleanup (remove old managers)
 - [ ] Add more providers beyond Anthropic (OpenAI API support)

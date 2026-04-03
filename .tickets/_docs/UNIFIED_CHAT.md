@@ -221,9 +221,14 @@ User can override per-task from the task card UI (toggle button).
 - Dual mode: `ChefMode::Cli` vs `ChefMode::Api`
 - 71 tests passing (4 new chef tests)
 
-**Remaining (Phase 4b-c):**
+**Phase 4c: Agent chat rewire — DONE**
+- `stream_agent_chat` uses `SharedSessionRegistry` + `UnifiedChatSession` instead of `AgentCliSessionManager`
+- `cancel_agent_chat` kills session via registry
+- Event forwarding via `emit_agent_event()` (ChatEvent → agent Tauri events)
+- Payload structs moved to commands/agent.rs (decoupled from legacy)
+
+**Remaining (Phase 4b):**
 - 4b: Rewire `stream_orchestrator_chat` CLI mode to use ChefSession
-- 4c: Rewire `stream_agent_chat` to use UnifiedChatSession
 
 ### Phase 5: Frontend Unification
 - Single chat component that renders bubble or terminal based on setting
