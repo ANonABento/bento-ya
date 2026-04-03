@@ -805,8 +805,11 @@ async fn stream_via_cli(
         // Execute the parsed actions
         match execute_tools(&conn, &app, workspace_id, &tool_uses, &columns) {
             Ok(result) => {
-                // Emit tool results for each action
+                // Log and emit tool results for each action
                 for tool_result in &result.results {
+                    if tool_result.is_error {
+                        log::warn!("CLI action error: {}", tool_result.content);
+                    }
                     let _ = app.emit("orchestrator:tool_result", &ToolResultPayload {
                         workspace_id: workspace_id.to_string(),
                         tool_use_id: tool_result.tool_use_id.clone(),
@@ -816,7 +819,7 @@ async fn stream_via_cli(
                 }
             }
             Err(e) => {
-                // Log error but don't fail the whole operation
+                log::error!("CLI action execution failed: {}", e);
                 let _ = app.emit("orchestrator:error", &OrchestratorEvent {
                     workspace_id: workspace_id.to_string(),
                     event_type: "warning".to_string(),

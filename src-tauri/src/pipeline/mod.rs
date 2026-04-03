@@ -175,6 +175,12 @@ pub fn fire_trigger(
     task: &Task,
     column: &Column,
 ) -> Result<Task, AppError> {
+    // Verify column still exists (may have been deleted while trigger was queued)
+    if db::get_column(conn, &column.id).is_err() {
+        log::warn!("Column {} deleted before trigger could fire for task {}", column.id, task.id);
+        return Ok(task.clone());
+    }
+
     // Check for V2 triggers first
     if let Some(ref triggers_json) = column.triggers {
         if triggers_json != "{}" && !triggers_json.is_empty() {
