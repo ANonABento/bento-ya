@@ -196,9 +196,15 @@ User can override per-task from the task card UI (toggle button).
 - Legacy triggers (agent/skill/script from V1) still use frontend round-trip
 - 67 tests passing
 
-**Remaining (Phase 3b-c):**
-- Wire legacy V1 triggers (agent/skill/script) to use unified sessions
-- Remove `fire_cli_trigger`, `fire_agent_trigger`, `fire_skill_trigger` IPC commands
+**Phase 3b: Legacy V1 triggers — DONE**
+- Agent triggers: spawn CLI PTY directly with agent_type as command, no initial prompt
+- Skill triggers: spawn CLI PTY with "claude" + `/{skill_name}` as initial prompt
+- Script triggers: parse script_path into command + args, spawn PTY with env vars
+- All three bypass frontend round-trip, use `spawn_cli_trigger_task` from bridge.rs
+- State goes Triggered → Running within same function call (no frontend delay)
+
+**Remaining (Phase 3c):**
+- Remove `fire_cli_trigger`, `fire_agent_trigger`, `fire_skill_trigger`, `fire_script_trigger` IPC commands
 - Simplify frontend `use-pipeline-events.ts` (remove spawn listeners)
 
 ### Phase 4: Chef Layer

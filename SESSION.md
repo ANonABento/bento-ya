@@ -307,9 +307,20 @@ Files:
 
 **Test results:** 67 Rust tests, all passing
 
+## Completed: Unified Chat System Phase 3b (2026-04-03)
+
+**All legacy V1 triggers now execute directly in the backend.**
+
+- Agent triggers: `spawn_cli_trigger_task(agent_type, [], working_dir, "", None)`
+- Skill triggers: `spawn_cli_trigger_task("claude", [], working_dir, "/{skill}", None)`
+- Script triggers: parse command+args from script_path, `spawn_cli_trigger_task(cmd, args, working_dir, "", env_vars)`
+- Added `args` parameter to `spawn_cli_trigger_task` for script support
+- All trigger types now go Triggered → Running in a single function call (no frontend delay)
+
+**Test results:** 67 Rust tests, all passing
+
 ## Next Up
 
-- [ ] Unified Chat Phase 3b: Wire legacy V1 triggers (agent/skill/script) to unified sessions
 - [ ] Unified Chat Phase 3c: Remove old fire_*_trigger IPC commands + frontend listeners
 - [ ] Add more providers beyond Anthropic (OpenAI API support)
 - [ ] Agent chat streaming to task card UI (terminal output visible in card)

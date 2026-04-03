@@ -8,6 +8,7 @@ pub mod dependencies;
 pub mod template;
 pub mod triggers;
 
+use crate::chat::bridge;
 use crate::db::{self, Column, Task};
 use crate::error::AppError;
 use chrono::Utc;
@@ -225,56 +226,133 @@ pub fn fire_trigger(
     };
     let _ = app.emit("pipeline:triggered", &event);
 
+    // Get workspace for working directory
+    let workspace = db::get_workspace(conn, &task.workspace_id)?;
+
     // Execute trigger based on type
     match trigger.trigger_type.as_str() {
         "agent" => {
-            // Agent triggers emit spawn_agent event for frontend to call fire_agent_trigger
-            // Keep state as triggered until agent actually spawns
+            // Agent trigger — spawn CLI in PTY directly (no frontend round-trip)
             let agent_type = trigger.config.agent.clone().unwrap_or_else(|| "claude".to_string());
 
-            // Emit spawn_agent event with task/column info for frontend
-            let spawn_event = SpawnAgentEvent {
-                task_id: task.id.clone(),
-                column_id: column.id.clone(),
-                workspace_id: task.workspace_id.clone(),
+            // Set state to Running
+            let updated_task = db::update_task_pipeline_state(
+                conn,
+                &task.id,
+                PipelineState::Running.as_str(),
+                Some(&ts),
+                None,
+            )?;
+
+            let _ = app.emit(
+                "pipeline:running",
+                &PipelineEvent {
+                    task_id: task.id.clone(),
+                    column_id: column.id.clone(),
+                    event_type: "running".to_string(),
+                    state: PipelineState::Running.as_str().to_string(),
+                    message: Some(format!("Agent trigger: {}", agent_type)),
+                },
+            );
+
+            bridge::spawn_cli_trigger_task(
+                app.clone(),
+                task.id.clone(),
                 agent_type,
-                flags: trigger.config.flags.clone(),
-            };
-            let _ = app.emit("pipeline:spawn_agent", &spawn_event);
+                Vec::new(),
+                workspace.repo_path.clone(),
+                String::new(), // No initial prompt — interactive
+                None,
+            );
 
             Ok(updated_task)
         }
         "skill" => {
-            // Skill triggers emit spawn_skill event for frontend to call fire_skill_trigger
-            // Keep state as triggered until skill actually spawns (same pattern as agent)
+            // Skill trigger — spawn CLI in PTY with /<skill_name> as initial prompt
             let skill_name = trigger.config.skill.clone().unwrap_or_else(|| "code-check".to_string());
+            let skill_prompt = format!("/{}", skill_name);
 
-            // Emit spawn_skill event with task/column info for frontend
-            let spawn_event = SpawnSkillEvent {
-                task_id: task.id.clone(),
-                column_id: column.id.clone(),
-                workspace_id: task.workspace_id.clone(),
-                skill_name,
-                flags: trigger.config.flags.clone(),
-            };
-            let _ = app.emit("pipeline:spawn_skill", &spawn_event);
+            // Set state to Running
+            let updated_task = db::update_task_pipeline_state(
+                conn,
+                &task.id,
+                PipelineState::Running.as_str(),
+                Some(&ts),
+                None,
+            )?;
+
+            let _ = app.emit(
+                "pipeline:running",
+                &PipelineEvent {
+                    task_id: task.id.clone(),
+                    column_id: column.id.clone(),
+                    event_type: "running".to_string(),
+                    state: PipelineState::Running.as_str().to_string(),
+                    message: Some(format!("Skill trigger: {}", skill_name)),
+                },
+            );
+
+            bridge::spawn_cli_trigger_task(
+                app.clone(),
+                task.id.clone(),
+                "claude".to_string(),
+                Vec::new(),
+                workspace.repo_path.clone(),
+                skill_prompt,
+                None,
+            );
 
             Ok(updated_task)
         }
         "script" => {
-            // Script triggers emit spawn_script event for frontend to call fire_script_trigger
-            // Keep state as triggered until script actually spawns
+            // Script trigger — spawn script command in PTY directly
             let script_path = trigger.config.script.clone().unwrap_or_default();
+            if script_path.is_empty() {
+                return Ok(db::update_task_pipeline_state(
+                    conn, &task.id, PipelineState::Idle.as_str(), None, Some("Empty script path"),
+                )?);
+            }
 
-            // Emit spawn_script event with task/column info for frontend
-            let spawn_event = SpawnScriptEvent {
-                task_id: task.id.clone(),
-                column_id: column.id.clone(),
-                workspace_id: task.workspace_id.clone(),
-                script_path,
-                task_title: task.title.clone(),
-            };
-            let _ = app.emit("pipeline:spawn_script", &spawn_event);
+            // Parse script path into command + args
+            let parts: Vec<&str> = script_path.split_whitespace().collect();
+            let command = parts[0].to_string();
+            let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+
+            // Build env vars for script
+            let mut env_vars = std::collections::HashMap::new();
+            env_vars.insert("TASK_ID".to_string(), task.id.clone());
+            env_vars.insert("WORKSPACE_PATH".to_string(), workspace.repo_path.clone());
+            env_vars.insert("TASK_TITLE".to_string(), task.title.clone());
+
+            // Set state to Running
+            let updated_task = db::update_task_pipeline_state(
+                conn,
+                &task.id,
+                PipelineState::Running.as_str(),
+                Some(&ts),
+                None,
+            )?;
+
+            let _ = app.emit(
+                "pipeline:running",
+                &PipelineEvent {
+                    task_id: task.id.clone(),
+                    column_id: column.id.clone(),
+                    event_type: "running".to_string(),
+                    state: PipelineState::Running.as_str().to_string(),
+                    message: Some(format!("Script trigger: {}", script_path)),
+                },
+            );
+
+            bridge::spawn_cli_trigger_task(
+                app.clone(),
+                task.id.clone(),
+                command,
+                args,
+                workspace.repo_path.clone(),
+                String::new(), // Scripts don't get an initial prompt
+                Some(env_vars),
+            );
 
             Ok(updated_task)
         }

@@ -340,6 +340,7 @@ fn execute_action(
                 app.clone(),
                 task.id.clone(),
                 cli_type,
+                Vec::new(),
                 workspace.repo_path.clone(),
                 initial_prompt,
                 Some(env_vars),

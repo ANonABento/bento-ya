@@ -57,6 +57,7 @@ pub fn spawn_cli_trigger_task(
     app: AppHandle,
     task_id: String,
     cli_command: String,
+    args: Vec<String>,
     working_dir: String,
     initial_prompt: String,
     env_vars: Option<HashMap<String, String>>,
@@ -67,7 +68,7 @@ pub fn spawn_cli_trigger_task(
 
             let spawn_config = SpawnConfig {
                 command: cli_command,
-                args: Vec::new(),
+                args,
                 working_dir: Some(working_dir),
                 env_vars,
                 cols: 120,
