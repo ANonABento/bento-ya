@@ -93,7 +93,7 @@ fire_trigger() → check V2 JSON → resolve_trigger() (merge column + task over
 - `src-tauri/src/pipeline/template.rs` — Prompt variable interpolation
 - `src-tauri/src/process/cli_session.rs` — CLI process management
 - `src-tauri/src/process/agent_cli_session.rs` — Per-task agent sessions
-- `src/hooks/use-pipeline-events.ts` — Frontend pipeline event listener
+- `src-tauri/src/chat/bridge.rs` — Trigger execution + PTY event bridge
 - `src/hooks/chat-session/` — Chat session hook (streaming, model switch)
 - `src/lib/browser-mock.ts` — Mock IPC for Playwright tests
 
@@ -102,7 +102,7 @@ fire_trigger() → check V2 JSON → resolve_trigger() (merge column + task over
 # Frontend unit tests (128 tests)
 cd /Users/bentomac/bento-ya && npm run test:run
 
-# Backend unit tests (49 tests)
+# Backend unit tests (67 tests)
 cd /Users/bentomac/bento-ya/src-tauri && cargo test --lib
 
 # Type check

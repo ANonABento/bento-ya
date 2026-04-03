@@ -36,7 +36,7 @@ src/                                   src-tauri/src/
 
 ### IPC Layer (`src/lib/ipc.ts` ↔ `src-tauri/src/commands/`)
 
-All frontend-backend communication goes through Tauri's `invoke()`. The IPC wrapper at `src/lib/ipc.ts` (~1600 LOC) provides typed functions for every command. Backend handlers are in `src-tauri/src/commands/` split by domain (task.rs, agent.rs, orchestrator.rs, etc.).
+All frontend-backend communication goes through Tauri's `invoke()`. The IPC wrapper at `src/lib/ipc.ts` (~1550 LOC) provides typed functions for every command. Backend handlers are in `src-tauri/src/commands/` split by domain (task.rs, agent.rs, orchestrator.rs, etc.).
 
 ### Chat System (`src/hooks/chat-session/`)
 
@@ -152,9 +152,10 @@ All backend events use `#[serde(rename_all = "camelCase")]` structs. **Never use
 | Event | Direction | Used By |
 |-------|-----------|---------|
 | `tasks:changed` | Backend → Frontend | `useTaskSync` re-fetches task store |
-| `pipeline:spawn_cli` | Backend → Frontend | `usePipelineEvents` calls `fireCliTrigger` |
-| `pipeline:spawn_agent` | Backend → Frontend | `usePipelineEvents` calls `fireAgentTrigger` |
-| `pty:{taskId}:exit` | Backend → Frontend | `usePipelineEvents` calls `markPipelineComplete` |
+| `pipeline:running` | Backend → Frontend | Frontend UI shows pipeline state |
+| `pipeline:complete` | Backend → Frontend | Frontend UI updates on completion |
+| `pty:{taskId}:output` | Backend → Frontend | Terminal view renders PTY output |
+| `pty:{taskId}:exit` | Backend → Frontend | Terminal view + `bridge.rs` calls `mark_complete` |
 | `orchestrator:stream` | Backend → Frontend | Chat panel shows streaming response |
 | `orchestrator:complete` | Backend → Frontend | Chat panel marks response done |
 
@@ -178,7 +179,7 @@ Backend `json!({ "workspace_id": ... })` → snake_case. Frontend expects `works
 
 ### Testing
 - Frontend: Vitest + Testing Library (stores and hooks tested)
-- Backend: `cargo test` (49 tests for DB operations)
+- Backend: `cargo test` (67 tests — DB, pipeline, chat module)
 - E2E (mock): Playwright against Vite dev server (`e2e/app.spec.ts`)
 - E2E (real): WebDriverIO + tauri-webdriver against real Tauri app (`tests/webdriver/`)
 - Run: `npx tsc --noEmit` (type-check), `npm run lint`, `cargo check`, `cargo test`

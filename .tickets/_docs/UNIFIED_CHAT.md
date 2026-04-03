@@ -225,9 +225,13 @@ User can override per-task from the task card UI (toggle button).
 
 ### Phase 6: Cleanup
 - Remove `CliSessionManager`, `AgentCliSessionManager`, `AgentRunner` (replaced by unified system)
-- Remove `fire_cli_trigger`, `fire_agent_trigger`, `fire_script_trigger`, `fire_skill_trigger` commands
-- Clean up `use-pipeline-events.ts` (triggers no longer emit spawn events)
+- Remove `PtyManager` (replaced by `PtyTransport`)
+- Remove `cli_shared.rs` (replaced by `chat::events`)
+- Track trigger sessions in `SessionRegistry` (currently created directly in bridge.rs)
+- Add `agent_session` DB records for unified trigger sessions
 - Update CLAUDE.md, SESSION.md
+
+*Note: `fire_*_trigger` IPC commands and `use-pipeline-events.ts` already removed in Phase 3c.*
 
 ## File Changes (estimated)
 
@@ -239,6 +243,7 @@ User can override per-task from the task card UI (toggle button).
 - `src-tauri/src/chat/pipe_transport.rs` — PipeTransport (DONE)
 - `src-tauri/src/chat/session.rs` — UnifiedChatSession (DONE)
 - `src-tauri/src/chat/registry.rs` — session registry (DONE)
+- `src-tauri/src/chat/bridge.rs` — Tauri event bridge + trigger runner (DONE)
 - `src-tauri/src/chat/chef.rs` — ChefSession layer (Phase 4)
 - `src-tauri/src/commands/chat.rs` — unified IPC commands (Phase 2)
 - `src/components/chat/chat-panel.tsx` — unified chat component (Phase 5)
@@ -253,12 +258,17 @@ User can override per-task from the task card UI (toggle button).
 - `src/stores/settings-store.ts` — add chat settings
 - `src/components/panel/` — use unified ChatPanel
 
-### Removed Files (Phase 6)
+### Already Removed (Phase 3c)
+- `src-tauri/src/commands/pipeline.rs` — fire_*_trigger commands removed (mark_pipeline_complete etc. remain)
+- `src/hooks/use-pipeline-events.ts` — deleted entirely
+- `SpawnAgentEvent`, `SpawnScriptEvent`, `SpawnSkillEvent`, `SpawnCliEvent` structs
+
+### To Remove (Phase 6)
 - `src-tauri/src/process/cli_session.rs`
 - `src-tauri/src/process/agent_cli_session.rs`
 - `src-tauri/src/process/agent_runner.rs`
-- `src-tauri/src/commands/pipeline.rs` (fire_*_trigger commands)
-- `src/hooks/use-pipeline-events.ts` (spawn listeners)
+- `src-tauri/src/process/pty_manager.rs`
+- `src-tauri/src/process/cli_shared.rs`
 
 ## Decisions (Resolved)
 
