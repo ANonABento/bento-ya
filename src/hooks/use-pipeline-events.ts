@@ -158,26 +158,37 @@ export function usePipelineEvents({
     [getWorkspacePath, cliPath, updateTask, onError, onTriggerStart, onTriggerComplete]
   )
 
-  // Subscribe to events on mount
+  // Subscribe to events on mount (with strict mode double-mount protection)
   useEffect(() => {
     if (!enabled) return
+
+    let cancelled = false
 
     const setupListeners = async () => {
       try {
         const unlistenAgent = await ipc.onPipelineSpawnAgent((payload) => {
-          void handleSpawnAgent(payload)
+          if (!cancelled) void handleSpawnAgent(payload)
         })
         const unlistenCli = await ipc.onPipelineSpawnCli((payload) => {
-          void handleSpawnCli(payload)
+          if (!cancelled) void handleSpawnCli(payload)
         })
         const unlistenScript = await ipc.onPipelineSpawnScript((payload) => {
-          void handleSpawnScript(payload)
+          if (!cancelled) void handleSpawnScript(payload)
         })
         const unlistenSkill = await ipc.onPipelineSpawnSkill((payload) => {
-          void handleSpawnSkill(payload)
+          if (!cancelled) void handleSpawnSkill(payload)
         })
 
-        unlistenRefs.current = [unlistenAgent, unlistenCli, unlistenScript, unlistenSkill]
+        // Only store if not cancelled during async setup
+        if (!cancelled) {
+          unlistenRefs.current = [unlistenAgent, unlistenCli, unlistenScript, unlistenSkill]
+        } else {
+          // Component unmounted during setup — clean up immediately
+          unlistenAgent()
+          unlistenCli()
+          unlistenScript()
+          unlistenSkill()
+        }
       } catch (err) {
         console.error('Failed to setup pipeline event listeners:', err)
       }
@@ -186,6 +197,7 @@ export function usePipelineEvents({
     void setupListeners()
 
     return () => {
+      cancelled = true
       unlistenRefs.current.forEach((unlisten) => { unlisten(); })
       unlistenRefs.current = []
     }
