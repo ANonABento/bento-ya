@@ -227,8 +227,13 @@ User can override per-task from the task card UI (toggle button).
 - Event forwarding via `emit_agent_event()` (ChatEvent → agent Tauri events)
 - Payload structs moved to commands/agent.rs (decoupled from legacy)
 
-**Remaining (Phase 4b):**
-- 4b: Rewire `stream_orchestrator_chat` CLI mode to use ChefSession
+**Phase 4b: Orchestrator CLI rewire — DONE**
+- `stream_via_cli` replaced with `stream_via_unified_cli` using `SessionRegistry`
+- Sessions keyed by `chef:{workspace_id}:{session_id}`
+- Board context + system prompt built inline, retry logic preserved
+- `cancel_orchestrator_chat` kills both registry and legacy sessions
+- `emit_orchestrator_cli_event()` forwards ChatEvent → orchestrator Tauri events
+- API mode unchanged
 
 ### Phase 5: Frontend Unification
 - Single chat component that renders bubble or terminal based on setting

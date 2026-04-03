@@ -360,9 +360,23 @@ Frontend:
 
 **Test results:** 71 Rust tests, all passing
 
+## Completed: Unified Chat System Phase 4b (2026-04-03)
+
+**Rewired `stream_orchestrator_chat` CLI mode to use unified session system.**
+
+- `stream_via_cli` replaced with `stream_via_unified_cli` using `SessionRegistry`
+- Sessions keyed by `chef:{workspace_id}:{session_id}` for multi-session support
+- Board context + system prompt built inline (ChefSession not used directly — simpler for the complex retry logic)
+- Retry logic preserved: empty response → clear resume, retry; send failure → clear resume, retry
+- `cancel_orchestrator_chat` kills both registry session AND legacy CLI session (backward compat)
+- Event forwarding via `emit_orchestrator_cli_event()` (ChatEvent → orchestrator Tauri events)
+- API mode (`stream_via_api`) unchanged
+
+**Test results:** 71 Rust tests, all passing
+
 ## Next Up
 
-- [ ] Unified Chat Phase 4b: Rewire orchestrator CLI mode to use ChefSession
+- [ ] Unified Chat Phase 5: Frontend unification
 - [ ] Unified Chat Phase 5: Frontend unification
 - [ ] Unified Chat Phase 6: Final cleanup (remove old managers)
 - [ ] Add more providers beyond Anthropic (OpenAI API support)

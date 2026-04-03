@@ -3,6 +3,10 @@
 //! The orchestrator is a dedicated agent that interprets natural language
 //! and creates/manages tasks on the board.
 
+use crate::chat::chef::{ChefMode, ChefSession};
+use crate::chat::events::{ChatEvent, ToolStatus};
+use crate::chat::registry::SharedSessionRegistry;
+use crate::chat::session::{SessionConfig, TransportType};
 use crate::db::{self, AppState, ChatMessage, ChatSession, OrchestratorSession, Column, Task};
 use crate::error::AppError;
 use crate::llm::{
@@ -364,6 +368,7 @@ pub async fn stream_orchestrator_chat(
     app: AppHandle,
     state: State<'_, AppState>,
     cli_manager: State<'_, SharedCliSessionManager>,
+    session_registry: State<'_, SharedSessionRegistry>,
     workspace_id: String,
     session_id: String,
     message: String,
@@ -435,10 +440,10 @@ pub async fn stream_orchestrator_chat(
         }
         "cli" => {
             let cli = cli_path.clone().unwrap_or_else(|| "claude".to_string());
-            stream_via_cli(
+            stream_via_unified_cli(
                 app.clone(),
                 state.clone(),
-                cli_manager.clone(),
+                session_registry.clone(),
                 &workspace_id,
                 &actual_session_id,
                 &orch_session_id,
@@ -460,10 +465,20 @@ pub async fn cancel_orchestrator_chat(
     app: AppHandle,
     state: State<'_, AppState>,
     cli_manager: State<'_, SharedCliSessionManager>,
+    session_registry: State<'_, SharedSessionRegistry>,
     session_id: String,
     workspace_id: String,
 ) -> Result<(), AppError> {
-    // Kill the CLI session process
+    // Kill via unified session registry
+    {
+        let registry_key = format!("chef:{}:{}", workspace_id, session_id);
+        let mut registry = session_registry.lock().await;
+        if let Some(session) = registry.get_mut(&registry_key) {
+            let _ = session.kill();
+        }
+    }
+
+    // Also kill legacy CLI session (if any — backward compat during migration)
     {
         let mut manager = cli_manager.lock().await;
         manager.kill(&session_id).await;
@@ -657,10 +672,17 @@ async fn stream_via_api(
     Ok(())
 }
 
-async fn stream_via_cli(
+/// Stream orchestrator chat via unified CLI session (ChefSession).
+///
+/// Replaces the old `stream_via_cli` which used `CliSessionManager`.
+/// Now uses `ChefSession` from the `SessionRegistry` with:
+/// - Board context injection via `chef.send_message_with_context()`
+/// - Action block parsing via `chef.execute_response_actions()`
+/// - Retry logic for stale resume IDs
+async fn stream_via_unified_cli(
     app: AppHandle,
     state: State<'_, AppState>,
-    cli_manager: State<'_, SharedCliSessionManager>,
+    session_registry: State<'_, SharedSessionRegistry>,
     workspace_id: &str,
     session_id: &str,
     orch_session_id: &str,
@@ -669,177 +691,165 @@ async fn stream_via_cli(
     message: &str,
     resume_id: Option<&str>,
 ) -> Result<(), AppError> {
-    // Get workspace context for system prompt
-    let (workspace, columns, tasks) = {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-        let workspace = db::get_workspace(&conn, workspace_id)?;
-        let columns = db::list_columns(&conn, workspace_id)?;
-        let tasks = db::list_tasks(&conn, workspace_id)?;
-        (workspace, columns, tasks)
-    };
+    let registry_key = format!("chef:{}:{}", workspace_id, session_id);
 
-    // Build CLI-specific system prompt with action block instructions and current board state
-    let system_prompt = build_cli_system_prompt(&workspace, &columns);
-    let board_context = build_board_context(&workspace, &columns, &tasks);
-    let board_context_msg = format_board_context_message(&board_context);
+    // Send message via ChefSession
+    let (full_response, captured_cli_session_id) = {
+        let mut registry = session_registry.lock().await;
 
-    // Build the message with board context prefix
-    let full_message = format!("{}\n\n{}", board_context_msg, message);
-
-    // Try to use existing persistent session, or spawn a new one
-    let mut manager = cli_manager.lock().await;
-
-    // Check if we have a running process with the same model
-    let model_changed = manager
-        .get_model(session_id)
-        .map(|m| m != model)
-        .unwrap_or(false);
-    let needs_spawn = !manager.has_session(session_id) || !manager.is_alive(session_id) || model_changed;
-
-    if needs_spawn {
-        // Use resume_id unless model changed (CLI ignores --model on --resume)
-        let effective_resume_id = if model_changed {
-            None
-        } else {
-            let stored_cli_id = manager.get_cli_session_id(session_id);
-            resume_id.map(|s| s.to_string()).or(stored_cli_id)
+        let config = SessionConfig {
+            cli_path: cli_path.to_string(),
+            model: model.to_string(),
+            system_prompt: String::new(), // ChefSession builds this from workspace state
+            working_dir: None,
+            effort_level: None,
         };
 
-        manager.spawn(
-            session_id,
-            cli_path,
-            model,
-            &system_prompt,
-            effective_resume_id.as_deref(),
-        ).await.map_err(|e| AppError::InvalidInput(e))?;
-    }
+        // Get or create chef session
+        if !registry.has(&registry_key) {
+            let mut chef = ChefSession::new_cli(workspace_id.to_string(), config);
+            // Set resume ID from DB if available
+            if let Some(rid) = resume_id {
+                chef.session_mut().set_resume_id(Some(rid.to_string()));
+            }
+            registry.insert(&registry_key, crate::chat::session::UnifiedChatSession::new(
+                SessionConfig {
+                    cli_path: cli_path.to_string(),
+                    model: model.to_string(),
+                    system_prompt: String::new(),
+                    working_dir: None,
+                    effort_level: None,
+                },
+                TransportType::Pipe,
+            ));
+        }
 
-    // Send message and stream response
-    let (full_response, captured_cli_session_id) = match manager.send_message(
-        session_id,
-        &full_message,
-        workspace_id,
-        &app,
-    ).await {
-        Ok(result) => {
-            // Check for empty response (stale --resume session)
-            if result.0.is_empty() {
-                log::warn!("Empty CLI response — likely stale --resume session, retrying without resume");
-                manager.kill(session_id).await;
+        let session = registry.get_mut(&registry_key).unwrap();
 
-                // Respawn WITHOUT resume (fresh session)
-                manager.spawn(
-                    session_id,
-                    cli_path,
-                    model,
-                    &system_prompt,
-                    None, // No resume — start fresh
-                ).await.map_err(AppError::InvalidInput)?;
+        // Update model (clears resume if changed)
+        session.set_model(model.to_string());
 
-                // Clear stale cli_session_id from DB
-                {
-                    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-                    let _ = db::update_chat_session_cli_id(&conn, session_id, None);
-                }
-
-                manager.send_message(
-                    session_id,
-                    &full_message,
-                    workspace_id,
-                    &app,
-                ).await.map_err(AppError::InvalidInput)?
-            } else {
-                result
+        // Set resume from DB if session doesn't have one yet
+        if session.resume_id().is_none() {
+            if let Some(rid) = resume_id {
+                session.set_resume_id(Some(rid.to_string()));
             }
         }
-        Err(_) => {
-            // Process died — try to respawn
-            let resume_id = manager.get_cli_session_id(session_id);
-            manager.kill(session_id).await;
 
-            // Try with resume first, fall back to fresh session
-            let spawn_result = manager.spawn(
-                session_id,
-                cli_path,
-                model,
-                &system_prompt,
-                resume_id.as_deref(),
-            ).await;
+        // Build system prompt + board context, then send
+        let (workspace, columns, tasks) = {
+            let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            let workspace = db::get_workspace(&conn, workspace_id)?;
+            let columns = db::list_columns(&conn, workspace_id)?;
+            let tasks = db::list_tasks(&conn, workspace_id)?;
+            (workspace, columns, tasks)
+        };
 
-            if spawn_result.is_err() {
-                log::warn!("Resume spawn failed, retrying without resume");
-                manager.spawn(
-                    session_id,
-                    cli_path,
-                    model,
-                    &system_prompt,
-                    None,
-                ).await.map_err(AppError::InvalidInput)?;
+        let system_prompt = build_cli_system_prompt(&workspace, &columns);
+        session.set_system_prompt(system_prompt);
+
+        let board_context = build_board_context(&workspace, &columns, &tasks);
+        let board_context_msg = format_board_context_message(&board_context);
+        let full_message = format!("{}\n\n{}", board_context_msg, message);
+
+        // Forward events to frontend
+        let ws_id = workspace_id.to_string();
+        let app_for_events = app.clone();
+
+        let result = session
+            .send_message(&full_message, move |event| {
+                emit_orchestrator_cli_event(&app_for_events, &ws_id, event);
+            })
+            .await;
+
+        match result {
+            Ok((response, sid)) => {
+                // Check for empty response (stale resume)
+                if response.is_empty() {
+                    log::warn!("Empty CLI response — likely stale --resume, retrying without resume");
+                    session.set_resume_id(None);
+
+                    // Clear stale cli_session_id from DB
+                    {
+                        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+                        let _ = db::update_chat_session_cli_id(&conn, session_id, None);
+                    }
+
+                    // Rebuild context and retry
+                    let ws_id2 = workspace_id.to_string();
+                    let app_retry = app.clone();
+                    session
+                        .send_message(&full_message, move |event| {
+                            emit_orchestrator_cli_event(&app_retry, &ws_id2, event);
+                        })
+                        .await
+                        .map_err(|e| AppError::InvalidInput(e))?
+                } else {
+                    (response, sid)
+                }
             }
+            Err(e) => {
+                // Send failed — clear resume and retry once
+                log::warn!("CLI send failed: {}, retrying without resume", e);
+                session.set_resume_id(None);
 
-            // Retry the message
-            manager.send_message(
-                session_id,
-                &full_message,
-                workspace_id,
-                &app,
-            ).await.map_err(AppError::InvalidInput)?
+                let ws_id2 = workspace_id.to_string();
+                let app_retry = app.clone();
+                session
+                    .send_message(&full_message, move |event| {
+                        emit_orchestrator_cli_event(&app_retry, &ws_id2, event);
+                    })
+                    .await
+                    .map_err(|e| AppError::InvalidInput(e))?
+            }
         }
     };
 
-    // Drop manager lock before database operations
-    drop(manager);
-
-    // Save cli_session_id to database if we captured one
+    // Save cli_session_id to database
     if let Some(cli_sid) = &captured_cli_session_id {
         let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
         let _ = db::update_chat_session_cli_id(&conn, session_id, Some(cli_sid));
     }
 
-    // Parse action blocks from the response and execute them
-    let tool_uses = parse_cli_action_blocks(&full_response);
-
-    if !tool_uses.is_empty() {
+    // Parse action blocks and execute tools
+    {
         let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let tool_uses = parse_cli_action_blocks(&full_response);
 
-        // Execute the parsed actions
-        match execute_tools(&conn, &app, workspace_id, &tool_uses, &columns) {
-            Ok(result) => {
-                // Log and emit tool results for each action
-                for tool_result in &result.results {
-                    if tool_result.is_error {
-                        log::warn!("CLI action error: {}", tool_result.content);
+        if !tool_uses.is_empty() {
+            let columns = db::list_columns(&conn, workspace_id)?;
+            match execute_tools(&conn, &app, workspace_id, &tool_uses, &columns) {
+                Ok(result) => {
+                    for tool_result in &result.results {
+                        if tool_result.is_error {
+                            log::warn!("CLI action error: {}", tool_result.content);
+                        }
+                        let _ = app.emit("orchestrator:tool_result", &ToolResultPayload {
+                            workspace_id: workspace_id.to_string(),
+                            tool_use_id: tool_result.tool_use_id.clone(),
+                            result: tool_result.content.clone(),
+                            is_error: tool_result.is_error,
+                        });
                     }
-                    let _ = app.emit("orchestrator:tool_result", &ToolResultPayload {
+                }
+                Err(e) => {
+                    log::error!("CLI action execution failed: {}", e);
+                    let _ = app.emit("orchestrator:error", &OrchestratorEvent {
                         workspace_id: workspace_id.to_string(),
-                        tool_use_id: tool_result.tool_use_id.clone(),
-                        result: tool_result.content.clone(),
-                        is_error: tool_result.is_error,
+                        event_type: "warning".to_string(),
+                        message: Some(format!("Action execution failed: {}", e)),
                     });
                 }
-            }
-            Err(e) => {
-                log::error!("CLI action execution failed: {}", e);
-                let _ = app.emit("orchestrator:error", &OrchestratorEvent {
-                    workspace_id: workspace_id.to_string(),
-                    event_type: "warning".to_string(),
-                    message: Some(format!("Action execution failed: {}", e)),
-                });
             }
         }
     }
 
-    // Store assistant message
+    // Store assistant message and emit completion
     {
         let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-        // Store assistant response
         let assistant_msg = db::insert_chat_message(&conn, workspace_id, session_id, "assistant", &full_response)?;
-
-        // Update orchestrator session to idle
         let _ = db::update_orchestrator_session(&conn, orch_session_id, Some("idle"), None);
 
-        // Emit complete event
         let _ = app.emit("orchestrator:complete", &OrchestratorEvent {
             workspace_id: workspace_id.to_string(),
             event_type: "complete".to_string(),
@@ -847,5 +857,61 @@ async fn stream_via_cli(
         });
     }
 
+    // Emit finish event (empty delta with finish_reason)
+    let _ = app.emit(
+        "orchestrator:stream",
+        &StreamChunkPayload {
+            workspace_id: workspace_id.to_string(),
+            delta: String::new(),
+            finish_reason: Some("stop".to_string()),
+            tool_use: None,
+        },
+    );
+
     Ok(())
+}
+
+/// Forward ChatEvent to orchestrator-specific Tauri events.
+fn emit_orchestrator_cli_event(app: &AppHandle, workspace_id: &str, event: ChatEvent) {
+    match event {
+        ChatEvent::TextContent(content) => {
+            let _ = app.emit(
+                "orchestrator:stream",
+                &StreamChunkPayload {
+                    workspace_id: workspace_id.to_string(),
+                    delta: content,
+                    finish_reason: None,
+                    tool_use: None,
+                },
+            );
+        }
+        ChatEvent::ThinkingContent { content, is_complete } => {
+            let _ = app.emit(
+                "orchestrator:thinking",
+                &ThinkingPayload {
+                    workspace_id: workspace_id.to_string(),
+                    content,
+                    is_complete,
+                },
+            );
+        }
+        ChatEvent::ToolUse { id, name, status, .. } => {
+            let status_str = match status {
+                ToolStatus::Running => "running",
+                ToolStatus::Complete => "complete",
+            };
+            let _ = app.emit(
+                "orchestrator:tool_call",
+                &ToolCallPayload {
+                    workspace_id: workspace_id.to_string(),
+                    tool_id: id,
+                    tool_name: name,
+                    status: status_str.to_string(),
+                    input: None,
+                    result: None,
+                },
+            );
+        }
+        ChatEvent::Complete | ChatEvent::SessionId(_) | ChatEvent::RawOutput(_) | ChatEvent::Unknown => {}
+    }
 }
