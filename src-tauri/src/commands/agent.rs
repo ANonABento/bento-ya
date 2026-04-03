@@ -277,11 +277,14 @@ Be concise and helpful."#,
         };
 
         let session = registry
-            .get_or_create(&task_id, config, TransportType::Pipe)
+            .get_or_create(&task_id, config.clone(), TransportType::Pipe)
             .map_err(|e| AppError::InvalidInput(e))?;
 
-        // Handle model change (clears resume ID)
+        // Update session config for existing sessions (get_or_create
+        // ignores config if session exists — we need to refresh the
+        // system prompt, model, etc. on every call)
         session.set_model(model.clone());
+        session.set_system_prompt(config.system_prompt);
 
         // Send message with event forwarding to frontend
         let task_id_for_events = task_id.clone();
