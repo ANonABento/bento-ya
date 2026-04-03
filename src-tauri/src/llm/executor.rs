@@ -64,9 +64,7 @@ pub fn execute_tools(
                             "task": &task
                         }));
                         // Emit tasks:changed so frontend refreshes
-                        let _ = app.emit("tasks:changed", json!({
-                            "workspace_id": workspace_id
-                        }));
+                        pipeline::emit_tasks_changed(app, workspace_id, "orchestrator_tool");
                         tasks_created.push(task);
                     }
                     ToolOutcome::TaskUpdated(task) => {
@@ -104,9 +102,7 @@ pub fn execute_tools(
                             "task": &task
                         }));
                         // Emit tasks:changed so frontend refreshes
-                        let _ = app.emit("tasks:changed", json!({
-                            "workspace_id": workspace_id
-                        }));
+                        pipeline::emit_tasks_changed(app, workspace_id, "orchestrator_tool");
                         tasks_updated.push(task);
                     }
                     ToolOutcome::TaskDeleted(task_id, title) => {
