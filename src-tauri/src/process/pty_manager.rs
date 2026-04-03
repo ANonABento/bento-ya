@@ -122,12 +122,30 @@ impl PtyManager {
             }
         });
 
-        // Child exit watcher thread — std::process::Child::wait() uses waitpid
-        // This is the KEY fix: tokio/std waitpid detects exit via SIGCHLD,
-        // completely independent of the PTY fd state
+        // Child exit watcher thread — uses libc::waitpid directly
+        // std::process::Child::wait() can block on macOS due to PTY process group,
+        // so we poll with WNOHANG instead
+        let child_pid = pid as libc::pid_t;
         std::thread::spawn(move || {
-            let _ = child.wait(); // blocks until child exits, reaps zombie
-            let _ = exit_tx.blocking_send(());
+            // Drop the Child to avoid double-wait conflicts, but DON'T call wait()
+            // which blocks. We'll poll waitpid ourselves.
+            std::mem::forget(child); // Prevent Child destructor from calling wait/kill
+
+            loop {
+                let mut status: libc::c_int = 0;
+                let result = unsafe { libc::waitpid(child_pid, &mut status, libc::WNOHANG) };
+                if result == child_pid {
+                    // Child exited
+                    let _ = exit_tx.blocking_send(());
+                    break;
+                } else if result == -1 {
+                    // Error (e.g., no such process) — treat as exited
+                    let _ = exit_tx.blocking_send(());
+                    break;
+                }
+                // Not yet exited — poll again
+                std::thread::sleep(Duration::from_millis(250));
+            }
         });
 
         let scrollback: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
