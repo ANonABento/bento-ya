@@ -105,22 +105,19 @@ pub fn run() {
                 let agent_manager = Arc::clone(&agent_cli_for_shutdown);
                 let pty = Arc::clone(&pty_for_shutdown);
                 let runner = Arc::clone(&agent_runner_for_shutdown);
+                let registry = Arc::clone(&session_registry_for_shutdown);
                 tauri::async_runtime::block_on(async {
                     let mut m = manager.lock().await;
                     m.kill_all().await;
                     let mut am = agent_manager.lock().await;
                     am.kill_all().await;
+                    let mut reg = registry.lock().await;
+                    reg.kill_all();
                 });
                 // Kill PTY-managed processes (agents, scripts)
                 let _ = pty.lock().map(|mut pty_mgr| pty_mgr.shutdown_all());
                 // Clean up agent runner sessions
                 let _ = runner.lock().map(|mut ar| ar.cleanup_all());
-                // Kill unified chat sessions
-                let registry = Arc::clone(&session_registry_for_shutdown);
-                tauri::async_runtime::block_on(async {
-                    let mut reg = registry.lock().await;
-                    reg.kill_all();
-                });
             }
         })
         .invoke_handler(tauri::generate_handler![

@@ -337,7 +337,6 @@ fn execute_action(
             bridge::spawn_cli_trigger_task(
                 app.clone(),
                 task.id.clone(),
-                column.id.clone(),
                 cli_type,
                 workspace.repo_path.clone(),
                 initial_prompt,

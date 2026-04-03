@@ -56,7 +56,6 @@ pub async fn bridge_pty_to_tauri(
 pub fn spawn_cli_trigger_task(
     app: AppHandle,
     task_id: String,
-    _column_id: String,
     cli_command: String,
     working_dir: String,
     initial_prompt: String,
