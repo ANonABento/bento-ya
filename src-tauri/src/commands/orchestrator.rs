@@ -714,11 +714,14 @@ async fn stream_via_unified_cli(
 
         let session = registry.get_mut(&registry_key).unwrap();
 
-        // Update model (clears resume if changed)
+        // Check model change before updating (set_model clears resume if changed)
+        let model_changed = session.model() != model;
         session.set_model(model.to_string());
 
-        // Set resume from DB if session doesn't have one yet
-        if session.resume_id().is_none() {
+        // Restore resume from DB only if model hasn't changed and session
+        // lost its resume (e.g. after cancel). Don't restore on model change
+        // — the DB resume is for the old model and would be stale.
+        if !model_changed && session.resume_id().is_none() {
             if let Some(rid) = resume_id {
                 session.set_resume_id(Some(rid.to_string()));
             }
