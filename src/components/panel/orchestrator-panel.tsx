@@ -196,6 +196,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     document.body.style.userSelect = 'none'
 
     const handleMouseMove = (e: MouseEvent) => {
+      // Handle at top edge of bottom panel: drag UP → panel grows, drag DOWN → panel shrinks
       const deltaY = dragStartY.current - e.clientY
       const newHeight = dragStartHeight.current + deltaY
       setPanelHeight(newHeight)
@@ -299,7 +300,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       initial={false}
       animate={{ height: displayHeight }}
       transition={isDragging ? { duration: 0 } : { type: 'spring', stiffness: 500, damping: 35 }}
-      className="flex flex-col border-t border-border-default bg-surface"
+      className="relative flex flex-col border-t border-border-default bg-surface"
       style={{ minHeight: COLLAPSED_HEIGHT }}
     >
       {/* Resize handle - top edge only */}
