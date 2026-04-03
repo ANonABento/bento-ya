@@ -96,6 +96,9 @@ pub fn create_task(
         task
     };
 
+    // Notify frontend to refresh task store
+    pipeline::emit_tasks_changed(&app, &workspace_id, "task_created");
+
     // Emit Discord sync event
     let _ = app.emit("discord:task_created", TaskCreatedEvent {
         task_id: task.id.clone(),
@@ -280,6 +283,9 @@ pub fn move_task(
         let target_column = db::get_column(&conn, &target_column_id)?;
         let _ = pipeline::triggers::fire_on_exit(&conn, &app, &task_before, &old_column, Some(&target_column));
 
+        // Notify frontend to refresh task store
+        pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_moved");
+
         // Emit Discord sync event
         let _ = app.emit("discord:task_moved", TaskMovedEvent {
             task_id: task.id.clone(),
@@ -333,6 +339,9 @@ pub fn delete_task(
     let task = db::get_task(&conn, &id)?;
 
     db::delete_task(&conn, &id)?;
+
+    // Notify frontend to refresh task store
+    pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_deleted");
 
     // Emit Discord sync event
     let _ = app.emit("discord:task_deleted", TaskDeletedEvent {
