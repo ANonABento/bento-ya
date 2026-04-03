@@ -40,14 +40,17 @@ UnifiedChatSession
 ### Transport Layer
 
 ```rust
-trait ChatTransport {
-    fn spawn(config: &SpawnConfig) -> Result<Self>;
-    fn send(&mut self, message: &str) -> Result<()>;
-    fn on_output(&self) -> Receiver<ChatEvent>;
-    fn on_exit(&self) -> Receiver<ExitStatus>;
-    fn resize(&self, cols: u16, rows: u16) -> Result<()>;  // no-op for pipe
-    fn kill(&mut self);
+// Actual implementation (src-tauri/src/chat/transport.rs):
+trait ChatTransport: Send {
+    fn spawn(&mut self, config: SpawnConfig) -> Result<Receiver<TransportEvent>, String>;
+    fn write(&mut self, data: &[u8]) -> Result<(), String>;
+    fn resize(&mut self, cols: u16, rows: u16) -> Result<(), String>;  // no-op for pipe
+    fn kill(&mut self) -> Result<(), String>;
+    fn is_alive(&self) -> bool;
+    fn pid(&self) -> Option<u32>;
 }
+// TransportEvent = Chat(ChatEvent) | Exited(Option<i32>)
+// ChatEvent = SessionId | TextContent | ThinkingContent | ToolUse | Complete | RawOutput | Unknown
 ```
 
 **PtyTransport** (terminal mode):
@@ -161,10 +164,14 @@ User can override per-task from the task card UI (toggle button).
 
 ## Migration Path
 
-### Phase 1: Unified Transport Trait
-- Create `ChatTransport` trait with `PtyTransport` and `PipeTransport` implementations
-- Extract shared logic from current `pty_manager.rs`, `cli_session.rs`, `cli_shared.rs`
-- Keep existing managers working, just refactor internals
+### Phase 1: Unified Transport Trait -- DONE
+- Created `src-tauri/src/chat/` module with 5 files
+- `ChatTransport` trait with `PtyTransport` and `PipeTransport` implementations
+- Shared utilities in `events.rs`: `parse_json_event`, `base64_encode`, `spawn_stderr_reader`
+- Legacy `cli_shared.rs` delegates parsing to `chat::events` via `From<ChatEvent> for CliEvent`
+- Legacy `pty_manager.rs` imports `base64_encode` from `chat::events`
+- Existing managers unchanged — additive only, no breaking changes
+- 57 tests passing (eliminated 13 duplicated parsing tests)
 
 ### Phase 2: UnifiedChatSession
 - Create `UnifiedChatSession` struct that wraps a transport
@@ -197,16 +204,19 @@ User can override per-task from the task card UI (toggle button).
 ## File Changes (estimated)
 
 ### New Files
-- `src-tauri/src/chat/mod.rs` — module root
-- `src-tauri/src/chat/transport.rs` — trait + PtyTransport + PipeTransport
-- `src-tauri/src/chat/session.rs` — UnifiedChatSession
-- `src-tauri/src/chat/registry.rs` — session registry (managed state)
-- `src-tauri/src/chat/chef.rs` — ChefSession layer
-- `src-tauri/src/commands/chat.rs` — unified IPC commands
-- `src/components/chat/chat-panel.tsx` — unified chat component
-- `src/components/chat/bubble-view.tsx` — bubble renderer
-- `src/components/chat/terminal-view.tsx` — xterm.js renderer
-- `src/hooks/use-chat.ts` — unified chat hook
+- `src-tauri/src/chat/mod.rs` — module root + re-exports (DONE)
+- `src-tauri/src/chat/events.rs` — ChatEvent, ToolStatus, JSON parsing, base64, stderr reader (DONE)
+- `src-tauri/src/chat/transport.rs` — ChatTransport trait, SpawnConfig, TransportEvent (DONE)
+- `src-tauri/src/chat/pty_transport.rs` — PtyTransport (DONE)
+- `src-tauri/src/chat/pipe_transport.rs` — PipeTransport (DONE)
+- `src-tauri/src/chat/session.rs` — UnifiedChatSession (Phase 2)
+- `src-tauri/src/chat/registry.rs` — session registry (Phase 2)
+- `src-tauri/src/chat/chef.rs` — ChefSession layer (Phase 4)
+- `src-tauri/src/commands/chat.rs` — unified IPC commands (Phase 2)
+- `src/components/chat/chat-panel.tsx` — unified chat component (Phase 5)
+- `src/components/chat/bubble-view.tsx` — bubble renderer (Phase 5)
+- `src/components/chat/terminal-view.tsx` — xterm.js renderer (Phase 5)
+- `src/hooks/use-chat.ts` — unified chat hook (Phase 5)
 
 ### Modified Files
 - `src-tauri/src/pipeline/triggers.rs` — trigger sends message instead of spawning

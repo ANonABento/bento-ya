@@ -10,12 +10,13 @@
 
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use super::events::ChatEvent;
+use super::events::{base64_encode, ChatEvent};
 use super::transport::{ChatTransport, SpawnConfig, TransportEvent};
 
 const OUTPUT_BUFFER_INTERVAL_MS: u64 = 16;
@@ -32,7 +33,7 @@ pub struct PtyTransport {
     /// Process ID
     child_pid: Option<u32>,
     /// Whether the process is still running
-    alive: Arc<std::sync::atomic::AtomicBool>,
+    alive: Arc<AtomicBool>,
 }
 
 impl PtyTransport {
@@ -42,7 +43,7 @@ impl PtyTransport {
             scrollback: Arc::new(Mutex::new(Vec::new())),
             shutdown_tx: None,
             child_pid: None,
-            alive: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            alive: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -79,13 +80,13 @@ impl ChatTransport for PtyTransport {
             }
         }
 
-        let mut child = cmd
+        let child = cmd
             .spawn(pts)
             .map_err(|e| format!("Failed to spawn PTY process: {}", e))?;
 
         let pid = child.id();
         self.child_pid = Some(pid);
-        self.alive.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.alive.store(true, Ordering::SeqCst);
 
         // Dup the PTY fd for the reader thread
         let pty_fd = pty.as_raw_fd();
@@ -121,6 +122,8 @@ impl ChatTransport for PtyTransport {
         });
 
         // Child exit watcher thread — uses libc::waitpid directly
+        // std::process::Child::wait() blocks on macOS due to PTY process group,
+        // so we poll with WNOHANG instead.
         let child_pid = pid as libc::pid_t;
         let alive_flag = Arc::clone(&self.alive);
         std::thread::spawn(move || {
@@ -131,7 +134,7 @@ impl ChatTransport for PtyTransport {
                 let mut status: libc::c_int = 0;
                 let result = unsafe { libc::waitpid(child_pid, &mut status, libc::WNOHANG) };
                 if result == child_pid || result == -1 {
-                    alive_flag.store(false, std::sync::atomic::Ordering::SeqCst);
+                    alive_flag.store(false, Ordering::SeqCst);
                     let _ = exit_tx.blocking_send(());
                     break;
                 }
@@ -237,12 +240,12 @@ impl ChatTransport for PtyTransport {
             let _ = tx.try_send(());
         }
         self.pty = None;
-        self.alive.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.alive.store(false, Ordering::SeqCst);
         Ok(())
     }
 
     fn is_alive(&self) -> bool {
-        self.alive.load(std::sync::atomic::Ordering::SeqCst)
+        self.alive.load(Ordering::SeqCst)
     }
 
     fn pid(&self) -> Option<u32> {
@@ -256,42 +259,9 @@ impl Default for PtyTransport {
     }
 }
 
-fn base64_encode(data: &[u8]) -> String {
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
-        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
-        let triple = (b0 << 16) | (b1 << 8) | b2;
-        result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
-        result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
-        if chunk.len() > 1 {
-            result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
-        } else {
-            result.push('=');
-        }
-        if chunk.len() > 2 {
-            result.push(CHARS[(triple & 0x3F) as usize] as char);
-        } else {
-            result.push('=');
-        }
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_base64_encode() {
-        assert_eq!(base64_encode(b"hello"), "aGVsbG8=");
-        assert_eq!(base64_encode(b""), "");
-        assert_eq!(base64_encode(b"a"), "YQ==");
-        assert_eq!(base64_encode(b"ab"), "YWI=");
-        assert_eq!(base64_encode(b"abc"), "YWJj");
-    }
 
     #[test]
     fn test_pty_transport_new() {

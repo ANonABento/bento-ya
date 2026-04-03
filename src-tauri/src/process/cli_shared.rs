@@ -29,16 +29,31 @@
 //! Each message spawns a fresh CLI process. Conversation history is maintained
 //! via the `--resume <session_id>` flag, where session_id is captured from
 //! the `system` event of the previous invocation.
+//!
+//! # Migration Note
+//!
+//! JSON parsing and stderr reading are delegated to `chat::events` (the single
+//! source of truth). `CliEvent` wraps `ChatEvent` via `From` conversion.
+//! This module will be removed in Phase 6 of the unified chat migration.
 
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, ChildStdout, Command};
 use tokio::time::timeout;
 
+use crate::chat::events::{
+    self,
+    ChatEvent,
+    ToolStatus as ChatToolStatus,
+};
+
 /// Timeout for reading a response from the CLI (5 minutes)
 pub const MESSAGE_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// Result of parsing a CLI event
+/// Result of parsing a CLI event.
+///
+/// Legacy type — wraps `ChatEvent` from the unified chat module.
+/// Kept for backward compatibility with `cli_session.rs` and `agent_cli_session.rs`.
 #[derive(Debug, Clone)]
 pub enum CliEvent {
     /// Session ID captured from system event
@@ -65,6 +80,30 @@ pub enum CliEvent {
 pub enum ToolStatus {
     Running,
     Complete,
+}
+
+/// Convert from unified ChatEvent to legacy CliEvent
+impl From<ChatEvent> for CliEvent {
+    fn from(event: ChatEvent) -> Self {
+        match event {
+            ChatEvent::SessionId(s) => CliEvent::SessionId(s),
+            ChatEvent::TextContent(s) => CliEvent::TextContent(s),
+            ChatEvent::ThinkingContent { content, is_complete } => {
+                CliEvent::ThinkingContent { content, is_complete }
+            }
+            ChatEvent::ToolUse { id, name, input, status } => CliEvent::ToolUse {
+                id,
+                name,
+                input,
+                status: match status {
+                    ChatToolStatus::Running => ToolStatus::Running,
+                    ChatToolStatus::Complete => ToolStatus::Complete,
+                },
+            },
+            ChatEvent::Complete => CliEvent::Complete,
+            ChatEvent::RawOutput(_) | ChatEvent::Unknown => CliEvent::Unknown,
+        }
+    }
 }
 
 /// Configuration for spawning a CLI process
@@ -122,183 +161,20 @@ pub fn build_cli_command(config: &CliConfig, message: &str) -> Command {
     cmd
 }
 
-/// Spawn stderr reader that logs CLI errors
+/// Spawn stderr reader that logs CLI errors.
+///
+/// Delegates to `chat::events::spawn_stderr_reader`.
 pub fn spawn_stderr_reader(child: &mut Child, context_id: String) {
     if let Some(stderr) = child.stderr.take() {
-        tokio::spawn(async move {
-            let mut reader = BufReader::new(stderr);
-            let mut line = String::new();
-            while let Ok(n) = reader.read_line(&mut line).await {
-                if n == 0 {
-                    break;
-                }
-                // CLI stderr output is expected (progress info, warnings) - only log errors
-                if line.contains("error") || line.contains("Error") {
-                    eprintln!("CLI stderr [{}]: {}", context_id, line.trim());
-                }
-                line.clear();
-            }
-        });
+        events::spawn_stderr_reader(stderr, context_id);
     }
 }
 
-/// Parse a JSON line from CLI stdout into a CliEvent
+/// Parse a JSON line from CLI stdout into a CliEvent.
+///
+/// Delegates to `chat::events::parse_json_event` and converts to legacy type.
 pub fn parse_cli_event(line: &str) -> CliEvent {
-    let json: serde_json::Value = match serde_json::from_str(line) {
-        Ok(v) => v,
-        Err(_) => return CliEvent::Unknown,
-    };
-
-    let event_type = match json.get("type").and_then(|t| t.as_str()) {
-        Some(t) => t,
-        None => return CliEvent::Unknown,
-    };
-
-    match event_type {
-        "system" => {
-            // Capture session ID from init event
-            if let Some(sid) = json
-                .get("session_id")
-                .or_else(|| json.get("conversation_id"))
-                .and_then(|s| s.as_str())
-            {
-                CliEvent::SessionId(sid.to_string())
-            } else {
-                CliEvent::Unknown
-            }
-        }
-        "assistant" => {
-            // Claude CLI sends full response in assistant event
-            // Extract text from message.content[].text
-            parse_assistant_event(&json)
-        }
-        "content_block_start" => parse_content_block_start(&json),
-        "content_block_delta" => parse_content_block_delta(&json),
-        "content_block_stop" => CliEvent::ThinkingContent {
-            content: String::new(),
-            is_complete: true,
-        },
-        "result" => {
-            // The result event may contain a "result" field with the full response
-            // text, but this is a duplicate of the assistant event — always treat
-            // as Complete. The text is captured via assistant event or streaming deltas.
-            CliEvent::Complete
-        }
-        _ => CliEvent::Unknown,
-    }
-}
-
-fn parse_assistant_event(json: &serde_json::Value) -> CliEvent {
-    if let Some(message) = json.get("message") {
-        if let Some(content) = message.get("content").and_then(|c| c.as_array()) {
-            // Collect all text blocks
-            let mut text_parts = Vec::new();
-            for block in content {
-                if let Some(block_type) = block.get("type").and_then(|t| t.as_str()) {
-                    match block_type {
-                        "text" => {
-                            if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
-                                text_parts.push(text.to_string());
-                            }
-                        }
-                        "thinking" => {
-                            if let Some(thinking) = block.get("thinking").and_then(|t| t.as_str()) {
-                                // Return thinking as a separate event
-                                // (In practice, we prioritize text content)
-                                return CliEvent::ThinkingContent {
-                                    content: thinking.to_string(),
-                                    is_complete: false,
-                                };
-                            }
-                        }
-                        "tool_use" => {
-                            let id = block
-                                .get("id")
-                                .and_then(|i| i.as_str())
-                                .unwrap_or("unknown")
-                                .to_string();
-                            let name = block
-                                .get("name")
-                                .and_then(|n| n.as_str())
-                                .unwrap_or("unknown")
-                                .to_string();
-                            let input = block.get("input").map(|i| i.to_string());
-                            return CliEvent::ToolUse {
-                                id,
-                                name,
-                                input,
-                                status: ToolStatus::Complete,
-                            };
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            if !text_parts.is_empty() {
-                return CliEvent::TextContent(text_parts.join(""));
-            }
-        }
-    }
-    CliEvent::Unknown
-}
-
-fn parse_content_block_start(json: &serde_json::Value) -> CliEvent {
-    if let Some(content_block) = json.get("content_block") {
-        if let Some(block_type) = content_block.get("type").and_then(|t| t.as_str()) {
-            match block_type {
-                "thinking" => {
-                    return CliEvent::ThinkingContent {
-                        content: String::new(),
-                        is_complete: false,
-                    };
-                }
-                "tool_use" => {
-                    let id = content_block
-                        .get("id")
-                        .and_then(|i| i.as_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-                    let name = content_block
-                        .get("name")
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-                    return CliEvent::ToolUse {
-                        id,
-                        name,
-                        input: None,
-                        status: ToolStatus::Running,
-                    };
-                }
-                _ => {}
-            }
-        }
-    }
-    CliEvent::Unknown
-}
-
-fn parse_content_block_delta(json: &serde_json::Value) -> CliEvent {
-    if let Some(delta) = json.get("delta") {
-        if let Some(delta_type) = delta.get("type").and_then(|t| t.as_str()) {
-            match delta_type {
-                "thinking_delta" => {
-                    if let Some(thinking) = delta.get("thinking").and_then(|t| t.as_str()) {
-                        return CliEvent::ThinkingContent {
-                            content: thinking.to_string(),
-                            is_complete: false,
-                        };
-                    }
-                }
-                "text_delta" => {
-                    if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
-                        return CliEvent::TextContent(text.to_string());
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    CliEvent::Unknown
+    events::parse_json_event(line).into()
 }
 
 /// Read CLI response with timeout, yielding events via callback
@@ -387,202 +263,44 @@ where
 mod tests {
     use super::*;
 
+    // Parsing tests live in chat::events::tests (single source of truth).
+    // These tests verify the CliEvent conversion layer and command building.
+
     #[test]
-    fn test_parse_system_event() {
+    fn test_cli_event_from_chat_event() {
+        // Verify From<ChatEvent> conversion works for each variant
+        let session = ChatEvent::SessionId("abc".to_string());
+        assert!(matches!(CliEvent::from(session), CliEvent::SessionId(s) if s == "abc"));
+
+        let text = ChatEvent::TextContent("hello".to_string());
+        assert!(matches!(CliEvent::from(text), CliEvent::TextContent(s) if s == "hello"));
+
+        let complete = ChatEvent::Complete;
+        assert!(matches!(CliEvent::from(complete), CliEvent::Complete));
+
+        let unknown = ChatEvent::Unknown;
+        assert!(matches!(CliEvent::from(unknown), CliEvent::Unknown));
+
+        // RawOutput (PTY-only) maps to Unknown
+        let raw = ChatEvent::RawOutput("base64data".to_string());
+        assert!(matches!(CliEvent::from(raw), CliEvent::Unknown));
+    }
+
+    #[test]
+    fn test_parse_cli_event_delegates_to_chat() {
+        // Verify that cli_shared::parse_cli_event produces the same results
+        // as chat::events::parse_json_event (just wrapped in CliEvent)
         let json = r#"{"type":"system","session_id":"abc123"}"#;
         match parse_cli_event(json) {
             CliEvent::SessionId(id) => assert_eq!(id, "abc123"),
             _ => panic!("Expected SessionId event"),
         }
-    }
 
-    #[test]
-    fn test_parse_system_event_conversation_id() {
-        let json = r#"{"type":"system","conversation_id":"xyz789"}"#;
-        match parse_cli_event(json) {
-            CliEvent::SessionId(id) => assert_eq!(id, "xyz789"),
-            _ => panic!("Expected SessionId event"),
-        }
-    }
-
-    #[test]
-    fn test_parse_assistant_event_text() {
-        let json = r#"{
-            "type": "assistant",
-            "message": {
-                "content": [
-                    {"type": "text", "text": "Hello, world!"}
-                ]
-            }
-        }"#;
-        match parse_cli_event(json) {
-            CliEvent::TextContent(text) => assert_eq!(text, "Hello, world!"),
-            _ => panic!("Expected TextContent event"),
-        }
-    }
-
-    #[test]
-    fn test_parse_assistant_event_multiple_text_blocks() {
-        let json = r#"{
-            "type": "assistant",
-            "message": {
-                "content": [
-                    {"type": "text", "text": "Part 1 "},
-                    {"type": "text", "text": "Part 2"}
-                ]
-            }
-        }"#;
-        match parse_cli_event(json) {
-            CliEvent::TextContent(text) => assert_eq!(text, "Part 1 Part 2"),
-            _ => panic!("Expected TextContent event"),
-        }
-    }
-
-    #[test]
-    fn test_parse_assistant_event_thinking() {
-        let json = r#"{
-            "type": "assistant",
-            "message": {
-                "content": [
-                    {"type": "thinking", "thinking": "Let me think..."}
-                ]
-            }
-        }"#;
-        match parse_cli_event(json) {
-            CliEvent::ThinkingContent { content, is_complete } => {
-                assert_eq!(content, "Let me think...");
-                assert!(!is_complete);
-            }
-            _ => panic!("Expected ThinkingContent event"),
-        }
-    }
-
-    #[test]
-    fn test_parse_assistant_event_tool_use() {
-        let json = r#"{
-            "type": "assistant",
-            "message": {
-                "content": [
-                    {"type": "tool_use", "id": "tool_1", "name": "read_file", "input": {"path": "/test.txt"}}
-                ]
-            }
-        }"#;
-        match parse_cli_event(json) {
-            CliEvent::ToolUse { id, name, input, status } => {
-                assert_eq!(id, "tool_1");
-                assert_eq!(name, "read_file");
-                assert!(input.is_some());
-                assert_eq!(status, ToolStatus::Complete);
-            }
-            _ => panic!("Expected ToolUse event"),
-        }
-    }
-
-    #[test]
-    fn test_parse_content_block_start_thinking() {
-        let json = r#"{
-            "type": "content_block_start",
-            "content_block": {"type": "thinking"}
-        }"#;
-        match parse_cli_event(json) {
-            CliEvent::ThinkingContent { content, is_complete } => {
-                assert!(content.is_empty());
-                assert!(!is_complete);
-            }
-            _ => panic!("Expected ThinkingContent event"),
-        }
-    }
-
-    #[test]
-    fn test_parse_content_block_start_tool_use() {
-        let json = r#"{
-            "type": "content_block_start",
-            "content_block": {"type": "tool_use", "id": "tool_2", "name": "bash"}
-        }"#;
-        match parse_cli_event(json) {
-            CliEvent::ToolUse { id, name, status, .. } => {
-                assert_eq!(id, "tool_2");
-                assert_eq!(name, "bash");
-                assert_eq!(status, ToolStatus::Running);
-            }
-            _ => panic!("Expected ToolUse event"),
-        }
-    }
-
-    #[test]
-    fn test_parse_content_block_delta_text() {
-        let json = r#"{
-            "type": "content_block_delta",
-            "delta": {"type": "text_delta", "text": "streaming text"}
-        }"#;
-        match parse_cli_event(json) {
-            CliEvent::TextContent(text) => assert_eq!(text, "streaming text"),
-            _ => panic!("Expected TextContent event"),
-        }
-    }
-
-    #[test]
-    fn test_parse_content_block_delta_thinking() {
-        let json = r#"{
-            "type": "content_block_delta",
-            "delta": {"type": "thinking_delta", "thinking": "still thinking..."}
-        }"#;
-        match parse_cli_event(json) {
-            CliEvent::ThinkingContent { content, is_complete } => {
-                assert_eq!(content, "still thinking...");
-                assert!(!is_complete);
-            }
-            _ => panic!("Expected ThinkingContent event"),
-        }
-    }
-
-    #[test]
-    fn test_parse_content_block_stop() {
-        let json = r#"{"type": "content_block_stop"}"#;
-        match parse_cli_event(json) {
-            CliEvent::ThinkingContent { is_complete, .. } => {
-                assert!(is_complete);
-            }
-            _ => panic!("Expected ThinkingContent event with is_complete=true"),
-        }
-    }
-
-    #[test]
-    fn test_parse_result_event() {
         let json = r#"{"type": "result"}"#;
-        match parse_cli_event(json) {
-            CliEvent::Complete => {}
-            _ => panic!("Expected Complete event"),
-        }
-    }
+        assert!(matches!(parse_cli_event(json), CliEvent::Complete));
 
-    #[test]
-    fn test_parse_result_event_with_text() {
-        // result event always maps to Complete — the "result" field is a duplicate
-        // of the assistant event text and should not produce TextContent
-        let json = r#"{"type": "result", "result": "Final answer"}"#;
-        match parse_cli_event(json) {
-            CliEvent::Complete => {}
-            _ => panic!("Expected Complete event"),
-        }
-    }
-
-    #[test]
-    fn test_parse_invalid_json() {
         let json = "not valid json";
-        match parse_cli_event(json) {
-            CliEvent::Unknown => {}
-            _ => panic!("Expected Unknown event for invalid JSON"),
-        }
-    }
-
-    #[test]
-    fn test_parse_unknown_event_type() {
-        let json = r#"{"type": "some_unknown_type"}"#;
-        match parse_cli_event(json) {
-            CliEvent::Unknown => {}
-            _ => panic!("Expected Unknown event for unknown type"),
-        }
+        assert!(matches!(parse_cli_event(json), CliEvent::Unknown));
     }
 
     #[test]

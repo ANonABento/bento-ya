@@ -254,8 +254,32 @@ Fix: spawn a watcher thread that calls `libc::waitpid(pid, WNOHANG)` every 250ms
 
 **Test results:** 52 Rust + 128 Frontend = 180 tests, all passing
 
+## Completed: Unified Chat System Phase 1 (2026-04-03)
+
+**Created `src-tauri/src/chat/` module** — transport abstraction layer for the unified chat migration.
+
+Files:
+- `events.rs` — `ChatEvent`, `ToolStatus`, JSON parsing, `base64_encode`, `spawn_stderr_reader` (single source of truth)
+- `transport.rs` — `ChatTransport` trait, `SpawnConfig`, `TransportEvent`
+- `pty_transport.rs` — `PtyTransport` (interactive terminal, waitpid exit detection)
+- `pipe_transport.rs` — `PipeTransport` (structured JSON streaming)
+- `mod.rs` — re-exports
+
+DRY fixes:
+- JSON parsing (150 LOC) consolidated in `chat::events`, legacy `cli_shared.rs` delegates via `From<ChatEvent> for CliEvent`
+- `base64_encode` consolidated in `chat::events`, `pty_manager.rs` imports from there
+- `spawn_stderr_reader` consolidated in `chat::events`, both transports reuse it
+- Eliminated 13 duplicated tests
+
+Bug fix:
+- `PipeTransport.alive` now uses `Arc<AtomicBool>` shared with async reader task (was never set to `false` on process exit)
+
+**Test results:** 57 Rust tests, all passing
+
 ## Next Up
 
+- [ ] Unified Chat Phase 2: `UnifiedChatSession` + session registry
+- [ ] Unified Chat Phase 3: Trigger refactor (triggers → messages, not process spawns)
 - [ ] Add more providers beyond Anthropic (OpenAI API support)
 - [ ] Agent chat streaming to task card UI (terminal output visible in card)
 - [ ] Address remaining known issues (port 1420 squatting)

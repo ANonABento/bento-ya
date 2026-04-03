@@ -56,12 +56,22 @@ Columns define `on_entry`/`on_exit` triggers. Tasks can override. See `.tickets/
 
 **Action types:** `spawn_cli`, `move_column`, `trigger_task`, `none`
 
-### Process Management (`src-tauri/src/process/`)
+### Unified Chat System (`src-tauri/src/chat/`)
+
+New transport abstraction layer (Phase 1 complete, replacing process layer incrementally):
+- `events.rs` — Unified `ChatEvent` type + JSON parsing + `base64_encode` + `spawn_stderr_reader` (single source of truth)
+- `transport.rs` — `ChatTransport` trait + `SpawnConfig` + `TransportEvent`
+- `pty_transport.rs` — `PtyTransport` (interactive terminal, xterm.js)
+- `pipe_transport.rs` — `PipeTransport` (structured JSON streaming, chat bubbles)
+
+See `.tickets/_docs/UNIFIED_CHAT.md` for the full migration plan (6 phases).
+
+### Process Management (`src-tauri/src/process/`) — legacy, being replaced
 
 - `cli_session.rs` — Orchestrator CLI sessions (one per workspace session)
 - `agent_cli_session.rs` — Agent CLI sessions (one per task, max 5 concurrent)
-- `cli_shared.rs` — Shared CLI process utilities (spawning, stdout parsing, event emission)
-- `pty_manager.rs` — PTY-based terminal sessions
+- `cli_shared.rs` — Shared CLI process utilities (delegates parsing to `chat::events`)
+- `pty_manager.rs` — PTY-based terminal sessions (delegates `base64_encode` to `chat::events`)
 - `agent_runner.rs` — Agent queue/lifecycle management
 
 ### Database (`src-tauri/src/db/`)
@@ -242,5 +252,6 @@ Backend events must use typed structs with `#[serde(rename_all = "camelCase")]`.
 
 - `.tickets/_docs/ARCHITECTURE.md` — System design, subsystem flows
 - `.tickets/_docs/TRIGGERS.md` — Column trigger system spec (659 LOC)
+- `.tickets/_docs/UNIFIED_CHAT.md` — Unified chat system migration plan (6 phases)
 - `.tickets/_docs/STATUS.md` — Feature completion tracking
 - `PRODUCT.md` — Comprehensive product specification
