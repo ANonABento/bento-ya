@@ -295,24 +295,26 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   }))
 
   return (
-    <motion.div
-      ref={panelRef}
-      initial={false}
-      animate={{ height: displayHeight }}
-      transition={isDragging ? { duration: 0 } : { type: 'spring', stiffness: 500, damping: 35 }}
-      className="relative flex flex-col border-t border-border-default bg-surface"
-      style={{ minHeight: COLLAPSED_HEIGHT }}
-    >
-      {/* Resize handle - top edge only */}
+    <div className="relative">
+      {/* Resize handle - above the panel, not clipped by motion overflow */}
       {!isPanelCollapsed && (
         <div
           onMouseDown={handleResizeMouseDown}
-          className="absolute -top-1 left-0 right-0 h-3 z-10 group"
-          style={{ cursor: 'ns-resize' }}
+          className="absolute -top-1.5 left-0 right-0 h-3 z-50 group"
+          style={{ cursor: 'row-resize' }}
         >
-          <div className="absolute bottom-0 left-0 right-0 h-px bg-transparent group-hover:bg-accent/50 transition-colors" />
+          <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-transparent group-hover:bg-accent/60 transition-colors -translate-y-1/2" />
         </div>
       )}
+
+      <motion.div
+        ref={panelRef}
+        initial={false}
+        animate={{ height: displayHeight }}
+        transition={isDragging ? { duration: 0 } : { type: 'spring', stiffness: 500, damping: 35 }}
+        className="flex flex-col border-t border-border-default bg-surface overflow-hidden"
+        style={{ minHeight: COLLAPSED_HEIGHT }}
+      >
 
       {/* Header - clickable to toggle */}
       <div
@@ -477,6 +479,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
         )}
       </AnimatePresence>
     </motion.div>
+    </div>
   )
 }
 
