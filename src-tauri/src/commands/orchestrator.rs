@@ -5,7 +5,7 @@
 
 use crate::chat::events::{ChatEvent, ToolStatus};
 use crate::chat::registry::SharedSessionRegistry;
-use crate::chat::session::{SessionConfig, TransportType};
+use crate::chat::session::{SessionConfig, TransportType, UnifiedChatSession};
 use crate::db::{self, AppState, ChatMessage, ChatSession, OrchestratorSession, Column, Task};
 use crate::error::AppError;
 use crate::llm::{
@@ -704,7 +704,7 @@ async fn stream_via_unified_cli(
 
         // Get or create session
         if !registry.has(&registry_key) {
-            let mut session = crate::chat::session::UnifiedChatSession::new(config, TransportType::Pipe);
+            let mut session = UnifiedChatSession::new(config, TransportType::Pipe);
             // Set resume ID from DB if available
             if let Some(rid) = resume_id {
                 session.set_resume_id(Some(rid.to_string()));
