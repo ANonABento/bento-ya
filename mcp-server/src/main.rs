@@ -20,12 +20,18 @@ struct Args {
 }
 
 fn default_db_path() -> String {
+    // Primary: ~/.bentoya/data.db (custom app data dir)
+    let home = dirs::home_dir().expect("Could not determine home directory");
+    let primary = home.join(".bentoya").join("data.db");
+    if primary.exists() {
+        return primary.to_string_lossy().to_string();
+    }
+
+    // Fallback: platform-specific Tauri data dir
     // macOS: ~/Library/Application Support/com.bento-ya.app/bento-ya.db
-    // Linux: ~/.local/share/com.bento-ya.app/bento-ya.db
-    // Windows: %APPDATA%/com.bento-ya.app/bento-ya.db
     let data_dir = dirs::data_dir().expect("Could not determine data directory");
-    let db_path = data_dir.join("com.bento-ya.app").join("bento-ya.db");
-    db_path.to_string_lossy().to_string()
+    let fallback = data_dir.join("com.bento-ya.app").join("bento-ya.db");
+    fallback.to_string_lossy().to_string()
 }
 
 // ---------------------------------------------------------------------------
