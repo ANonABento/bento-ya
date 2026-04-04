@@ -2363,4 +2363,57 @@ mod tests {
         let result = insert_column(&conn, "nonexistent-id", "Bad Column", 0);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_retry_count_default_and_increment() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Test", 0).unwrap();
+        let task = insert_task(&conn, &ws.id, &col.id, "Task 1", None).unwrap();
+        assert_eq!(task.retry_count, 0);
+
+        // Increment
+        conn.execute(
+            "UPDATE tasks SET retry_count = retry_count + 1 WHERE id = ?1",
+            params![task.id],
+        )
+        .unwrap();
+        let updated = get_task(&conn, &task.id).unwrap();
+        assert_eq!(updated.retry_count, 1);
+
+        // Increment again
+        conn.execute(
+            "UPDATE tasks SET retry_count = retry_count + 1 WHERE id = ?1",
+            params![task.id],
+        )
+        .unwrap();
+        let updated = get_task(&conn, &task.id).unwrap();
+        assert_eq!(updated.retry_count, 2);
+    }
+
+    #[test]
+    fn test_retry_count_reset_on_success() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Test", 0).unwrap();
+        let task = insert_task(&conn, &ws.id, &col.id, "Task 1", None).unwrap();
+
+        // Increment to 3
+        conn.execute(
+            "UPDATE tasks SET retry_count = 3 WHERE id = ?1",
+            params![task.id],
+        )
+        .unwrap();
+        let updated = get_task(&conn, &task.id).unwrap();
+        assert_eq!(updated.retry_count, 3);
+
+        // Reset (simulating mark_complete success)
+        conn.execute(
+            "UPDATE tasks SET retry_count = 0 WHERE id = ?1",
+            params![task.id],
+        )
+        .unwrap();
+        let updated = get_task(&conn, &task.id).unwrap();
+        assert_eq!(updated.retry_count, 0);
+    }
 }
