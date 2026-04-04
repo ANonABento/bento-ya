@@ -49,7 +49,7 @@ pub async fn bridge_pty_to_tauri(
 /// Spawn a background task that runs a CLI trigger via a PTY session.
 ///
 /// Replaces the old frontend round-trip:
-///   backend emits `pipeline:spawn_cli` → frontend catches → frontend calls `fire_cli_trigger`
+///   (old: backend emits event → frontend catches → frontend calls IPC → backend spawns)
 ///
 /// Now: backend directly spawns PTY, writes prompt, bridges events to frontend,
 /// monitors for exit, and calls `mark_complete` when done.
