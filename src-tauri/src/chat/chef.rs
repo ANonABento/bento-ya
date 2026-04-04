@@ -232,6 +232,7 @@ mod tests {
             config: "{}".to_string(),
             created_at: String::new(),
             updated_at: String::new(),
+            // Discord fields kept in struct (DB columns still exist)
             discord_guild_id: None,
             discord_category_id: None,
             discord_chef_channel_id: None,

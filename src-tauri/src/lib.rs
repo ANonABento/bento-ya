@@ -7,7 +7,6 @@ pub mod checklist;
 pub mod commands;
 pub mod config;
 pub mod db;
-pub mod discord;
 pub mod error;
 pub mod events;
 pub mod git;
@@ -21,7 +20,6 @@ pub mod whisper;
 use commands::voice::RecorderState;
 use db::AppState;
 use chat::registry::new_shared_session_registry;
-use discord::bridge::new_shared_discord_bridge;
 use process::agent_cli_session::new_shared_agent_cli_session_manager;
 use process::agent_runner::AgentRunner;
 use process::pty_manager::PtyManager;
@@ -62,7 +60,6 @@ pub fn run() {
     let agent_runner = Arc::new(Mutex::new(AgentRunner::new(Arc::clone(&pty_manager))));
     let agent_cli_session_manager = new_shared_agent_cli_session_manager();
     let session_registry = new_shared_session_registry();
-    let discord_bridge = new_shared_discord_bridge();
     #[cfg(feature = "voice")]
     let recorder_state = RecorderState(Mutex::new(AudioRecorder::new()));
 
@@ -80,8 +77,7 @@ pub fn run() {
         .manage(pty_manager)
         .manage(agent_runner)
         .manage(agent_cli_session_manager)
-        .manage(session_registry)
-        .manage(discord_bridge);
+        .manage(session_registry);
 
     #[cfg(feature = "webdriver")]
     {
@@ -256,29 +252,6 @@ pub fn run() {
             commands::github::fetch_pr_status,
             commands::github::fetch_pr_status_batch,
             commands::github::should_refresh_pr_status,
-            // Discord commands
-            commands::discord::spawn_discord_sidecar,
-            commands::discord::kill_discord_sidecar,
-            commands::discord::connect_discord,
-            commands::discord::disconnect_discord,
-            commands::discord::get_discord_status,
-            commands::discord::test_discord_connection,
-            commands::discord::setup_discord_workspace,
-            commands::discord::create_discord_thread,
-            commands::discord::archive_discord_thread,
-            commands::discord::get_discord_thread_for_task,
-            commands::discord::post_discord_message,
-            // Discord task sync commands
-            commands::discord::sync_task_created,
-            commands::discord::sync_task_moved,
-            commands::discord::sync_task_updated,
-            commands::discord::sync_task_deleted,
-            // Discord agent streaming commands
-            commands::discord::register_discord_thread,
-            commands::discord::stream_agent_output,
-            commands::discord::signal_agent_complete,
-            // Discord queue status
-            commands::discord::get_discord_queue_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

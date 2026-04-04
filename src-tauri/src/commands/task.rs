@@ -3,48 +3,7 @@ use crate::error::AppError;
 use crate::pipeline;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
-use tauri::{AppHandle, Emitter, State};
-
-// ─── Discord Task Events ─────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskCreatedEvent {
-    pub task_id: String,
-    pub workspace_id: String,
-    pub column_id: String,
-    pub title: String,
-    pub description: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskMovedEvent {
-    pub task_id: String,
-    pub workspace_id: String,
-    pub old_column_id: String,
-    pub new_column_id: String,
-    pub title: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskUpdatedEvent {
-    pub task_id: String,
-    pub workspace_id: String,
-    pub column_id: String,
-    pub old_title: Option<String>,
-    pub new_title: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskDeletedEvent {
-    pub task_id: String,
-    pub workspace_id: String,
-    pub column_id: String,
-    pub title: String,
-}
+use tauri::{AppHandle, State};
 
 #[tauri::command(rename_all = "camelCase")]
 pub fn create_task(
@@ -99,15 +58,6 @@ pub fn create_task(
     // Notify frontend to refresh task store
     pipeline::emit_tasks_changed(&app, &workspace_id, "task_created");
 
-    // Emit Discord sync event
-    let _ = app.emit("discord:task_created", TaskCreatedEvent {
-        task_id: task.id.clone(),
-        workspace_id: task.workspace_id.clone(),
-        column_id: task.column_id.clone(),
-        title: task.title.clone(),
-        description: task.description.clone(),
-    });
-
     Ok(task)
 }
 
@@ -125,7 +75,7 @@ pub fn list_tasks(state: State<AppState>, workspace_id: String) -> Result<Vec<Ta
 
 #[tauri::command]
 pub fn update_task(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<AppState>,
     id: String,
     title: Option<String>,
@@ -148,13 +98,6 @@ pub fn update_task(
 
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    // Get old task for comparison (only if title is being updated)
-    let old_title = if title.is_some() {
-        Some(db::get_task(&conn, &id)?.title)
-    } else {
-        None
-    };
-
     let desc_ref = description.as_ref().map(|d| d.as_deref());
     let mode_ref = agent_mode.as_ref().map(|m| m.as_deref());
     let task = db::update_task(
@@ -167,17 +110,6 @@ pub fn update_task(
         mode_ref,
         priority.as_deref(),
     )?;
-
-    // Emit Discord sync event if title changed
-    if let Some(ref new_title) = title {
-        let _ = app.emit("discord:task_updated", TaskUpdatedEvent {
-            task_id: task.id.clone(),
-            workspace_id: task.workspace_id.clone(),
-            column_id: task.column_id.clone(),
-            old_title,
-            new_title: Some(new_title.clone()),
-        });
-    }
 
     Ok(task)
 }
@@ -296,15 +228,6 @@ pub fn move_task(
         // Notify frontend to refresh task store
         pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_moved");
 
-        // Emit Discord sync event
-        let _ = app.emit("discord:task_moved", TaskMovedEvent {
-            task_id: task.id.clone(),
-            workspace_id: task.workspace_id.clone(),
-            old_column_id,
-            new_column_id: target_column_id.clone(),
-            title: task.title.clone(),
-        });
-
         let task = pipeline::fire_trigger(&conn, &app, &task, &target_column)?;
         return Ok(task);
     }
@@ -352,14 +275,6 @@ pub fn delete_task(
 
     // Notify frontend to refresh task store
     pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_deleted");
-
-    // Emit Discord sync event
-    let _ = app.emit("discord:task_deleted", TaskDeletedEvent {
-        task_id: task.id,
-        workspace_id: task.workspace_id,
-        column_id: task.column_id,
-        title: task.title,
-    });
 
     Ok(())
 }

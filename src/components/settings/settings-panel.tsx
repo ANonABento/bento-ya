@@ -8,7 +8,6 @@ import { VoiceTab } from './tabs/voice-tab'
 import { ShortcutsTab } from './tabs/shortcuts-tab'
 import { TemplatesTab } from './tabs/templates-tab'
 import { WorkspaceTab } from './tabs/workspace-tab'
-import { IntegrationsTab } from './tabs/integrations-tab'
 import { AdvancedTab } from './tabs/advanced-tab'
 
 // SVG Icons for settings tabs
@@ -59,12 +58,6 @@ const icons: Record<string, React.ReactNode> = {
       <path fillRule="evenodd" d="M8.34 1.804A1 1 0 0 1 9.32 1h1.36a1 1 0 0 1 .98.804l.295 1.473c.497.144.971.342 1.416.587l1.25-.834a1 1 0 0 1 1.262.125l.962.962a1 1 0 0 1 .125 1.262l-.834 1.25c.245.445.443.919.587 1.416l1.473.295a1 1 0 0 1 .804.98v1.36a1 1 0 0 1-.804.98l-1.473.295a6.95 6.95 0 0 1-.587 1.416l.834 1.25a1 1 0 0 1-.125 1.262l-.962.962a1 1 0 0 1-1.262.125l-1.25-.834a6.953 6.953 0 0 1-1.416.587l-.295 1.473a1 1 0 0 1-.98.804H9.32a1 1 0 0 1-.98-.804l-.295-1.473a6.957 6.957 0 0 1-1.416-.587l-1.25.834a1 1 0 0 1-1.262-.125l-.962-.962a1 1 0 0 1-.125-1.262l.834-1.25a6.957 6.957 0 0 1-.587-1.416l-1.473-.295A1 1 0 0 1 1 10.68V9.32a1 1 0 0 1 .804-.98l1.473-.295c.144-.497.342-.971.587-1.416l-.834-1.25a1 1 0 0 1 .125-1.262l.962-.962A1 1 0 0 1 5.38 3.03l1.25.834a6.957 6.957 0 0 1 1.416-.587l.295-1.473ZM13 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" clipRule="evenodd" />
     </svg>
   ),
-  integrations: (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-      <path d="M12.232 4.232a2.5 2.5 0 0 1 3.536 3.536l-1.225 1.224a.75.75 0 0 0 1.061 1.06l1.224-1.224a4 4 0 0 0-5.656-5.656l-3 3a4 4 0 0 0 .225 5.865.75.75 0 0 0 .977-1.138 2.5 2.5 0 0 1-.142-3.667l3-3Z" />
-      <path d="M11.603 7.963a.75.75 0 0 0-.977 1.138 2.5 2.5 0 0 1 .142 3.667l-3 3a2.5 2.5 0 0 1-3.536-3.536l1.225-1.224a.75.75 0 0 0-1.061-1.06l-1.224 1.224a4 4 0 1 0 5.656 5.656l3-3a4 4 0 0 0-.225-5.865Z" />
-    </svg>
-  ),
 }
 
 const TABS = [
@@ -76,7 +69,6 @@ const TABS = [
   { id: 'git', label: 'Git' },
   { id: 'voice', label: 'Voice' },
   { id: 'shortcuts', label: 'Shortcuts' },
-  { id: 'integrations', label: 'Integrations' },
   { id: 'advanced', label: 'Advanced' },
 ] as const
 
@@ -104,8 +96,6 @@ export function SettingsPanel() {
         return <VoiceTab />
       case 'shortcuts':
         return <ShortcutsTab />
-      case 'integrations':
-        return <IntegrationsTab />
       case 'advanced':
         return <AdvancedTab />
       default:

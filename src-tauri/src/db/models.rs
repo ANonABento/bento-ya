@@ -269,38 +269,3 @@ pub struct SessionSnapshot {
     pub created_at: String,
 }
 
-// ─── Discord Entities ───────────────────────────────────────────────────────
-
-/// Maps a kanban column to a Discord channel.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscordColumnChannel {
-    pub id: String,
-    pub column_id: String,
-    pub discord_channel_id: String,
-    pub created_at: String,
-}
-
-/// Maps a task to a Discord thread.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscordTaskThread {
-    pub id: String,
-    pub task_id: String,
-    pub discord_thread_id: String,
-    pub discord_channel_id: String,
-    pub is_archived: bool,
-    pub created_at: String,
-}
-
-/// Routes Discord messages to a specific agent/task.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscordAgentRoute {
-    pub id: String,
-    pub task_id: String,
-    pub active_session_id: Option<String>,
-    pub cli_session_id: Option<String>,
-    pub last_interaction_at: Option<String>,
-    pub created_at: String,
-}

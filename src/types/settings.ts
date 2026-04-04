@@ -120,13 +120,6 @@ export type AdvancedConfig = {
   outputBufferIntervalMs: number
 }
 
-export type DiscordConfig = {
-  enabled: boolean
-  botToken: string
-  guildId: string
-  autoConnect: boolean
-}
-
 export type WorkspaceDefaults = {
   defaultColumns: string[]
   branchPrefix: string
@@ -156,7 +149,6 @@ export type Settings = {
   gestures: GestureConfig
   advanced: AdvancedConfig
   workspaceDefaults: WorkspaceDefaults
-  discord: DiscordConfig
 }
 
 export type WorkspaceSettings = Partial<Settings>
@@ -268,11 +260,5 @@ export const DEFAULT_SETTINGS: Settings = {
     defaultColumns: ['Backlog', 'Working', 'Review', 'Done'],
     branchPrefix: 'bentoya/',
     autoStashPrefix: 'bentoya-auto-stash-',
-  },
-  discord: {
-    enabled: false,
-    botToken: '',
-    guildId: '',
-    autoConnect: false,
   },
 }
