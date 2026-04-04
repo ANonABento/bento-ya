@@ -11,7 +11,7 @@ import { useChatSession } from '@/hooks/chat-session'
 import { useCliPath } from '@/hooks/use-cli-path'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { ChatHistory } from './chat-history'
-import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage } from './shared'
+import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls, mapMessages, mapQueue } from './shared'
 
 type AgentPanelProps = {
   task: Task
@@ -81,44 +81,9 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
     }
   }, [clearMessages])
 
-  // Convert UnifiedMessage[] to ChatMessage[] format for ChatHistory
-  const chatMessages = messages.map((msg) => ({
-    id: msg.id,
-    workspaceId: task.workspaceId,
-    sessionId: task.id,
-    role: msg.role,
-    content: msg.content,
-    createdAt: msg.createdAt,
-  }))
-
-  // Convert toolCalls to the format expected by ChatHistory
-  // Map agent statuses to orchestrator statuses: pending→running, completed→complete
-  const mapStatus = (status: 'pending' | 'running' | 'completed' | 'error'): 'running' | 'complete' | 'error' => {
-    if (status === 'completed') return 'complete'
-    if (status === 'pending') return 'running'
-    return status
-  }
-
-  const toolCalls = streaming.toolCalls.map((tc) => {
-    let parsedInput: Record<string, unknown> | undefined
-    if (tc.input) {
-      try {
-        parsedInput = JSON.parse(tc.input) as Record<string, unknown>
-      } catch {
-        parsedInput = { raw: tc.input }
-      }
-    }
-    return {
-      workspaceId: task.workspaceId,
-      toolId: tc.id,
-      toolName: tc.name,
-      status: mapStatus(tc.status),
-      input: parsedInput,
-    }
-  })
-
-  // Convert queue to format expected by ChatHistory
-  const queuedMessages = queue.map((m) => ({ id: m.id, content: m.content }))
+  const chatMessages = mapMessages(messages, task.workspaceId, task.id)
+  const toolCalls = mapToolCalls(streaming.toolCalls, task.workspaceId)
+  const queuedMessages = mapQueue(queue)
 
   return (
     <div className="flex h-full flex-col">

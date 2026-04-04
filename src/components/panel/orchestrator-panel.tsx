@@ -19,7 +19,7 @@ import { useCliPath } from '@/hooks/use-cli-path'
 import { ChatHistory } from './chat-history'
 import { PanelSidebar } from './panel-sidebar'
 import { ChatErrorBoundary } from './chat-error-boundary'
-import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage } from './shared'
+import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls, mapQueue } from './shared'
 
 type OrchestratorPanelProps = {
   workspaceId: string
@@ -285,14 +285,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const isLoading = sessionsLoading || messagesLoading
   const isProcessing = chat.streaming.isStreaming
 
-  // Convert tool calls to format expected by ChatHistory
-  const toolCalls = chat.streaming.toolCalls.map((tc) => ({
-    workspaceId,
-    toolId: tc.id,
-    toolName: tc.name,
-    status: tc.status === 'completed' ? 'complete' as const : tc.status === 'pending' ? 'running' as const : tc.status as 'running' | 'complete' | 'error',
-    input: tc.input ? (() => { try { return JSON.parse(tc.input) as Record<string, unknown> } catch { return { raw: tc.input } } })() : undefined,
-  }))
+  const toolCalls = mapToolCalls(chat.streaming.toolCalls, workspaceId)
 
   return (
     <div className="relative">
@@ -452,7 +445,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   thinkingContent={chat.streaming.thinkingContent}
                   toolCalls={toolCalls}
                   onCancel={() => { void handleCancel() }}
-                  queuedMessages={chat.queue.map((m) => ({ id: m.id, content: m.content }))}
+                  queuedMessages={mapQueue(chat.queue)}
                 />
                 <ChatInput
                   config={{

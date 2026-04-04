@@ -5,3 +5,4 @@ export { ErrorBanner, FailedMessageBanner, CliDetectingBanner } from './error-ba
 export { ChatInput, type ChatInputConfig, type ChatInputMessage } from './chat-input'
 export { AttachmentButton } from './attachment-button'
 export { AttachmentPreview } from './attachment-preview'
+export { mapToolCalls, mapMessages, mapQueue, type ChatToolCall } from './chat-helpers'
