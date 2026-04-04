@@ -235,11 +235,12 @@ User can override per-task from the task card UI (toggle button).
 - `emit_orchestrator_cli_event()` forwards ChatEvent → orchestrator Tauri events
 - API mode unchanged
 
-### Phase 5: Frontend Unification
-- Single chat component that renders bubble or terminal based on setting
-- Remove separate `AgentPanel`, `OrchestratorPanel` chat implementations
-- One `ChatPanel` component used everywhere
-- Toggle button in task card header: bubble/terminal
+### Phase 5: Frontend Unification — DONE (scoped down)
+- Extracted `chat-helpers.ts` with `mapToolCalls()` and `mapMessages()` shared helpers
+- Both panels already share `ChatInput`, `ChatHistory`, `useChatSession` (90% of logic)
+- Assessment: separate panels kept — layout differences (resize handle, sidebar, sessions) make a unified wrapper more complex than valuable
+- Fixed: resize handle positioning + viewport-relative max height clamping
+- Bubble/terminal toggle deferred — requires transport switching UI which is Phase 6+ scope
 
 ### Phase 6: Cleanup
 - Remove `CliSessionManager`, `AgentCliSessionManager`, `AgentRunner` (replaced by unified system)

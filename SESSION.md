@@ -374,9 +374,22 @@ Frontend:
 
 **Test results:** 71 Rust tests, all passing
 
+## Completed: Unified Chat System Phase 5 (2026-04-04)
+
+**Extracted shared chat helpers + assessed frontend unification scope.**
+
+- `chat-helpers.ts` — `mapToolCalls()`, `mapMessages()` extracted from both panels
+- AgentPanel: 238 → 199 lines (-39)
+- OrchestratorPanel: inline tool/queue mapping replaced with helpers
+- Assessment: panels share `ChatInput`, `ChatHistory`, `useChatSession` already (90% of logic). Layout differences (resize, sidebar, session management) make a unified wrapper more complex than the separate panels. Phase 5 scope adjusted: helpers extracted, no wrapper needed.
+
+Also fixed: resize handle positioning bug (missing `relative` on panel container, handle floated to app top) and viewport-relative max height clamping.
+
+**Test results:** 128 frontend tests passing, TypeScript clean
+
 ## Next Up
 
-- [ ] Unified Chat Phase 5: Frontend unification
+- [ ] Unified Chat Phase 6: Final cleanup (remove legacy managers)
 - [ ] Unified Chat Phase 5: Frontend unification
 - [ ] Unified Chat Phase 6: Final cleanup (remove old managers)
 - [ ] Add more providers beyond Anthropic (OpenAI API support)
