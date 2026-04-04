@@ -368,14 +368,15 @@ fn execute_single_tool(
 /// Find column ID by name (case-insensitive fuzzy match)
 fn find_column_id(columns: &[Column], name: Option<&str>) -> Result<String, AppError> {
     // If no name provided, use first column
-    if name.is_none() {
-        return columns
-            .first()
-            .map(|c| c.id.clone())
-            .ok_or_else(|| AppError::InvalidInput("No columns in workspace".to_string()));
-    }
-
-    let search = name.unwrap().to_lowercase();
+    let search = match name {
+        None => {
+            return columns
+                .first()
+                .map(|c| c.id.clone())
+                .ok_or_else(|| AppError::InvalidInput("No columns in workspace".to_string()));
+        }
+        Some(n) => n.to_lowercase(),
+    };
 
     // Exact match first
     if let Some(col) = columns.iter().find(|c| c.name.to_lowercase() == search) {
