@@ -1,0 +1,1100 @@
+use std::io::{self, BufRead, Write};
+
+use chrono::Utc;
+use clap::Parser;
+use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use uuid::Uuid;
+
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+
+#[derive(Parser)]
+#[command(name = "bento-mcp", about = "MCP server for bento-ya kanban board")]
+struct Args {
+    /// Path to bento-ya SQLite database
+    #[arg(long)]
+    db: Option<String>,
+}
+
+fn default_db_path() -> String {
+    // macOS: ~/Library/Application Support/com.bento-ya.app/bento-ya.db
+    // Linux: ~/.local/share/com.bento-ya.app/bento-ya.db
+    // Windows: %APPDATA%/com.bento-ya.app/bento-ya.db
+    let data_dir = dirs::data_dir().expect("Could not determine data directory");
+    let db_path = data_dir.join("com.bento-ya.app").join("bento-ya.db");
+    db_path.to_string_lossy().to_string()
+}
+
+// ---------------------------------------------------------------------------
+// JSON-RPC types
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct JsonRpcRequest {
+    #[allow(dead_code)]
+    jsonrpc: String,
+    id: Option<Value>,
+    method: String,
+    params: Option<Value>,
+}
+
+#[derive(Serialize)]
+struct JsonRpcResponse {
+    jsonrpc: String,
+    id: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<Value>,
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn now() -> String {
+    Utc::now().format("%Y-%m-%d %H:%M:%S%.6f+00:00").to_string()
+}
+
+fn new_id() -> String {
+    Uuid::new_v4().to_string()
+}
+
+fn success_response(id: Value, result: Value) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0".into(),
+        id,
+        result: Some(result),
+        error: None,
+    }
+}
+
+fn error_response(id: Value, code: i64, message: &str) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0".into(),
+        id,
+        result: None,
+        error: Some(json!({ "code": code, "message": message })),
+    }
+}
+
+fn tool_result(id: Value, content: &Value) -> JsonRpcResponse {
+    let text = serde_json::to_string_pretty(content).unwrap_or_default();
+    success_response(
+        id,
+        json!({
+            "content": [{ "type": "text", "text": text }]
+        }),
+    )
+}
+
+fn tool_error(id: Value, message: &str) -> JsonRpcResponse {
+    tool_result(
+        id,
+        &json!({ "error": message }),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Tool definitions
+// ---------------------------------------------------------------------------
+
+fn tool(name: &str, description: &str, input_schema: Value) -> Value {
+    json!({
+        "name": name,
+        "description": description,
+        "inputSchema": input_schema
+    })
+}
+
+fn get_tools() -> Vec<Value> {
+    vec![
+        tool(
+            "get_workspaces",
+            "List all workspaces",
+            json!({ "type": "object", "properties": {} }),
+        ),
+        tool(
+            "get_board",
+            "Get full board state (columns + tasks) for a workspace",
+            json!({
+                "type": "object",
+                "properties": {
+                    "workspace": { "type": "string", "description": "Workspace name or ID" }
+                },
+                "required": ["workspace"]
+            }),
+        ),
+        tool(
+            "create_task",
+            "Create a new task",
+            json!({
+                "type": "object",
+                "properties": {
+                    "workspace": { "type": "string", "description": "Workspace name or ID (uses first workspace if omitted)" },
+                    "title": { "type": "string" },
+                    "description": { "type": "string" },
+                    "column": { "type": "string", "description": "Column name (default: first column)" }
+                },
+                "required": ["title"]
+            }),
+        ),
+        tool(
+            "move_task",
+            "Move a task to a different column",
+            json!({
+                "type": "object",
+                "properties": {
+                    "task": { "type": "string", "description": "Task title or ID" },
+                    "column": { "type": "string", "description": "Target column name or ID" }
+                },
+                "required": ["task", "column"]
+            }),
+        ),
+        tool(
+            "update_task",
+            "Update task title or description",
+            json!({
+                "type": "object",
+                "properties": {
+                    "task": { "type": "string", "description": "Task title or ID" },
+                    "title": { "type": "string" },
+                    "description": { "type": "string" }
+                },
+                "required": ["task"]
+            }),
+        ),
+        tool(
+            "delete_task",
+            "Delete a task",
+            json!({
+                "type": "object",
+                "properties": {
+                    "task": { "type": "string", "description": "Task title or ID" }
+                },
+                "required": ["task"]
+            }),
+        ),
+        tool(
+            "approve_task",
+            "Approve a task (quality gate)",
+            json!({
+                "type": "object",
+                "properties": {
+                    "task": { "type": "string", "description": "Task title or ID" }
+                },
+                "required": ["task"]
+            }),
+        ),
+        tool(
+            "reject_task",
+            "Reject a task with optional reason",
+            json!({
+                "type": "object",
+                "properties": {
+                    "task": { "type": "string", "description": "Task title or ID" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["task"]
+            }),
+        ),
+        tool(
+            "add_dependency",
+            "Add a dependency between tasks",
+            json!({
+                "type": "object",
+                "properties": {
+                    "task": { "type": "string", "description": "Task that will be blocked" },
+                    "depends_on": { "type": "string", "description": "Task that must complete first" },
+                    "condition": { "type": "string", "description": "completed (default), agent_complete, or moved_to_column", "default": "completed" }
+                },
+                "required": ["task", "depends_on"]
+            }),
+        ),
+        tool(
+            "remove_dependency",
+            "Remove a dependency",
+            json!({
+                "type": "object",
+                "properties": {
+                    "task": { "type": "string", "description": "Task title or ID" },
+                    "depends_on": { "type": "string", "description": "Blocker task title or ID to remove" }
+                },
+                "required": ["task", "depends_on"]
+            }),
+        ),
+        tool(
+            "mark_complete",
+            "Mark a task's pipeline as complete",
+            json!({
+                "type": "object",
+                "properties": {
+                    "task": { "type": "string", "description": "Task title or ID" },
+                    "success": { "type": "boolean", "default": true }
+                },
+                "required": ["task"]
+            }),
+        ),
+        tool(
+            "retry_task",
+            "Retry a failed task (reset pipeline state and clear error)",
+            json!({
+                "type": "object",
+                "properties": {
+                    "task": { "type": "string", "description": "Task title or ID" }
+                },
+                "required": ["task"]
+            }),
+        ),
+    ]
+}
+
+// ---------------------------------------------------------------------------
+// Resolution helpers — find workspace/task/column by name or ID
+// ---------------------------------------------------------------------------
+
+/// Find workspace by name or ID. Returns (id, name).
+fn find_workspace(conn: &Connection, query: &str) -> Result<(String, String), String> {
+    // Exact ID match
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM workspaces WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+    if let Ok(row) = stmt.query_row(params![query], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }) {
+        return Ok(row);
+    }
+
+    // Case-insensitive exact name
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM workspaces WHERE LOWER(name) = LOWER(?1)")
+        .map_err(|e| e.to_string())?;
+    if let Ok(row) = stmt.query_row(params![query], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }) {
+        return Ok(row);
+    }
+
+    // Partial name match
+    let pattern = format!("%{}%", query);
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM workspaces WHERE LOWER(name) LIKE LOWER(?1)")
+        .map_err(|e| e.to_string())?;
+    if let Ok(row) = stmt.query_row(params![pattern], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }) {
+        return Ok(row);
+    }
+
+    Err(format!("Workspace not found: {}", query))
+}
+
+/// Get the first workspace (fallback when none specified).
+fn first_workspace(conn: &Connection) -> Result<(String, String), String> {
+    conn.prepare("SELECT id, name FROM workspaces ORDER BY tab_order ASC, created_at ASC LIMIT 1")
+        .map_err(|e| e.to_string())?
+        .query_row([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .map_err(|_| "No workspaces found".to_string())
+}
+
+/// Find task by title or ID, optionally scoped to a workspace. Returns task JSON.
+fn find_task(conn: &Connection, query: &str, workspace_id: Option<&str>) -> Result<Value, String> {
+    let task_row = |r: &rusqlite::Row| -> rusqlite::Result<Value> {
+        Ok(json!({
+            "id": r.get::<_, String>(0)?,
+            "workspace_id": r.get::<_, String>(1)?,
+            "column_id": r.get::<_, String>(2)?,
+            "title": r.get::<_, String>(3)?,
+            "description": r.get::<_, Option<String>>(4)?,
+            "position": r.get::<_, i64>(5)?,
+            "priority": r.get::<_, String>(6)?,
+            "pipeline_state": r.get::<_, Option<String>>(7)?,
+            "pipeline_error": r.get::<_, Option<String>>(8)?,
+            "review_status": r.get::<_, Option<String>>(9)?,
+            "blocked": r.get::<_, i64>(10)?,
+            "dependencies": r.get::<_, Option<String>>(11)?,
+            "retry_count": r.get::<_, i64>(12)?,
+            "created_at": r.get::<_, String>(13)?,
+            "updated_at": r.get::<_, String>(14)?,
+        }))
+    };
+
+    let select = "SELECT id, workspace_id, column_id, title, description, position, priority, \
+                   pipeline_state, pipeline_error, review_status, blocked, dependencies, \
+                   retry_count, created_at, updated_at FROM tasks";
+
+    // Exact ID
+    let sql = format!("{} WHERE id = ?1", select);
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    if let Ok(row) = stmt.query_row(params![query], task_row) {
+        return Ok(row);
+    }
+
+    // Case-insensitive exact title (optionally within workspace)
+    if let Some(ws) = workspace_id {
+        let sql = format!(
+            "{} WHERE LOWER(title) = LOWER(?1) AND workspace_id = ?2",
+            select
+        );
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        if let Ok(row) = stmt.query_row(params![query, ws], task_row) {
+            return Ok(row);
+        }
+    } else {
+        let sql = format!("{} WHERE LOWER(title) = LOWER(?1)", select);
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        if let Ok(row) = stmt.query_row(params![query], task_row) {
+            return Ok(row);
+        }
+    }
+
+    // Partial title match
+    let pattern = format!("%{}%", query);
+    if let Some(ws) = workspace_id {
+        let sql = format!(
+            "{} WHERE LOWER(title) LIKE LOWER(?1) AND workspace_id = ?2",
+            select
+        );
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        if let Ok(row) = stmt.query_row(params![pattern, ws], task_row) {
+            return Ok(row);
+        }
+    } else {
+        let sql = format!("{} WHERE LOWER(title) LIKE LOWER(?1)", select);
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        if let Ok(row) = stmt.query_row(params![pattern], task_row) {
+            return Ok(row);
+        }
+    }
+
+    Err(format!("Task not found: {}", query))
+}
+
+/// Find column by name or ID within workspace. Returns (id, name).
+fn find_column(conn: &Connection, query: &str, workspace_id: &str) -> Result<(String, String), String> {
+    // Exact ID
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM columns WHERE id = ?1 AND workspace_id = ?2")
+        .map_err(|e| e.to_string())?;
+    if let Ok(row) = stmt.query_row(params![query, workspace_id], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }) {
+        return Ok(row);
+    }
+
+    // Case-insensitive exact name
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM columns WHERE LOWER(name) = LOWER(?1) AND workspace_id = ?2")
+        .map_err(|e| e.to_string())?;
+    if let Ok(row) = stmt.query_row(params![query, workspace_id], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }) {
+        return Ok(row);
+    }
+
+    // Partial name match
+    let pattern = format!("%{}%", query);
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM columns WHERE LOWER(name) LIKE LOWER(?1) AND workspace_id = ?2")
+        .map_err(|e| e.to_string())?;
+    if let Ok(row) = stmt.query_row(params![pattern, workspace_id], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }) {
+        return Ok(row);
+    }
+
+    Err(format!("Column not found: {}", query))
+}
+
+/// Get the first column in a workspace.
+fn first_column(conn: &Connection, workspace_id: &str) -> Result<(String, String), String> {
+    conn.prepare("SELECT id, name FROM columns WHERE workspace_id = ?1 ORDER BY position ASC LIMIT 1")
+        .map_err(|e| e.to_string())?
+        .query_row(params![workspace_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .map_err(|_| "No columns found in workspace".to_string())
+}
+
+/// Get the max position for tasks in a column.
+fn max_task_position(conn: &Connection, column_id: &str) -> i64 {
+    conn.prepare("SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1")
+        .ok()
+        .and_then(|mut s| s.query_row(params![column_id], |r| r.get::<_, i64>(0)).ok())
+        .unwrap_or(-1)
+}
+
+// ---------------------------------------------------------------------------
+// Tool call handler
+// ---------------------------------------------------------------------------
+
+fn handle_tool_call(conn: &Connection, name: &str, args: &Value) -> Value {
+    match name {
+        "get_workspaces" => handle_get_workspaces(conn),
+        "get_board" => handle_get_board(conn, args),
+        "create_task" => handle_create_task(conn, args),
+        "move_task" => handle_move_task(conn, args),
+        "update_task" => handle_update_task(conn, args),
+        "delete_task" => handle_delete_task(conn, args),
+        "approve_task" => handle_approve_task(conn, args),
+        "reject_task" => handle_reject_task(conn, args),
+        "add_dependency" => handle_add_dependency(conn, args),
+        "remove_dependency" => handle_remove_dependency(conn, args),
+        "mark_complete" => handle_mark_complete(conn, args),
+        "retry_task" => handle_retry_task(conn, args),
+        _ => json!({ "error": format!("Unknown tool: {}", name) }),
+    }
+}
+
+fn handle_get_workspaces(conn: &Connection) -> Value {
+    let mut stmt = match conn.prepare(
+        "SELECT id, name, repo_path, tab_order, is_active, config, created_at, updated_at \
+         FROM workspaces ORDER BY tab_order ASC",
+    ) {
+        Ok(s) => s,
+        Err(e) => return json!({ "error": e.to_string() }),
+    };
+
+    let rows: Vec<Value> = stmt
+        .query_map([], |r| {
+            Ok(json!({
+                "id": r.get::<_, String>(0)?,
+                "name": r.get::<_, String>(1)?,
+                "repo_path": r.get::<_, String>(2)?,
+                "tab_order": r.get::<_, i64>(3)?,
+                "is_active": r.get::<_, i64>(4)? != 0,
+                "config": r.get::<_, Option<String>>(5)?,
+                "created_at": r.get::<_, String>(6)?,
+                "updated_at": r.get::<_, String>(7)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect();
+
+    json!({ "workspaces": rows })
+}
+
+fn handle_get_board(conn: &Connection, args: &Value) -> Value {
+    let ws_query = match args.get("workspace").and_then(|v| v.as_str()) {
+        Some(q) => q.to_string(),
+        None => return json!({ "error": "workspace is required" }),
+    };
+
+    let (ws_id, ws_name) = match find_workspace(conn, &ws_query) {
+        Ok(w) => w,
+        Err(e) => return json!({ "error": e }),
+    };
+
+    // Fetch columns
+    let mut col_stmt = match conn.prepare(
+        "SELECT id, name, icon, position, color, visible, triggers \
+         FROM columns WHERE workspace_id = ?1 ORDER BY position ASC",
+    ) {
+        Ok(s) => s,
+        Err(e) => return json!({ "error": e.to_string() }),
+    };
+
+    let columns: Vec<Value> = col_stmt
+        .query_map(params![&ws_id], |r| {
+            Ok(json!({
+                "id": r.get::<_, String>(0)?,
+                "name": r.get::<_, String>(1)?,
+                "icon": r.get::<_, Option<String>>(2)?,
+                "position": r.get::<_, i64>(3)?,
+                "color": r.get::<_, Option<String>>(4)?,
+                "visible": r.get::<_, i64>(5)? != 0,
+                "triggers": r.get::<_, Option<String>>(6)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Fetch tasks
+    let select = "SELECT id, workspace_id, column_id, title, description, position, priority, \
+                   pipeline_state, pipeline_error, review_status, blocked, dependencies, \
+                   retry_count, created_at, updated_at FROM tasks";
+    let sql = format!("{} WHERE workspace_id = ?1 ORDER BY position ASC", select);
+    let mut task_stmt = match conn.prepare(&sql) {
+        Ok(s) => s,
+        Err(e) => return json!({ "error": e.to_string() }),
+    };
+
+    let tasks: Vec<Value> = task_stmt
+        .query_map(params![&ws_id], |r| {
+            Ok(json!({
+                "id": r.get::<_, String>(0)?,
+                "workspace_id": r.get::<_, String>(1)?,
+                "column_id": r.get::<_, String>(2)?,
+                "title": r.get::<_, String>(3)?,
+                "description": r.get::<_, Option<String>>(4)?,
+                "position": r.get::<_, i64>(5)?,
+                "priority": r.get::<_, String>(6)?,
+                "pipeline_state": r.get::<_, Option<String>>(7)?,
+                "pipeline_error": r.get::<_, Option<String>>(8)?,
+                "review_status": r.get::<_, Option<String>>(9)?,
+                "blocked": r.get::<_, i64>(10)? != 0,
+                "dependencies": r.get::<_, Option<String>>(11)?,
+                "retry_count": r.get::<_, i64>(12)?,
+                "created_at": r.get::<_, String>(13)?,
+                "updated_at": r.get::<_, String>(14)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Group tasks by column
+    let columns_with_tasks: Vec<Value> = columns
+        .into_iter()
+        .map(|mut col| {
+            let col_id = col["id"].as_str().unwrap_or_default().to_string();
+            let col_tasks: Vec<&Value> = tasks
+                .iter()
+                .filter(|t| t["column_id"].as_str() == Some(&col_id))
+                .collect();
+            col.as_object_mut()
+                .unwrap()
+                .insert("tasks".into(), json!(col_tasks));
+            col
+        })
+        .collect();
+
+    json!({
+        "workspace": { "id": ws_id, "name": ws_name },
+        "columns": columns_with_tasks
+    })
+}
+
+fn handle_create_task(conn: &Connection, args: &Value) -> Value {
+    let title = match args.get("title").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return json!({ "error": "title is required" }),
+    };
+    let description = args.get("description").and_then(|v| v.as_str());
+
+    // Resolve workspace
+    let (ws_id, _ws_name) = if let Some(ws_q) = args.get("workspace").and_then(|v| v.as_str()) {
+        match find_workspace(conn, ws_q) {
+            Ok(w) => w,
+            Err(e) => return json!({ "error": e }),
+        }
+    } else {
+        match first_workspace(conn) {
+            Ok(w) => w,
+            Err(e) => return json!({ "error": e }),
+        }
+    };
+
+    // Resolve column
+    let (col_id, col_name) = if let Some(col_q) = args.get("column").and_then(|v| v.as_str()) {
+        match find_column(conn, col_q, &ws_id) {
+            Ok(c) => c,
+            Err(e) => return json!({ "error": e }),
+        }
+    } else {
+        match first_column(conn, &ws_id) {
+            Ok(c) => c,
+            Err(e) => return json!({ "error": e }),
+        }
+    };
+
+    let id = new_id();
+    let ts = now();
+    let position = max_task_position(conn, &col_id) + 1;
+
+    match conn.execute(
+        "INSERT INTO tasks (id, workspace_id, column_id, title, description, position, priority, \
+         pipeline_state, blocked, dependencies, retry_count, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'medium', 'idle', 0, '[]', 0, ?7, ?7)",
+        params![id, ws_id, col_id, title, description, position, ts],
+    ) {
+        Ok(_) => json!({
+            "task": {
+                "id": id,
+                "workspace_id": ws_id,
+                "column": col_name,
+                "title": title,
+                "description": description,
+                "position": position,
+            },
+            "message": format!("Created task '{}' in column '{}'", title, col_name)
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_move_task(conn: &Connection, args: &Value) -> Value {
+    let task_q = match args.get("task").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return json!({ "error": "task is required" }),
+    };
+    let col_q = match args.get("column").and_then(|v| v.as_str()) {
+        Some(c) => c,
+        None => return json!({ "error": "column is required" }),
+    };
+
+    let task = match find_task(conn, task_q, None) {
+        Ok(t) => t,
+        Err(e) => return json!({ "error": e }),
+    };
+
+    let task_id = task["id"].as_str().unwrap();
+    let ws_id = task["workspace_id"].as_str().unwrap();
+
+    let (col_id, col_name) = match find_column(conn, col_q, ws_id) {
+        Ok(c) => c,
+        Err(e) => return json!({ "error": e }),
+    };
+
+    let position = max_task_position(conn, &col_id) + 1;
+    let ts = now();
+
+    match conn.execute(
+        "UPDATE tasks SET column_id = ?1, position = ?2, updated_at = ?3 WHERE id = ?4",
+        params![col_id, position, ts, task_id],
+    ) {
+        Ok(_) => json!({
+            "task_id": task_id,
+            "title": task["title"],
+            "column": col_name,
+            "message": format!("Moved '{}' to '{}'", task["title"].as_str().unwrap_or("?"), col_name)
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_update_task(conn: &Connection, args: &Value) -> Value {
+    let task_q = match args.get("task").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return json!({ "error": "task is required" }),
+    };
+
+    let task = match find_task(conn, task_q, None) {
+        Ok(t) => t,
+        Err(e) => return json!({ "error": e }),
+    };
+    let task_id = task["id"].as_str().unwrap();
+
+    let new_title = args.get("title").and_then(|v| v.as_str());
+    let new_desc = args.get("description").and_then(|v| v.as_str());
+
+    if new_title.is_none() && new_desc.is_none() {
+        return json!({ "error": "Nothing to update — provide title or description" });
+    }
+
+    let ts = now();
+    let mut updates = Vec::new();
+    let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+    if let Some(t) = new_title {
+        updates.push(format!("title = ?{}", param_values.len() + 1));
+        param_values.push(Box::new(t.to_string()));
+    }
+    if let Some(d) = new_desc {
+        updates.push(format!("description = ?{}", param_values.len() + 1));
+        param_values.push(Box::new(d.to_string()));
+    }
+    updates.push(format!("updated_at = ?{}", param_values.len() + 1));
+    param_values.push(Box::new(ts));
+
+    let sql = format!(
+        "UPDATE tasks SET {} WHERE id = ?{}",
+        updates.join(", "),
+        param_values.len() + 1
+    );
+    param_values.push(Box::new(task_id.to_string()));
+
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+
+    match conn.execute(&sql, param_refs.as_slice()) {
+        Ok(_) => json!({
+            "task_id": task_id,
+            "title": new_title.unwrap_or(task["title"].as_str().unwrap_or("")),
+            "message": "Task updated"
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_delete_task(conn: &Connection, args: &Value) -> Value {
+    let task_q = match args.get("task").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return json!({ "error": "task is required" }),
+    };
+
+    let task = match find_task(conn, task_q, None) {
+        Ok(t) => t,
+        Err(e) => return json!({ "error": e }),
+    };
+    let task_id = task["id"].as_str().unwrap();
+    let title = task["title"].as_str().unwrap_or("?");
+
+    match conn.execute("DELETE FROM tasks WHERE id = ?1", params![task_id]) {
+        Ok(_) => json!({ "message": format!("Deleted task '{}'", title) }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_approve_task(conn: &Connection, args: &Value) -> Value {
+    let task_q = match args.get("task").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return json!({ "error": "task is required" }),
+    };
+
+    let task = match find_task(conn, task_q, None) {
+        Ok(t) => t,
+        Err(e) => return json!({ "error": e }),
+    };
+    let task_id = task["id"].as_str().unwrap();
+    let ts = now();
+
+    match conn.execute(
+        "UPDATE tasks SET review_status = 'approved', updated_at = ?1 WHERE id = ?2",
+        params![ts, task_id],
+    ) {
+        Ok(_) => json!({
+            "task_id": task_id,
+            "title": task["title"],
+            "review_status": "approved",
+            "message": format!("Approved task '{}'", task["title"].as_str().unwrap_or("?"))
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_reject_task(conn: &Connection, args: &Value) -> Value {
+    let task_q = match args.get("task").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return json!({ "error": "task is required" }),
+    };
+
+    let task = match find_task(conn, task_q, None) {
+        Ok(t) => t,
+        Err(e) => return json!({ "error": e }),
+    };
+    let task_id = task["id"].as_str().unwrap();
+    let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+    let ts = now();
+
+    // Store reason in pipeline_error for visibility
+    match conn.execute(
+        "UPDATE tasks SET review_status = 'rejected', pipeline_error = ?1, updated_at = ?2 WHERE id = ?3",
+        params![reason, ts, task_id],
+    ) {
+        Ok(_) => json!({
+            "task_id": task_id,
+            "title": task["title"],
+            "review_status": "rejected",
+            "reason": reason,
+            "message": format!("Rejected task '{}'", task["title"].as_str().unwrap_or("?"))
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_add_dependency(conn: &Connection, args: &Value) -> Value {
+    let task_q = match args.get("task").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return json!({ "error": "task is required" }),
+    };
+    let dep_q = match args.get("depends_on").and_then(|v| v.as_str()) {
+        Some(d) => d,
+        None => return json!({ "error": "depends_on is required" }),
+    };
+    let condition = args
+        .get("condition")
+        .and_then(|v| v.as_str())
+        .unwrap_or("completed");
+
+    let task = match find_task(conn, task_q, None) {
+        Ok(t) => t,
+        Err(e) => return json!({ "error": e }),
+    };
+    let dep_task = match find_task(conn, dep_q, None) {
+        Ok(t) => t,
+        Err(e) => return json!({ "error": format!("Blocker task: {}", e) }),
+    };
+
+    let task_id = task["id"].as_str().unwrap();
+    let dep_id = dep_task["id"].as_str().unwrap();
+
+    // Parse existing dependencies
+    let deps_str = task["dependencies"]
+        .as_str()
+        .unwrap_or("[]");
+    let mut deps: Vec<Value> = serde_json::from_str(deps_str).unwrap_or_default();
+
+    // Check for duplicate
+    if deps.iter().any(|d| d["task_id"].as_str() == Some(dep_id)) {
+        return json!({ "error": "Dependency already exists" });
+    }
+
+    deps.push(json!({
+        "task_id": dep_id,
+        "condition": condition
+    }));
+
+    let deps_json = serde_json::to_string(&deps).unwrap();
+    let ts = now();
+    let blocked = 1; // Has dependencies, so blocked
+
+    match conn.execute(
+        "UPDATE tasks SET dependencies = ?1, blocked = ?2, updated_at = ?3 WHERE id = ?4",
+        params![deps_json, blocked, ts, task_id],
+    ) {
+        Ok(_) => json!({
+            "task_id": task_id,
+            "title": task["title"],
+            "depends_on": dep_task["title"],
+            "condition": condition,
+            "blocked": true,
+            "message": format!(
+                "'{}' now depends on '{}' ({})",
+                task["title"].as_str().unwrap_or("?"),
+                dep_task["title"].as_str().unwrap_or("?"),
+                condition
+            )
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_remove_dependency(conn: &Connection, args: &Value) -> Value {
+    let task_q = match args.get("task").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return json!({ "error": "task is required" }),
+    };
+    let dep_q = match args.get("depends_on").and_then(|v| v.as_str()) {
+        Some(d) => d,
+        None => return json!({ "error": "depends_on is required" }),
+    };
+
+    let task = match find_task(conn, task_q, None) {
+        Ok(t) => t,
+        Err(e) => return json!({ "error": e }),
+    };
+    let dep_task = match find_task(conn, dep_q, None) {
+        Ok(t) => t,
+        Err(e) => return json!({ "error": format!("Blocker task: {}", e) }),
+    };
+
+    let task_id = task["id"].as_str().unwrap();
+    let dep_id = dep_task["id"].as_str().unwrap();
+
+    let deps_str = task["dependencies"].as_str().unwrap_or("[]");
+    let mut deps: Vec<Value> = serde_json::from_str(deps_str).unwrap_or_default();
+
+    let before_len = deps.len();
+    deps.retain(|d| d["task_id"].as_str() != Some(dep_id));
+
+    if deps.len() == before_len {
+        return json!({ "error": "Dependency not found" });
+    }
+
+    let deps_json = serde_json::to_string(&deps).unwrap();
+    let blocked = if deps.is_empty() { 0 } else { 1 };
+    let ts = now();
+
+    match conn.execute(
+        "UPDATE tasks SET dependencies = ?1, blocked = ?2, updated_at = ?3 WHERE id = ?4",
+        params![deps_json, blocked, ts, task_id],
+    ) {
+        Ok(_) => json!({
+            "task_id": task_id,
+            "title": task["title"],
+            "removed": dep_task["title"],
+            "blocked": blocked != 0,
+            "message": format!(
+                "Removed dependency '{}' from '{}'",
+                dep_task["title"].as_str().unwrap_or("?"),
+                task["title"].as_str().unwrap_or("?")
+            )
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_mark_complete(conn: &Connection, args: &Value) -> Value {
+    let task_q = match args.get("task").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return json!({ "error": "task is required" }),
+    };
+    let success = args.get("success").and_then(|v| v.as_bool()).unwrap_or(true);
+
+    let task = match find_task(conn, task_q, None) {
+        Ok(t) => t,
+        Err(e) => return json!({ "error": e }),
+    };
+    let task_id = task["id"].as_str().unwrap();
+    let ts = now();
+
+    let new_state = if success { "completed" } else { "failed" };
+
+    match conn.execute(
+        "UPDATE tasks SET pipeline_state = ?1, updated_at = ?2 WHERE id = ?3",
+        params![new_state, ts, task_id],
+    ) {
+        Ok(_) => json!({
+            "task_id": task_id,
+            "title": task["title"],
+            "pipeline_state": new_state,
+            "message": format!(
+                "Marked '{}' as {}",
+                task["title"].as_str().unwrap_or("?"),
+                new_state
+            )
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_retry_task(conn: &Connection, args: &Value) -> Value {
+    let task_q = match args.get("task").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return json!({ "error": "task is required" }),
+    };
+
+    let task = match find_task(conn, task_q, None) {
+        Ok(t) => t,
+        Err(e) => return json!({ "error": e }),
+    };
+    let task_id = task["id"].as_str().unwrap();
+    let retry_count = task["retry_count"].as_i64().unwrap_or(0) + 1;
+    let ts = now();
+
+    match conn.execute(
+        "UPDATE tasks SET pipeline_state = 'idle', pipeline_error = NULL, \
+         retry_count = ?1, updated_at = ?2 WHERE id = ?3",
+        params![retry_count, ts, task_id],
+    ) {
+        Ok(_) => json!({
+            "task_id": task_id,
+            "title": task["title"],
+            "retry_count": retry_count,
+            "message": format!(
+                "Reset '{}' for retry (attempt #{})",
+                task["title"].as_str().unwrap_or("?"),
+                retry_count
+            )
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MCP protocol handlers
+// ---------------------------------------------------------------------------
+
+fn handle_initialize(req: &JsonRpcRequest) -> JsonRpcResponse {
+    success_response(
+        req.id.clone().unwrap_or(Value::Null),
+        json!({
+            "protocolVersion": "2024-11-05",
+            "capabilities": {
+                "tools": {}
+            },
+            "serverInfo": {
+                "name": "bento-ya",
+                "version": "0.1.0"
+            }
+        }),
+    )
+}
+
+fn handle_tools_list(req: &JsonRpcRequest) -> JsonRpcResponse {
+    success_response(
+        req.id.clone().unwrap_or(Value::Null),
+        json!({ "tools": get_tools() }),
+    )
+}
+
+fn handle_tools_call(conn: &Connection, req: &JsonRpcRequest) -> JsonRpcResponse {
+    let params = req.params.as_ref().cloned().unwrap_or(Value::Null);
+    let tool_name = params
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+
+    if tool_name.is_empty() {
+        return tool_error(
+            req.id.clone().unwrap_or(Value::Null),
+            "Missing tool name in params.name",
+        );
+    }
+
+    let result = handle_tool_call(conn, tool_name, &arguments);
+    tool_result(req.id.clone().unwrap_or(Value::Null), &result)
+}
+
+// ---------------------------------------------------------------------------
+// Main loop
+// ---------------------------------------------------------------------------
+
+fn main() {
+    let args = Args::parse();
+    let db_path = args.db.unwrap_or_else(default_db_path);
+
+    let conn = Connection::open(&db_path).unwrap_or_else(|e| {
+        eprintln!("Failed to open database at {}: {}", db_path, e);
+        std::process::exit(1);
+    });
+
+    // Enable WAL mode for concurrent reads
+    conn.execute_batch("PRAGMA journal_mode=WAL;").ok();
+
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let mut stdout = stdout.lock();
+
+    for line in stdin.lock().lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => break,
+        };
+
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let request: JsonRpcRequest = match serde_json::from_str(&line) {
+            Ok(r) => r,
+            Err(e) => {
+                let resp = error_response(Value::Null, -32700, &format!("Parse error: {}", e));
+                let json = serde_json::to_string(&resp).unwrap();
+                writeln!(stdout, "{}", json).unwrap();
+                stdout.flush().unwrap();
+                continue;
+            }
+        };
+
+        // Notifications (no id) — don't send a response
+        if request.id.is_none() {
+            // "initialized" is a notification, just consume it
+            continue;
+        }
+
+        let response = match request.method.as_str() {
+            "initialize" => handle_initialize(&request),
+            "notifications/initialized" | "initialized" => continue,
+            "tools/list" => handle_tools_list(&request),
+            "tools/call" => handle_tools_call(&conn, &request),
+            _ => error_response(
+                request.id.clone().unwrap_or(Value::Null),
+                -32601,
+                &format!("Method not found: {}", request.method),
+            ),
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        writeln!(stdout, "{}", json).unwrap();
+        stdout.flush().unwrap();
+    }
+}
