@@ -11,7 +11,7 @@ import { useChatSession } from '@/hooks/chat-session'
 import { useCliPath } from '@/hooks/use-cli-path'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { ChatHistory } from './chat-history'
-import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls, mapMessages, mapQueue } from './shared'
+import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls, mapMessages } from './shared'
 
 type AgentPanelProps = {
   task: Task
@@ -83,7 +83,7 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
 
   const chatMessages = mapMessages(messages, task.workspaceId, task.id)
   const toolCalls = mapToolCalls(streaming.toolCalls, task.workspaceId)
-  const queuedMessages = mapQueue(queue)
+  const queuedMessages = queue
 
   return (
     <div className="flex h-full flex-col">

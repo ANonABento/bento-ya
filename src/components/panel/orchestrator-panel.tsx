@@ -19,7 +19,7 @@ import { useCliPath } from '@/hooks/use-cli-path'
 import { ChatHistory } from './chat-history'
 import { PanelSidebar } from './panel-sidebar'
 import { ChatErrorBoundary } from './chat-error-boundary'
-import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls, mapQueue } from './shared'
+import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls } from './shared'
 
 type OrchestratorPanelProps = {
   workspaceId: string
@@ -445,7 +445,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   thinkingContent={chat.streaming.thinkingContent}
                   toolCalls={toolCalls}
                   onCancel={() => { void handleCancel() }}
-                  queuedMessages={mapQueue(chat.queue)}
+                  queuedMessages={chat.queue}
                 />
                 <ChatInput
                   config={{

@@ -75,7 +75,3 @@ export function mapMessages(
   }))
 }
 
-/** Convert queue items to format expected by ChatHistory */
-export function mapQueue(queue: Array<{ id: string; content: string }>): Array<{ id: string; content: string }> {
-  return queue.map((m) => ({ id: m.id, content: m.content }))
-}
