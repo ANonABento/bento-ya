@@ -125,9 +125,17 @@ export function getColumnTriggers(column: Column): ColumnTriggers {
   if (!column.triggers) return DEFAULT_TRIGGERS
 
   // Backend sends triggers as a JSON string — parse if needed
-  const triggers = typeof column.triggers === 'string'
-    ? (() => { try { return JSON.parse(column.triggers as string) as ColumnTriggers } catch { return null } })()
-    : column.triggers
+  let triggers: ColumnTriggers | null = null
+  if (typeof column.triggers === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(column.triggers)
+      if (parsed && typeof parsed === 'object') {
+        triggers = parsed as ColumnTriggers
+      }
+    } catch { /* invalid JSON → use defaults */ }
+  } else {
+    triggers = column.triggers
+  }
 
   if (triggers && Object.keys(triggers).length > 0) {
     return triggers

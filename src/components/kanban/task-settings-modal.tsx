@@ -42,7 +42,7 @@ export function TaskSettingsModal({ task, onClose, initialTab }: TaskSettingsMod
         triggerOverrides: JSON.stringify(newOverrides),
         triggerPrompt: triggerPrompt || null,
         dependencies: JSON.stringify(deps),
-        blocked: deps.length > 0 ? true : undefined, // new deps start blocked; backend resolves on next trigger
+        blocked: deps.length > 0, // true if has deps, false if cleared
       })
       updateTask(updated.id, updated)
       onClose()

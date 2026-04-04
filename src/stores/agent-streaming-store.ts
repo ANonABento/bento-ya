@@ -57,11 +57,11 @@ export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => 
   },
 
   appendContent: (taskId, content) => {
-    get().ensureStream(taskId)
     set((state) => {
       const next = new Map(state.streams)
-      const stream = next.get(taskId)
-      if (!stream) return state
+      const stream = next.get(taskId) ?? {
+        lastContent: '', activeTool: null, toolCount: 0, startTime: Date.now(),
+      }
       // Keep last 200 chars for card preview
       const updated = stream.lastContent + content
       next.set(taskId, {
@@ -73,11 +73,11 @@ export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => 
   },
 
   updateTool: (taskId, toolId, toolName, status) => {
-    get().ensureStream(taskId)
     set((state) => {
       const next = new Map(state.streams)
-      const stream = next.get(taskId)
-      if (!stream) return state
+      const stream = next.get(taskId) ?? {
+        lastContent: '', activeTool: null, toolCount: 0, startTime: Date.now(),
+      }
 
       const toolStatus = status as LiveToolCall['status']
       const isActive = toolStatus === 'pending' || toolStatus === 'running'
