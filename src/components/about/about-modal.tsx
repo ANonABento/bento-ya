@@ -23,6 +23,7 @@ const SHORTCUTS = [
     { keys: ['Enter'], desc: 'Open task' },
     { keys: ['Space'], desc: 'Open task (peek)' },
     { keys: ['D'], desc: 'Duplicate task' },
+    { keys: ['L'], desc: 'Link dependencies' },
     { keys: ['M'], desc: 'Move task menu' },
     { keys: ['Del'], desc: 'Delete task menu' },
   ]},

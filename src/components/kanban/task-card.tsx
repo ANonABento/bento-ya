@@ -210,6 +210,7 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
   // Context menu & settings modal
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<'triggers' | 'dependencies'>('triggers')
   const columns = useColumnStore((s) => s.columns)
 
   // Get exit criteria type for this task's column
@@ -353,6 +354,19 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
     setContextMenu({ x: e.clientX, y: e.clientY })
   }, [])
 
+  // Derive blocker task names for the blocked badge (no subscription — reads store snapshot)
+  const blockerInfo = useMemo(() => {
+    if (!task.blocked || !task.dependencies) return null
+    try {
+      const deps = JSON.parse(task.dependencies) as Array<{ task_id: string }>
+      const tasks = useTaskStore.getState().tasks
+      const names = deps
+        .map(d => tasks.find(t => t.id === d.task_id)?.title)
+        .filter(Boolean)
+      return names.length > 0 ? names.join(', ') : null
+    } catch { return null }
+  }, [task.blocked, task.dependencies])
+
   const needsAttention = hasAttention || task.agentStatus === 'needs_attention'
   const isPipelineActive = task.pipelineState !== 'idle'
   const hasPipelineError = !!task.pipelineError
@@ -413,6 +427,12 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
             setContextMenu({ x: moveRect.right - 180, y: moveRect.top })
             break
           }
+          case 'l':
+          case 'L':
+            e.preventDefault()
+            setSettingsTab('dependencies')
+            setShowSettings(true)
+            break
         }
       }}
       tabIndex={0}
@@ -464,7 +484,9 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
               <path fillRule="evenodd" d="M8 1a3.5 3.5 0 0 0-3.5 3.5V7A1.5 1.5 0 0 0 3 8.5v5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 11.5 7V4.5A3.5 3.5 0 0 0 8 1Zm2 6V4.5a2 2 0 1 0-4 0V7h4Z" clipRule="evenodd" />
             </svg>
-            <span className="truncate">Blocked by dependencies</span>
+            <span className="truncate">
+              {blockerInfo ? `Waiting for: ${blockerInfo}` : 'Blocked by dependencies'}
+            </span>
           </div>
         )}
 
@@ -701,7 +723,8 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
     {showSettings && (
       <TaskSettingsModal
         task={task}
-        onClose={() => { setShowSettings(false) }}
+        onClose={() => { setShowSettings(false); setSettingsTab('triggers') }}
+        initialTab={settingsTab}
       />
     )}
     </>

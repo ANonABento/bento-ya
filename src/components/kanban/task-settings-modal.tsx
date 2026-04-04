@@ -10,14 +10,15 @@ import { useColumnStore } from '@/stores/column-store'
 type TaskSettingsModalProps = {
   task: Task
   onClose: () => void
+  initialTab?: Tab
 }
 
 type Tab = 'triggers' | 'dependencies'
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
-export function TaskSettingsModal({ task, onClose }: TaskSettingsModalProps) {
-  const [tab, setTab] = useState<Tab>('triggers')
+export function TaskSettingsModal({ task, onClose, initialTab }: TaskSettingsModalProps) {
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'triggers')
   const updateTask = useTaskStore((s) => s.updateTask)
 
   // Parse trigger overrides
@@ -41,7 +42,7 @@ export function TaskSettingsModal({ task, onClose }: TaskSettingsModalProps) {
         triggerOverrides: JSON.stringify(newOverrides),
         triggerPrompt: triggerPrompt || null,
         dependencies: JSON.stringify(deps),
-        blocked: deps.length > 0,
+        blocked: deps.length > 0 ? true : undefined, // new deps start blocked; backend resolves on next trigger
       })
       updateTask(updated.id, updated)
       onClose()
@@ -261,8 +262,9 @@ function DependenciesTab({
   const [validationError, setValidationError] = useState<string | null>(null)
   const [isValidating, setIsValidating] = useState(false)
 
-  // Available tasks = all workspace tasks except self
-  const availableTasks = tasks.filter(t => t.id !== taskId)
+  // Available tasks = all workspace tasks except self and already-added deps
+  const existingDepIds = new Set(deps.map(d => d.task_id))
+  const availableTasks = tasks.filter(t => t.id !== taskId && !existingDepIds.has(t.id))
 
   const getTaskTitle = (id: string) =>
     tasks.find(t => t.id === id)?.title ?? id.slice(0, 8) + '...'
