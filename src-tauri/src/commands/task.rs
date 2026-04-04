@@ -193,6 +193,16 @@ pub fn update_task_triggers(
     blocked: Option<bool>,
 ) -> Result<Task, AppError> {
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    // Validate dependencies won't create a cycle before saving
+    if let Some(ref deps_json) = dependencies {
+        if !deps_json.is_empty() && deps_json != "[]" {
+            let deps: Vec<pipeline::dependencies::TaskDependency> = serde_json::from_str(deps_json)
+                .map_err(|e| AppError::InvalidInput(format!("Invalid dependencies JSON: {}", e)))?;
+            pipeline::dependencies::validate_dependencies(&conn, &id, &deps)?;
+        }
+    }
+
     let ts = db::now();
 
     // Build dynamic UPDATE query
@@ -677,6 +687,19 @@ Return ONLY the JSON array, no other text."#,
         items,
         diff_summary,
     })
+}
+
+/// Validate that task dependencies won't create a cycle
+#[tauri::command]
+pub fn validate_task_dependencies(
+    state: State<AppState>,
+    task_id: String,
+    dependencies: String,
+) -> Result<(), AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let deps: Vec<pipeline::dependencies::TaskDependency> = serde_json::from_str(&dependencies)
+        .map_err(|e| AppError::InvalidInput(format!("Invalid dependencies JSON: {}", e)))?;
+    pipeline::dependencies::validate_dependencies(&conn, &task_id, &deps)
 }
 
 /// Retry a failed pipeline trigger

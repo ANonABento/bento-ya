@@ -105,6 +105,15 @@ export async function generateTestChecklist(
   })
 }
 
+// ─── Dependency Validation ───────────────────────────────────────────────────
+
+export async function validateTaskDependencies(
+  taskId: string,
+  dependencies: string,
+): Promise<void> {
+  return invoke('validate_task_dependencies', { taskId, dependencies })
+}
+
 // ─── PR creation ─────────────────────────────────────────────────────────────
 
 export async function createPr(

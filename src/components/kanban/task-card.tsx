@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, useCallback } from 'react'
+import { memo, useMemo, useState, useCallback, useEffect } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { Task, PipelineState } from '@/types'
@@ -14,6 +14,7 @@ import { TaskQuickActions } from './task-quick-actions'
 import * as ipc from '@/lib/ipc'
 import { useAgentStreamingStore } from '@/stores/agent-streaming-store'
 import { getColumnTriggers } from '@/types/column'
+import { useCardPosition } from '@/hooks/use-card-positions'
 
 type TaskCardProps = {
   task: Task
@@ -230,6 +231,8 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
   const updateTask = useTaskStore((s) => s.updateTask)
   const duplicateTask = useTaskStore((s) => s.duplicate)
 
+  const { registerCard } = useCardPosition()
+
   const {
     attributes,
     listeners,
@@ -241,6 +244,16 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
     id: task.id,
     data: { type: 'task' },
   })
+
+  const cardRef = useCallback((element: HTMLElement | null) => {
+    setNodeRef(element)
+    registerCard(task.id, element)
+  }, [setNodeRef, registerCard, task.id])
+
+  // Unregister on unmount
+  useEffect(() => {
+    return () => { registerCard(task.id, null) }
+  }, [task.id, registerCard])
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -357,7 +370,7 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
   return (
     <>
     <div
-      ref={setNodeRef}
+      ref={cardRef}
       style={{
         ...style,
         cursor: 'pointer',

@@ -147,6 +147,7 @@ pub fn run() {
             commands::task::clear_task_notification_sent,
             commands::task::generate_test_checklist,
             commands::task::retry_pipeline,
+            commands::task::validate_task_dependencies,
             // Git commands
             commands::git::create_task_branch,
             commands::git::switch_branch,
