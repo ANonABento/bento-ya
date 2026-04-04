@@ -16,10 +16,11 @@ const SHORTCUTS = [
   ]},
   { category: 'Tasks', items: [
     { keys: ['Cmd', 'Enter'], desc: 'Create new task' },
+    { keys: ['Space'], desc: 'Peek task (on card)' },
     { keys: ['Esc'], desc: 'Close panel / Cancel' },
   ]},
   { category: 'Terminal', items: [
-    { keys: ['Cmd', 'K'], desc: 'Clear terminal' },
+    { keys: ['Cmd', 'K'], desc: 'Command palette' },
     { keys: ['Ctrl', 'C'], desc: 'Interrupt process' },
   ]},
   { category: 'General', items: [

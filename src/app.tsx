@@ -13,6 +13,7 @@ import { TabBar } from '@/components/layout/tab-bar'
 import { SettingsPanel } from '@/components/settings/settings-panel'
 import { ChecklistPanel } from '@/components/checklist/checklist-panel'
 import { AboutModal } from '@/components/about/about-modal'
+import { CommandPalette } from '@/components/command-palette/command-palette'
 import { SkeletonLoader } from '@/components/shared/skeleton-loader'
 
 function App() {
@@ -22,11 +23,14 @@ function App() {
   const load = useWorkspaceStore((s) => s.load)
   const [error, setError] = useState<string | null>(null)
   const [showAbout, setShowAbout] = useState(false)
+  const [showCommandPalette, setShowCommandPalette] = useState(false)
 
   // Keyboard shortcuts
   const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
+  const toggleCommandPalette = useCallback(() => { setShowCommandPalette((prev) => !prev) }, [])
   useKeyboardShortcuts([
     { key: '/', meta: true, handler: toggleAbout },
+    { key: 'k', meta: true, handler: toggleCommandPalette },
   ])
 
   // Auto-detect CLI paths on startup
@@ -84,6 +88,12 @@ function App() {
       {/* Modals */}
       <AnimatePresence>
         {showAbout && <AboutModal onClose={() => { setShowAbout(false) }} />}
+        {showCommandPalette && (
+          <CommandPalette
+            onClose={() => { setShowCommandPalette(false) }}
+            onShowShortcuts={() => { setShowCommandPalette(false); setShowAbout(true) }}
+          />
+        )}
       </AnimatePresence>
     </div>
   )
