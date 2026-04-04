@@ -208,11 +208,18 @@ pub async fn delete_chat_session(
     state: State<'_, AppState>,
     session_registry: State<'_, SharedSessionRegistry>,
     session_id: String,
-    workspace_id: String,
 ) -> Result<(), AppError> {
+    // Look up workspace_id from the session to build registry key
+    let workspace_id = {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        db::get_chat_session(&conn, &session_id)
+            .map(|s| s.workspace_id)
+            .ok()
+    };
+
     // Kill unified session if running
-    {
-        let registry_key = format!("chef:{}:{}", workspace_id, session_id);
+    if let Some(ws_id) = &workspace_id {
+        let registry_key = format!("chef:{}:{}", ws_id, session_id);
         let mut registry = session_registry.lock().await;
         registry.remove(&registry_key);
     }
@@ -252,11 +259,18 @@ pub async fn reset_cli_session(
     state: State<'_, AppState>,
     session_registry: State<'_, SharedSessionRegistry>,
     session_id: String,
-    workspace_id: String,
 ) -> Result<(), AppError> {
+    // Look up workspace_id from the session to build registry key
+    let workspace_id = {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        db::get_chat_session(&conn, &session_id)
+            .map(|s| s.workspace_id)
+            .ok()
+    };
+
     // Kill unified session if running
-    {
-        let registry_key = format!("chef:{}:{}", workspace_id, session_id);
+    if let Some(ws_id) = &workspace_id {
+        let registry_key = format!("chef:{}:{}", ws_id, session_id);
         let mut registry = session_registry.lock().await;
         if let Some(session) = registry.get_mut(&registry_key) {
             let _ = session.kill();
