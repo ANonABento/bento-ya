@@ -14,7 +14,6 @@ use crate::llm::{
     orchestrator_tools, tools_to_api_format, execute_tools, parse_cli_action_blocks,
 };
 use crate::llm::types::{LlmRequest, Message};
-use crate::process::cli_session::SharedCliSessionManager;
 use tauri::{AppHandle, Emitter, State};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -207,13 +206,15 @@ pub fn create_chat_session(
 #[tauri::command(rename_all = "camelCase")]
 pub async fn delete_chat_session(
     state: State<'_, AppState>,
-    cli_manager: State<'_, SharedCliSessionManager>,
+    session_registry: State<'_, SharedSessionRegistry>,
     session_id: String,
+    workspace_id: String,
 ) -> Result<(), AppError> {
-    // Kill CLI process if running
+    // Kill unified session if running
     {
-        let mut manager = cli_manager.lock().await;
-        manager.kill(&session_id).await;
+        let registry_key = format!("chef:{}:{}", workspace_id, session_id);
+        let mut registry = session_registry.lock().await;
+        registry.remove(&registry_key);
     }
 
     // Delete from database
@@ -249,13 +250,17 @@ pub fn clear_chat_history(
 #[tauri::command(rename_all = "camelCase")]
 pub async fn reset_cli_session(
     state: State<'_, AppState>,
-    cli_manager: State<'_, SharedCliSessionManager>,
+    session_registry: State<'_, SharedSessionRegistry>,
     session_id: String,
+    workspace_id: String,
 ) -> Result<(), AppError> {
-    // Kill the CLI process if running
+    // Kill unified session if running
     {
-        let mut manager = cli_manager.lock().await;
-        manager.kill(&session_id).await;
+        let registry_key = format!("chef:{}:{}", workspace_id, session_id);
+        let mut registry = session_registry.lock().await;
+        if let Some(session) = registry.get_mut(&registry_key) {
+            let _ = session.kill();
+        }
     }
 
     // Clear cli_session_id from database
@@ -366,7 +371,6 @@ pub fn set_orchestrator_error(
 pub async fn stream_orchestrator_chat(
     app: AppHandle,
     state: State<'_, AppState>,
-    cli_manager: State<'_, SharedCliSessionManager>,
     session_registry: State<'_, SharedSessionRegistry>,
     workspace_id: String,
     session_id: String,
@@ -463,7 +467,6 @@ pub async fn stream_orchestrator_chat(
 pub async fn cancel_orchestrator_chat(
     app: AppHandle,
     state: State<'_, AppState>,
-    cli_manager: State<'_, SharedCliSessionManager>,
     session_registry: State<'_, SharedSessionRegistry>,
     session_id: String,
     workspace_id: String,
@@ -475,12 +478,6 @@ pub async fn cancel_orchestrator_chat(
         if let Some(session) = registry.get_mut(&registry_key) {
             let _ = session.kill();
         }
-    }
-
-    // Also kill legacy CLI session (if any — backward compat during migration)
-    {
-        let mut manager = cli_manager.lock().await;
-        manager.kill(&session_id).await;
     }
 
     // Update orchestrator session to idle
