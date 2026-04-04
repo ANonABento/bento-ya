@@ -8,12 +8,8 @@ pub mod dependencies;
 pub mod template;
 pub mod triggers;
 
-use std::collections::HashMap;
-
-use crate::chat::bridge;
 use crate::db::{self, Column, Task};
 use crate::error::AppError;
-use chrono::Utc;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -56,38 +52,6 @@ impl PipelineState {
             _ => PipelineState::Idle,
         }
     }
-}
-
-// ─── Trigger Config Types ───────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TriggerConfig {
-    #[serde(rename = "type")]
-    pub trigger_type: String,
-    pub config: TriggerParams,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TriggerParams {
-    pub agent: Option<String>,
-    pub skill: Option<String>,
-    pub script: Option<String>,
-    pub webhook: Option<String>,
-    pub flags: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExitConfig {
-    #[serde(rename = "type")]
-    pub exit_type: String,
-    pub config: ExitParams,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ExitParams {
-    pub timeout: Option<u64>,
-    pub retry: Option<bool>,
-    pub max_retry: Option<u32>,
 }
 
 // ─── Pipeline Events ────────────────────────────────────────────────────────
@@ -151,7 +115,7 @@ pub fn fire_trigger(
         return Ok(task.clone());
     }
 
-    // Check for V2 triggers first
+    // Check for V2 triggers
     if let Some(ref triggers_json) = column.triggers {
         if triggers_json != "{}" && !triggers_json.is_empty() {
             if let Ok(col_triggers) = serde_json::from_str::<triggers::ColumnTriggersV2>(triggers_json) {
@@ -162,226 +126,8 @@ pub fn fire_trigger(
         }
     }
 
-    // Legacy trigger_config fallback
-    let trigger: TriggerConfig = serde_json::from_str(&column.trigger_config)
-        .unwrap_or(TriggerConfig {
-            trigger_type: "none".to_string(),
-            config: TriggerParams::default(),
-        });
-
-    // If no trigger configured, stay idle
-    if trigger.trigger_type == "none" {
-        return Ok(task.clone());
-    }
-
-    let ts = db::now();
-
-    // Set pipeline state to triggered
-    let updated_task = db::update_task_pipeline_state(
-        conn,
-        &task.id,
-        PipelineState::Triggered.as_str(),
-        Some(&ts),
-        None,
-    )?;
-
-    // Emit pipeline event
-    let event = PipelineEvent {
-        task_id: task.id.clone(),
-        column_id: column.id.clone(),
-        event_type: "triggered".to_string(),
-        state: PipelineState::Triggered.as_str().to_string(),
-        message: Some(format!("Trigger type: {}", trigger.trigger_type)),
-    };
-    let _ = app.emit("pipeline:triggered", &event);
-
-    // Get workspace for working directory
-    let workspace = db::get_workspace(conn, &task.workspace_id)?;
-
-    // Execute trigger based on type
-    match trigger.trigger_type.as_str() {
-        "agent" => {
-            // Agent trigger — spawn CLI in PTY directly (no frontend round-trip)
-            let agent_type = trigger.config.agent.clone().unwrap_or_else(|| "claude".to_string());
-
-            // Set state to Running
-            let updated_task = db::update_task_pipeline_state(
-                conn,
-                &task.id,
-                PipelineState::Running.as_str(),
-                Some(&ts),
-                None,
-            )?;
-
-            let _ = app.emit(
-                "pipeline:running",
-                &PipelineEvent {
-                    task_id: task.id.clone(),
-                    column_id: column.id.clone(),
-                    event_type: "running".to_string(),
-                    state: PipelineState::Running.as_str().to_string(),
-                    message: Some(format!("Agent trigger: {}", agent_type)),
-                },
-            );
-
-            bridge::spawn_cli_trigger_task(
-                app.clone(),
-                task.id.clone(),
-                agent_type,
-                Vec::new(),
-                workspace.repo_path.clone(),
-                String::new(), // No initial prompt — interactive
-                None,
-            );
-
-            Ok(updated_task)
-        }
-        "skill" => {
-            // Skill trigger — spawn CLI in PTY with /<skill_name> as initial prompt
-            let skill_name = trigger.config.skill.clone().unwrap_or_else(|| "code-check".to_string());
-            let skill_prompt = format!("/{}", skill_name);
-
-            // Set state to Running
-            let updated_task = db::update_task_pipeline_state(
-                conn,
-                &task.id,
-                PipelineState::Running.as_str(),
-                Some(&ts),
-                None,
-            )?;
-
-            let _ = app.emit(
-                "pipeline:running",
-                &PipelineEvent {
-                    task_id: task.id.clone(),
-                    column_id: column.id.clone(),
-                    event_type: "running".to_string(),
-                    state: PipelineState::Running.as_str().to_string(),
-                    message: Some(format!("Skill trigger: {}", skill_name)),
-                },
-            );
-
-            bridge::spawn_cli_trigger_task(
-                app.clone(),
-                task.id.clone(),
-                "claude".to_string(),
-                Vec::new(),
-                workspace.repo_path.clone(),
-                skill_prompt,
-                None,
-            );
-
-            Ok(updated_task)
-        }
-        "script" => {
-            // Script trigger — spawn script command in PTY directly
-            let script_path = trigger.config.script.clone().unwrap_or_default();
-            if script_path.is_empty() {
-                return Ok(db::update_task_pipeline_state(
-                    conn, &task.id, PipelineState::Idle.as_str(), None, Some("Empty script path"),
-                )?);
-            }
-
-            // Parse script path into command + args
-            let parts: Vec<&str> = script_path.split_whitespace().collect();
-            let command = parts[0].to_string();
-            let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
-
-            // Build env vars for script
-            let mut env_vars = HashMap::new();
-            env_vars.insert("TASK_ID".to_string(), task.id.clone());
-            env_vars.insert("WORKSPACE_PATH".to_string(), workspace.repo_path.clone());
-            env_vars.insert("TASK_TITLE".to_string(), task.title.clone());
-
-            // Set state to Running
-            let updated_task = db::update_task_pipeline_state(
-                conn,
-                &task.id,
-                PipelineState::Running.as_str(),
-                Some(&ts),
-                None,
-            )?;
-
-            let _ = app.emit(
-                "pipeline:running",
-                &PipelineEvent {
-                    task_id: task.id.clone(),
-                    column_id: column.id.clone(),
-                    event_type: "running".to_string(),
-                    state: PipelineState::Running.as_str().to_string(),
-                    message: Some(format!("Script trigger: {}", script_path)),
-                },
-            );
-
-            bridge::spawn_cli_trigger_task(
-                app.clone(),
-                task.id.clone(),
-                command,
-                args,
-                workspace.repo_path.clone(),
-                String::new(), // Scripts don't get an initial prompt
-                Some(env_vars),
-            );
-
-            Ok(updated_task)
-        }
-        "webhook" => {
-            // Fire webhook - HTTP POST to configured URL
-            if let Some(webhook_url) = &trigger.config.webhook {
-                let payload = WebhookPayload {
-                    event: "task_entered_column".to_string(),
-                    task_id: task.id.clone(),
-                    task_title: task.title.clone(),
-                    task_description: task.description.clone(),
-                    column_id: column.id.clone(),
-                    column_name: column.name.clone(),
-                    workspace_id: task.workspace_id.clone(),
-                    pr_number: task.pr_number,
-                    pr_url: task.pr_url.clone(),
-                    timestamp: Utc::now().to_rfc3339(),
-                };
-
-                // Fire and forget - spawn async task
-                let url = webhook_url.clone();
-                tokio::spawn(async move {
-                    let client = reqwest::Client::new();
-                    match client
-                        .post(&url)
-                        .header("Content-Type", "application/json")
-                        .header("User-Agent", "Bento-ya/1.0")
-                        .json(&payload)
-                        .timeout(std::time::Duration::from_secs(30))
-                        .send()
-                        .await
-                    {
-                        Ok(response) => {
-                            if !response.status().is_success() {
-                                eprintln!(
-                                    "Webhook failed: {} - {}",
-                                    url,
-                                    response.status()
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Webhook error: {} - {}", url, e);
-                        }
-                    }
-                });
-            }
-            Ok(updated_task)
-        }
-        _ => {
-            // Unknown trigger type, stay idle
-            Ok(db::update_task_pipeline_state(
-                conn,
-                &task.id,
-                PipelineState::Idle.as_str(),
-                None,
-                None,
-            )?)
-        }
-    }
+    // No trigger configured, stay idle
+    Ok(task.clone())
 }
 
 /// Evaluate exit criteria for a task.
@@ -392,22 +138,13 @@ pub fn evaluate_exit_criteria(
     task: &Task,
     column: &Column,
 ) -> Result<bool, AppError> {
-    // Check V2 triggers first for exit criteria type
-    let v2_exit_type = column
+    // Get exit criteria type from V2 triggers
+    let exit_type = column
         .triggers
         .as_deref()
         .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
-        .and_then(|v| v.get("exit_criteria")?.get("type")?.as_str().map(|s| s.to_string()));
-
-    // Parse legacy exit config as fallback
-    let exit: ExitConfig = serde_json::from_str(&column.exit_config)
-        .unwrap_or(ExitConfig {
-            exit_type: v2_exit_type.clone().unwrap_or_else(|| "manual".to_string()),
-            config: ExitParams::default(),
-        });
-
-    // V2 exit type overrides legacy
-    let exit_type = v2_exit_type.as_deref().unwrap_or(&exit.exit_type);
+        .and_then(|v| v.get("exit_criteria")?.get("type")?.as_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| "manual".to_string());
 
     // Set state to evaluating
     let _ = db::update_task_pipeline_state(
@@ -426,7 +163,7 @@ pub fn evaluate_exit_criteria(
         message: Some(format!("Exit type: {}", exit_type)),
     });
 
-    let exit_met = match exit_type {
+    let exit_met = match exit_type.as_str() {
         "manual" => {
             // Manual exit never auto-advances
             false
@@ -480,7 +217,12 @@ pub fn evaluate_exit_criteria(
         "time_elapsed" => {
             // Check if N seconds have passed since pipeline was triggered
             // Default timeout is 300 seconds (5 minutes)
-            let timeout_secs = exit.config.timeout.unwrap_or(300);
+            let timeout_secs = column
+                .triggers
+                .as_deref()
+                .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+                .and_then(|v| v.get("exit_criteria")?.get("timeout")?.as_u64())
+                .unwrap_or(300);
             if let Some(ref triggered_at) = task.pipeline_triggered_at {
                 // Parse triggered_at as ISO 8601 timestamp
                 if let Ok(triggered_time) = chrono::DateTime::parse_from_rfc3339(triggered_at) {
@@ -552,7 +294,7 @@ pub fn evaluate_exit_criteria(
             column_id: column.id.clone(),
             event_type: "exit_met".to_string(),
             state: PipelineState::Evaluating.as_str().to_string(),
-            message: Some(format!("Exit criteria met: {}", exit.exit_type)),
+            message: Some(format!("Exit criteria met: {}", exit_type)),
         });
     }
 
@@ -584,15 +326,15 @@ pub fn try_auto_advance(
     task: &Task,
     current_column: &Column,
 ) -> Result<Option<Task>, AppError> {
-    // Check if auto-advance is enabled (V2 triggers or legacy field)
-    let v2_auto_advance = current_column
+    // Check if auto-advance is enabled via V2 triggers
+    let auto_advance = current_column
         .triggers
         .as_deref()
         .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
         .and_then(|v| v.get("exit_criteria")?.get("auto_advance")?.as_bool())
         .unwrap_or(false);
 
-    if !current_column.auto_advance && !v2_auto_advance {
+    if !auto_advance {
         return Ok(None);
     }
 
@@ -699,6 +441,15 @@ pub fn handle_trigger_failure(
     Ok(updated_task)
 }
 
+/// Increment the retry_count for a task.
+fn increment_retry_count(conn: &Connection, task_id: &str) -> Result<(), AppError> {
+    conn.execute(
+        "UPDATE tasks SET retry_count = retry_count + 1 WHERE id = ?1",
+        rusqlite::params![task_id],
+    ).map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(())
+}
+
 /// Mark a pipeline execution as complete (called when agent/script finishes)
 pub fn mark_complete(
     conn: &Connection,
@@ -710,12 +461,47 @@ pub fn mark_complete(
     let column = db::get_column(conn, &task.column_id)?;
 
     if success {
+        // Reset retry count on success
+        conn.execute(
+            "UPDATE tasks SET retry_count = 0 WHERE id = ?1",
+            rusqlite::params![task_id],
+        ).map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
         // Check dependents - tasks waiting on this one
         let _ = dependencies::check_dependents(conn, app, &task);
 
         // Try to auto-advance
         if let Some(advanced_task) = try_auto_advance(conn, app, &task, &column)? {
             return Ok(advanced_task);
+        }
+    } else {
+        // Check if auto-retry is configured
+        let max_retries = column
+            .triggers
+            .as_deref()
+            .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+            .and_then(|v| v.get("exit_criteria")?.get("max_retries")?.as_u64())
+            .unwrap_or(0) as i64;
+
+        if max_retries > 0 && task.retry_count < max_retries {
+            // Increment retry count
+            increment_retry_count(conn, task_id)?;
+
+            // Log the retry
+            let retry_num = task.retry_count + 1;
+            log::info!("[pipeline] Auto-retrying task {} (attempt {}/{})", task_id, retry_num, max_retries);
+
+            let _ = app.emit("pipeline:error", &PipelineEvent {
+                task_id: task_id.to_string(),
+                column_id: column.id.clone(),
+                event_type: "retry".to_string(),
+                state: PipelineState::Idle.as_str().to_string(),
+                message: Some(format!("Retrying ({}/{})", retry_num, max_retries)),
+            });
+
+            // Re-fire the trigger
+            let updated_task = db::get_task(conn, task_id)?;
+            return fire_trigger(conn, app, &updated_task, &column);
         }
     }
 

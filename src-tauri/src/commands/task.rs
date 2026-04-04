@@ -369,11 +369,9 @@ pub fn approve_task(
     // Get the column to check if we should try auto-advance
     let column = db::get_column(&conn, &task.column_id)?;
     
-    // Try to auto-advance if the column has auto_advance enabled
-    if column.auto_advance {
-        if let Some(advanced_task) = pipeline::try_auto_advance(&conn, &app, &task, &column)? {
-            return Ok(advanced_task);
-        }
+    // Try to auto-advance (checks V2 triggers internally)
+    if let Some(advanced_task) = pipeline::try_auto_advance(&conn, &app, &task, &column)? {
+        return Ok(advanced_task);
     }
     
     Ok(task)

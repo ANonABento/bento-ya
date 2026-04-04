@@ -38,14 +38,8 @@ pub struct Column {
     pub position: i64,
     pub color: Option<String>,
     pub visible: bool,
-    /// New unified triggers config (JSON string)
+    /// Unified triggers config (JSON string)
     pub triggers: Option<String>,
-    /// @deprecated Use triggers instead
-    pub trigger_config: String,
-    /// @deprecated Use triggers instead
-    pub exit_config: String,
-    /// @deprecated Use triggers.exit_criteria.auto_advance instead
-    pub auto_advance: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -70,6 +64,7 @@ pub struct Task {
     pub pipeline_state: String,
     pub pipeline_triggered_at: Option<String>,
     pub pipeline_error: Option<String>,
+    pub retry_count: i64,
     pub agent_session_id: Option<String>,
     pub last_script_exit_code: Option<i64>,
     pub review_status: Option<String>,

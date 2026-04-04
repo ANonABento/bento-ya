@@ -350,8 +350,7 @@ fn execute_single_tool(
                 conn,
                 &column_id,
                 None, None, None, None, None,
-                Some(&triggers_json), // triggers
-                None, None, None,
+                Some(&triggers_json),
             )
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
@@ -441,9 +440,6 @@ mod tests {
                 color: None,
                 visible: true,
                 triggers: None,
-                trigger_config: "{}".to_string(),
-                exit_config: "{}".to_string(),
-                auto_advance: false,
                 created_at: "2024-01-01".to_string(),
                 updated_at: "2024-01-01".to_string(),
             },
@@ -456,9 +452,6 @@ mod tests {
                 color: None,
                 visible: true,
                 triggers: None,
-                trigger_config: "{}".to_string(),
-                exit_config: "{}".to_string(),
-                auto_advance: false,
                 created_at: "2024-01-01".to_string(),
                 updated_at: "2024-01-01".to_string(),
             },
@@ -471,9 +464,6 @@ mod tests {
                 color: None,
                 visible: true,
                 triggers: None,
-                trigger_config: "{}".to_string(),
-                exit_config: "{}".to_string(),
-                auto_advance: false,
                 created_at: "2024-01-01".to_string(),
                 updated_at: "2024-01-01".to_string(),
             },

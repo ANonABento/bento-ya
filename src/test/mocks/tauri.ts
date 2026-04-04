@@ -1,11 +1,6 @@
 import { vi } from 'vitest'
-import type { Workspace, Column, Task, TriggerConfig, ExitConfig } from '@/types'
-
-// Default configs
-// eslint-disable-next-line @typescript-eslint/no-deprecated -- legacy compat
-const defaultTrigger: TriggerConfig = { type: 'none', config: {} }
-// eslint-disable-next-line @typescript-eslint/no-deprecated -- legacy compat
-const defaultExit: ExitConfig = { type: 'manual', config: {} }
+import type { Workspace, Column, Task } from '@/types'
+import { DEFAULT_TRIGGERS } from '@/types/column'
 
 // Mock data factories
 export const mockWorkspace = (overrides: Partial<Workspace> = {}): Workspace => ({
@@ -28,10 +23,7 @@ export const mockColumn = (overrides: Partial<Column> = {}): Column => ({
   position: 0,
   color: '',
   visible: true,
-  triggers: undefined,
-  trigger: defaultTrigger,
-  exitCriteria: defaultExit,
-  autoAdvance: false,
+  triggers: DEFAULT_TRIGGERS,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   ...overrides,
@@ -51,6 +43,7 @@ export const mockTask = (overrides: Partial<Task> = {}): Task => ({
   pipelineState: 'idle',
   pipelineTriggeredAt: null,
   pipelineError: null,
+  retryCount: 0,
   lastScriptExitCode: null,
   reviewStatus: null,
   prNumber: null,

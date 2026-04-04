@@ -108,6 +108,7 @@ mod tests {
             pipeline_state: "idle".to_string(),
             pipeline_triggered_at: None,
             pipeline_error: None,
+            retry_count: 0,
             agent_session_id: None,
             last_script_exit_code: None,
             review_status: None,
@@ -147,9 +148,6 @@ mod tests {
             color: None,
             visible: true,
             triggers: None,
-            trigger_config: "{}".to_string(),
-            exit_config: "{}".to_string(),
-            auto_advance: false,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
         }

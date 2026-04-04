@@ -66,6 +66,8 @@ export interface ExitCriteria {
   timeout?: number
   /** Auto-advance when criteria met */
   auto_advance?: boolean
+  /** Max retries on failure before giving up */
+  max_retries?: number
 }
 
 // ─── Column Triggers ────────────────────────────────────────────────────────
@@ -74,42 +76,6 @@ export interface ColumnTriggers {
   on_entry?: TriggerAction
   on_exit?: TriggerAction
   exit_criteria?: ExitCriteria
-}
-
-// ─── Legacy Types (for migration) ───────────────────────────────────────────
-
-/** @deprecated Use TriggerAction instead */
-export type TriggerType = 'none' | 'agent' | 'skill' | 'script' | 'webhook'
-
-/** @deprecated Use TriggerAction instead */
-export type ExitType =
-  | 'manual'
-  | 'agent_complete'
-  | 'script_success'
-  | 'checklist_done'
-  | 'pr_approved'
-  | 'notification_sent'
-
-/** @deprecated Use ColumnTriggers instead */
-export type TriggerConfig = {
-  type: string
-  config: {
-    agent?: string
-    skill?: string
-    script?: string
-    webhook?: string
-    flags?: string[]
-  }
-}
-
-/** @deprecated Use ExitCriteria instead */
-export type ExitConfig = {
-  type: string
-  config: {
-    timeout?: number
-    retry?: boolean
-    maxRetry?: number
-  }
 }
 
 // ─── Column ─────────────────────────────────────────────────────────────────
@@ -123,17 +89,13 @@ export type Column = {
   color: string
   visible: boolean
 
-  /** New unified triggers config */
+  /** Unified triggers config (V2) */
   triggers?: ColumnTriggers
 
-  /** @deprecated Use triggers.on_entry instead */
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  trigger: TriggerConfig
-  /** @deprecated Use triggers.exit_criteria instead */
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  exitCriteria: ExitConfig
-  /** @deprecated Use triggers.exit_criteria.auto_advance instead */
-  autoAdvance: boolean
+  /** @deprecated Legacy fields — still sent by backend, use getColumnTriggers() instead */
+  triggerConfig?: string
+  exitConfig?: string
+  autoAdvance?: boolean
 
   createdAt: string
   updatedAt: string
@@ -157,48 +119,10 @@ export const DEFAULT_SPAWN_CLI: SpawnCliAction = {
   use_queue: true,
 }
 
-/** Convert legacy trigger config to new format */
-// eslint-disable-next-line @typescript-eslint/no-deprecated -- intentionally accepts legacy types
-export function migrateTriggerConfig(trigger: TriggerConfig, exit: ExitConfig, autoAdvance: boolean): ColumnTriggers {
-  let on_entry: TriggerAction = { type: 'none' }
-
-  if (trigger.type === 'agent') {
-    on_entry = {
-      type: 'spawn_cli',
-      cli: (trigger.config.agent ?? 'claude') as CliType,
-      command: '/start-task',
-      prompt_template: '{task.title}\n\n{task.description}\n\n{task.trigger_prompt}',
-      flags: trigger.config.flags,
-      use_queue: true,
-    }
-  } else if (trigger.type === 'skill') {
-    on_entry = {
-      type: 'spawn_cli',
-      cli: 'claude',
-      command: trigger.config.skill ? `/${trigger.config.skill}` : '/code-check',
-      flags: trigger.config.flags,
-      use_queue: true,
-    }
-  } else if (trigger.type === 'script') {
-    on_entry = {
-      type: 'spawn_cli',
-      command: trigger.config.script,
-      use_queue: false,
-    }
+/** Resolve V2 triggers from a column, with safe fallback */
+export function getColumnTriggers(column: Column): ColumnTriggers {
+  if (column.triggers && Object.keys(column.triggers).length > 0) {
+    return column.triggers
   }
-  // webhook not supported in V1 - maps to none
-
-  const on_exit: TriggerAction = autoAdvance
-    ? { type: 'move_column', target: 'next' }
-    : { type: 'none' }
-
-  return {
-    on_entry,
-    on_exit,
-    exit_criteria: {
-      type: exit.type as ExitCriteriaType,
-      timeout: exit.config.timeout,
-      auto_advance: autoAdvance,
-    },
-  }
+  return DEFAULT_TRIGGERS
 }

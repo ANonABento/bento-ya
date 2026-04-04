@@ -28,6 +28,7 @@ const createMockTask = (overrides: Partial<Task> = {}): Task => ({
   pipelineState: 'idle',
   pipelineTriggeredAt: null,
   pipelineError: null,
+  retryCount: 0,
   lastScriptExitCode: null,
   reviewStatus: 'pending',
   branch: null,

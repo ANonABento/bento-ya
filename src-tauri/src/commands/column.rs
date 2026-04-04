@@ -39,9 +39,6 @@ pub fn update_column(
     color: Option<Option<String>>,
     visible: Option<bool>,
     triggers: Option<String>,
-    trigger_config: Option<String>,
-    exit_config: Option<String>,
-    auto_advance: Option<bool>,
 ) -> Result<Column, AppError> {
     if let Some(ref n) = name {
         if n.trim().is_empty() {
@@ -65,9 +62,6 @@ pub fn update_column(
         color_ref,
         visible,
         triggers.as_deref(),
-        trigger_config.as_deref(),
-        exit_config.as_deref(),
-        auto_advance,
     )?)
 }
 
@@ -81,7 +75,7 @@ pub fn reorder_columns(
     let tx = conn.unchecked_transaction().map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     for (i, col_id) in column_ids.iter().enumerate() {
-        db::update_column(&conn, col_id, None, None, Some(i as i64), None, None, None, None, None, None)?;
+        db::update_column(&conn, col_id, None, None, Some(i as i64), None, None, None)?;
     }
 
     tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;

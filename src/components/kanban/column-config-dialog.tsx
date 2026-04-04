@@ -14,7 +14,7 @@ import type {
 import { useColumnStore } from '@/stores/column-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSettingsStore } from '@/stores/settings-store'
-import { DEFAULT_SPAWN_CLI, migrateTriggerConfig } from '@/types/column'
+import { DEFAULT_SPAWN_CLI, getColumnTriggers } from '@/types/column'
 import * as ipc from '@/lib/ipc'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -92,16 +92,9 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
   const [icon, setIcon] = useState(column.icon || 'list')
   const [color, setColor] = useState(column.color || '#E8A87C')
 
-  // Initialize triggers from column.triggers or migrate from legacy format
   const initialTriggers = useMemo((): ColumnTriggers => {
-    if (column.triggers && Object.keys(column.triggers).length > 0) {
-      return column.triggers
-    }
-    // Migrate from legacy format — intentionally accessing deprecated fields
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    return migrateTriggerConfig(column.trigger, column.exitCriteria, column.autoAdvance)
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-  }, [column.triggers, column.trigger, column.exitCriteria, column.autoAdvance])
+    return getColumnTriggers(column)
+  }, [column])
 
   const [onEntry, setOnEntry] = useState<TriggerAction>(initialTriggers.on_entry || { type: 'none' })
   const [onExit, setOnExit] = useState<TriggerAction>(initialTriggers.on_exit || { type: 'none' })
@@ -127,12 +120,7 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
         name: name.trim(),
         icon,
         color,
-        // New format
         triggers: JSON.stringify(triggers),
-        // Legacy format (for backward compatibility)
-        autoAdvance: exitCriteria.auto_advance ?? false,
-        triggerConfig: JSON.stringify({ type: 'none', config: {} }),
-        exitConfig: JSON.stringify({ type: exitCriteria.type, config: { timeout: exitCriteria.timeout } }),
       })
       onClose()
     } catch (err) {

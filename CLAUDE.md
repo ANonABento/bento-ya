@@ -34,9 +34,9 @@ src/                                   src-tauri/src/
 
 ## Key Subsystems
 
-### IPC Layer (`src/lib/ipc.ts` ↔ `src-tauri/src/commands/`)
+### IPC Layer (`src/lib/ipc/` ↔ `src-tauri/src/commands/`)
 
-All frontend-backend communication goes through Tauri's `invoke()`. The IPC wrapper at `src/lib/ipc.ts` (~1550 LOC) provides typed functions for every command. Backend handlers are in `src-tauri/src/commands/` split by domain (task.rs, agent.rs, orchestrator.rs, etc.).
+All frontend-backend communication goes through Tauri's `invoke()`. The IPC layer at `src/lib/ipc/` is split into 19 domain modules (workspace, column, task, agent, orchestrator, pipeline, etc.) with a barrel re-export in `index.ts`. Backend handlers are in `src-tauri/src/commands/` split by domain (task.rs, agent.rs, orchestrator.rs, etc.).
 
 ### Chat System (`src/hooks/chat-session/`)
 
@@ -49,14 +49,20 @@ Unified hook serving both agent (per-task) and orchestrator (workspace-level) ch
 
 Columns define `on_entry`/`on_exit` triggers. Tasks can override. See `.tickets/_docs/TRIGGERS.md`.
 
-- `mod.rs` — `fire_trigger()` routes V2 triggers (JSON) with V1 fallback
+- `mod.rs` — `fire_trigger()` routes V2 triggers (JSON). V1 legacy removed.
 - `triggers.rs` — V2 trigger types + execution
 - `template.rs` — Prompt variable interpolation (`{task.title}`, `{workspace.path}`, etc.)
 - `dependencies.rs` — Task dependency resolution, `on_met` actions
 
 **Action types:** `spawn_cli`, `move_column`, `trigger_task`, `none`
 
-**Trigger execution:** All trigger types (agent, skill, script, spawn_cli) execute directly in the backend via `chat::bridge::spawn_cli_trigger_task()`. No frontend round-trip — the old `pipeline:spawn_*` events and `fire_*_trigger` IPC commands have been removed.
+**Exit criteria:** `manual`, `agent_complete`, `script_success`, `checklist_done`, `time_elapsed`, `pr_approved`, `manual_approval`, `notification_sent`. Supports `auto_advance` and `max_retries`.
+
+**Quality gates:** Columns with `manual_approval` exit criteria show review badges on task cards (Pending/Approved/Rejected). `approve_task` and `reject_task` commands handle the review flow.
+
+**Auto-retry:** When `max_retries` is set on exit criteria, failed triggers automatically re-fire up to N times. Retry count tracked per-task, resets on success.
+
+**Trigger execution:** All trigger types execute directly in the backend via `chat::bridge::spawn_cli_trigger_task()`. No frontend round-trip.
 
 ### Unified Chat System (`src-tauri/src/chat/`)
 
@@ -81,7 +87,7 @@ See `.tickets/_docs/UNIFIED_CHAT.md` for the full migration plan (6 phases).
 
 ### Database (`src-tauri/src/db/`)
 
-SQLite with WAL mode. 23 versioned migrations.
+SQLite with WAL mode. 25 versioned migrations.
 - `models.rs` — All 18 model structs (Workspace, Column, Task, AgentSession, ChatSession, etc.)
 - `mod.rs` — Init, migrations, CRUD functions organized by domain section
 - `schema.rs` — Schema constants
@@ -121,7 +127,7 @@ Unified automation layer for task lifecycle. Columns define `on_entry`/`on_exit`
 - `src/components/kanban/column-config-dialog.tsx` — Column trigger config UI
 - `src/components/kanban/task-settings-modal.tsx` — Task-level overrides
 
-**How triggers route:** `fire_trigger()` in `pipeline/mod.rs` checks `column.triggers` JSON first (V2). If empty, falls back to legacy `trigger_config` (V1). Both coexist.
+**How triggers route:** `fire_trigger()` in `pipeline/mod.rs` checks `column.triggers` JSON (V2 only). Legacy V1 trigger_config/exit_config columns have been dropped from the DB.
 
 **Dependencies:** Tasks can depend on other tasks. When a task completes (`mark_complete`), the dependency engine finds dependents, checks conditions, and executes `on_met` actions (usually moving blocked tasks to a ready column).
 
@@ -129,7 +135,7 @@ Unified automation layer for task lifecycle. Columns define `on_entry`/`on_exit`
 
 Frontend types are in `src/types/`:
 - `task.ts` — Task, PipelineState
-- `column.ts` — Column, ColumnTriggers, TriggerAction (+ legacy types with `@deprecated` markers)
+- `column.ts` — Column, ColumnTriggers, TriggerAction, ExitCriteria
 - `settings.ts` — GlobalSettings, ProviderConfig, VoiceConfig
 - `agent.ts` — AgentMessage, AgentSession
 - `workspace.ts` — Workspace

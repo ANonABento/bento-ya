@@ -124,9 +124,6 @@ pub fn clone_workspace(
             Some(col.color.as_deref()),
             Some(col.visible),
             col.triggers.as_deref(),
-            Some(&col.trigger_config),
-            Some(&col.exit_config),
-            Some(col.auto_advance),
         )?;
         column_id_map.insert(col.id.clone(), new_col.id);
     }

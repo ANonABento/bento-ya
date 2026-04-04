@@ -421,11 +421,55 @@ Remaining legacy (still load-bearing):
 - Resize handle positioning (missing `relative` on panel container)
 - Viewport-relative max panel height clamping
 
+## Completed: Code Health + Quick Wins (2026-04-04)
+
+### Priority 1: Code Health
+
+**1.2 Split ipc.ts** — 1545-line monolith split into 19 domain modules under `src/lib/ipc/`:
+- invoke.ts (shared wrappers), workspace.ts, column.ts, task.ts, git.ts, agent.ts, cli.ts, events.ts, pipeline.ts, orchestrator.ts, voice.ts, usage.ts, session.ts, checklist.ts, files.ts, siege.ts, github.ts, discord.ts, index.ts (barrel re-exports)
+- 37 consumer files unchanged — all imports resolve via index.ts
+
+**1.4 Trigger Config Migration** — Full V2 cleanup:
+- Frontend: removed `TriggerConfig`, `ExitConfig`, `TriggerType`, `ExitType` deprecated types
+- Frontend: removed `migrateTriggerConfig()`, added `getColumnTriggers()` helper
+- Frontend: Column type now uses V2 `triggers?: ColumnTriggers` with legacy fields optional
+- Rust: DB migration 024 drops `trigger_config`, `exit_config`, `auto_advance` columns
+- Rust: Column struct cleaned up, all SQL queries updated (8 sites)
+- Rust: pipeline/mod.rs removed ~220 lines of legacy fallback code
+- Rust: `fire_trigger`, `evaluate_exit_criteria`, `try_auto_advance` all V2-only
+
+**1.1 & 1.3** — Investigated, no changes needed (unwraps in test code, bridge comment already accurate)
+
+### Quick Wins (from competitor analysis)
+
+**#9 Space to Peek Preview** — Space key now opens split view (was toggling agent status)
+
+**#12 Quality Gates** — Task cards show review badges when column has `manual_approval` exit criteria:
+- Amber "Pending Review" when reviewStatus is null
+- Green "Approved" / Red "Rejected" badges
+- Only renders on quality-gate columns
+
+**#7 Auto-Retry on Failure** — Full stack implementation:
+- `max_retries` field on ExitCriteriaV2 (Rust) and ExitCriteria (TS)
+- `retry_count` field on Task (DB migration 025)
+- Pipeline mark_complete: on failure, checks retries remaining → increments count → re-fires trigger
+- On success: retry count resets to 0
+- Task card shows retry count in error banner
+
+### Session Stats (2026-04-04)
+
+- ipc.ts split: 1 file → 19 modules
+- Legacy trigger system: fully removed (frontend types + Rust backend + DB columns)
+- 3 quick wins implemented (peek, quality gates, auto-retry)
+- 2 DB migrations (024: drop legacy columns, 025: retry_count)
+- Tests: 199 (71 Rust + 128 frontend), all passing
+
 ## Next Up
 
 - [ ] Phase 6 remainder: remove cli_shared.rs dependency from agent_cli_session.rs
 - [ ] Phase 6 remainder: rewire terminal view + Discord to use unified sessions
 - [ ] Add more providers beyond Anthropic (OpenAI API support)
-- [ ] Agent chat streaming to task card UI (terminal output visible in card)
+- [ ] #8 Live agent status on cards (high-impact UX)
+- [ ] #1 Cmd+K command palette (Linear-style)
+- [ ] #3 DAG dependency chains with auto-trigger
 - [ ] Set up bento-ya to self-maintain via triggers (overnight agent work)
-- [ ] Improve Claude startup time for trigger agents (MCP server loading is slow)

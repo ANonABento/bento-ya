@@ -65,6 +65,8 @@ pub struct ExitCriteriaV2 {
     pub auto_advance: bool,
     #[serde(default)]
     pub timeout: Option<u64>,
+    #[serde(default)]
+    pub max_retries: Option<u32>,
 }
 
 /// Task-level trigger overrides.

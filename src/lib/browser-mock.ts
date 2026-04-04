@@ -5,7 +5,8 @@
 
 /* eslint-disable @typescript-eslint/no-unnecessary-condition -- Mock data uses ?? for defensive safety with unknown runtime args */
 
-import type { Workspace, Column, Task, TriggerConfig, ExitConfig, AgentMode, AgentStatus, PipelineState } from '@/types'
+import type { Workspace, Column, Task, AgentMode, AgentStatus, PipelineState } from '@/types'
+import { DEFAULT_TRIGGERS } from '@/types/column'
 
 // Check if we're running in Tauri or in a test environment
 export const isTauri = (): boolean => {
@@ -18,11 +19,6 @@ export const isTauri = (): boolean => {
 }
 
 // ─── Mock Data Store ────────────────────────────────────────────────────────
-
-// eslint-disable-next-line @typescript-eslint/no-deprecated -- legacy compat
-const defaultTrigger: TriggerConfig = { type: 'none', config: {} }
-// eslint-disable-next-line @typescript-eslint/no-deprecated -- legacy compat
-const defaultExit: ExitConfig = { type: 'manual', config: {} }
 
 let mockWorkspaces: Workspace[] = [
   {
@@ -38,10 +34,10 @@ let mockWorkspaces: Workspace[] = [
 ]
 
 let mockColumns: Column[] = [
-  { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: 'inbox', position: 0, color: '', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: 'code', position: 1, color: '', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: 'eye', position: 2, color: '', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: 'check', position: 3, color: '#4ADE80', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: 'inbox', position: 0, color: '', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: 'code', position: 1, color: '', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: 'eye', position: 2, color: '', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: 'check', position: 3, color: '#4ADE80', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
 ]
 
 let mockTasks: Task[] = [
@@ -58,6 +54,7 @@ let mockTasks: Task[] = [
     pipelineState: 'idle',
     pipelineTriggeredAt: null,
     pipelineError: null,
+    retryCount: 0,
     lastScriptExitCode: null,
     reviewStatus: null,
     prNumber: null,
@@ -152,10 +149,7 @@ const mockCommands: Record<string, CommandHandler> = {
       position: args?.position as number || mockColumns.length,
       color: '',
       visible: true,
-      triggers: undefined,
-      trigger: defaultTrigger,
-      exitCriteria: defaultExit,
-      autoAdvance: false,
+      triggers: DEFAULT_TRIGGERS,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
@@ -172,11 +166,6 @@ const mockCommands: Record<string, CommandHandler> = {
       existing.visible = (args?.visible as boolean) ?? existing.visible
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       if (args?.triggers) existing.triggers = JSON.parse(args.triggers as string)
-      /* eslint-disable @typescript-eslint/no-deprecated -- updating legacy fields */
-      existing.trigger = (args?.trigger as TriggerConfig) ?? existing.trigger
-      existing.exitCriteria = (args?.exitCriteria as ExitConfig) ?? existing.exitCriteria
-      existing.autoAdvance = (args?.autoAdvance as boolean) ?? existing.autoAdvance
-      /* eslint-enable @typescript-eslint/no-deprecated */
       existing.updatedAt = new Date().toISOString()
       return existing
     }
@@ -212,6 +201,7 @@ const mockCommands: Record<string, CommandHandler> = {
       pipelineState: 'idle',
       pipelineTriggeredAt: null,
       pipelineError: null,
+      retryCount: 0,
       lastScriptExitCode: null,
       reviewStatus: null,
       prNumber: null,
@@ -473,10 +463,10 @@ export function resetMockData() {
   ]
 
   mockColumns = [
-    { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: 'inbox', position: 0, color: '', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: 'code', position: 1, color: '', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: 'eye', position: 2, color: '', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: 'check', position: 3, color: '#4ADE80', visible: true, triggers: undefined, trigger: defaultTrigger, exitCriteria: defaultExit, autoAdvance: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: 'inbox', position: 0, color: '', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: 'code', position: 1, color: '', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: 'eye', position: 2, color: '', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: 'check', position: 3, color: '#4ADE80', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
   ]
 
   mockTasks = [
@@ -493,6 +483,7 @@ export function resetMockData() {
       pipelineState: 'idle',
       pipelineTriggeredAt: null,
       pipelineError: null,
+      retryCount: 0,
       lastScriptExitCode: null,
       reviewStatus: null,
       prNumber: 42,
@@ -535,6 +526,7 @@ export function resetMockData() {
       pipelineState: 'running',
       pipelineTriggeredAt: new Date().toISOString(),
       pipelineError: null,
+      retryCount: 0,
       lastScriptExitCode: null,
       reviewStatus: null,
       prNumber: 43,
@@ -577,6 +569,7 @@ export function resetMockData() {
       pipelineState: 'idle',
       pipelineTriggeredAt: null,
       pipelineError: null,
+      retryCount: 0,
       lastScriptExitCode: null,
       reviewStatus: null,
       prNumber: 44,
