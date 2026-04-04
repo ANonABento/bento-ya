@@ -13,6 +13,7 @@ import { TaskSettingsModal } from './task-settings-modal'
 import { TaskQuickActions } from './task-quick-actions'
 import * as ipc from '@/lib/ipc'
 import { useAgentStreamingStore } from '@/stores/agent-streaming-store'
+import { getColumnTriggers } from '@/types/column'
 
 type TaskCardProps = {
   task: Task
@@ -213,8 +214,9 @@ export const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
   // Get exit criteria type for this task's column
   const columnTriggers = useMemo(() => {
     const col = columns.find(c => c.id === task.columnId)
-    if (!col?.triggers?.exit_criteria) return null
-    return col.triggers.exit_criteria
+    if (!col) return null
+    const triggers = getColumnTriggers(col)
+    return triggers.exit_criteria ?? null
   }, [columns, task.columnId])
 
   const isQualityGate = columnTriggers?.type === 'manual_approval'

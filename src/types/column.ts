@@ -119,10 +119,18 @@ export const DEFAULT_SPAWN_CLI: SpawnCliAction = {
   use_queue: true,
 }
 
-/** Resolve V2 triggers from a column, with safe fallback */
+/** Resolve V2 triggers from a column, with safe fallback.
+ *  Handles both parsed objects and JSON strings (backend sends strings). */
 export function getColumnTriggers(column: Column): ColumnTriggers {
-  if (column.triggers && Object.keys(column.triggers).length > 0) {
-    return column.triggers
+  if (!column.triggers) return DEFAULT_TRIGGERS
+
+  // Backend sends triggers as a JSON string — parse if needed
+  const triggers = typeof column.triggers === 'string'
+    ? (() => { try { return JSON.parse(column.triggers as string) as ColumnTriggers } catch { return null } })()
+    : column.triggers
+
+  if (triggers && Object.keys(triggers).length > 0) {
+    return triggers
   }
   return DEFAULT_TRIGGERS
 }
