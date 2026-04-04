@@ -88,7 +88,7 @@ impl PtyManager {
             }
         }
 
-        let mut child = cmd
+        let child = cmd
             .spawn(pts)
             .map_err(|e| PtyError::SpawnFailed(e.to_string()))?;
 

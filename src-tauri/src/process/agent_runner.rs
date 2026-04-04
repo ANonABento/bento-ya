@@ -56,7 +56,7 @@ impl AgentRunner {
         if self.sessions.contains_key(task_id) {
             log::warn!("Cleaning up stale agent session for task: {}", task_id);
             let mut pty = self.pty_manager.lock().map_err(|e| format!("PTY lock error: {}", e))?;
-            pty.kill(task_id);
+            let _ = pty.kill(task_id);
             self.sessions.remove(task_id);
         }
 
