@@ -7,25 +7,27 @@ type Props = {
 const VERSION = '1.0.0'
 
 const SHORTCUTS = [
-  { category: 'Navigation', items: [
-    { keys: ['Cmd', '1-9'], desc: 'Switch to workspace 1-9' },
-    { keys: ['Cmd', 'N'], desc: 'Create new workspace' },
-    { keys: ['Cmd', 'W'], desc: 'Close current workspace' },
-    { keys: ['Cmd', '['], desc: 'Previous workspace' },
-    { keys: ['Cmd', ']'], desc: 'Next workspace' },
+  { category: 'Global', items: [
+    { keys: ['Cmd', 'K'], desc: 'Command palette' },
+    { keys: ['Cmd', '/'], desc: 'Keyboard shortcuts' },
+    { keys: ['Esc'], desc: 'Close panel / cancel' },
   ]},
-  { category: 'Tasks', items: [
-    { keys: ['Cmd', 'Enter'], desc: 'Create new task' },
-    { keys: ['Space'], desc: 'Peek task (on card)' },
-    { keys: ['Esc'], desc: 'Close panel / Cancel' },
+  { category: 'Workspaces', items: [
+    { keys: ['Cmd', '1-9'], desc: 'Switch to workspace 1-9' },
+    { keys: ['Cmd', 'T'], desc: 'New workspace' },
+    { keys: ['Cmd', 'W'], desc: 'Close workspace' },
+    { keys: ['Ctrl', 'Tab'], desc: 'Next workspace' },
+    { keys: ['Ctrl', 'Shift', 'Tab'], desc: 'Previous workspace' },
+  ]},
+  { category: 'Task Cards', items: [
+    { keys: ['Enter'], desc: 'Open task' },
+    { keys: ['Space'], desc: 'Open task (peek)' },
+    { keys: ['D'], desc: 'Duplicate task' },
+    { keys: ['M'], desc: 'Move task menu' },
+    { keys: ['Del'], desc: 'Delete task menu' },
   ]},
   { category: 'Terminal', items: [
-    { keys: ['Cmd', 'K'], desc: 'Command palette' },
     { keys: ['Ctrl', 'C'], desc: 'Interrupt process' },
-  ]},
-  { category: 'General', items: [
-    { keys: ['Cmd', ','], desc: 'Open settings' },
-    { keys: ['Cmd', '/'], desc: 'Toggle keyboard shortcuts' },
   ]},
 ]
 

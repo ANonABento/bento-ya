@@ -77,12 +77,12 @@ Transport abstraction + session layer (Phase 1-2 complete, replacing process lay
 
 See `.tickets/_docs/UNIFIED_CHAT.md` for the full migration plan (6 phases).
 
-### Process Management (`src-tauri/src/process/`) — legacy, being replaced
+### Process Management (`src-tauri/src/process/`) — legacy, partially replaced
 
-- `cli_session.rs` — Orchestrator CLI sessions (one per workspace session)
-- `agent_cli_session.rs` — Agent CLI sessions (one per task, max 5 concurrent)
-- `cli_shared.rs` — Shared CLI process utilities (delegates parsing to `chat::events`)
-- `pty_manager.rs` — PTY-based terminal sessions (delegates `base64_encode` to `chat::events`)
+`cli_session.rs` was removed in Phase 6. Remaining files are still load-bearing:
+- `agent_cli_session.rs` — Agent CLI sessions (used by Discord integration)
+- `cli_shared.rs` — Shared CLI process utilities (imported by agent_cli_session)
+- `pty_manager.rs` — PTY-based terminal sessions (used by terminal view commands)
 - `agent_runner.rs` — Agent queue/lifecycle management
 
 ### Database (`src-tauri/src/db/`)
@@ -94,7 +94,7 @@ SQLite with WAL mode. 25 versioned migrations.
 
 ### State Management (`src/stores/`)
 
-16 Zustand stores, each focused on a single domain:
+Zustand stores, each focused on a single domain:
 - `task-store.ts` — Task CRUD, board state
 - `column-store.ts` — Column config, ordering
 - `workspace-store.ts` — Workspace selection
@@ -103,6 +103,7 @@ SQLite with WAL mode. 25 versioned migrations.
 - `attention-store.ts` — Notification badges
 - `templates-store.ts` — Pipeline templates
 - `ui-store.ts` — UI state (panels, modals)
+- `agent-streaming-store.ts` — Ephemeral per-task agent streaming data (live cards)
 
 ### Frontend Components (`src/components/`)
 
@@ -110,6 +111,7 @@ SQLite with WAL mode. 25 versioned migrations.
 |-----------|---------|-----------|
 | `kanban/` | Board, columns, task cards | `task-card.tsx`, `column-config-dialog.tsx` |
 | `panel/` | Chat interfaces | `orchestrator-panel.tsx`, `agent-panel.tsx`, `chat-input.tsx` |
+| `command-palette/` | Cmd+K command palette | `command-palette.tsx` |
 | `settings/` | Six-tab settings modal | `settings-panel.tsx`, `tabs/*.tsx` |
 | `shared/` | Reusable atoms | `dialog.tsx`, `tooltip.tsx`, `badge.tsx`, etc. |
 | `layout/` | App shell | `board.tsx`, `tab-bar.tsx`, `split-view.tsx` |
