@@ -387,12 +387,45 @@ Also fixed: resize handle positioning bug (missing `relative` on panel container
 
 **Test results:** 128 frontend tests passing, TypeScript clean
 
+## Completed: Unified Chat System Phase 6 partial (2026-04-04)
+
+**Removed `CliSessionManager` + `cli_session.rs`.**
+
+- Deleted `cli_session.rs` (259 lines)
+- 4 orchestrator commands rewired from `cli_manager` to `session_registry`
+- `delete_chat_session` and `reset_cli_session` now look up workspace_id from DB (no frontend changes needed)
+- `cancel_orchestrator_chat` removed legacy cli_manager kill block
+- Removed from lib.rs managed state + shutdown handler
+
+Remaining legacy (still load-bearing):
+- `cli_shared.rs` — imported by `agent_cli_session.rs`
+- `AgentCliSessionManager` — used by Discord integration
+- `AgentRunner` + `PtyManager` — used by terminal view commands
+
+**Test results:** 71 Rust + 128 frontend + 17 E2E = 216 tests, all passing
+
+## Session Stats (2026-04-03 — 2026-04-04)
+
+**Unified Chat System (Phases 1-6):**
+- Phase 1: ChatTransport trait + PtyTransport + PipeTransport
+- Phase 2: UnifiedChatSession + SessionRegistry
+- Phase 3: All triggers bypass frontend (V1 + V2), removed dead relay code (-757 lines)
+- Phase 4: ChefSession + agent chat rewire + orchestrator CLI rewire
+- Phase 5: Shared chat helpers extracted, resize handle fix
+- Phase 6: CliSessionManager removed (-284 lines)
+- New chat module: 8 files in `src-tauri/src/chat/`
+- Total tests: 216 (71 Rust + 128 frontend + 17 E2E)
+
+**Other fixes:**
+- E2E flaky delete test (clean slate in before hook)
+- Resize handle positioning (missing `relative` on panel container)
+- Viewport-relative max panel height clamping
+
 ## Next Up
 
-- [ ] Unified Chat Phase 6: Final cleanup (remove legacy managers)
-- [ ] Unified Chat Phase 5: Frontend unification
-- [ ] Unified Chat Phase 6: Final cleanup (remove old managers)
+- [ ] Phase 6 remainder: remove cli_shared.rs dependency from agent_cli_session.rs
+- [ ] Phase 6 remainder: rewire terminal view + Discord to use unified sessions
 - [ ] Add more providers beyond Anthropic (OpenAI API support)
 - [ ] Agent chat streaming to task card UI (terminal output visible in card)
-- [ ] Address remaining known issues (port 1420 squatting)
-- [ ] Improve claude startup time for trigger agents (MCP server loading is slow)
+- [ ] Set up bento-ya to self-maintain via triggers (overnight agent work)
+- [ ] Improve Claude startup time for trigger agents (MCP server loading is slow)
