@@ -122,23 +122,79 @@ Set up bento-ya workspace pointing at its own repo. Create columns:
 
 ## Competitor Analysis
 
-*(Populated from overnight research — see below)*
+### Direct Competitors (AI Agent Kanban)
 
-### Linear
-- Command palette (Cmd+K) for everything
-- Keyboard-first navigation (j/k up/down, Enter to open, Esc to close)
-- Minimal card design: title + status icon + assignee avatar + priority dot
-- Side panel for detail (not modal — preserves board context)
-- Cycles (time-boxed sprints) with automatic rollover
-- Grouping by status, priority, assignee, label
-- Real-time multiplayer (multiple users see changes instantly)
+#### VibeKanban (30k+ users, Rust+TS, open source)
+- Split-screen: board left, agent execution/diff right
+- Three-stage: Plan → Prompt → Review (not Todo/Doing/Done)
+- Per-task git worktree isolation
+- Built-in diff viewer with inline comments
+- Agent-agnostic (10+ agents including Claude Code)
+- MCP server integration — agents can self-manage tasks
+- **Learn:** Split-screen layout, MCP server for self-management, built-in diff review
 
-### Key Takeaways for Bento-ya:
-1. **Command palette** — huge for power users. We have Cmd+J for chef; extend to Cmd+K for navigation
-2. **Keyboard shortcuts** — j/k navigation through cards, Enter to open detail, Esc to close
-3. **Side panel > modal** — our split view already does this for task detail; make it the default
-4. **Minimal cards** — show less on the card, more in the detail panel
-5. **Status indicators** — small colored dots (not text) for pipeline state
+#### Cline Kanban (research preview, free)
+- "Watch the board, not the terminals" philosophy
+- Real-time diff display on card click
+- Dependency chains (Cmd+drag to link, auto-start on blocker complete)
+- Sidebar AI agent that manages the board itself
+- Live command execution shown on each card
+- Auto-commit + PR creation on task completion
+- **Learn:** Sidebar agent for board management, live execution status on cards, dependency auto-triggering
+
+#### Automaker (Electron desktop app)
+- Auto Mode vs Manual Control toggle
+- Agent "Thought Stream" — real-time reasoning visibility
+- Model switching per task (Opus for heavy, Haiku for quick)
+- Image context on cards (upload design mocks)
+- **Learn:** Thought stream/reasoning view, per-task model selection
+
+#### Agent Board (open source, zero external DB)
+- DAG dependencies with cycle detection
+- Quality gates: `requiresReview: true` forces review before done
+- Auto-retry with configurable maxRetries
+- Task chaining: `nextTask` auto-creates follow-ups
+- Client/stakeholder read-only view
+- Audit trail (append-only JSONL)
+- **Learn:** DAG deps, quality gates, auto-retry, audit trail
+
+### Design Reference (Non-AI)
+
+#### Linear (gold standard for dev project management)
+- Cmd+K command palette for everything
+- Keyboard-first: j/k navigation, Space to peek, C to create
+- Minimal cards with configurable display properties
+- Swimlanes for multi-dimensional grouping
+- LCH color space for perceptually uniform themes
+- Dark mode: brand colors at 1-10% lightness (not pure black)
+- March 2026 refresh: calmer, more consistent, reduced visual noise
+- **Learn:** Command palette, peek preview, LCH colors, intentional constraint
+
+### Must-Have Patterns for Bento-ya Redesign
+
+| # | Pattern | Source | Effort |
+|---|---------|--------|--------|
+| 1 | Cmd+K command palette | Linear | Medium |
+| 2 | Split-screen board + execution | VibeKanban, Cline | Already have (split view) |
+| 3 | DAG dependency chains with auto-trigger | Agent Board, Cline | High |
+| 4 | Per-task git worktree isolation | All tools agree | Medium |
+| 5 | Inline diff review with comments | VibeKanban, Cline | High |
+| 6 | MCP server for agent self-management | VibeKanban, Agent Board | Medium |
+| 7 | Auto-retry on failure | Agent Board | Low (we have retry in socials) |
+| 8 | Live agent status on cards | Cline | Medium |
+| 9 | Space to "peek" preview | Linear | Low |
+| 10 | Agent thought stream / reasoning view | Automaker | High |
+| 11 | Model switching per task | Automaker | Low |
+| 12 | Quality gates (review before done) | Agent Board | Low |
+| 13 | Conversation history stored in tasks | VS Code Agent Kanban | Medium |
+| 14 | Minimal cards + configurable display | Linear | Medium |
+
+### Design Principles to Adopt
+- **LCH color space** for perceptually uniform themes (Linear)
+- **Dark mode** with brand colors at 1-10% lightness, not pure black
+- **Intentional constraint**: fewer options, better defaults
+- **Minimal cards**: essential info only, detail on demand
+- **Keyboard-first**: every action reachable without mouse
 
 ---
 
