@@ -1,14 +1,14 @@
 import { motion, AnimatePresence } from 'motion/react'
 import { useSettingsStore } from '@/stores/settings-store'
+import { WorkspaceTab } from './tabs/workspace-tab'
 import { AppearanceTab } from './tabs/appearance-tab'
 import { AgentTab } from './tabs/agent-tab'
-import { CardsTab } from './tabs/cards-tab'
-import { GitTab } from './tabs/git-tab'
+import { McpTab } from './tabs/mcp-tab'
+import { BoardTab } from './tabs/board-tab'
 import { VoiceTab } from './tabs/voice-tab'
-import { ShortcutsTab } from './tabs/shortcuts-tab'
-import { TemplatesTab } from './tabs/templates-tab'
-import { WorkspaceTab } from './tabs/workspace-tab'
 import { AdvancedTab } from './tabs/advanced-tab'
+import { GitTab } from './tabs/git-tab'
+import { ShortcutsTab } from './tabs/shortcuts-tab'
 
 // SVG Icons for settings tabs
 const icons: Record<string, React.ReactNode> = {
@@ -27,30 +27,21 @@ const icons: Record<string, React.ReactNode> = {
       <path d="M10 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM3.465 14.493a1.23 1.23 0 0 0 .41 1.412A9.957 9.957 0 0 0 10 18c2.31 0 4.438-.784 6.131-2.1.43-.333.604-.903.408-1.41a7.002 7.002 0 0 0-13.074.003Z" />
     </svg>
   ),
-  templates: (
+  mcp: (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-      <path fillRule="evenodd" d="M3 3.5A1.5 1.5 0 0 1 4.5 2h6.879a1.5 1.5 0 0 1 1.06.44l4.122 4.12A1.5 1.5 0 0 1 17 7.622V16.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 16.5v-13Zm10.857 5.691a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clipRule="evenodd" />
+      <path d="M12.232 4.232a2.5 2.5 0 0 1 3.536 3.536l-1.225 1.224a.75.75 0 0 0 1.061 1.06l1.224-1.224a4 4 0 0 0-5.656-5.656l-3 3a4 4 0 0 0 .225 5.865.75.75 0 0 0 .977-1.138 2.5 2.5 0 0 1-.142-3.667l3-3Z" />
+      <path d="M11.603 7.963a.75.75 0 0 0-.977 1.138 2.5 2.5 0 0 1 .142 3.667l-3 3a2.5 2.5 0 0 1-3.536-3.536l1.225-1.224a.75.75 0 0 0-1.061-1.06l-1.224 1.224a4 4 0 1 0 5.656 5.656l3-3a4 4 0 0 0-.225-5.865Z" />
     </svg>
   ),
-  git: (
+  board: (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-      <path fillRule="evenodd" d="M4.25 2A2.25 2.25 0 0 0 2 4.25v2.5A2.25 2.25 0 0 0 4.25 9h2.5A2.25 2.25 0 0 0 9 6.75v-2.5A2.25 2.25 0 0 0 6.75 2h-2.5Zm0 9A2.25 2.25 0 0 0 2 13.25v2.5A2.25 2.25 0 0 0 4.25 18h2.5A2.25 2.25 0 0 0 9 15.75v-2.5A2.25 2.25 0 0 0 6.75 11h-2.5Zm9-9A2.25 2.25 0 0 0 11 4.25v2.5A2.25 2.25 0 0 0 13.25 9h2.5A2.25 2.25 0 0 0 18 6.75v-2.5A2.25 2.25 0 0 0 15.75 2h-2.5Zm0 9A2.25 2.25 0 0 0 11 13.25v2.5A2.25 2.25 0 0 0 13.25 18h2.5A2.25 2.25 0 0 0 18 15.75v-2.5A2.25 2.25 0 0 0 15.75 11h-2.5Z" clipRule="evenodd" />
+      <path fillRule="evenodd" d="M.99 5.24A2.25 2.25 0 0 1 3.25 3h13.5A2.25 2.25 0 0 1 19 5.25l.01 9.5A2.25 2.25 0 0 1 16.76 17H3.26A2.267 2.267 0 0 1 1 14.74l-.01-9.5Zm8.26 9.52v-.625a.75.75 0 0 0-.75-.75H3.25a.75.75 0 0 0-.75.75v.615c0 .414.336.75.75.75h5.373a.75.75 0 0 0 .627-.74Zm1.5 0a.75.75 0 0 0 .627.74h5.373a.75.75 0 0 0 .75-.75v-.615a.75.75 0 0 0-.75-.75H11.5a.75.75 0 0 0-.75.75v.625Zm6.75-5.26v-.625a.75.75 0 0 0-.75-.75H11.5a.75.75 0 0 0-.75.75v.625c0 .414.336.75.75.75h5.25a.75.75 0 0 0 .75-.75Zm-8.5 0v-.625a.75.75 0 0 0-.75-.75H3.25a.75.75 0 0 0-.75.75v.625c0 .414.336.75.75.75H8.5a.75.75 0 0 0 .75-.75Z" clipRule="evenodd" />
     </svg>
   ),
   voice: (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
       <path d="M7 4a3 3 0 0 1 6 0v6a3 3 0 1 1-6 0V4Z" />
       <path d="M5.5 9.643a.75.75 0 0 0-1.5 0V10c0 3.06 2.29 5.585 5.25 5.954V17.5h-1.5a.75.75 0 0 0 0 1.5h4.5a.75.75 0 0 0 0-1.5h-1.5v-1.546A6.001 6.001 0 0 0 16 10v-.357a.75.75 0 0 0-1.5 0V10a4.5 4.5 0 0 1-9 0v-.357Z" />
-    </svg>
-  ),
-  shortcuts: (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-      <path fillRule="evenodd" d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75Zm7 10.5a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1-.75-.75ZM2 10a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 10Z" clipRule="evenodd" />
-    </svg>
-  ),
-  cards: (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-      <path fillRule="evenodd" d="M.99 5.24A2.25 2.25 0 0 1 3.25 3h13.5A2.25 2.25 0 0 1 19 5.25l.01 9.5A2.25 2.25 0 0 1 16.76 17H3.26A2.267 2.267 0 0 1 1 14.74l-.01-9.5Zm8.26 9.52v-.625a.75.75 0 0 0-.75-.75H3.25a.75.75 0 0 0-.75.75v.615c0 .414.336.75.75.75h5.373a.75.75 0 0 0 .627-.74Zm1.5 0a.75.75 0 0 0 .627.74h5.373a.75.75 0 0 0 .75-.75v-.615a.75.75 0 0 0-.75-.75H11.5a.75.75 0 0 0-.75.75v.625Zm6.75-5.26v-.625a.75.75 0 0 0-.75-.75H11.5a.75.75 0 0 0-.75.75v.625c0 .414.336.75.75.75h5.25a.75.75 0 0 0 .75-.75Zm-8.5 0v-.625a.75.75 0 0 0-.75-.75H3.25a.75.75 0 0 0-.75.75v.625c0 .414.336.75.75.75H8.5a.75.75 0 0 0 .75-.75Z" clipRule="evenodd" />
     </svg>
   ),
   advanced: (
@@ -63,12 +54,10 @@ const icons: Record<string, React.ReactNode> = {
 const TABS = [
   { id: 'workspace', label: 'Workspace' },
   { id: 'appearance', label: 'Appearance' },
-  { id: 'cards', label: 'Cards' },
   { id: 'agent', label: 'Agent' },
-  { id: 'templates', label: 'Templates' },
-  { id: 'git', label: 'Git' },
+  { id: 'mcp', label: 'Connect' },
+  { id: 'board', label: 'Board' },
   { id: 'voice', label: 'Voice' },
-  { id: 'shortcuts', label: 'Shortcuts' },
   { id: 'advanced', label: 'Advanced' },
 ] as const
 
@@ -84,22 +73,32 @@ export function SettingsPanel() {
         return <WorkspaceTab />
       case 'appearance':
         return <AppearanceTab />
-      case 'cards':
-        return <CardsTab />
       case 'agent':
         return <AgentTab />
-      case 'templates':
-        return <TemplatesTab />
-      case 'git':
-        return <GitTab />
+      case 'mcp':
+        return <McpTab />
+      case 'board':
+        return <BoardTab />
       case 'voice':
         return <VoiceTab />
-      case 'shortcuts':
-        return <ShortcutsTab />
       case 'advanced':
-        return <AdvancedTab />
+        return (
+          <div className="space-y-8">
+            <AdvancedTab />
+            <div className="border-t border-border-default" />
+            <section>
+              <h3 className="text-sm font-medium text-text-primary mb-4">Git</h3>
+              <GitTab />
+            </section>
+            <div className="border-t border-border-default" />
+            <section>
+              <h3 className="text-sm font-medium text-text-primary mb-4">Keyboard Shortcuts</h3>
+              <ShortcutsTab />
+            </section>
+          </div>
+        )
       default:
-        return <AppearanceTab />
+        return <WorkspaceTab />
     }
   }
 

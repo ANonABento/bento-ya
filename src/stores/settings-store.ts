@@ -28,7 +28,7 @@ export const useSettingsStore = create<SettingsState>()(
         global: DEFAULT_SETTINGS,
         workspaceOverrides: {},
         isOpen: false,
-        activeTab: 'appearance',
+        activeTab: 'workspace',
 
         openSettings: () => set({ isOpen: true }),
         closeSettings: () => set({ isOpen: false }),

@@ -19,7 +19,7 @@ describe('settings-store', () => {
       global: DEFAULT_SETTINGS,
       workspaceOverrides: {},
       isOpen: false,
-      activeTab: 'appearance',
+      activeTab: 'workspace',
     })
   })
 
@@ -37,8 +37,8 @@ describe('settings-store', () => {
 
   describe('setActiveTab', () => {
     it('should update activeTab', () => {
-      useSettingsStore.getState().setActiveTab('git')
-      expect(useSettingsStore.getState().activeTab).toBe('git')
+      useSettingsStore.getState().setActiveTab('board')
+      expect(useSettingsStore.getState().activeTab).toBe('board')
     })
   })
 
