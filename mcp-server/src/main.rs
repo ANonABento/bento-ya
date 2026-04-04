@@ -255,6 +255,55 @@ fn get_tools() -> Vec<Value> {
                 "required": ["task"]
             }),
         ),
+        tool(
+            "create_workspace",
+            "Create a new workspace pointing to a git repository",
+            json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Workspace name" },
+                    "repo_path": { "type": "string", "description": "Absolute path to the git repository" }
+                },
+                "required": ["name", "repo_path"]
+            }),
+        ),
+        tool(
+            "create_column",
+            "Create a new column in a workspace",
+            json!({
+                "type": "object",
+                "properties": {
+                    "workspace": { "type": "string", "description": "Workspace name or ID" },
+                    "name": { "type": "string", "description": "Column name" },
+                    "position": { "type": "integer", "description": "Position (0-based, default: append)" }
+                },
+                "required": ["name"]
+            }),
+        ),
+        tool(
+            "configure_triggers",
+            "Configure column triggers (on_entry, exit_criteria, auto_advance, max_retries)",
+            json!({
+                "type": "object",
+                "properties": {
+                    "column": { "type": "string", "description": "Column name or ID" },
+                    "workspace": { "type": "string", "description": "Workspace name or ID" },
+                    "triggers": { "type": "string", "description": "Triggers JSON: {on_entry, on_exit, exit_criteria}" }
+                },
+                "required": ["column", "triggers"]
+            }),
+        ),
+        tool(
+            "get_task",
+            "Get detailed information about a single task",
+            json!({
+                "type": "object",
+                "properties": {
+                    "task": { "type": "string", "description": "Task title or ID" }
+                },
+                "required": ["task"]
+            }),
+        ),
     ]
 }
 
@@ -453,6 +502,10 @@ fn handle_tool_call(conn: &Connection, name: &str, args: &Value) -> Value {
         "remove_dependency" => handle_remove_dependency(conn, args),
         "mark_complete" => handle_mark_complete(conn, args),
         "retry_task" => handle_retry_task(conn, args),
+        "create_workspace" => handle_create_workspace(conn, args),
+        "create_column" => handle_create_column(conn, args),
+        "configure_triggers" => handle_configure_triggers(conn, args),
+        "get_task" => handle_get_task(conn, args),
         _ => json!({ "error": format!("Unknown tool: {}", name) }),
     }
 }
@@ -991,6 +1044,153 @@ fn handle_retry_task(conn: &Connection, args: &Value) -> Value {
             )
         }),
         Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_create_workspace(conn: &Connection, args: &Value) -> Value {
+    let name = match args.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n,
+        None => return json!({ "error": "name is required" }),
+    };
+    let repo_path = match args.get("repo_path").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return json!({ "error": "repo_path is required" }),
+    };
+
+    let id = Uuid::new_v4().to_string();
+    let ts = now();
+
+    match conn.execute(
+        "INSERT INTO workspaces (id, name, repo_path, tab_order, is_active, config, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, 0, 1, '{}', ?4, ?5)",
+        params![id, name, repo_path, ts, ts],
+    ) {
+        Ok(_) => {
+            // Create default columns
+            let columns = ["Backlog", "Working", "Review", "Done"];
+            for (i, col_name) in columns.iter().enumerate() {
+                let col_id = Uuid::new_v4().to_string();
+                conn.execute(
+                    "INSERT INTO columns (id, workspace_id, name, icon, position, visible, created_at, updated_at) \
+                     VALUES (?1, ?2, ?3, 'list', ?4, 1, ?5, ?6)",
+                    params![col_id, id, col_name, i as i64, ts, ts],
+                ).ok();
+            }
+            json!({
+                "message": format!("Created workspace '{}' with 4 columns", name),
+                "workspace": {
+                    "id": id,
+                    "name": name,
+                    "repo_path": repo_path,
+                    "columns": columns
+                }
+            })
+        }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_create_column(conn: &Connection, args: &Value) -> Value {
+    let name = match args.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n,
+        None => return json!({ "error": "name is required" }),
+    };
+
+    let ws_q = args.get("workspace").and_then(|v| v.as_str()).unwrap_or("");
+    let workspace_id = if ws_q.is_empty() {
+        // Use first workspace
+        match conn.query_row("SELECT id FROM workspaces ORDER BY tab_order LIMIT 1", [], |r| r.get::<_, String>(0)) {
+            Ok(id) => id,
+            Err(_) => return json!({ "error": "No workspaces found" }),
+        }
+    } else {
+        match find_workspace(conn, ws_q) {
+            Ok((id, _)) => id,
+            Err(e) => return json!({ "error": e }),
+        }
+    };
+
+    let position = args.get("position").and_then(|v| v.as_i64()).unwrap_or_else(|| {
+        conn.query_row(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM columns WHERE workspace_id = ?1",
+            params![workspace_id],
+            |r| r.get(0),
+        ).unwrap_or(0)
+    });
+
+    let id = Uuid::new_v4().to_string();
+    let ts = now();
+
+    match conn.execute(
+        "INSERT INTO columns (id, workspace_id, name, icon, position, visible, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, 'list', ?4, 1, ?5, ?6)",
+        params![id, workspace_id, name, position, ts, ts],
+    ) {
+        Ok(_) => json!({
+            "message": format!("Created column '{}' at position {}", name, position),
+            "column": { "id": id, "name": name, "position": position }
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_configure_triggers(conn: &Connection, args: &Value) -> Value {
+    let col_q = match args.get("column").and_then(|v| v.as_str()) {
+        Some(c) => c,
+        None => return json!({ "error": "column is required" }),
+    };
+    let triggers = match args.get("triggers").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return json!({ "error": "triggers JSON is required" }),
+    };
+
+    // Validate JSON
+    if serde_json::from_str::<Value>(triggers).is_err() {
+        return json!({ "error": "Invalid triggers JSON" });
+    }
+
+    // Find workspace for column resolution
+    let ws_q = args.get("workspace").and_then(|v| v.as_str()).unwrap_or("");
+    let workspace_id = if ws_q.is_empty() {
+        match conn.query_row("SELECT id FROM workspaces ORDER BY tab_order LIMIT 1", [], |r| r.get::<_, String>(0)) {
+            Ok(id) => id,
+            Err(_) => return json!({ "error": "No workspaces found" }),
+        }
+    } else {
+        match find_workspace(conn, ws_q) {
+            Ok((id, _)) => id,
+            Err(e) => return json!({ "error": e }),
+        }
+    };
+
+    let (col_id, col_name) = match find_column(conn, col_q, &workspace_id) {
+        Ok(c) => c,
+        Err(e) => return json!({ "error": e }),
+    };
+
+    let ts = now();
+    match conn.execute(
+        "UPDATE columns SET triggers = ?1, updated_at = ?2 WHERE id = ?3",
+        params![triggers, ts, col_id],
+    ) {
+        Ok(_) => json!({
+            "message": format!("Configured triggers for column '{}'", col_name),
+            "column": col_name,
+            "triggers": serde_json::from_str::<Value>(triggers).unwrap_or(Value::Null)
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_get_task(conn: &Connection, args: &Value) -> Value {
+    let task_q = match args.get("task").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return json!({ "error": "task is required" }),
+    };
+
+    match find_task(conn, task_q, None) {
+        Ok(task) => task,
+        Err(e) => json!({ "error": e }),
     }
 }
 
