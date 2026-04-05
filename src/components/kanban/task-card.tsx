@@ -3,19 +3,21 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { Task } from '@/types'
 import { useUIStore } from '@/stores/ui-store'
-import { useAttentionStore, ATTENTION_LABELS } from '@/stores/attention-store'
+import { useAttentionStore } from '@/stores/attention-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { TaskContextMenu } from './task-context-menu'
 import { TaskSettingsModal } from './task-settings-modal'
 import { TaskQuickActions } from './task-quick-actions'
-import * as ipc from '@/lib/ipc'
 import { useAgentStreamingStore } from '@/stores/agent-streaming-store'
 import { getColumnTriggers } from '@/types/column'
 import { useCardPosition } from '@/hooks/use-card-positions'
-import { PIPELINE_LABELS, PIPELINE_COLORS, formatRelativeTime, getAgentActivity } from './task-card-utils'
+import { PIPELINE_LABELS, PIPELINE_COLORS, formatRelativeTime } from './task-card-utils'
 import { PrStatusIndicator, SiegeBadge } from './task-card-badges'
+import { useTaskCardActions } from './use-task-card-actions'
+import { AttentionBanner, BlockedBanner, QualityGateBanner, PipelineErrorBanner } from './task-card-status'
+import { AgentActivityPreview } from './task-card-activity'
 
 export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const openTask = useUIStore((s) => s.openTask)
@@ -39,15 +41,13 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   }, [columns, task.columnId])
 
   const isQualityGate = columnTriggers?.type === 'manual_approval'
-  const reviewStatus = task.reviewStatus  // 'approved' | 'rejected' | null
+  const reviewStatus = task.reviewStatus
 
   // Live agent streaming data
   const agentStream = useAgentStreamingStore((s) => s.streams.get(task.id))
 
-  const moveTask = useTaskStore((s) => s.move)
-  const removeTask = useTaskStore((s) => s.remove)
-  const updateTask = useTaskStore((s) => s.updateTask)
-  const duplicateTask = useTaskStore((s) => s.duplicate)
+  // All action handlers
+  const actions = useTaskCardActions(task)
 
   const { registerCard } = useCardPosition()
 
@@ -107,71 +107,13 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     setContextMenu({ x: e.clientX, y: e.clientY })
   }, [])
 
-  const handleMoveToColumn = useCallback((columnId: string) => {
-    void moveTask(task.id, columnId, 0)
-  }, [task.id, moveTask])
-
-  const handleRunAgent = useCallback(() => {
-    updateTask(task.id, { agentStatus: 'running' })
-  }, [task.id, updateTask])
-
-  const handleStopAgent = useCallback(() => {
-    updateTask(task.id, { agentStatus: 'stopped' })
-  }, [task.id, updateTask])
-
-  const handleStartSiege = useCallback(async () => {
-    try {
-      const result = await ipc.startSiege(task.id)
-      updateTask(task.id, {
-        siegeActive: result.task.siegeActive,
-        siegeIteration: result.task.siegeIteration,
-        siegeMaxIterations: result.task.siegeMaxIterations,
-      })
-    } catch (err) {
-      console.error('Failed to start siege:', err)
-    }
-  }, [task.id, updateTask])
-
-  const handleStopSiege = useCallback(async () => {
-    try {
-      const result = await ipc.stopSiege(task.id)
-      updateTask(task.id, {
-        siegeActive: result.siegeActive,
-        siegeIteration: result.siegeIteration,
-      })
-    } catch (err) {
-      console.error('Failed to stop siege:', err)
-    }
-  }, [task.id, updateTask])
-
-  const handleArchiveTask = useCallback(() => {
-    // For now, just remove - could add archive column later
-    void removeTask(task.id)
-  }, [task.id, removeTask])
-
-  const handleDeleteTask = useCallback(() => {
-    void removeTask(task.id)
-  }, [task.id, removeTask])
-
-  const handleDuplicateTask = useCallback(() => {
-    void duplicateTask(task.id)
-  }, [task.id, duplicateTask])
-
-  const handleToggleAgent = useCallback(() => {
-    if (task.agentStatus === 'running') {
-      updateTask(task.id, { agentStatus: 'stopped' })
-    } else {
-      updateTask(task.id, { agentStatus: 'running' })
-    }
-  }, [task.id, task.agentStatus, updateTask])
-
   const handleShowMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setContextMenu({ x: e.clientX, y: e.clientY })
   }, [])
 
-  // Derive blocker task names for the blocked badge (no subscription — reads store snapshot)
+  // Derive blocker task names for the blocked badge
   const blockerInfo = useMemo(() => {
     if (!task.blocked || !task.dependencies) return null
     try {
@@ -188,7 +130,6 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const isPipelineActive = task.pipelineState !== 'idle'
   const hasPipelineError = !!task.pipelineError
 
-  // Has any metadata to show
   const hasMetadata = (cardSettings.showBranch && task.branch) ||
     (cardSettings.showAgentType && task.agentType) ||
     (cardSettings.showTimestamp && !isPipelineActive) ||
@@ -212,14 +153,9 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       onClick={handleClick}
       onContextMenu={handleContextMenu}
       onKeyDown={(e) => {
-        // Ignore if modifier keys are pressed (except for shortcuts that need them)
         if (e.metaKey || e.ctrlKey || e.altKey) return
-
         switch (e.key) {
           case 'Enter':
-            e.preventDefault()
-            handleClick()
-            break
           case ' ':
             e.preventDefault()
             handleClick()
@@ -227,12 +163,11 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           case 'd':
           case 'D':
             e.preventDefault()
-            handleDuplicateTask()
+            actions.handleDuplicateTask()
             break
           case 'Delete':
           case 'Backspace': {
             e.preventDefault()
-            // Show context menu for confirmation before archive/delete
             const rect = e.currentTarget.getBoundingClientRect()
             setContextMenu({ x: rect.right - 180, y: rect.top })
             break
@@ -240,7 +175,6 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           case 'm':
           case 'M': {
             e.preventDefault()
-            // Show context menu for move options
             const moveRect = e.currentTarget.getBoundingClientRect()
             setContextMenu({ x: moveRect.right - 180, y: moveRect.top })
             break
@@ -261,7 +195,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         <TaskQuickActions
           task={task}
           onOpen={handleClick}
-          onToggleAgent={handleToggleAgent}
+          onToggleAgent={actions.handleToggleAgent}
           onShowMenu={handleShowMenu}
         />
       )}
@@ -272,7 +206,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         className="p-3 space-y-2"
         style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
       >
-        {/* Title row */}
+        {/* Title */}
         <div className="flex items-start gap-2">
           <h4 className="flex-1 text-sm font-medium text-text-primary leading-snug line-clamp-2">
             {task.title}
@@ -286,159 +220,20 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           </p>
         )}
 
-        {/* Attention banner */}
-        {needsAttention && attention && (
-          <div className="flex items-center gap-1.5 rounded bg-attention/10 px-2 py-1 text-xs text-attention">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
-              <path fillRule="evenodd" d="M6.701 2.25c.577-1 2.02-1 2.598 0l5.196 9a1.5 1.5 0 0 1-1.299 2.25H2.804a1.5 1.5 0 0 1-1.3-2.25l5.197-9ZM8 5a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0v-2.5A.75.75 0 0 1 8 5Zm0 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
-            </svg>
-            <span className="truncate">{ATTENTION_LABELS[attention.reason]}</span>
-          </div>
+        {/* Status banners */}
+        {needsAttention && attention && <AttentionBanner attention={attention} />}
+        {task.blocked && <BlockedBanner blockerInfo={blockerInfo} />}
+        {isQualityGate && !hasPipelineError && <QualityGateBanner reviewStatus={reviewStatus} />}
+        {hasPipelineError && <PipelineErrorBanner task={task} onRetry={() => { void actions.handleRetryPipeline() }} />}
+
+        {/* Agent activity preview */}
+        {!needsAttention && !hasPipelineError && (
+          <AgentActivityPreview task={task} agentStream={agentStream} />
         )}
-
-        {/* Blocked by dependencies */}
-        {task.blocked && (
-          <div className="flex items-center gap-1.5 rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-500">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
-              <path fillRule="evenodd" d="M8 1a3.5 3.5 0 0 0-3.5 3.5V7A1.5 1.5 0 0 0 3 8.5v5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 11.5 7V4.5A3.5 3.5 0 0 0 8 1Zm2 6V4.5a2 2 0 1 0-4 0V7h4Z" clipRule="evenodd" />
-            </svg>
-            <span className="truncate">
-              {blockerInfo ? `Waiting for: ${blockerInfo}` : 'Blocked by dependencies'}
-            </span>
-          </div>
-        )}
-
-        {/* Quality gate - review required */}
-        {isQualityGate && !hasPipelineError && (
-          <div className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs ${
-            reviewStatus === 'approved' ? 'bg-success/10 text-success' :
-            reviewStatus === 'rejected' ? 'bg-error/10 text-error' :
-            'bg-amber-500/10 text-amber-500'
-          }`}>
-            {reviewStatus === 'approved' ? (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
-                <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm3.844-8.791a.75.75 0 0 0-1.188-.918l-3.7 4.79-1.649-1.833a.75.75 0 1 0-1.114 1.004l2.25 2.5a.75.75 0 0 0 1.151-.043l4.25-5.5Z" clipRule="evenodd" />
-              </svg>
-            ) : reviewStatus === 'rejected' ? (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
-                <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm2.78-4.22a.75.75 0 0 1-1.06 0L8 9.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L6.94 8 5.22 6.28a.75.75 0 0 1 1.06-1.06L8 6.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L9.06 8l1.72 1.72a.75.75 0 0 1 0 1.06Z" clipRule="evenodd" />
-              </svg>
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
-                <path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z" />
-              </svg>
-            )}
-            <span className="truncate">
-              {reviewStatus === 'approved' ? 'Approved' :
-               reviewStatus === 'rejected' ? 'Rejected' :
-               'Pending Review'}
-            </span>
-          </div>
-        )}
-
-        {/* Pipeline error */}
-        {hasPipelineError && (
-          <div className="flex items-center gap-1.5 rounded bg-error/10 px-2 py-1 text-xs text-error">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
-              <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm.75-8.25a.75.75 0 0 0-1.5 0v3.5a.75.75 0 0 0 1.5 0v-3.5ZM8 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
-            </svg>
-            <span className="truncate flex-1">{task.pipelineError}{task.retryCount > 0 && ` (${task.retryCount} retries)`}</span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                void (async () => {
-                  try {
-                    const updated = await ipc.retryPipeline(task.id)
-                    updateTask(task.id, {
-                      pipelineState: updated.pipelineState,
-                      pipelineError: updated.pipelineError,
-                    })
-                  } catch (err) {
-                    console.error('Retry failed:', err)
-                  }
-                })()
-              }}
-              className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-error/20 hover:bg-error/30 transition-colors"
-            >
-              Retry
-            </button>
-          </div>
-        )}
-
-        {/* Agent activity preview — live streaming or static status */}
-        {(() => {
-          // Don't show if attention or error banners are visible
-          if (needsAttention && attention) return null
-          if (hasPipelineError) return null
-
-          // Live streaming data takes priority
-          if (agentStream) {
-            const elapsed = Math.floor((Date.now() - agentStream.startTime) / 1000)
-            const elapsedStr = elapsed < 60 ? `${String(elapsed)}s` : `${String(Math.floor(elapsed / 60))}m`
-
-            // Show active tool or last content snippet
-            const preview = agentStream.activeTool
-              ? agentStream.activeTool.name
-              : agentStream.lastContent.trim().split('\n').pop()?.slice(0, 80) || 'Working...'
-
-            return (
-              <div className="space-y-1">
-                <div className="flex items-center gap-1.5 text-[11px] text-running">
-                  <span className="relative flex h-1.5 w-1.5 shrink-0">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-running opacity-75" />
-                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-running" />
-                  </span>
-                  {agentStream.activeTool ? (
-                    <span className="truncate font-mono">{preview}</span>
-                  ) : (
-                    <span className="truncate">{preview}</span>
-                  )}
-                  <span className="text-text-secondary/50 ml-auto shrink-0 tabular-nums">{elapsedStr}</span>
-                </div>
-                {agentStream.toolCount > 0 && (
-                  <div className="flex items-center gap-1 text-[10px] text-text-secondary/60 pl-3">
-                    <svg className="h-2.5 w-2.5" viewBox="0 0 16 16" fill="currentColor">
-                      <path d="M5.433 2.304A4.492 4.492 0 0 0 3.5 6c0 1.598.832 3.002 2.09 3.802.518.328.929.923.902 1.64v.008l-.164 3.337a.75.75 0 1 1-1.498-.073l.163-3.34c.007-.14-.1-.313-.37-.484A5.988 5.988 0 0 1 2 6a5.992 5.992 0 0 1 2.567-4.92 1.477 1.477 0 0 1 .433-.224ZM6.5 14h3a.75.75 0 0 1 0 1.5h-3a.75.75 0 0 1 0-1.5Zm4.157-11.696a.75.75 0 0 1 1.343.392 5.992 5.992 0 0 1-2.567 4.92 1.477 1.477 0 0 1-.433.224.75.75 0 0 1-.71-1.321A4.492 4.492 0 0 0 12.5 6c0-1.598-.832-3.002-2.09-3.802-.518-.328-.929-.923-.902-1.64V.55l.164-3.337a.75.75 0 0 1 1.498.073L11.006 .623c-.007.14.1.313.37.484Z" />
-                    </svg>
-                    <span>{agentStream.toolCount} tool{agentStream.toolCount !== 1 ? 's' : ''}</span>
-                  </div>
-                )}
-              </div>
-            )
-          }
-
-          // Fallback: static activity from task state
-          const activity = getAgentActivity(task)
-          if (!activity) return null
-
-          const colorClasses = {
-            active: 'text-running',
-            waiting: 'text-attention',
-            idle: 'text-text-secondary/70',
-            error: 'text-error',
-            queued: 'text-warning',
-          }
-
-          return (
-            <div className={`flex items-center gap-1.5 text-[11px] ${colorClasses[activity.type]}`}>
-              {activity.type === 'active' && (
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-running opacity-75" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-running" />
-                </span>
-              )}
-              <span className="truncate">{activity.text}</span>
-              <span className="text-text-secondary/50 ml-auto">
-                {formatRelativeTime(task.updatedAt)}
-              </span>
-            </div>
-          )
-        })()}
 
         {/* Compact metadata row */}
         {hasMetadata && (
           <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px] text-text-secondary">
-            {/* Pipeline status (priority) */}
             {isPipelineActive && !hasPipelineError && (
               <span className="inline-flex items-center gap-1 text-running">
                 <span className="relative flex h-1.5 w-1.5">
@@ -448,21 +243,12 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
                 {PIPELINE_LABELS[task.pipelineState]}
               </span>
             )}
-
-            {/* Siege loop badge */}
             <SiegeBadge task={task} />
-
-            {/* PR badge with status */}
             {cardSettings.showPrBadge && task.prNumber && (
-              <button
-                onClick={handlePrClick}
-                className="inline-flex items-center hover:text-accent transition-colors"
-              >
+              <button onClick={handlePrClick} className="inline-flex items-center hover:text-accent transition-colors">
                 <PrStatusIndicator task={task} settings={cardSettings} />
               </button>
             )}
-
-            {/* Comment count */}
             {cardSettings.showCommentCount && task.prCommentCount > 0 && (
               <span className="inline-flex items-center gap-0.5">
                 <svg className="h-3 w-3" viewBox="0 0 16 16" fill="currentColor">
@@ -471,30 +257,20 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
                 {task.prCommentCount}
               </span>
             )}
-
-            {/* Agent type */}
             {cardSettings.showAgentType && task.agentType && (
               <span className="text-text-secondary/70">{task.agentType}</span>
             )}
-
-            {/* Model badge */}
             {task.model && (
               <span className="rounded bg-accent/10 px-1 py-0.5 text-[10px] font-medium text-accent">
                 {task.model}
               </span>
             )}
-
-            {/* Branch - truncated */}
             {cardSettings.showBranch && task.branch && (
               <span className="font-mono truncate max-w-[100px]" title={task.branch}>
                 {task.branch}
               </span>
             )}
-
-            {/* Spacer to push timestamp right */}
             <span className="flex-1" />
-
-            {/* Timestamp */}
             {cardSettings.showTimestamp && !isPipelineActive && (
               <span className="text-text-secondary/50">
                 {formatRelativeTime(task.updatedAt)}
@@ -503,21 +279,16 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           </div>
         )}
 
-        {/* Labels row - only if we have labels and setting is on */}
+        {/* Labels */}
         {cardSettings.showLabels && labels.length > 0 && (
           <div className="flex items-center gap-1 flex-wrap">
             {labels.slice(0, 3).map((label) => (
-              <span
-                key={label}
-                className="rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary"
-              >
+              <span key={label} className="rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary">
                 {label}
               </span>
             ))}
             {labels.length > 3 && (
-              <span className="text-[10px] text-text-secondary/70">
-                +{labels.length - 3}
-              </span>
+              <span className="text-[10px] text-text-secondary/70">+{labels.length - 3}</span>
             )}
           </div>
         )}
@@ -531,15 +302,15 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         columns={columns}
         position={contextMenu}
         onClose={() => { setContextMenu(null) }}
-        onMoveToColumn={handleMoveToColumn}
+        onMoveToColumn={actions.handleMoveToColumn}
         onOpenTask={handleClick}
-        onDuplicateTask={handleDuplicateTask}
-        onArchiveTask={handleArchiveTask}
-        onDeleteTask={handleDeleteTask}
-        onRunAgent={handleRunAgent}
-        onStopAgent={handleStopAgent}
-        onStartSiege={() => { void handleStartSiege(); }}
-        onStopSiege={() => { void handleStopSiege(); }}
+        onDuplicateTask={actions.handleDuplicateTask}
+        onArchiveTask={actions.handleArchiveTask}
+        onDeleteTask={actions.handleDeleteTask}
+        onRunAgent={actions.handleRunAgent}
+        onStopAgent={actions.handleStopAgent}
+        onStartSiege={() => { void actions.handleStartSiege(); }}
+        onStopSiege={() => { void actions.handleStopSiege(); }}
         onConfigureTask={() => { setShowSettings(true) }}
       />
     )}
