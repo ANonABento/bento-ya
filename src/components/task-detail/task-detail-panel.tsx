@@ -11,6 +11,7 @@ import { UsageSection } from './usage-section'
 import { TaskChecklist } from './task-checklist'
 import { NotificationSection } from './notification-section'
 import { ReviewActions } from '@/components/review/review-actions'
+import { SiegeStatus } from './siege-status'
 import * as ipc from '@/lib/ipc'
 
 type TaskDetailPanelProps = {
@@ -168,6 +169,18 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
             disabled={isReviewPending}
           />
         </div>
+
+        {/* Siege Loop Status */}
+        {(task.siegeActive || task.siegeIteration > 0) && (
+          <div className="border-b border-border-default px-3 py-2">
+            <div className="mb-2">
+              <h4 className="text-[11px] font-medium uppercase tracking-wider text-text-secondary">
+                Siege Loop
+              </h4>
+            </div>
+            <SiegeStatus task={task} onUpdate={updateTask} />
+          </div>
+        )}
 
         {/* Test Checklist */}
         <div className="border-b border-border-default px-3 py-2">
