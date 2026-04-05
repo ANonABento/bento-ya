@@ -98,6 +98,110 @@ pub struct WebhookPayload {
     pub timestamp: String,
 }
 
+// ─── Pure Decision Functions (testable without AppHandle) ──────────────────
+
+/// What to do when a pipeline execution completes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompletionAction {
+    /// Success + auto-advance enabled → move to next column
+    Advance,
+    /// Failure + retries remaining → retry the trigger
+    Retry { attempt: i64, max: i64 },
+    /// Success, no auto-advance → stay in column, idle
+    Complete,
+    /// Failure, no retries left → stay in column, set error
+    Failed,
+}
+
+/// Pure decision: given task state and column triggers, what should happen on completion?
+pub fn decide_completion(
+    task: &Task,
+    triggers_json: Option<&str>,
+    success: bool,
+) -> CompletionAction {
+    if success {
+        let auto_advance = parse_trigger_field_bool(triggers_json, "auto_advance");
+        if auto_advance {
+            return CompletionAction::Advance;
+        }
+        return CompletionAction::Complete;
+    }
+
+    // Failure path
+    let max_retries = parse_trigger_field_u64(triggers_json, "max_retries") as i64;
+    if max_retries > 0 && task.retry_count < max_retries {
+        CompletionAction::Retry {
+            attempt: task.retry_count + 1,
+            max: max_retries,
+        }
+    } else {
+        CompletionAction::Failed
+    }
+}
+
+/// Pure decision: is the exit criteria met for a given task?
+///
+/// Handles all exit types except `pr_approved` (needs external `gh` call)
+/// and `agent_complete` with DB session (needs DB lookup).
+/// Those cases return `None` to signal the caller should check externally.
+pub fn check_exit_met(task: &Task, exit_type: &str) -> Option<bool> {
+    match exit_type {
+        "manual" => Some(false),
+        "script_success" => Some(task.last_script_exit_code == Some(0)),
+        "checklist_done" => {
+            if let Some(ref checklist_json) = task.checklist {
+                #[derive(Deserialize)]
+                struct Entry {
+                    #[serde(default)]
+                    checked: bool,
+                }
+                match serde_json::from_str::<Vec<Entry>>(checklist_json) {
+                    Ok(items) => Some(!items.is_empty() && items.iter().all(|e| e.checked)),
+                    Err(_) => Some(false),
+                }
+            } else {
+                Some(false)
+            }
+        }
+        "manual_approval" => Some(task.review_status.as_deref() == Some("approved")),
+        "notification_sent" => Some(task.notification_sent_at.is_some()),
+        "agent_complete" => {
+            // If no session ID, check pipeline state as fallback
+            if task.agent_session_id.is_none() {
+                Some(task.pipeline_state == "running" || task.pipeline_state == "complete")
+            } else {
+                None // Needs DB lookup — caller handles
+            }
+        }
+        // pr_approved and time_elapsed need external resources — caller handles
+        _ => None,
+    }
+}
+
+/// Parse the exit_criteria type from a column's triggers JSON.
+pub fn parse_exit_type(triggers_json: Option<&str>) -> String {
+    triggers_json
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        .and_then(|v| v.get("exit_criteria")?.get("type")?.as_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| "manual".to_string())
+}
+
+/// Parse a boolean field from exit_criteria in triggers JSON.
+fn parse_trigger_field_bool(triggers_json: Option<&str>, field: &str) -> bool {
+    triggers_json
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        .and_then(|v| v.get("exit_criteria")?.get(field)?.as_bool())
+        .unwrap_or(false)
+}
+
+/// Parse a u64 field from exit_criteria in triggers JSON.
+fn parse_trigger_field_u64(triggers_json: Option<&str>, field: &str) -> u64 {
+    triggers_json
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        .and_then(|v| v.get("exit_criteria")?.get(field)?.as_u64())
+        .unwrap_or(0)
+}
+
 // ─── Pipeline Engine ────────────────────────────────────────────────────────
 
 /// Fire the column trigger when a task enters.
@@ -138,21 +242,12 @@ pub fn evaluate_exit_criteria(
     task: &Task,
     column: &Column,
 ) -> Result<bool, AppError> {
-    // Get exit criteria type from V2 triggers
-    let exit_type = column
-        .triggers
-        .as_deref()
-        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
-        .and_then(|v| v.get("exit_criteria")?.get("type")?.as_str().map(|s| s.to_string()))
-        .unwrap_or_else(|| "manual".to_string());
+    let exit_type = parse_exit_type(column.triggers.as_deref());
 
     // Set state to evaluating
     let _ = db::update_task_pipeline_state(
-        conn,
-        &task.id,
-        PipelineState::Evaluating.as_str(),
-        task.pipeline_triggered_at.as_deref(),
-        None,
+        conn, &task.id, PipelineState::Evaluating.as_str(),
+        task.pipeline_triggered_at.as_deref(), None,
     );
 
     let _ = app.emit("pipeline:evaluating", &PipelineEvent {
@@ -163,129 +258,65 @@ pub fn evaluate_exit_criteria(
         message: Some(format!("Exit type: {}", exit_type)),
     });
 
-    let exit_met = match exit_type.as_str() {
-        "manual" => {
-            // Manual exit never auto-advances
-            false
-        }
-        "agent_complete" => {
-            // Check if agent linked to this task has completed
-            if let Some(ref session_id) = task.agent_session_id {
-                // Look up the agent session in the database
-                match db::get_agent_session(conn, session_id) {
-                    Ok(session) => {
-                        // Agent is complete if status is "completed" or "stopped" with exit_code 0
-                        session.status == "completed"
-                            || (session.status == "stopped" && session.exit_code == Some(0))
-                    }
-                    Err(_) => {
-                        // No DB session found — CLI trigger agents are tracked in-memory only.
-                        // If mark_complete(success=true) was called, pipeline was running,
-                        // so the agent has completed. Trust the caller.
-                        task.pipeline_state == "running" || task.pipeline_state == "complete"
-                    }
-                }
-            } else {
-                false
-            }
-        }
-        "script_success" => {
-            // Check if script exited with code 0
-            task.last_script_exit_code == Some(0)
-        }
-        "checklist_done" => {
-            // Check if all checklist items are checked (using JSON parsing)
-            // The task.checklist field contains inline JSON array of items with "checked" boolean
-            if let Some(ref checklist_json) = task.checklist {
-                // Parse checklist as JSON array
-                #[derive(Deserialize)]
-                struct ChecklistEntry {
-                    #[serde(default)]
-                    checked: bool,
-                }
-                match serde_json::from_str::<Vec<ChecklistEntry>>(checklist_json) {
-                    Ok(items) => {
-                        // All items must be checked (and there must be at least one item)
-                        !items.is_empty() && items.iter().all(|item| item.checked)
-                    }
-                    Err(_) => false, // Invalid JSON, treat as not done
-                }
-            } else {
-                false // No checklist, not done
-            }
-        }
-        "time_elapsed" => {
-            // Check if N seconds have passed since pipeline was triggered
-            // Default timeout is 300 seconds (5 minutes)
-            let timeout_secs = column
-                .triggers
-                .as_deref()
-                .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
-                .and_then(|v| v.get("exit_criteria")?.get("timeout")?.as_u64())
-                .unwrap_or(300);
-            if let Some(ref triggered_at) = task.pipeline_triggered_at {
-                // Parse triggered_at as ISO 8601 timestamp
-                if let Ok(triggered_time) = chrono::DateTime::parse_from_rfc3339(triggered_at) {
-                    let now = chrono::Utc::now();
-                    let elapsed = now.signed_duration_since(triggered_time);
-                    elapsed.num_seconds() >= timeout_secs as i64
-                } else {
-                    false // Invalid timestamp format
-                }
-            } else {
-                false // No trigger time recorded
-            }
-        }
-        "pr_approved" => {
-            // Check if PR has been approved via gh CLI
-            if let Some(pr_number) = task.pr_number {
-                // Get workspace to find repo_path
-                if let Ok(workspace) = db::get_workspace(conn, &task.workspace_id) {
-                    // Run gh pr view to check review decision
-                    let output = std::process::Command::new("gh")
-                        .args([
-                            "pr", "view",
-                            &pr_number.to_string(),
-                            "--json", "reviewDecision",
-                        ])
-                        .current_dir(&workspace.repo_path)
-                        .output();
-
-                    if let Ok(output) = output {
-                        if output.status.success() {
-                            #[derive(serde::Deserialize)]
-                            #[serde(rename_all = "camelCase")]
-                            struct PrReview {
-                                review_decision: Option<String>,
+    // Try pure check first, fall back to external checks
+    let exit_met = match check_exit_met(task, &exit_type) {
+        Some(result) => result,
+        None => {
+            // Needs external resources — handle here
+            match exit_type.as_str() {
+                "agent_complete" => {
+                    // Has session ID — needs DB lookup
+                    if let Some(ref session_id) = task.agent_session_id {
+                        match db::get_agent_session(conn, session_id) {
+                            Ok(session) => {
+                                session.status == "completed"
+                                    || (session.status == "stopped" && session.exit_code == Some(0))
                             }
-
-                            if let Ok(pr_review) = serde_json::from_slice::<PrReview>(&output.stdout) {
-                                pr_review.review_decision.as_deref() == Some("APPROVED")
-                            } else {
-                                false
+                            Err(_) => {
+                                task.pipeline_state == "running" || task.pipeline_state == "complete"
                             }
+                        }
+                    } else {
+                        false
+                    }
+                }
+                "time_elapsed" => {
+                    let timeout_secs = parse_trigger_field_u64(column.triggers.as_deref(), "timeout");
+                    let timeout_secs = if timeout_secs == 0 { 300 } else { timeout_secs };
+                    if let Some(ref triggered_at) = task.pipeline_triggered_at {
+                        if let Ok(triggered_time) = chrono::DateTime::parse_from_rfc3339(triggered_at) {
+                            let elapsed = chrono::Utc::now().signed_duration_since(triggered_time);
+                            elapsed.num_seconds() >= timeout_secs as i64
                         } else {
                             false
                         }
                     } else {
                         false
                     }
-                } else {
-                    false
                 }
-            } else {
-                false
+                "pr_approved" => {
+                    if let Some(pr_number) = task.pr_number {
+                        if let Ok(workspace) = db::get_workspace(conn, &task.workspace_id) {
+                            let output = std::process::Command::new("gh")
+                                .args(["pr", "view", &pr_number.to_string(), "--json", "reviewDecision"])
+                                .current_dir(&workspace.repo_path)
+                                .output();
+                            if let Ok(output) = output {
+                                if output.status.success() {
+                                    #[derive(serde::Deserialize)]
+                                    #[serde(rename_all = "camelCase")]
+                                    struct PrReview { review_decision: Option<String> }
+                                    serde_json::from_slice::<PrReview>(&output.stdout)
+                                        .map(|pr| pr.review_decision.as_deref() == Some("APPROVED"))
+                                        .unwrap_or(false)
+                                } else { false }
+                            } else { false }
+                        } else { false }
+                    } else { false }
+                }
+                _ => false,
             }
         }
-        "manual_approval" => {
-            // Check if review_status is "approved"
-            task.review_status.as_deref() == Some("approved")
-        }
-        "notification_sent" => {
-            // Check if notification has been marked as sent
-            task.notification_sent_at.is_some()
-        }
-        _ => false,
     };
 
     if exit_met {
@@ -308,11 +339,8 @@ pub fn evaluate_exit_criteria(
     };
 
     let _ = db::update_task_pipeline_state(
-        conn,
-        &task.id,
-        new_state.as_str(),
-        task.pipeline_triggered_at.as_deref(),
-        None,
+        conn, &task.id, new_state.as_str(),
+        task.pipeline_triggered_at.as_deref(), None,
     );
 
     Ok(exit_met)
@@ -327,12 +355,7 @@ pub fn try_auto_advance(
     current_column: &Column,
 ) -> Result<Option<Task>, AppError> {
     // Check if auto-advance is enabled via V2 triggers
-    let auto_advance = current_column
-        .triggers
-        .as_deref()
-        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
-        .and_then(|v| v.get("exit_criteria")?.get("auto_advance")?.as_bool())
-        .unwrap_or(false);
+    let auto_advance = parse_trigger_field_bool(current_column.triggers.as_deref(), "auto_advance");
 
     if !auto_advance {
         return Ok(None);
@@ -460,70 +483,370 @@ pub fn mark_complete(
     let task = db::get_task(conn, task_id)?;
     let column = db::get_column(conn, &task.column_id)?;
 
-    if success {
-        // Reset retry count on success
-        conn.execute(
-            "UPDATE tasks SET retry_count = 0 WHERE id = ?1",
-            rusqlite::params![task_id],
-        ).map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let action = decide_completion(&task, column.triggers.as_deref(), success);
 
-        // Check dependents - tasks waiting on this one
-        let _ = dependencies::check_dependents(conn, app, &task);
+    match action {
+        CompletionAction::Advance => {
+            // Reset retry count on success
+            conn.execute(
+                "UPDATE tasks SET retry_count = 0 WHERE id = ?1",
+                rusqlite::params![task_id],
+            ).map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-        // Try to auto-advance
-        if let Some(advanced_task) = try_auto_advance(conn, app, &task, &column)? {
-            return Ok(advanced_task);
+            // Check dependents - tasks waiting on this one
+            let _ = dependencies::check_dependents(conn, app, &task);
+
+            // Try to auto-advance
+            if let Some(advanced_task) = try_auto_advance(conn, app, &task, &column)? {
+                return Ok(advanced_task);
+            }
+
+            // Auto-advance not possible (no next column), fall through to complete
+            let updated_task = db::update_task_pipeline_state(
+                conn, task_id, PipelineState::Idle.as_str(), None, None,
+            )?;
+            emit_completion_event(app, task_id, &column.id, &task.workspace_id, true);
+            Ok(updated_task)
         }
-    } else {
-        // Check if auto-retry is configured
-        let max_retries = column
-            .triggers
-            .as_deref()
-            .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
-            .and_then(|v| v.get("exit_criteria")?.get("max_retries")?.as_u64())
-            .unwrap_or(0) as i64;
+        CompletionAction::Complete => {
+            // Reset retry count on success
+            conn.execute(
+                "UPDATE tasks SET retry_count = 0 WHERE id = ?1",
+                rusqlite::params![task_id],
+            ).map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-        if max_retries > 0 && task.retry_count < max_retries {
-            // Increment retry count
+            // Check dependents
+            let _ = dependencies::check_dependents(conn, app, &task);
+
+            let updated_task = db::update_task_pipeline_state(
+                conn, task_id, PipelineState::Idle.as_str(), None, None,
+            )?;
+            emit_completion_event(app, task_id, &column.id, &task.workspace_id, true);
+            Ok(updated_task)
+        }
+        CompletionAction::Retry { attempt, max } => {
             increment_retry_count(conn, task_id)?;
-
-            // Log the retry
-            let retry_num = task.retry_count + 1;
-            log::info!("[pipeline] Auto-retrying task {} (attempt {}/{})", task_id, retry_num, max_retries);
+            log::info!("[pipeline] Auto-retrying task {} (attempt {}/{})", task_id, attempt, max);
 
             let _ = app.emit("pipeline:error", &PipelineEvent {
                 task_id: task_id.to_string(),
                 column_id: column.id.clone(),
                 event_type: "retry".to_string(),
                 state: PipelineState::Idle.as_str().to_string(),
-                message: Some(format!("Retrying ({}/{})", retry_num, max_retries)),
+                message: Some(format!("Retrying ({}/{})", attempt, max)),
             });
 
-            // Re-fire the trigger
             let updated_task = db::get_task(conn, task_id)?;
-            return fire_trigger(conn, app, &updated_task, &column);
+            fire_trigger(conn, app, &updated_task, &column)
+        }
+        CompletionAction::Failed => {
+            let updated_task = db::update_task_pipeline_state(
+                conn, task_id, PipelineState::Idle.as_str(), None, Some("Execution failed"),
+            )?;
+            emit_completion_event(app, task_id, &column.id, &task.workspace_id, false);
+            Ok(updated_task)
         }
     }
+}
 
-    // Reset to idle
-    let updated_task = db::update_task_pipeline_state(
-        conn,
-        task_id,
-        PipelineState::Idle.as_str(),
-        None,
-        if success { None } else { Some("Execution failed") },
-    )?;
-
+fn emit_completion_event(app: &AppHandle, task_id: &str, column_id: &str, workspace_id: &str, success: bool) {
     let _ = app.emit("pipeline:complete", &PipelineEvent {
         task_id: task_id.to_string(),
-        column_id: column.id.clone(),
+        column_id: column_id.to_string(),
         event_type: "complete".to_string(),
         state: PipelineState::Idle.as_str().to_string(),
         message: Some(if success { "Success" } else { "Failed" }.to_string()),
     });
+    emit_tasks_changed(app, workspace_id, "pipeline_complete");
+}
 
-    // Notify frontend that tasks changed
-    emit_tasks_changed(app, &task.workspace_id, "pipeline_complete");
+// ─── Tests ────────────────────────────────────────────────────────────────
 
-    Ok(updated_task)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+
+    /// Create a minimal task for testing decision logic.
+    fn make_task(retry_count: i64, pipeline_state: &str) -> Task {
+        Task {
+            id: "task-1".into(),
+            workspace_id: "ws-1".into(),
+            column_id: "col-1".into(),
+            title: "Test Task".into(),
+            description: None,
+            position: 0,
+            priority: "medium".into(),
+            agent_mode: None,
+            agent_status: None,
+            queued_at: None,
+            branch_name: None,
+            files_touched: "[]".into(),
+            checklist: None,
+            pipeline_state: pipeline_state.into(),
+            pipeline_triggered_at: None,
+            pipeline_error: None,
+            retry_count,
+            model: None,
+            agent_session_id: None,
+            last_script_exit_code: None,
+            review_status: None,
+            pr_number: None,
+            pr_url: None,
+            siege_iteration: 0,
+            siege_active: false,
+            siege_max_iterations: 5,
+            siege_last_checked: None,
+            pr_mergeable: None,
+            pr_ci_status: None,
+            pr_review_decision: None,
+            pr_comment_count: 0,
+            pr_is_draft: false,
+            pr_labels: "[]".into(),
+            pr_last_fetched: None,
+            pr_head_sha: None,
+            notify_stakeholders: None,
+            notification_sent_at: None,
+            trigger_overrides: None,
+            trigger_prompt: None,
+            last_output: None,
+            dependencies: None,
+            blocked: false,
+            created_at: "2024-01-01T00:00:00Z".into(),
+            updated_at: "2024-01-01T00:00:00Z".into(),
+        }
+    }
+
+    fn triggers_json(auto_advance: bool, max_retries: u64) -> String {
+        serde_json::json!({
+            "exit_criteria": {
+                "type": "agent_complete",
+                "auto_advance": auto_advance,
+                "max_retries": max_retries
+            }
+        }).to_string()
+    }
+
+    // ─── decide_completion tests ──────────────────────────────────────
+
+    #[test]
+    fn test_decide_success_no_auto_advance() {
+        let task = make_task(0, "running");
+        let triggers = triggers_json(false, 0);
+        let action = decide_completion(&task, Some(&triggers), true);
+        assert_eq!(action, CompletionAction::Complete);
+    }
+
+    #[test]
+    fn test_decide_success_with_auto_advance() {
+        let task = make_task(0, "running");
+        let triggers = triggers_json(true, 0);
+        let action = decide_completion(&task, Some(&triggers), true);
+        assert_eq!(action, CompletionAction::Advance);
+    }
+
+    #[test]
+    fn test_decide_failure_no_retries() {
+        let task = make_task(0, "running");
+        let triggers = triggers_json(false, 0);
+        let action = decide_completion(&task, Some(&triggers), false);
+        assert_eq!(action, CompletionAction::Failed);
+    }
+
+    #[test]
+    fn test_decide_failure_with_retries_remaining() {
+        let task = make_task(1, "running");
+        let triggers = triggers_json(false, 3);
+        let action = decide_completion(&task, Some(&triggers), false);
+        assert_eq!(action, CompletionAction::Retry { attempt: 2, max: 3 });
+    }
+
+    #[test]
+    fn test_decide_failure_retries_exhausted() {
+        let task = make_task(3, "running");
+        let triggers = triggers_json(false, 3);
+        let action = decide_completion(&task, Some(&triggers), false);
+        assert_eq!(action, CompletionAction::Failed);
+    }
+
+    #[test]
+    fn test_decide_failure_first_retry() {
+        let task = make_task(0, "running");
+        let triggers = triggers_json(false, 2);
+        let action = decide_completion(&task, Some(&triggers), false);
+        assert_eq!(action, CompletionAction::Retry { attempt: 1, max: 2 });
+    }
+
+    #[test]
+    fn test_decide_no_triggers_json() {
+        let task = make_task(0, "running");
+        // No triggers configured at all
+        let action = decide_completion(&task, None, true);
+        assert_eq!(action, CompletionAction::Complete);
+    }
+
+    #[test]
+    fn test_decide_empty_triggers_json() {
+        let task = make_task(0, "running");
+        let action = decide_completion(&task, Some("{}"), false);
+        assert_eq!(action, CompletionAction::Failed);
+    }
+
+    // ─── check_exit_met tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_exit_manual_never_met() {
+        let task = make_task(0, "running");
+        assert_eq!(check_exit_met(&task, "manual"), Some(false));
+    }
+
+    #[test]
+    fn test_exit_script_success_met() {
+        let mut task = make_task(0, "running");
+        task.last_script_exit_code = Some(0);
+        assert_eq!(check_exit_met(&task, "script_success"), Some(true));
+    }
+
+    #[test]
+    fn test_exit_script_success_not_met() {
+        let mut task = make_task(0, "running");
+        task.last_script_exit_code = Some(1);
+        assert_eq!(check_exit_met(&task, "script_success"), Some(false));
+    }
+
+    #[test]
+    fn test_exit_script_success_no_code() {
+        let task = make_task(0, "running");
+        assert_eq!(check_exit_met(&task, "script_success"), Some(false));
+    }
+
+    #[test]
+    fn test_exit_checklist_all_checked() {
+        let mut task = make_task(0, "running");
+        task.checklist = Some(r#"[{"checked":true},{"checked":true}]"#.into());
+        assert_eq!(check_exit_met(&task, "checklist_done"), Some(true));
+    }
+
+    #[test]
+    fn test_exit_checklist_partial() {
+        let mut task = make_task(0, "running");
+        task.checklist = Some(r#"[{"checked":true},{"checked":false}]"#.into());
+        assert_eq!(check_exit_met(&task, "checklist_done"), Some(false));
+    }
+
+    #[test]
+    fn test_exit_checklist_empty() {
+        let mut task = make_task(0, "running");
+        task.checklist = Some("[]".into());
+        assert_eq!(check_exit_met(&task, "checklist_done"), Some(false));
+    }
+
+    #[test]
+    fn test_exit_checklist_no_checklist() {
+        let task = make_task(0, "running");
+        assert_eq!(check_exit_met(&task, "checklist_done"), Some(false));
+    }
+
+    #[test]
+    fn test_exit_checklist_invalid_json() {
+        let mut task = make_task(0, "running");
+        task.checklist = Some("not json".into());
+        assert_eq!(check_exit_met(&task, "checklist_done"), Some(false));
+    }
+
+    #[test]
+    fn test_exit_manual_approval_approved() {
+        let mut task = make_task(0, "running");
+        task.review_status = Some("approved".into());
+        assert_eq!(check_exit_met(&task, "manual_approval"), Some(true));
+    }
+
+    #[test]
+    fn test_exit_manual_approval_rejected() {
+        let mut task = make_task(0, "running");
+        task.review_status = Some("rejected".into());
+        assert_eq!(check_exit_met(&task, "manual_approval"), Some(false));
+    }
+
+    #[test]
+    fn test_exit_manual_approval_none() {
+        let task = make_task(0, "running");
+        assert_eq!(check_exit_met(&task, "manual_approval"), Some(false));
+    }
+
+    #[test]
+    fn test_exit_notification_sent() {
+        let mut task = make_task(0, "running");
+        task.notification_sent_at = Some("2024-01-01T00:00:00Z".into());
+        assert_eq!(check_exit_met(&task, "notification_sent"), Some(true));
+    }
+
+    #[test]
+    fn test_exit_notification_not_sent() {
+        let task = make_task(0, "running");
+        assert_eq!(check_exit_met(&task, "notification_sent"), Some(false));
+    }
+
+    #[test]
+    fn test_exit_agent_complete_no_session_running() {
+        let mut task = make_task(0, "running");
+        task.agent_session_id = None;
+        assert_eq!(check_exit_met(&task, "agent_complete"), Some(true));
+    }
+
+    #[test]
+    fn test_exit_agent_complete_no_session_idle() {
+        let mut task = make_task(0, "idle");
+        task.agent_session_id = None;
+        assert_eq!(check_exit_met(&task, "agent_complete"), Some(false));
+    }
+
+    #[test]
+    fn test_exit_agent_complete_with_session_needs_db() {
+        let mut task = make_task(0, "running");
+        task.agent_session_id = Some("session-123".into());
+        // Returns None because it needs a DB lookup
+        assert_eq!(check_exit_met(&task, "agent_complete"), None);
+    }
+
+    #[test]
+    fn test_exit_pr_approved_needs_external() {
+        let task = make_task(0, "running");
+        assert_eq!(check_exit_met(&task, "pr_approved"), None);
+    }
+
+    #[test]
+    fn test_exit_unknown_type_needs_external() {
+        let task = make_task(0, "running");
+        assert_eq!(check_exit_met(&task, "some_future_type"), None);
+    }
+
+    // ─── parse_exit_type tests ────────────────────────────────────────
+
+    #[test]
+    fn test_parse_exit_type_present() {
+        let json = r#"{"exit_criteria":{"type":"script_success"}}"#;
+        assert_eq!(parse_exit_type(Some(json)), "script_success");
+    }
+
+    #[test]
+    fn test_parse_exit_type_missing() {
+        assert_eq!(parse_exit_type(None), "manual");
+        assert_eq!(parse_exit_type(Some("{}")), "manual");
+    }
+
+    // ─── PipelineState tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_pipeline_state_roundtrip() {
+        for state in [PipelineState::Idle, PipelineState::Triggered, PipelineState::Running, PipelineState::Evaluating, PipelineState::Advancing] {
+            assert_eq!(PipelineState::from_str(state.as_str()), state);
+        }
+    }
+
+    #[test]
+    fn test_pipeline_state_unknown_defaults_idle() {
+        assert_eq!(PipelineState::from_str("garbage"), PipelineState::Idle);
+        assert_eq!(PipelineState::from_str(""), PipelineState::Idle);
+    }
 }
