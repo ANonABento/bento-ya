@@ -48,6 +48,12 @@ export const EXIT_CRITERIA_TYPES: { value: ExitCriteriaType; label: string; desc
   { value: 'notification_sent', label: 'Notification Sent', description: 'User marks as notified' },
 ]
 
+export const STEP_TYPE_COLORS: Record<string, string> = {
+  bash: 'bg-blue-500/10 text-blue-400',
+  agent: 'bg-purple-500/10 text-purple-400',
+  check: 'bg-amber-500/10 text-amber-400',
+}
+
 export const COMMON_COMMANDS = [
   '/start-task',
   '/loop-review',

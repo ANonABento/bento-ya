@@ -2,14 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { Script, ScriptStep } from '@/types'
 import { parseSteps } from '@/types'
 import * as ipc from '@/lib/ipc'
-
-// ─── Step type badge colors ────────────────────────────────────────────────
-
-const STEP_COLORS: Record<string, string> = {
-  bash: 'bg-blue-500/10 text-blue-400',
-  agent: 'bg-purple-500/10 text-purple-400',
-  check: 'bg-amber-500/10 text-amber-400',
-}
+import { STEP_TYPE_COLORS } from '@/components/kanban/column-config-constants'
 
 // ─── Scripts Tab ────────────────────────────────────────────────────────────
 
@@ -171,7 +164,7 @@ function ScriptCard({
         {steps.map((step, i) => (
           <span
             key={i}
-            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${STEP_COLORS[step.type] || 'bg-surface text-text-secondary'}`}
+            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${STEP_TYPE_COLORS[step.type] || 'bg-surface text-text-secondary'}`}
           >
             {step.name || step.type}
           </span>
@@ -253,7 +246,11 @@ function ScriptEditor({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel() }}
+      onKeyDown={(e) => { if (e.key === 'Escape') onCancel() }}
+    >
       <div className="w-full max-w-lg rounded-xl border border-border-default bg-bg p-6 shadow-2xl max-h-[80vh] overflow-y-auto">
         <h3 className="mb-4 text-base font-semibold text-text-primary">
           {script ? 'Edit Script' : 'New Script'}
@@ -387,7 +384,7 @@ function StepEditor({
     <div className="rounded-lg border border-border-default bg-surface/30 p-3">
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STEP_COLORS[step.type] || ''}`}>
+          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STEP_TYPE_COLORS[step.type] || ''}`}>
             {step.type}
           </span>
           <span className="text-xs text-text-secondary">Step {index + 1}</span>

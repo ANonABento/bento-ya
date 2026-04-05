@@ -16,7 +16,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { DEFAULT_SPAWN_CLI } from '@/types/column'
 import * as ipc from '@/lib/ipc'
-import { ACTION_TYPES, CLI_TYPES, COMMON_COMMANDS } from './column-config-constants'
+import { ACTION_TYPES, CLI_TYPES, COMMON_COMMANDS, STEP_TYPE_COLORS } from './column-config-constants'
 
 // ─── Triggers Tab ───────────────────────────────────────────────────────────
 
@@ -326,9 +326,7 @@ function RunScriptEditor({
             {steps.map((step, i) => (
               <div key={i} className="flex items-center gap-2 text-xs">
                 <span className={`rounded px-1.5 py-0.5 font-mono ${
-                  step.type === 'bash' ? 'bg-blue-500/10 text-blue-400' :
-                  step.type === 'agent' ? 'bg-purple-500/10 text-purple-400' :
-                  'bg-amber-500/10 text-amber-400'
+                  STEP_TYPE_COLORS[step.type] || 'bg-surface text-text-secondary'
                 }`}>
                   {step.type}
                 </span>

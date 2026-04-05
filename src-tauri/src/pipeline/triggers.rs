@@ -501,6 +501,11 @@ fn execute_action(
                 .map_err(|_| AppError::NotFound(format!("Script '{}' not found", script_id)))?;
             let workspace = db::get_workspace(conn, &task.workspace_id)?;
 
+            // Validate workspace repo_path exists
+            if !workspace.repo_path.is_empty() && !std::path::Path::new(&workspace.repo_path).exists() {
+                log::warn!("Workspace repo_path '{}' does not exist, script may fail", workspace.repo_path);
+            }
+
             let ts = db::now();
             let updated_task = db::update_task_pipeline_state(
                 conn,
