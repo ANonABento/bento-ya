@@ -28,8 +28,14 @@ export function ScriptsTab() {
   useEffect(() => { void load() }, [load])
 
   const handleDelete = async (id: string) => {
-    await ipc.deleteScript(id)
-    void load()
+    const script = scripts.find((s) => s.id === id)
+    if (!script || !window.confirm(`Delete script "${script.name}"?`)) return
+    try {
+      await ipc.deleteScript(id)
+      void load()
+    } catch (err) {
+      console.error('Failed to delete script:', err)
+    }
   }
 
   if (loading) {

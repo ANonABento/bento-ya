@@ -692,9 +692,16 @@ fn execute_action(
 
                 // All bash/check steps done — call mark_complete
                 let db_path = crate::db::db_path();
-                if let Ok(conn) = rusqlite::Connection::open(&db_path) {
-                    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-                    let _ = super::mark_complete(&conn, &app_handle, &task_id, success);
+                match rusqlite::Connection::open(&db_path) {
+                    Ok(conn) => {
+                        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                        if let Err(e) = super::mark_complete(&conn, &app_handle, &task_id, success) {
+                            log::error!("[script:{}] mark_complete failed: {}", task_id, e);
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("[script:{}] Failed to open DB for mark_complete: {} — task stuck in running state", task_id, e);
+                    }
                 }
             });
 
