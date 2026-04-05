@@ -22,6 +22,8 @@ export interface SpawnCliAction {
   flags?: string[]
   /** Use existing agent queue (default: true) */
   use_queue?: boolean
+  /** AI model override (opus, sonnet, haiku) */
+  model?: string
 }
 
 export interface MoveColumnAction {

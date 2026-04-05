@@ -44,6 +44,7 @@ export const mockTask = (overrides: Partial<Task> = {}): Task => ({
   pipelineTriggeredAt: null,
   pipelineError: null,
   retryCount: 0,
+  model: null,
   lastScriptExitCode: null,
   reviewStatus: null,
   prNumber: null,

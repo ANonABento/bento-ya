@@ -65,6 +65,7 @@ pub struct Task {
     pub pipeline_triggered_at: Option<String>,
     pub pipeline_error: Option<String>,
     pub retry_count: i64,
+    pub model: Option<String>,
     pub agent_session_id: Option<String>,
     pub last_script_exit_code: Option<i64>,
     pub review_status: Option<String>,

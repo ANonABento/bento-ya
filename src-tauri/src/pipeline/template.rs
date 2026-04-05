@@ -109,6 +109,7 @@ mod tests {
             pipeline_triggered_at: None,
             pipeline_error: None,
             retry_count: 0,
+            model: None,
             agent_session_id: None,
             last_script_exit_code: None,
             review_status: None,

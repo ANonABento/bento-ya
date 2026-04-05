@@ -84,6 +84,7 @@ pub fn update_task(
     position: Option<i64>,
     agent_mode: Option<Option<String>>,
     priority: Option<String>,
+    model: Option<Option<String>>,
 ) -> Result<Task, AppError> {
     if let Some(ref t) = title {
         if t.trim().is_empty() {
@@ -100,7 +101,7 @@ pub fn update_task(
 
     let desc_ref = description.as_ref().map(|d| d.as_deref());
     let mode_ref = agent_mode.as_ref().map(|m| m.as_deref());
-    let task = db::update_task(
+    let mut task = db::update_task(
         &conn,
         &id,
         title.as_deref(),
@@ -110,6 +111,17 @@ pub fn update_task(
         mode_ref,
         priority.as_deref(),
     )?;
+
+    // Update model if provided
+    if let Some(ref m) = model {
+        let ts = db::now();
+        conn.execute(
+            "UPDATE tasks SET model = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![m.as_deref(), ts, id],
+        )
+        .map_err(AppError::from)?;
+        task = db::get_task(&conn, &id)?;
+    }
 
     Ok(task)
 }

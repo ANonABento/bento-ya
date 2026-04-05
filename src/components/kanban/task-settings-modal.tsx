@@ -25,6 +25,7 @@ export function TaskSettingsModal({ task, onClose, initialTab }: TaskSettingsMod
   const overrides = parseOverrides(task.triggerOverrides)
   const [skipTriggers, setSkipTriggers] = useState(overrides.skip_triggers === true)
   const [triggerPrompt, setTriggerPrompt] = useState(task.triggerPrompt ?? '')
+  const [model, setModel] = useState(task.model ?? '')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Parse dependencies — held as state for interactive editing
@@ -36,6 +37,11 @@ export function TaskSettingsModal({ task, onClose, initialTab }: TaskSettingsMod
       const newOverrides = {
         ...overrides,
         skip_triggers: skipTriggers,
+      }
+
+      // Save model separately if changed
+      if (model !== (task.model ?? '')) {
+        await ipc.updateTask(task.id, { model: model || null })
       }
 
       const updated = await ipc.updateTaskTriggers(task.id, {
@@ -122,6 +128,8 @@ export function TaskSettingsModal({ task, onClose, initialTab }: TaskSettingsMod
                 setSkipTriggers={setSkipTriggers}
                 triggerPrompt={triggerPrompt}
                 setTriggerPrompt={setTriggerPrompt}
+                model={model}
+                setModel={setModel}
                 lastOutput={task.lastOutput}
               />
             )}
@@ -167,12 +175,16 @@ function TriggersTab({
   setSkipTriggers,
   triggerPrompt,
   setTriggerPrompt,
+  model,
+  setModel,
   lastOutput,
 }: {
   skipTriggers: boolean
   setSkipTriggers: (v: boolean) => void
   triggerPrompt: string
   setTriggerPrompt: (v: string) => void
+  model: string
+  setModel: (v: string) => void
   lastOutput: string | null
 }) {
   return (
@@ -198,6 +210,26 @@ function TriggersTab({
             transition={{ type: 'spring', stiffness: 500, damping: 30 }}
           />
         </button>
+      </div>
+
+      {/* Model Override */}
+      <div>
+        <label className="mb-1.5 block text-sm font-medium text-text-secondary">
+          Model
+        </label>
+        <p className="mb-2 text-xs text-text-secondary">
+          Override the AI model for this task. Leave on Auto to use the column trigger default.
+        </p>
+        <select
+          value={model}
+          onChange={(e) => { setModel(e.target.value) }}
+          className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
+        >
+          <option value="">Auto (column default)</option>
+          <option value="opus">Opus (most capable)</option>
+          <option value="sonnet">Sonnet (fast + capable)</option>
+          <option value="haiku">Haiku (quick + light)</option>
+        </select>
       </div>
 
       {/* Trigger Prompt */}

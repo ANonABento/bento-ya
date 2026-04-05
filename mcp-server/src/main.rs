@@ -143,7 +143,8 @@ fn get_tools() -> Vec<Value> {
                     "workspace": { "type": "string", "description": "Workspace name or ID (uses first workspace if omitted)" },
                     "title": { "type": "string" },
                     "description": { "type": "string" },
-                    "column": { "type": "string", "description": "Column name (default: first column)" }
+                    "column": { "type": "string", "description": "Column name (default: first column)" },
+                    "model": { "type": "string", "description": "AI model (opus, sonnet, haiku)" }
                 },
                 "required": ["title"]
             }),
@@ -374,14 +375,15 @@ fn find_task(conn: &Connection, query: &str, workspace_id: Option<&str>) -> Resu
             "blocked": r.get::<_, i64>(10)?,
             "dependencies": r.get::<_, Option<String>>(11)?,
             "retry_count": r.get::<_, i64>(12)?,
-            "created_at": r.get::<_, String>(13)?,
-            "updated_at": r.get::<_, String>(14)?,
+            "model": r.get::<_, Option<String>>(13)?,
+            "created_at": r.get::<_, String>(14)?,
+            "updated_at": r.get::<_, String>(15)?,
         }))
     };
 
     let select = "SELECT id, workspace_id, column_id, title, description, position, priority, \
                    pipeline_state, pipeline_error, review_status, blocked, dependencies, \
-                   retry_count, created_at, updated_at FROM tasks";
+                   retry_count, model, created_at, updated_at FROM tasks";
 
     // Exact ID
     let sql = format!("{} WHERE id = ?1", select);
@@ -578,7 +580,7 @@ fn handle_get_board(conn: &Connection, args: &Value) -> Value {
     // Fetch tasks
     let select = "SELECT id, workspace_id, column_id, title, description, position, priority, \
                    pipeline_state, pipeline_error, review_status, blocked, dependencies, \
-                   retry_count, created_at, updated_at FROM tasks";
+                   retry_count, model, created_at, updated_at FROM tasks";
     let sql = format!("{} WHERE workspace_id = ?1 ORDER BY position ASC", select);
     let mut task_stmt = match conn.prepare(&sql) {
         Ok(s) => s,
@@ -601,8 +603,9 @@ fn handle_get_board(conn: &Connection, args: &Value) -> Value {
                 "blocked": r.get::<_, i64>(10)? != 0,
                 "dependencies": r.get::<_, Option<String>>(11)?,
                 "retry_count": r.get::<_, i64>(12)?,
-                "created_at": r.get::<_, String>(13)?,
-                "updated_at": r.get::<_, String>(14)?,
+                "model": r.get::<_, Option<String>>(13)?,
+                "created_at": r.get::<_, String>(14)?,
+                "updated_at": r.get::<_, String>(15)?,
             }))
         })
         .unwrap()
@@ -664,15 +667,17 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
         }
     };
 
+    let model = args.get("model").and_then(|v| v.as_str());
+
     let id = new_id();
     let ts = now();
     let position = max_task_position(conn, &col_id) + 1;
 
     match conn.execute(
         "INSERT INTO tasks (id, workspace_id, column_id, title, description, position, priority, \
-         pipeline_state, blocked, dependencies, retry_count, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'medium', 'idle', 0, '[]', 0, ?7, ?7)",
-        params![id, ws_id, col_id, title, description, position, ts],
+         pipeline_state, blocked, dependencies, retry_count, model, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'medium', 'idle', 0, '[]', 0, ?7, ?8, ?8)",
+        params![id, ws_id, col_id, title, description, position, model, ts],
     ) {
         Ok(_) => json!({
             "task": {

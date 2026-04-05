@@ -1,4 +1,4 @@
-//! Database layer: SQLite with WAL mode, 26 versioned migrations.
+//! Database layer: SQLite with WAL mode, 27 versioned migrations.
 //!
 //! Models are in `db/models.rs`. CRUD functions are organized by domain
 //! (workspace, column, task, agent, chat, checklist, usage, history).
@@ -100,6 +100,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("024_drop_legacy_trigger_columns", include_str!("migrations/024_drop_legacy_trigger_columns.sql")),
         ("025_task_retry_count", include_str!("migrations/025_task_retry_count.sql")),
         ("026_remove_discord", include_str!("migrations/026_remove_discord.sql")),
+        ("027_task_model", include_str!("migrations/027_task_model.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -351,7 +352,7 @@ pub fn insert_task(
 
 pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
     conn.query_row(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count FROM tasks WHERE id = ?1",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model FROM tasks WHERE id = ?1",
         params![id],
         |row| {
             Ok(Task {
@@ -372,6 +373,7 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
                 pipeline_triggered_at: row.get(12)?,
                 pipeline_error: row.get(13)?,
                 retry_count: row.get::<_, Option<i64>>(42)?.unwrap_or(0),
+                model: row.get(43)?,
                 agent_session_id: row.get(14)?,
                 last_script_exit_code: row.get(15)?,
                 review_status: row.get(16)?,
@@ -405,7 +407,7 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
 
 pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
     )?;
     let rows = stmt.query_map(params![workspace_id], |row| {
         Ok(Task {
@@ -426,6 +428,7 @@ pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>>
             pipeline_triggered_at: row.get(12)?,
             pipeline_error: row.get(13)?,
             retry_count: row.get::<_, Option<i64>>(42)?.unwrap_or(0),
+            model: row.get(43)?,
             agent_session_id: row.get(14)?,
             last_script_exit_code: row.get(15)?,
             review_status: row.get(16)?,
@@ -501,7 +504,7 @@ pub fn delete_task(conn: &Connection, id: &str) -> SqlResult<()> {
 /// List tasks by column ID
 pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count FROM tasks WHERE column_id = ?1 ORDER BY position",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model FROM tasks WHERE column_id = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map(params![column_id], |row| {
         Ok(Task {
@@ -522,6 +525,7 @@ pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec
             pipeline_triggered_at: row.get(12)?,
             pipeline_error: row.get(13)?,
             retry_count: row.get::<_, Option<i64>>(42)?.unwrap_or(0),
+            model: row.get(43)?,
             agent_session_id: row.get(14)?,
             last_script_exit_code: row.get(15)?,
             review_status: row.get(16)?,
@@ -643,7 +647,7 @@ pub fn update_task_agent_status(
 /// Get tasks with agent_status = 'queued' ordered by queued_at (oldest first)
 pub fn get_queued_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count FROM tasks WHERE workspace_id = ?1 AND agent_status = 'queued' ORDER BY queued_at ASC",
+        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model FROM tasks WHERE workspace_id = ?1 AND agent_status = 'queued' ORDER BY queued_at ASC",
     )?;
     let rows = stmt.query_map(params![workspace_id], |row| {
         Ok(Task {
@@ -664,6 +668,7 @@ pub fn get_queued_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<
             pipeline_triggered_at: row.get(12)?,
             pipeline_error: row.get(13)?,
             retry_count: row.get::<_, Option<i64>>(42)?.unwrap_or(0),
+            model: row.get(43)?,
             agent_session_id: row.get(14)?,
             last_script_exit_code: row.get(15)?,
             review_status: row.get(16)?,
@@ -1958,8 +1963,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 26 migrations: 001-026
-        assert_eq!(count, 26);
+        // We have 27 migrations: 001-027
+        assert_eq!(count, 27);
     }
 
     #[test]

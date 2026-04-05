@@ -30,6 +30,7 @@ export type Task = {
   pipelineTriggeredAt: string | null
   pipelineError: string | null
   retryCount: number
+  model: string | null
   lastScriptExitCode: number | null
   reviewStatus: ReviewStatus | null
   prNumber: number | null

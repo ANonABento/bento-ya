@@ -33,6 +33,8 @@ pub enum TriggerActionV2 {
         flags: Option<Vec<String>>,
         #[serde(default)]
         use_queue: Option<bool>,
+        #[serde(default)]
+        model: Option<String>,
     },
     MoveColumn {
         target: String,
@@ -231,6 +233,7 @@ fn execute_action(
             prompt,
             flags,
             use_queue: _,
+            model,
         } => {
             // Build template context
             let workspace = db::get_workspace(conn, &task.workspace_id)?;
@@ -319,13 +322,24 @@ fn execute_action(
                 },
             );
 
+            // Resolve model: task override > trigger config > none (CLI default)
+            let resolved_model = task.model.as_deref()
+                .or(model.as_deref())
+                .map(|m| m.to_string());
+
+            let mut cli_args = Vec::new();
+            if let Some(ref m) = resolved_model {
+                cli_args.push("--model".to_string());
+                cli_args.push(m.clone());
+            }
+
             // Spawn background task — directly runs PTY session, monitors exit,
             // calls mark_complete. No frontend round-trip needed.
             bridge::spawn_cli_trigger_task(
                 app.clone(),
                 task.id.clone(),
                 cli_type,
-                Vec::new(),
+                cli_args,
                 workspace.repo_path.clone(),
                 initial_prompt,
                 Some(env_vars),
