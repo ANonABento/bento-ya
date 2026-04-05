@@ -12,7 +12,7 @@ use super::events::ChatEvent;
 // ============================================================================
 
 /// Timeout for reading a response from the CLI (5 minutes).
-/// Used by PipeTransport and legacy cli_shared.
+/// Used by PipeTransport.
 pub const MESSAGE_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Interval for flushing buffered PTY output to the event channel.

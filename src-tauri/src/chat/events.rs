@@ -3,8 +3,7 @@
 //! Both PtyTransport and PipeTransport emit these events. The frontend
 //! renders them as chat bubbles (pipe) or raw terminal output (pty).
 //!
-//! JSON parsing is defined here as the single source of truth — both
-//! `PipeTransport` and the legacy `cli_shared` module delegate to these functions.
+//! JSON parsing is defined here as the single source of truth.
 
 use serde::Serialize;
 
@@ -46,7 +45,7 @@ pub enum ToolStatus {
 /// Parse a JSON line from CLI stdout into a ChatEvent.
 ///
 /// Handles: system, assistant, content_block_start/delta/stop, result.
-/// Used by PipeTransport directly and by legacy cli_shared via conversion.
+/// Used by PipeTransport.
 pub fn parse_json_event(line: &str) -> ChatEvent {
     let json: serde_json::Value = match serde_json::from_str(line) {
         Ok(v) => v,
@@ -196,7 +195,7 @@ fn parse_content_block_delta(json: &serde_json::Value) -> ChatEvent {
 
 /// Spawn a stderr reader task that logs CLI errors.
 ///
-/// Shared by PipeTransport and legacy cli_shared.
+/// Shared by PipeTransport and PtyTransport.
 pub fn spawn_stderr_reader(stderr: tokio::process::ChildStderr, context_id: String) {
     use tokio::io::{AsyncBufReadExt, BufReader};
 

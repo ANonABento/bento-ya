@@ -70,7 +70,7 @@ impl ChatTransport for PipeTransport {
             .spawn()
             .map_err(|e| format!("Failed to spawn CLI: {}", e))?;
 
-        // Spawn stderr reader (shared with legacy cli_shared)
+        // Spawn stderr reader
         if let Some(stderr) = child.stderr.take() {
             spawn_stderr_reader(stderr, config.command.clone());
         }

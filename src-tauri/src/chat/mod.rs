@@ -10,8 +10,7 @@
 //! `SessionRegistry` manages multiple sessions with concurrency limits.
 //!
 //! Shared utilities (`parse_json_event`, `base64_encode`, `spawn_stderr_reader`)
-//! live in `events` and are reused by the legacy `process::cli_shared` module
-//! to avoid duplication during the migration.
+//! live in `events`.
 
 pub mod bridge;
 pub mod chef;

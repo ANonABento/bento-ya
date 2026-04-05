@@ -210,8 +210,7 @@ pub fn clear_agent_messages(
 
 /// Stream a message to the per-task agent CLI and emit response chunks.
 ///
-/// Uses `UnifiedChatSession` from the `SessionRegistry` instead of the
-/// legacy `AgentCliSessionManager`.
+/// Uses `UnifiedChatSession` from the `SessionRegistry`.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn stream_agent_chat(
     app: AppHandle,
