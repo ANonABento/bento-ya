@@ -456,20 +456,79 @@ Remaining legacy (still load-bearing):
 - On success: retry count resets to 0
 - Task card shows retry count in error banner
 
-### Session Stats (2026-04-04)
+## Completed: High-Impact Features (2026-04-04 continued)
 
-- ipc.ts split: 1 file → 19 modules
-- Legacy trigger system: fully removed (frontend types + Rust backend + DB columns)
-- 3 quick wins implemented (peek, quality gates, auto-retry)
-- 2 DB migrations (024: drop legacy columns, 025: retry_count)
-- Tests: 199 (71 Rust + 128 frontend), all passing
+**#8 Live Agent Status on Cards** — Ephemeral streaming store:
+- `agent-streaming-store.ts`: Zustand Map<taskId, AgentStream> for live data
+- `use-agent-streaming-sync.ts`: global event listener (App.tsx)
+- Task cards show: content snippet (80 chars), active tool name, elapsed time, tool count
+- Falls back to static status when no active stream
+
+**#1 Cmd+K Command Palette** — Linear-style floating palette:
+- Search + keyboard navigation (arrows, enter, escape)
+- Dynamic commands from stores (tasks, workspaces)
+- Categories: Navigation, Tasks, Workspace, Settings
+- `command-palette.tsx` (330 lines)
+
+**#3 DAG Dependencies** — Full 5-phase implementation:
+- Phase 1: DFS cycle detection (self-loop, direct, transitive cycles) + 4 Rust tests
+- Phase 2: Interactive dependency editor in task settings modal
+- Phase 3: SVG bezier dependency lines on kanban board (CardPositionContext + ResizeObserver)
+- Phase 4: L key shortcut opens dep editor directly
+- Phase 5: "Waiting for: Task A" on blocked cards instead of generic message
+- Duplicate dep prevention, cycle validation via IPC
+
+## Completed: Architecture Overhaul (2026-04-04 continued)
+
+**Discord Integration Removed** — -5,216 lines:
+- Deleted: discord-bot sidecar (14 files Node.js), discord module (bridge.rs, handlers.rs), 22 Tauri commands, frontend IPC + settings UI
+- Migration 026 drops 3 Discord tables
+- Orphaned by MCP server replacement
+
+**bento-mcp MCP Server** — Standalone Rust binary:
+- 16 tools: get_workspaces, get_board, get_task, create_task, update_task, move_task, delete_task, approve_task, reject_task, add_dependency, remove_dependency, mark_complete, retry_task, create_workspace, create_column, configure_triggers
+- Fuzzy name/ID resolution for tasks, columns, workspaces
+- Direct SQLite access (WAL mode, concurrent with Tauri app)
+- Auto-detects DB at ~/.bentoya/data.db
+- E2E verified: all 16 tools tested against real DB
+- Added to choomfie's .mcp.json for native tool access
+
+**Settings Revamp** — 9 tabs → 7 focused tabs:
+- Workspace, Appearance, Agent, Connect (MCP), Board (cards+templates), Voice, Advanced (pipeline+git+shortcuts)
+- New Connect tab with copy-paste MCP config, setup instructions, tool list
+
+**Self-Maintaining Workspace** — Bento-ya Dev:
+- Workspace pointing at /Users/bentomac/bento-ya
+- Working: spawn_cli trigger (claude /start-task), agent_complete exit, auto_advance, 2 max retries
+- Review: manual_approval quality gate, auto_advance
+- 6 tasks in backlog (all created via MCP)
+
+## Completed: Testing & Review (2026-04-04 continued)
+
+- 23 new tests added (agent-streaming-store: 13, column.test: 8, Rust retry: 2)
+- 3 bugs caught in review: blocked state, type safety, store race condition
+- Keyboard shortcuts audit: synced documented vs implemented
+- Docs audit: CLAUDE.md updated for all new features
+- All templates-store tests verified valid (uses TemplateColumn, not Column)
+
+### Session Stats (2026-04-04 — full day)
+
+- **17 commits** pushed to main
+- **226 tests** (77 Rust + 149 frontend), all passing
+- **~5,000 lines deleted** (Discord, legacy triggers)
+- **~4,500 lines added** (MCP server, DAG deps, command palette, streaming)
+- **6 DB migrations** total (024-026 + 025 new)
+- **16 MCP tools** implemented and e2e tested
+- 3 bugs caught in review + fixed
+- Visually verified via Tauri automation screenshots
 
 ## Next Up
 
-- [ ] Phase 6 remainder: remove cli_shared.rs dependency from agent_cli_session.rs
-- [ ] Phase 6 remainder: rewire terminal view + Discord to use unified sessions
-- [ ] Add more providers beyond Anthropic (OpenAI API support)
-- [ ] #8 Live agent status on cards (high-impact UX)
-- [ ] #1 Cmd+K command palette (Linear-style)
-- [ ] #3 DAG dependency chains with auto-trigger
-- [ ] Set up bento-ya to self-maintain via triggers (overnight agent work)
+- [ ] #11 Model switching per task (already in backlog)
+- [ ] Split task-card.tsx (614 lines)
+- [ ] Split column-config-dialog.tsx (745 lines)
+- [ ] Phase 6: rewire terminal view to PtyTransport
+- [ ] First-launch onboarding wizard
+- [ ] Per-task git worktree isolation
+- [ ] Multi-provider support (OpenAI API)
+- [ ] Connect choomfie natively (restart session to load MCP tools)
