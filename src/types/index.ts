@@ -6,6 +6,7 @@ export type {
   SpawnCliAction,
   MoveColumnAction,
   TriggerTaskAction,
+  RunScriptAction,
   NoneAction,
   ExitCriteria,
   ExitCriteriaType,
@@ -14,6 +15,8 @@ export type {
 } from './column'
 export type { Task, TaskChecklistItem, PipelineState, ReviewStatus, PrCiStatus, PrReviewDecision, PrMergeable } from './task'
 export type { AgentSession, AgentStatus, AgentMode, AgentMessage } from './agent'
+export type { Script, ScriptStep, BashStep, AgentStep, CheckStep, StepType } from './script'
+export { parseSteps } from './script'
 export type { Attachment, AttachmentType, AttachmentError } from './attachment'
 export {
   SUPPORTED_IMAGE_TYPES,

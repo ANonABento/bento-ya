@@ -52,6 +52,11 @@ pub fn run() {
         eprintln!("[startup] Cleared {} stale CLI session reference(s)", cli_reset);
     }
 
+    // Seed built-in scripts (idempotent — skips if already present)
+    if let Err(e) = db::seed_built_in_scripts(&conn) {
+        eprintln!("[startup] Failed to seed built-in scripts: {}", e);
+    }
+
     let state = AppState {
         db: Mutex::new(conn),
     };
@@ -248,6 +253,12 @@ pub fn run() {
             commands::files::scan_workspace_files,
             commands::files::read_file_content,
             commands::files::create_note_file,
+            // Script commands
+            commands::script::list_scripts,
+            commands::script::get_script,
+            commands::script::create_script,
+            commands::script::update_script,
+            commands::script::delete_script,
             // GitHub PR status commands
             commands::github::fetch_pr_status,
             commands::github::fetch_pr_status_batch,

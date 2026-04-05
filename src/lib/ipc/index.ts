@@ -12,6 +12,7 @@ export * from './usage'
 export * from './session'
 export * from './checklist'
 export * from './files'
+export * from './script'
 export * from './siege'
 export * from './github'
 

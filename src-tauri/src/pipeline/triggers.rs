@@ -47,6 +47,9 @@ pub enum TriggerActionV2 {
         #[serde(default)]
         inject_prompt: Option<String>,
     },
+    RunScript {
+        script_id: String,
+    },
     None,
 }
 
@@ -80,6 +83,43 @@ pub struct TaskTriggerOverrides {
     pub on_exit: Option<serde_json::Value>,
     #[serde(default)]
     pub skip_triggers: Option<bool>,
+}
+
+// ─── Resolved Script Steps (owned data for async execution) ───────────────
+
+/// Pre-interpolated script step with all template vars resolved.
+/// Owns all its data so it can be moved into tokio::spawn.
+enum ResolvedStep {
+    Shell {
+        name: String,
+        is_check: bool,
+        command: String,
+        work_dir: String,
+        continue_on_error: bool,
+        fail_message: Option<String>,
+    },
+    Agent {
+        name: String,
+        prompt: String,
+        model: Option<String>,
+        command: Option<String>,
+    },
+}
+
+impl ResolvedStep {
+    fn name(&self) -> &str {
+        match self {
+            ResolvedStep::Shell { name, .. } => name,
+            ResolvedStep::Agent { name, .. } => name,
+        }
+    }
+
+    fn step_type(&self) -> &str {
+        match self {
+            ResolvedStep::Shell { is_check, .. } => if *is_check { "check" } else { "bash" },
+            ResolvedStep::Agent { .. } => "agent",
+        }
+    }
 }
 
 // ─── Trigger Resolution ────────────────────────────────────────────────────
@@ -453,6 +493,212 @@ fn execute_action(
                 }
             }
             Ok(task.clone())
+        }
+
+        TriggerActionV2::RunScript { script_id } => {
+            // Load script from DB and execute steps sequentially
+            let script = db::get_script(conn, script_id)
+                .map_err(|_| AppError::NotFound(format!("Script '{}' not found", script_id)))?;
+            let workspace = db::get_workspace(conn, &task.workspace_id)?;
+
+            let ts = db::now();
+            let updated_task = db::update_task_pipeline_state(
+                conn,
+                &task.id,
+                PipelineState::Running.as_str(),
+                Some(&ts),
+                Option::None,
+            )?;
+
+            let _ = app.emit(
+                "pipeline:running",
+                &PipelineEvent {
+                    task_id: task.id.clone(),
+                    column_id: column.id.clone(),
+                    event_type: "running".to_string(),
+                    state: PipelineState::Running.as_str().to_string(),
+                    message: Some(format!("Running script: {}", script.name)),
+                },
+            );
+
+            // Parse steps
+            let steps: Vec<serde_json::Value> = serde_json::from_str(&script.steps)
+                .unwrap_or_default();
+
+            // Pre-interpolate all template variables before moving into async block
+            let ctx = TemplateContext {
+                task,
+                column,
+                workspace: &workspace,
+                prev_column: other_column,
+                next_column: Option::None,
+                dep_tasks: HashMap::new(),
+            };
+
+            // Resolve all steps into owned data
+            let resolved_steps: Vec<ResolvedStep> = steps.iter().map(|step| {
+                let step_type = step.get("type").and_then(|v| v.as_str()).unwrap_or("bash").to_string();
+                let step_name = step.get("name").and_then(|v| v.as_str()).unwrap_or("Step").to_string();
+
+                match step_type.as_str() {
+                    "bash" | "check" => {
+                        let command = step.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                        let command = template::interpolate(command, &ctx);
+                        let work_dir = step.get("workDir")
+                            .and_then(|v| v.as_str())
+                            .map(|d| template::interpolate(d, &ctx))
+                            .unwrap_or_else(|| workspace.repo_path.clone());
+                        let continue_on_error = step.get("continueOnError")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let fail_message = step.get("failMessage")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+
+                        ResolvedStep::Shell {
+                            name: step_name,
+                            is_check: step_type == "check",
+                            command,
+                            work_dir,
+                            continue_on_error,
+                            fail_message,
+                        }
+                    }
+                    "agent" => {
+                        let prompt = step.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                        let prompt = template::interpolate(prompt, &ctx);
+                        let model = step.get("model").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        let command = step.get("command").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+                        ResolvedStep::Agent {
+                            name: step_name,
+                            prompt,
+                            model,
+                            command,
+                        }
+                    }
+                    _ => ResolvedStep::Shell {
+                        name: step_name,
+                        is_check: false,
+                        command: String::new(),
+                        work_dir: workspace.repo_path.clone(),
+                        continue_on_error: true,
+                        fail_message: None,
+                    },
+                }
+            }).collect();
+
+            let task_id = task.id.clone();
+            let app_handle = app.clone();
+            let column_id = column.id.clone();
+            let workspace_path = workspace.repo_path.clone();
+
+            // Execute steps in a background task (all data is owned)
+            tokio::spawn(async move {
+                let mut success = true;
+                let total = resolved_steps.len();
+
+                for (i, step) in resolved_steps.iter().enumerate() {
+                    let step_name = step.name();
+
+                    // Emit progress
+                    let _ = app_handle.emit(
+                        "pipeline:step_progress",
+                        &serde_json::json!({
+                            "taskId": task_id,
+                            "columnId": column_id,
+                            "step": i + 1,
+                            "total": total,
+                            "name": step_name,
+                            "type": step.step_type(),
+                        }),
+                    );
+
+                    match step {
+                        ResolvedStep::Shell { name, is_check, command, work_dir, continue_on_error, fail_message } => {
+                            let output = tokio::process::Command::new("sh")
+                                .arg("-c")
+                                .arg(command)
+                                .current_dir(work_dir)
+                                .output()
+                                .await;
+
+                            match output {
+                                Ok(out) => {
+                                    let stdout = String::from_utf8_lossy(&out.stdout);
+                                    let stderr = String::from_utf8_lossy(&out.stderr);
+                                    log::info!(
+                                        "[script:{}] Step {}/{} '{}': exit={}, stdout={} bytes",
+                                        task_id, i + 1, total, name,
+                                        out.status.code().unwrap_or(-1),
+                                        stdout.len()
+                                    );
+                                    if !stderr.is_empty() {
+                                        log::warn!("[script:{}] stderr: {}", task_id, stderr.chars().take(500).collect::<String>());
+                                    }
+                                    if !out.status.success() {
+                                        if *is_check {
+                                            let msg = fail_message.as_deref().unwrap_or("Check failed");
+                                            log::warn!("[script:{}] Check failed: {}", task_id, msg);
+                                        }
+                                        if !continue_on_error {
+                                            success = false;
+                                            break;
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    log::error!("[script:{}] Failed to run step '{}': {}", task_id, name, e);
+                                    if !continue_on_error {
+                                        success = false;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        ResolvedStep::Agent { prompt, model, command, .. } => {
+                            let initial_prompt = if let Some(cmd) = command {
+                                if prompt.is_empty() {
+                                    cmd.clone()
+                                } else {
+                                    format!("{}\n\n{}", cmd, prompt)
+                                }
+                            } else {
+                                prompt.clone()
+                            };
+
+                            let mut cli_args = Vec::new();
+                            if let Some(m) = model {
+                                cli_args.push("--model".to_string());
+                                cli_args.push(m.clone());
+                            }
+
+                            // Spawn CLI — mark_complete called by PTY exit handler
+                            bridge::spawn_cli_trigger_task(
+                                app_handle.clone(),
+                                task_id.clone(),
+                                "claude".to_string(),
+                                cli_args,
+                                workspace_path.clone(),
+                                initial_prompt,
+                                Option::None,
+                            );
+
+                            // Agent step hands off to PTY exit handler
+                            return;
+                        }
+                    }
+                }
+
+                // All bash/check steps done — call mark_complete
+                let db_path = crate::db::db_path();
+                if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                    let _ = super::mark_complete(&conn, &app_handle, &task_id, success);
+                }
+            });
+
+            Ok(updated_task)
         }
 
         TriggerActionV2::None => Ok(task.clone()),

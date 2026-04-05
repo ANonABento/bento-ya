@@ -101,6 +101,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("025_task_retry_count", include_str!("migrations/025_task_retry_count.sql")),
         ("026_remove_discord", include_str!("migrations/026_remove_discord.sql")),
         ("027_task_model", include_str!("migrations/027_task_model.sql")),
+        ("028_scripts", include_str!("migrations/028_scripts.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -1931,6 +1932,141 @@ pub fn clear_task_notification_sent(conn: &Connection, id: &str) -> SqlResult<Ta
     get_task(conn, id)
 }
 
+// ─── CRUD helpers: Script ─────────────────────────────────────────────────
+
+pub fn insert_script(
+    conn: &Connection,
+    id: &str,
+    name: &str,
+    description: &str,
+    steps: &str,
+    is_built_in: bool,
+) -> SqlResult<Script> {
+    let ts = now();
+    conn.execute(
+        "INSERT INTO scripts (id, name, description, steps, is_built_in, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![id, name, description, steps, is_built_in as i64, ts, ts],
+    )?;
+    get_script(conn, id)
+}
+
+pub fn get_script(conn: &Connection, id: &str) -> SqlResult<Script> {
+    conn.query_row(
+        "SELECT id, name, description, steps, is_built_in, created_at, updated_at FROM scripts WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(Script {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                steps: row.get(3)?,
+                is_built_in: row.get::<_, i64>(4)? != 0,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        },
+    )
+}
+
+pub fn list_scripts(conn: &Connection) -> SqlResult<Vec<Script>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, description, steps, is_built_in, created_at, updated_at FROM scripts ORDER BY is_built_in DESC, name",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(Script {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            description: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+            steps: row.get(3)?,
+            is_built_in: row.get::<_, i64>(4)? != 0,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn update_script(
+    conn: &Connection,
+    id: &str,
+    name: Option<&str>,
+    description: Option<&str>,
+    steps: Option<&str>,
+) -> SqlResult<Script> {
+    let current = get_script(conn, id)?;
+    let ts = now();
+    conn.execute(
+        "UPDATE scripts SET name = ?1, description = ?2, steps = ?3, updated_at = ?4 WHERE id = ?5",
+        params![
+            name.unwrap_or(&current.name),
+            description.unwrap_or(&current.description),
+            steps.unwrap_or(&current.steps),
+            ts,
+            id,
+        ],
+    )?;
+    get_script(conn, id)
+}
+
+pub fn delete_script(conn: &Connection, id: &str) -> SqlResult<()> {
+    conn.execute("DELETE FROM scripts WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// Seed built-in scripts if they don't already exist.
+pub fn seed_built_in_scripts(conn: &Connection) -> SqlResult<()> {
+    let built_ins = vec![
+        (
+            "code-check",
+            "Code Check",
+            "Run type-check and linter",
+            r#"[{"type":"bash","name":"Type check","command":"npm run type-check"},{"type":"bash","name":"Lint","command":"npm run lint"}]"#,
+        ),
+        (
+            "run-tests",
+            "Run Tests",
+            "Run the test suite",
+            r#"[{"type":"bash","name":"Run tests","command":"npm test"}]"#,
+        ),
+        (
+            "create-pr",
+            "Create PR",
+            "Create a pull request from the task branch",
+            r#"[{"type":"bash","name":"Push branch","command":"git push -u origin HEAD"},{"type":"bash","name":"Create PR","command":"gh pr create --title '{task.title}' --fill"}]"#,
+        ),
+        (
+            "ai-code-review",
+            "AI Code Review",
+            "Agent reviews the diff and suggests improvements",
+            r#"[{"type":"agent","name":"Review code","prompt":"Review the changes on this branch. Check for bugs, security issues, and code quality. Suggest improvements.\n\nTask: {task.title}\n{task.description}","model":"sonnet"}]"#,
+        ),
+        (
+            "full-pipeline",
+            "Full Pipeline",
+            "Implement, test, review, and create PR",
+            r#"[{"type":"agent","name":"Implement","prompt":"{task.title}\n\n{task.description}","command":"/start-task"},{"type":"bash","name":"Type check","command":"npm run type-check"},{"type":"bash","name":"Tests","command":"npm test"},{"type":"check","name":"All green","command":"npm run lint","failMessage":"Lint errors found"},{"type":"bash","name":"Create PR","command":"gh pr create --title '{task.title}' --fill"}]"#,
+        ),
+    ];
+
+    for (id, name, description, steps) in built_ins {
+        // Only insert if not already present (idempotent)
+        let exists: bool = conn
+            .prepare("SELECT COUNT(*) FROM scripts WHERE id = ?1")?
+            .query_row(params![id], |row| row.get::<_, i64>(0))
+            .map(|count| count > 0)?;
+
+        if !exists {
+            let ts = now();
+            conn.execute(
+                "INSERT INTO scripts (id, name, description, steps, is_built_in, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)",
+                params![id, name, description, steps, ts, ts],
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1963,8 +2099,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 27 migrations: 001-027
-        assert_eq!(count, 27);
+        // We have 28 migrations: 001-028
+        assert_eq!(count, 28);
     }
 
     #[test]
@@ -2136,5 +2272,50 @@ mod tests {
         .unwrap();
         let updated = get_task(&conn, &task.id).unwrap();
         assert_eq!(updated.retry_count, 0);
+    }
+
+    #[test]
+    fn test_script_crud() {
+        let conn = init_test().unwrap();
+
+        // Create
+        let script = insert_script(&conn, "test-1", "My Script", "Does stuff", "[]", false).unwrap();
+        assert_eq!(script.name, "My Script");
+        assert_eq!(script.description, "Does stuff");
+        assert!(!script.is_built_in);
+
+        // Read
+        let fetched = get_script(&conn, "test-1").unwrap();
+        assert_eq!(fetched.id, "test-1");
+
+        // Update
+        let updated = update_script(&conn, "test-1", Some("Renamed"), None, Some("[{\"type\":\"bash\"}]")).unwrap();
+        assert_eq!(updated.name, "Renamed");
+        assert_eq!(updated.description, "Does stuff"); // unchanged
+
+        // List
+        let all = list_scripts(&conn).unwrap();
+        assert_eq!(all.len(), 1);
+
+        // Delete
+        delete_script(&conn, "test-1").unwrap();
+        let all = list_scripts(&conn).unwrap();
+        assert!(all.is_empty());
+    }
+
+    #[test]
+    fn test_seed_built_in_scripts() {
+        let conn = init_test().unwrap();
+
+        // Seed
+        seed_built_in_scripts(&conn).unwrap();
+        let scripts = list_scripts(&conn).unwrap();
+        assert_eq!(scripts.len(), 5);
+        assert!(scripts.iter().all(|s| s.is_built_in));
+
+        // Idempotent — running again doesn't duplicate
+        seed_built_in_scripts(&conn).unwrap();
+        let scripts = list_scripts(&conn).unwrap();
+        assert_eq!(scripts.len(), 5);
     }
 }

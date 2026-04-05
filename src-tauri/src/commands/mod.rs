@@ -8,6 +8,7 @@ pub mod github;
 pub mod history;
 pub mod orchestrator;
 pub mod pipeline;
+pub mod script;
 pub mod siege;
 pub mod task;
 pub mod terminal;

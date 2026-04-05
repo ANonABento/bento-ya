@@ -224,6 +224,22 @@ pub struct ChecklistItem {
     pub updated_at: String,
 }
 
+// ─── Script Entities ──────────────────────────────────────────────────────
+
+/// A reusable automation recipe for column triggers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Script {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    /// JSON array of steps (BashStep | AgentStep | CheckStep)
+    pub steps: String,
+    pub is_built_in: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 // ─── Usage Tracking Entities ────────────────────────────────────────────────
 
 /// A record of LLM token usage (per-request).

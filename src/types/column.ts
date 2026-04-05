@@ -1,6 +1,6 @@
 // ─── Action Types ───────────────────────────────────────────────────────────
 
-export type ActionType = 'spawn_cli' | 'move_column' | 'trigger_task' | 'none'
+export type ActionType = 'spawn_cli' | 'move_column' | 'trigger_task' | 'run_script' | 'none'
 
 export type CliType = 'claude' | 'codex' | 'aider'
 
@@ -44,11 +44,16 @@ export interface TriggerTaskAction {
   inject_prompt?: string
 }
 
+export interface RunScriptAction {
+  type: 'run_script'
+  script_id: string
+}
+
 export interface NoneAction {
   type: 'none'
 }
 
-export type TriggerAction = SpawnCliAction | MoveColumnAction | TriggerTaskAction | NoneAction
+export type TriggerAction = SpawnCliAction | MoveColumnAction | TriggerTaskAction | RunScriptAction | NoneAction
 
 // ─── Exit Criteria ──────────────────────────────────────────────────────────
 
