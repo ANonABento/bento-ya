@@ -552,3 +552,100 @@ pub async fn get_pr_status(
     fetch_pr_status(&workspace.repo_path, pr_number)
         .map_err(|e| format!("Failed to fetch PR status: {}", e))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mock_comment(author: &str, body: &str, path: Option<&str>, line: Option<i64>) -> PrComment {
+        PrComment {
+            id: 1,
+            body: body.to_string(),
+            author: author.to_string(),
+            path: path.map(|p| p.to_string()),
+            line,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            state: None,
+        }
+    }
+
+    fn mock_pr_status(comments: Vec<PrComment>) -> PrStatus {
+        PrStatus {
+            number: 42,
+            state: "OPEN".to_string(),
+            review_decision: Some("CHANGES_REQUESTED".to_string()),
+            unresolved_count: comments.len() as i64,
+            comments,
+        }
+    }
+
+    #[test]
+    fn test_build_comment_prompt_empty() {
+        let status = mock_pr_status(vec![]);
+        let prompt = build_comment_prompt(&status);
+        assert!(prompt.contains("Fix the following"));
+        assert!(prompt.contains("commit and push"));
+    }
+
+    #[test]
+    fn test_build_comment_prompt_with_file_comment() {
+        let status = mock_pr_status(vec![
+            mock_comment("reviewer", "This function is too long", Some("src/main.rs"), Some(42)),
+        ]);
+        let prompt = build_comment_prompt(&status);
+        assert!(prompt.contains("@reviewer"));
+        assert!(prompt.contains("File: src/main.rs"));
+        assert!(prompt.contains("(line 42)"));
+        assert!(prompt.contains("This function is too long"));
+    }
+
+    #[test]
+    fn test_build_comment_prompt_general_comment() {
+        let status = mock_pr_status(vec![
+            mock_comment("reviewer", "Please add tests", None, None),
+        ]);
+        let prompt = build_comment_prompt(&status);
+        assert!(prompt.contains("@reviewer"));
+        assert!(prompt.contains("Please add tests"));
+        assert!(!prompt.contains("File:"));
+    }
+
+    #[test]
+    fn test_build_comment_prompt_multiple_comments() {
+        let status = mock_pr_status(vec![
+            mock_comment("alice", "Fix the naming", Some("src/lib.rs"), Some(10)),
+            mock_comment("bob", "Missing error handling", Some("src/main.rs"), None),
+            mock_comment("alice", "Add docs", None, None),
+        ]);
+        let prompt = build_comment_prompt(&status);
+        assert!(prompt.contains("@alice"));
+        assert!(prompt.contains("@bob"));
+        assert!(prompt.matches("---").count() >= 3);
+    }
+
+    #[test]
+    fn test_pr_status_serialization() {
+        let status = mock_pr_status(vec![
+            mock_comment("reviewer", "Fix this", Some("src/lib.rs"), Some(5)),
+        ]);
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("\"number\":42"));
+        assert!(json.contains("\"reviewDecision\""));
+        assert!(json.contains("\"unresolvedCount\":1"));
+    }
+
+    #[test]
+    fn test_siege_event_serialization() {
+        let event = SiegeEvent {
+            task_id: "task-1".to_string(),
+            event_type: "iteration_complete".to_string(),
+            iteration: 2,
+            max_iterations: 5,
+            message: "Fixed 3 comments".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"taskId\":\"task-1\""));
+        assert!(json.contains("\"eventType\":\"iteration_complete\""));
+        assert!(json.contains("\"maxIterations\":5"));
+    }
+}
