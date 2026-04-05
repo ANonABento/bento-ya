@@ -49,9 +49,13 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
 
     setIsSubmitting(true)
     try {
+      // Normalize: run_script with empty script_id → none
+      const normalizeAction = (a: TriggerAction): TriggerAction =>
+        a.type === 'run_script' && !a.script_id ? { type: 'none' } : a
+
       const triggers: ColumnTriggers = {
-        on_entry: onEntry,
-        on_exit: onExit,
+        on_entry: normalizeAction(onEntry),
+        on_exit: normalizeAction(onExit),
         exit_criteria: exitCriteria,
       }
 

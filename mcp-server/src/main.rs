@@ -1371,10 +1371,23 @@ fn handle_run_script(conn: &Connection, args: &Value) -> Value {
         Err(e) => return json!({ "error": e }),
     };
 
-    // Set column's on_entry trigger to run_script
-    let triggers = json!({
-        "on_entry": { "type": "run_script", "script_id": script_id },
-    });
+    // Merge with existing triggers (preserve on_exit, exit_criteria)
+    let existing_triggers: Value = conn
+        .query_row(
+            "SELECT triggers FROM columns WHERE id = ?1",
+            params![col_id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or(json!({}));
+
+    let mut triggers = existing_triggers;
+    if let Some(obj) = triggers.as_object_mut() {
+        obj.insert("on_entry".to_string(), json!({ "type": "run_script", "script_id": script_id }));
+    }
+
     let ts = now();
     match conn.execute(
         "UPDATE columns SET triggers = ?1, updated_at = ?2 WHERE id = ?3",
