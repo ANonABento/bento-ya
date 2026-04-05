@@ -2043,8 +2043,8 @@ pub fn seed_built_in_scripts(conn: &Connection) -> SqlResult<()> {
         (
             "full-pipeline",
             "Full Pipeline",
-            "Implement, test, review, and create PR",
-            r#"[{"type":"agent","name":"Implement","prompt":"{task.title}\n\n{task.description}","command":"/start-task"},{"type":"bash","name":"Type check","command":"npm run type-check"},{"type":"bash","name":"Tests","command":"npm test"},{"type":"check","name":"All green","command":"npm run lint","failMessage":"Lint errors found"},{"type":"bash","name":"Create PR","command":"gh pr create --title '{task.title}' --fill"}]"#,
+            "Type-check, test, lint, then create PR",
+            r#"[{"type":"bash","name":"Type check","command":"npm run type-check"},{"type":"bash","name":"Tests","command":"npm test"},{"type":"check","name":"Lint clean","command":"npm run lint","failMessage":"Lint errors found"},{"type":"bash","name":"Create PR","command":"gh pr create --title '{task.title}' --fill"}]"#,
         ),
     ];
 
