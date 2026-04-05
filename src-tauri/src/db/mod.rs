@@ -134,6 +134,118 @@ pub fn now() -> String {
 
 // Data models are defined in db/models.rs and re-exported via `pub use models::*` above.
 
+// ─── Row Mapping Helpers ─────────────────────────────────────────────────
+
+/// Shared SELECT columns for tasks (44 fields).
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model";
+
+/// Shared SELECT columns for workspaces.
+const WORKSPACE_COLUMNS: &str = "id, name, repo_path, tab_order, is_active, config, created_at, updated_at, discord_guild_id, discord_category_id, discord_chef_channel_id, discord_notifications_channel_id, discord_enabled";
+
+/// Shared SELECT columns for columns.
+const COLUMN_COLUMNS: &str = "id, workspace_id, name, icon, position, color, visible, triggers, created_at, updated_at";
+
+/// Shared SELECT columns for scripts.
+const SCRIPT_COLUMNS: &str = "id, name, description, steps, is_built_in, created_at, updated_at";
+
+/// Map a database row to a Task struct.
+fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
+    Ok(Task {
+        id: row.get(0)?,
+        workspace_id: row.get(1)?,
+        column_id: row.get(2)?,
+        title: row.get(3)?,
+        description: row.get(4)?,
+        position: row.get(5)?,
+        priority: row.get(6)?,
+        agent_mode: row.get(7)?,
+        agent_status: row.get(40)?,
+        queued_at: row.get(41)?,
+        branch_name: row.get(8)?,
+        files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
+        checklist: row.get(10)?,
+        pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()),
+        pipeline_triggered_at: row.get(12)?,
+        pipeline_error: row.get(13)?,
+        retry_count: row.get::<_, Option<i64>>(42)?.unwrap_or(0),
+        model: row.get(43)?,
+        agent_session_id: row.get(14)?,
+        last_script_exit_code: row.get(15)?,
+        review_status: row.get(16)?,
+        pr_number: row.get(17)?,
+        pr_url: row.get(18)?,
+        siege_iteration: row.get::<_, Option<i64>>(19)?.unwrap_or(0),
+        siege_active: row.get::<_, Option<i64>>(20)?.unwrap_or(0) != 0,
+        siege_max_iterations: row.get::<_, Option<i64>>(21)?.unwrap_or(5),
+        siege_last_checked: row.get(22)?,
+        pr_mergeable: row.get(23)?,
+        pr_ci_status: row.get(24)?,
+        pr_review_decision: row.get(25)?,
+        pr_comment_count: row.get::<_, Option<i64>>(26)?.unwrap_or(0),
+        pr_is_draft: row.get::<_, Option<i64>>(27)?.unwrap_or(0) != 0,
+        pr_labels: row.get::<_, Option<String>>(28)?.unwrap_or_else(|| "[]".to_string()),
+        pr_last_fetched: row.get(29)?,
+        pr_head_sha: row.get(30)?,
+        notify_stakeholders: row.get(31)?,
+        notification_sent_at: row.get(32)?,
+        trigger_overrides: row.get(33)?,
+        trigger_prompt: row.get(34)?,
+        last_output: row.get(35)?,
+        dependencies: row.get(36)?,
+        blocked: row.get::<_, Option<i64>>(37)?.unwrap_or(0) != 0,
+        created_at: row.get(38)?,
+        updated_at: row.get(39)?,
+    })
+}
+
+/// Map a database row to a Workspace struct.
+fn map_workspace_row(row: &rusqlite::Row) -> rusqlite::Result<Workspace> {
+    Ok(Workspace {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        repo_path: row.get(2)?,
+        tab_order: row.get(3)?,
+        is_active: row.get::<_, i64>(4)? != 0,
+        config: row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "{}".to_string()),
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
+        discord_guild_id: row.get(8)?,
+        discord_category_id: row.get(9)?,
+        discord_chef_channel_id: row.get(10)?,
+        discord_notifications_channel_id: row.get(11)?,
+        discord_enabled: row.get(12)?,
+    })
+}
+
+/// Map a database row to a Column struct.
+fn map_column_row(row: &rusqlite::Row) -> rusqlite::Result<Column> {
+    Ok(Column {
+        id: row.get(0)?,
+        workspace_id: row.get(1)?,
+        name: row.get(2)?,
+        icon: row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "list".to_string()),
+        position: row.get(4)?,
+        color: row.get(5)?,
+        visible: row.get::<_, i64>(6)? != 0,
+        triggers: row.get(7)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+    })
+}
+
+/// Map a database row to a Script struct.
+fn map_script_row(row: &rusqlite::Row) -> rusqlite::Result<Script> {
+    Ok(Script {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        description: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+        steps: row.get(3)?,
+        is_built_in: row.get::<_, i64>(4)? != 0,
+        created_at: row.get(5)?,
+        updated_at: row.get(6)?,
+    })
+}
+
 // ─── CRUD helpers: Workspace ───────────────────────────────────────────────
 
 pub fn insert_workspace(conn: &Connection, name: &str, repo_path: &str) -> SqlResult<Workspace> {
@@ -148,49 +260,17 @@ pub fn insert_workspace(conn: &Connection, name: &str, repo_path: &str) -> SqlRe
 
 pub fn get_workspace(conn: &Connection, id: &str) -> SqlResult<Workspace> {
     conn.query_row(
-        "SELECT id, name, repo_path, tab_order, is_active, config, created_at, updated_at, discord_guild_id, discord_category_id, discord_chef_channel_id, discord_notifications_channel_id, discord_enabled FROM workspaces WHERE id = ?1",
+        &format!("SELECT {} FROM workspaces WHERE id = ?1", WORKSPACE_COLUMNS),
         params![id],
-        |row| {
-            Ok(Workspace {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                repo_path: row.get(2)?,
-                tab_order: row.get(3)?,
-                is_active: row.get::<_, i64>(4)? != 0,
-                config: row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "{}".to_string()),
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
-                discord_guild_id: row.get(8)?,
-                discord_category_id: row.get(9)?,
-                discord_chef_channel_id: row.get(10)?,
-                discord_notifications_channel_id: row.get(11)?,
-                discord_enabled: row.get(12)?,
-            })
-        },
+        map_workspace_row,
     )
 }
 
 pub fn list_workspaces(conn: &Connection) -> SqlResult<Vec<Workspace>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, repo_path, tab_order, is_active, config, created_at, updated_at, discord_guild_id, discord_category_id, discord_chef_channel_id, discord_notifications_channel_id, discord_enabled FROM workspaces ORDER BY tab_order",
+        &format!("SELECT {} FROM workspaces ORDER BY tab_order", WORKSPACE_COLUMNS),
     )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(Workspace {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            repo_path: row.get(2)?,
-            tab_order: row.get(3)?,
-            is_active: row.get::<_, i64>(4)? != 0,
-            config: row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "{}".to_string()),
-            created_at: row.get(6)?,
-            updated_at: row.get(7)?,
-            discord_guild_id: row.get(8)?,
-            discord_category_id: row.get(9)?,
-            discord_chef_channel_id: row.get(10)?,
-            discord_notifications_channel_id: row.get(11)?,
-            discord_enabled: row.get(12)?,
-        })
-    })?;
+    let rows = stmt.query_map([], map_workspace_row)?;
     rows.collect()
 }
 
@@ -244,43 +324,17 @@ pub fn insert_column(
 
 pub fn get_column(conn: &Connection, id: &str) -> SqlResult<Column> {
     conn.query_row(
-        "SELECT id, workspace_id, name, icon, position, color, visible, triggers, created_at, updated_at FROM columns WHERE id = ?1",
+        &format!("SELECT {} FROM columns WHERE id = ?1", COLUMN_COLUMNS),
         params![id],
-        |row| {
-            Ok(Column {
-                id: row.get(0)?,
-                workspace_id: row.get(1)?,
-                name: row.get(2)?,
-                icon: row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "list".to_string()),
-                position: row.get(4)?,
-                color: row.get(5)?,
-                visible: row.get::<_, i64>(6)? != 0,
-                triggers: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-            })
-        },
+        map_column_row,
     )
 }
 
 pub fn list_columns(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Column>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, name, icon, position, color, visible, triggers, created_at, updated_at FROM columns WHERE workspace_id = ?1 ORDER BY position",
+        &format!("SELECT {} FROM columns WHERE workspace_id = ?1 ORDER BY position", COLUMN_COLUMNS),
     )?;
-    let rows = stmt.query_map(params![workspace_id], |row| {
-        Ok(Column {
-            id: row.get(0)?,
-            workspace_id: row.get(1)?,
-            name: row.get(2)?,
-            icon: row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "list".to_string()),
-            position: row.get(4)?,
-            color: row.get(5)?,
-            visible: row.get::<_, i64>(6)? != 0,
-            triggers: row.get(7)?,
-            created_at: row.get(8)?,
-            updated_at: row.get(9)?,
-        })
-    })?;
+    let rows = stmt.query_map(params![workspace_id], map_column_row)?;
     rows.collect()
 }
 
@@ -353,111 +407,17 @@ pub fn insert_task(
 
 pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
     conn.query_row(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model FROM tasks WHERE id = ?1",
+        &format!("SELECT {} FROM tasks WHERE id = ?1", TASK_COLUMNS),
         params![id],
-        |row| {
-            Ok(Task {
-                id: row.get(0)?,
-                workspace_id: row.get(1)?,
-                column_id: row.get(2)?,
-                title: row.get(3)?,
-                description: row.get(4)?,
-                position: row.get(5)?,
-                priority: row.get(6)?,
-                agent_mode: row.get(7)?,
-                agent_status: row.get(40)?,
-                queued_at: row.get(41)?,
-                branch_name: row.get(8)?,
-                files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
-                checklist: row.get(10)?,
-                pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()),
-                pipeline_triggered_at: row.get(12)?,
-                pipeline_error: row.get(13)?,
-                retry_count: row.get::<_, Option<i64>>(42)?.unwrap_or(0),
-                model: row.get(43)?,
-                agent_session_id: row.get(14)?,
-                last_script_exit_code: row.get(15)?,
-                review_status: row.get(16)?,
-                pr_number: row.get(17)?,
-                pr_url: row.get(18)?,
-                siege_iteration: row.get::<_, Option<i64>>(19)?.unwrap_or(0),
-                siege_active: row.get::<_, Option<i64>>(20)?.unwrap_or(0) != 0,
-                siege_max_iterations: row.get::<_, Option<i64>>(21)?.unwrap_or(5),
-                siege_last_checked: row.get(22)?,
-                pr_mergeable: row.get(23)?,
-                pr_ci_status: row.get(24)?,
-                pr_review_decision: row.get(25)?,
-                pr_comment_count: row.get::<_, Option<i64>>(26)?.unwrap_or(0),
-                pr_is_draft: row.get::<_, Option<i64>>(27)?.unwrap_or(0) != 0,
-                pr_labels: row.get::<_, Option<String>>(28)?.unwrap_or_else(|| "[]".to_string()),
-                pr_last_fetched: row.get(29)?,
-                pr_head_sha: row.get(30)?,
-                notify_stakeholders: row.get(31)?,
-                notification_sent_at: row.get(32)?,
-                trigger_overrides: row.get(33)?,
-                trigger_prompt: row.get(34)?,
-                last_output: row.get(35)?,
-                dependencies: row.get(36)?,
-                blocked: row.get::<_, Option<i64>>(37)?.unwrap_or(0) != 0,
-                created_at: row.get(38)?,
-                updated_at: row.get(39)?,
-            })
-        },
+        map_task_row,
     )
 }
 
 pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
+        &format!("SELECT {} FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position", TASK_COLUMNS),
     )?;
-    let rows = stmt.query_map(params![workspace_id], |row| {
-        Ok(Task {
-            id: row.get(0)?,
-            workspace_id: row.get(1)?,
-            column_id: row.get(2)?,
-            title: row.get(3)?,
-            description: row.get(4)?,
-            position: row.get(5)?,
-            priority: row.get(6)?,
-            agent_mode: row.get(7)?,
-            agent_status: row.get(40)?,
-            queued_at: row.get(41)?,
-            branch_name: row.get(8)?,
-            files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
-            checklist: row.get(10)?,
-            pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()),
-            pipeline_triggered_at: row.get(12)?,
-            pipeline_error: row.get(13)?,
-            retry_count: row.get::<_, Option<i64>>(42)?.unwrap_or(0),
-            model: row.get(43)?,
-            agent_session_id: row.get(14)?,
-            last_script_exit_code: row.get(15)?,
-            review_status: row.get(16)?,
-            pr_number: row.get(17)?,
-            pr_url: row.get(18)?,
-            siege_iteration: row.get::<_, Option<i64>>(19)?.unwrap_or(0),
-            siege_active: row.get::<_, Option<i64>>(20)?.unwrap_or(0) != 0,
-            siege_max_iterations: row.get::<_, Option<i64>>(21)?.unwrap_or(5),
-            siege_last_checked: row.get(22)?,
-            pr_mergeable: row.get(23)?,
-            pr_ci_status: row.get(24)?,
-            pr_review_decision: row.get(25)?,
-            pr_comment_count: row.get::<_, Option<i64>>(26)?.unwrap_or(0),
-            pr_is_draft: row.get::<_, Option<i64>>(27)?.unwrap_or(0) != 0,
-            pr_labels: row.get::<_, Option<String>>(28)?.unwrap_or_else(|| "[]".to_string()),
-            pr_last_fetched: row.get(29)?,
-            pr_head_sha: row.get(30)?,
-            notify_stakeholders: row.get(31)?,
-            notification_sent_at: row.get(32)?,
-            trigger_overrides: row.get(33)?,
-            trigger_prompt: row.get(34)?,
-            last_output: row.get(35)?,
-            dependencies: row.get(36)?,
-            blocked: row.get::<_, Option<i64>>(37)?.unwrap_or(0) != 0,
-            created_at: row.get(38)?,
-            updated_at: row.get(39)?,
-        })
-    })?;
+    let rows = stmt.query_map(params![workspace_id], map_task_row)?;
     rows.collect()
 }
 
@@ -505,56 +465,9 @@ pub fn delete_task(conn: &Connection, id: &str) -> SqlResult<()> {
 /// List tasks by column ID
 pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model FROM tasks WHERE column_id = ?1 ORDER BY position",
+        &format!("SELECT {} FROM tasks WHERE column_id = ?1 ORDER BY position", TASK_COLUMNS),
     )?;
-    let rows = stmt.query_map(params![column_id], |row| {
-        Ok(Task {
-            id: row.get(0)?,
-            workspace_id: row.get(1)?,
-            column_id: row.get(2)?,
-            title: row.get(3)?,
-            description: row.get(4)?,
-            position: row.get(5)?,
-            priority: row.get(6)?,
-            agent_mode: row.get(7)?,
-            agent_status: row.get(40)?,
-            queued_at: row.get(41)?,
-            branch_name: row.get(8)?,
-            files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
-            checklist: row.get(10)?,
-            pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()),
-            pipeline_triggered_at: row.get(12)?,
-            pipeline_error: row.get(13)?,
-            retry_count: row.get::<_, Option<i64>>(42)?.unwrap_or(0),
-            model: row.get(43)?,
-            agent_session_id: row.get(14)?,
-            last_script_exit_code: row.get(15)?,
-            review_status: row.get(16)?,
-            pr_number: row.get(17)?,
-            pr_url: row.get(18)?,
-            siege_iteration: row.get::<_, Option<i64>>(19)?.unwrap_or(0),
-            siege_active: row.get::<_, Option<i64>>(20)?.unwrap_or(0) != 0,
-            siege_max_iterations: row.get::<_, Option<i64>>(21)?.unwrap_or(5),
-            siege_last_checked: row.get(22)?,
-            pr_mergeable: row.get(23)?,
-            pr_ci_status: row.get(24)?,
-            pr_review_decision: row.get(25)?,
-            pr_comment_count: row.get::<_, Option<i64>>(26)?.unwrap_or(0),
-            pr_is_draft: row.get::<_, Option<i64>>(27)?.unwrap_or(0) != 0,
-            pr_labels: row.get::<_, Option<String>>(28)?.unwrap_or_else(|| "[]".to_string()),
-            pr_last_fetched: row.get(29)?,
-            pr_head_sha: row.get(30)?,
-            notify_stakeholders: row.get(31)?,
-            notification_sent_at: row.get(32)?,
-            trigger_overrides: row.get(33)?,
-            trigger_prompt: row.get(34)?,
-            last_output: row.get(35)?,
-            dependencies: row.get(36)?,
-            blocked: row.get::<_, Option<i64>>(37)?.unwrap_or(0) != 0,
-            created_at: row.get(38)?,
-            updated_at: row.get(39)?,
-        })
-    })?;
+    let rows = stmt.query_map(params![column_id], map_task_row)?;
     rows.collect()
 }
 
@@ -648,56 +561,9 @@ pub fn update_task_agent_status(
 /// Get tasks with agent_status = 'queued' ordered by queued_at (oldest first)
 pub fn get_queued_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model FROM tasks WHERE workspace_id = ?1 AND agent_status = 'queued' ORDER BY queued_at ASC",
+        &format!("SELECT {} FROM tasks WHERE workspace_id = ?1 AND agent_status = 'queued' ORDER BY queued_at ASC", TASK_COLUMNS),
     )?;
-    let rows = stmt.query_map(params![workspace_id], |row| {
-        Ok(Task {
-            id: row.get(0)?,
-            workspace_id: row.get(1)?,
-            column_id: row.get(2)?,
-            title: row.get(3)?,
-            description: row.get(4)?,
-            position: row.get(5)?,
-            priority: row.get(6)?,
-            agent_mode: row.get(7)?,
-            agent_status: row.get(40)?,
-            queued_at: row.get(41)?,
-            branch_name: row.get(8)?,
-            files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
-            checklist: row.get(10)?,
-            pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()),
-            pipeline_triggered_at: row.get(12)?,
-            pipeline_error: row.get(13)?,
-            retry_count: row.get::<_, Option<i64>>(42)?.unwrap_or(0),
-            model: row.get(43)?,
-            agent_session_id: row.get(14)?,
-            last_script_exit_code: row.get(15)?,
-            review_status: row.get(16)?,
-            pr_number: row.get(17)?,
-            pr_url: row.get(18)?,
-            siege_iteration: row.get::<_, Option<i64>>(19)?.unwrap_or(0),
-            siege_active: row.get::<_, Option<i64>>(20)?.unwrap_or(0) != 0,
-            siege_max_iterations: row.get::<_, Option<i64>>(21)?.unwrap_or(5),
-            siege_last_checked: row.get(22)?,
-            pr_mergeable: row.get(23)?,
-            pr_ci_status: row.get(24)?,
-            pr_review_decision: row.get(25)?,
-            pr_comment_count: row.get::<_, Option<i64>>(26)?.unwrap_or(0),
-            pr_is_draft: row.get::<_, Option<i64>>(27)?.unwrap_or(0) != 0,
-            pr_labels: row.get::<_, Option<String>>(28)?.unwrap_or_else(|| "[]".to_string()),
-            pr_last_fetched: row.get(29)?,
-            pr_head_sha: row.get(30)?,
-            notify_stakeholders: row.get(31)?,
-            notification_sent_at: row.get(32)?,
-            trigger_overrides: row.get(33)?,
-            trigger_prompt: row.get(34)?,
-            last_output: row.get(35)?,
-            dependencies: row.get(36)?,
-            blocked: row.get::<_, Option<i64>>(37)?.unwrap_or(0) != 0,
-            created_at: row.get(38)?,
-            updated_at: row.get(39)?,
-        })
-    })?;
+    let rows = stmt.query_map(params![workspace_id], map_task_row)?;
     rows.collect()
 }
 
@@ -804,22 +670,9 @@ pub fn update_siege_last_checked(conn: &Connection, id: &str) -> SqlResult<Task>
 /// Get next column in workspace by position
 pub fn get_next_column(conn: &Connection, workspace_id: &str, current_position: i64) -> SqlResult<Option<Column>> {
     let result = conn.query_row(
-        "SELECT id, workspace_id, name, icon, position, color, visible, triggers, created_at, updated_at FROM columns WHERE workspace_id = ?1 AND position > ?2 ORDER BY position LIMIT 1",
+        &format!("SELECT {} FROM columns WHERE workspace_id = ?1 AND position > ?2 ORDER BY position LIMIT 1", COLUMN_COLUMNS),
         params![workspace_id, current_position],
-        |row| {
-            Ok(Column {
-                id: row.get(0)?,
-                workspace_id: row.get(1)?,
-                name: row.get(2)?,
-                icon: row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "list".to_string()),
-                position: row.get(4)?,
-                color: row.get(5)?,
-                visible: row.get::<_, i64>(6)? != 0,
-                triggers: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-            })
-        },
+        map_column_row,
     );
     match result {
         Ok(col) => Ok(Some(col)),
@@ -1952,37 +1805,17 @@ pub fn insert_script(
 
 pub fn get_script(conn: &Connection, id: &str) -> SqlResult<Script> {
     conn.query_row(
-        "SELECT id, name, description, steps, is_built_in, created_at, updated_at FROM scripts WHERE id = ?1",
+        &format!("SELECT {} FROM scripts WHERE id = ?1", SCRIPT_COLUMNS),
         params![id],
-        |row| {
-            Ok(Script {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                description: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                steps: row.get(3)?,
-                is_built_in: row.get::<_, i64>(4)? != 0,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
-            })
-        },
+        map_script_row,
     )
 }
 
 pub fn list_scripts(conn: &Connection) -> SqlResult<Vec<Script>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, steps, is_built_in, created_at, updated_at FROM scripts ORDER BY is_built_in DESC, name",
+        &format!("SELECT {} FROM scripts ORDER BY is_built_in DESC, name", SCRIPT_COLUMNS),
     )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(Script {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            description: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-            steps: row.get(3)?,
-            is_built_in: row.get::<_, i64>(4)? != 0,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
-        })
-    })?;
+    let rows = stmt.query_map([], map_script_row)?;
     rows.collect()
 }
 
