@@ -743,3 +743,321 @@ pub fn resolve_column_target(
         col_id => Ok(db::get_column(conn, col_id).ok()),
     }
 }
+
+// ─── Tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+
+    fn setup() -> (rusqlite::Connection, db::Workspace, db::Column, db::Column, db::Column) {
+        let conn = db::init_test().unwrap();
+        let ws = db::insert_workspace(&conn, "Test", "/tmp/test").unwrap();
+        let col1 = db::insert_column(&conn, &ws.id, "Backlog", 0).unwrap();
+        let col2 = db::insert_column(&conn, &ws.id, "Working", 1).unwrap();
+        let col3 = db::insert_column(&conn, &ws.id, "Done", 2).unwrap();
+        (conn, ws, col1, col2, col3)
+    }
+
+    // ─── resolve_trigger tests ────────────────────────────────────────
+
+    #[test]
+    fn test_resolve_trigger_returns_column_action() {
+        let (conn, ws, col1, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col1.id, "Task", None).unwrap();
+
+        let triggers = ColumnTriggersV2 {
+            on_entry: Some(TriggerActionV2::SpawnCli {
+                cli: Some("claude".to_string()),
+                command: None,
+                prompt_template: None,
+                prompt: None,
+                flags: None,
+                use_queue: None,
+                model: None,
+            }),
+            on_exit: None,
+            exit_criteria: None,
+        };
+
+        let result = resolve_trigger(&triggers, &task, "on_entry");
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), TriggerActionV2::SpawnCli { .. }));
+    }
+
+    #[test]
+    fn test_resolve_trigger_none_action_returns_none() {
+        let (conn, ws, col1, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col1.id, "Task", None).unwrap();
+
+        let triggers = ColumnTriggersV2 {
+            on_entry: Some(TriggerActionV2::None),
+            on_exit: None,
+            exit_criteria: None,
+        };
+
+        let result = resolve_trigger(&triggers, &task, "on_entry");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_resolve_trigger_no_action_returns_none() {
+        let (conn, ws, col1, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col1.id, "Task", None).unwrap();
+
+        let triggers = ColumnTriggersV2 {
+            on_entry: None,
+            on_exit: None,
+            exit_criteria: None,
+        };
+
+        let result = resolve_trigger(&triggers, &task, "on_entry");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_resolve_trigger_skip_triggers_override() {
+        let (conn, ws, col1, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col1.id, "Task", None).unwrap();
+
+        // Set skip_triggers on the task
+        conn.execute(
+            "UPDATE tasks SET trigger_overrides = ?1 WHERE id = ?2",
+            rusqlite::params![r#"{"skip_triggers": true}"#, task.id],
+        ).unwrap();
+        let task = db::get_task(&conn, &task.id).unwrap();
+
+        let triggers = ColumnTriggersV2 {
+            on_entry: Some(TriggerActionV2::SpawnCli {
+                cli: Some("claude".to_string()),
+                command: None,
+                prompt_template: None,
+                prompt: None,
+                flags: None,
+                use_queue: None,
+                model: None,
+            }),
+            on_exit: None,
+            exit_criteria: None,
+        };
+
+        let result = resolve_trigger(&triggers, &task, "on_entry");
+        assert!(result.is_none(), "skip_triggers should suppress the trigger");
+    }
+
+    #[test]
+    fn test_resolve_trigger_task_override_merges() {
+        let (conn, ws, col1, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col1.id, "Task", None).unwrap();
+
+        // Override the model on the task
+        conn.execute(
+            "UPDATE tasks SET trigger_overrides = ?1 WHERE id = ?2",
+            rusqlite::params![r#"{"on_entry": {"model": "opus"}}"#, task.id],
+        ).unwrap();
+        let task = db::get_task(&conn, &task.id).unwrap();
+
+        let triggers = ColumnTriggersV2 {
+            on_entry: Some(TriggerActionV2::SpawnCli {
+                cli: Some("claude".to_string()),
+                command: Some("/start-task".to_string()),
+                prompt_template: None,
+                prompt: None,
+                flags: None,
+                use_queue: None,
+                model: Some("haiku".to_string()),
+            }),
+            on_exit: None,
+            exit_criteria: None,
+        };
+
+        let result = resolve_trigger(&triggers, &task, "on_entry");
+        assert!(result.is_some());
+        if let Some(TriggerActionV2::SpawnCli { model, command, .. }) = result {
+            assert_eq!(model.as_deref(), Some("opus"), "task override should win");
+            assert_eq!(command.as_deref(), Some("/start-task"), "base command preserved");
+        } else {
+            panic!("Expected SpawnCli");
+        }
+    }
+
+    #[test]
+    fn test_resolve_trigger_on_exit_uses_exit_action() {
+        let (conn, ws, col1, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col1.id, "Task", None).unwrap();
+
+        let triggers = ColumnTriggersV2 {
+            on_entry: Some(TriggerActionV2::SpawnCli {
+                cli: None, command: None, prompt_template: None,
+                prompt: None, flags: None, use_queue: None, model: None,
+            }),
+            on_exit: Some(TriggerActionV2::MoveColumn {
+                target: "next".to_string(),
+            }),
+            exit_criteria: None,
+        };
+
+        // on_entry should return SpawnCli
+        let entry = resolve_trigger(&triggers, &task, "on_entry");
+        assert!(matches!(entry, Some(TriggerActionV2::SpawnCli { .. })));
+
+        // on_exit should return MoveColumn
+        let exit = resolve_trigger(&triggers, &task, "on_exit");
+        assert!(matches!(exit, Some(TriggerActionV2::MoveColumn { .. })));
+    }
+
+    #[test]
+    fn test_resolve_trigger_run_script() {
+        let (conn, ws, col1, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col1.id, "Task", None).unwrap();
+
+        let triggers = ColumnTriggersV2 {
+            on_entry: Some(TriggerActionV2::RunScript {
+                script_id: "code-check".to_string(),
+            }),
+            on_exit: None,
+            exit_criteria: None,
+        };
+
+        let result = resolve_trigger(&triggers, &task, "on_entry");
+        assert!(result.is_some());
+        if let Some(TriggerActionV2::RunScript { script_id }) = result {
+            assert_eq!(script_id, "code-check");
+        } else {
+            panic!("Expected RunScript");
+        }
+    }
+
+    #[test]
+    fn test_resolve_trigger_invalid_hook_returns_none() {
+        let (conn, ws, col1, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col1.id, "Task", None).unwrap();
+
+        let triggers = ColumnTriggersV2 {
+            on_entry: Some(TriggerActionV2::None),
+            on_exit: None,
+            exit_criteria: None,
+        };
+
+        let result = resolve_trigger(&triggers, &task, "invalid_hook");
+        assert!(result.is_none());
+    }
+
+    // ─── resolve_column_target tests ──────────────────────────────────
+
+    #[test]
+    fn test_resolve_column_target_next() {
+        let (conn, ws, _, col2, col3) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col2.id, "Task", None).unwrap();
+
+        let result = resolve_column_target(&conn, &task, "next").unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().name, "Done");
+    }
+
+    #[test]
+    fn test_resolve_column_target_previous() {
+        let (conn, ws, col1, col2, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col2.id, "Task", None).unwrap();
+
+        let result = resolve_column_target(&conn, &task, "previous").unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().name, "Backlog");
+    }
+
+    #[test]
+    fn test_resolve_column_target_previous_at_first_column() {
+        let (conn, ws, col1, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col1.id, "Task", None).unwrap();
+
+        let result = resolve_column_target(&conn, &task, "previous").unwrap();
+        assert!(result.is_none(), "No previous column when at position 0");
+    }
+
+    #[test]
+    fn test_resolve_column_target_next_at_last_column() {
+        let (conn, ws, _, _, col3) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col3.id, "Task", None).unwrap();
+
+        let result = resolve_column_target(&conn, &task, "next").unwrap();
+        assert!(result.is_none(), "No next column when at last position");
+    }
+
+    #[test]
+    fn test_resolve_column_target_by_id() {
+        let (conn, ws, col1, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col1.id, "Task", None).unwrap();
+
+        let result = resolve_column_target(&conn, &task, &col1.id).unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().id, col1.id);
+    }
+
+    #[test]
+    fn test_resolve_column_target_invalid_id() {
+        let (conn, ws, col1, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col1.id, "Task", None).unwrap();
+
+        let result = resolve_column_target(&conn, &task, "nonexistent-id").unwrap();
+        assert!(result.is_none());
+    }
+
+    // ─── TriggerActionV2 serde tests ──────────────────────────────────
+
+    #[test]
+    fn test_trigger_action_serde_run_script() {
+        let action = TriggerActionV2::RunScript {
+            script_id: "code-check".to_string(),
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        assert!(json.contains("\"type\":\"run_script\""));
+        assert!(json.contains("\"script_id\":\"code-check\""));
+
+        let parsed: TriggerActionV2 = serde_json::from_str(&json).unwrap();
+        if let TriggerActionV2::RunScript { script_id } = parsed {
+            assert_eq!(script_id, "code-check");
+        } else {
+            panic!("Expected RunScript");
+        }
+    }
+
+    #[test]
+    fn test_trigger_action_serde_roundtrip_all_variants() {
+        let variants = vec![
+            r#"{"type":"spawn_cli","cli":"claude","command":"/start-task"}"#,
+            r#"{"type":"move_column","target":"next"}"#,
+            r#"{"type":"run_script","script_id":"test-1"}"#,
+            r#"{"type":"none"}"#,
+        ];
+        for json in variants {
+            let parsed: TriggerActionV2 = serde_json::from_str(json).unwrap();
+            let reserialized = serde_json::to_string(&parsed).unwrap();
+            let reparsed: TriggerActionV2 = serde_json::from_str(&reserialized).unwrap();
+            // Verify type tag survives roundtrip
+            assert_eq!(
+                std::mem::discriminant(&parsed),
+                std::mem::discriminant(&reparsed),
+            );
+        }
+    }
+
+    #[test]
+    fn test_column_triggers_v2_deserialize_from_frontend() {
+        // This is the JSON the frontend sends when saving column config
+        let json = r#"{
+            "on_entry": {"type": "run_script", "script_id": "code-check"},
+            "on_exit": {"type": "move_column", "target": "next"},
+            "exit_criteria": {"type": "agent_complete", "auto_advance": true, "max_retries": 2}
+        }"#;
+
+        let triggers: ColumnTriggersV2 = serde_json::from_str(json).unwrap();
+        assert!(matches!(triggers.on_entry, Some(TriggerActionV2::RunScript { .. })));
+        assert!(matches!(triggers.on_exit, Some(TriggerActionV2::MoveColumn { .. })));
+        assert!(triggers.exit_criteria.is_some());
+        let exit = triggers.exit_criteria.unwrap();
+        assert_eq!(exit.criteria_type, "agent_complete");
+        assert!(exit.auto_advance);
+        assert_eq!(exit.max_retries, Some(2));
+    }
+}
