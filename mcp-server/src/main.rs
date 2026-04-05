@@ -305,6 +305,37 @@ fn get_tools() -> Vec<Value> {
                 "required": ["task"]
             }),
         ),
+        tool(
+            "list_scripts",
+            "List all automation scripts (built-in and custom)",
+            json!({ "type": "object", "properties": {} }),
+        ),
+        tool(
+            "create_script",
+            "Create a custom automation script with steps (bash, agent, check)",
+            json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Script name" },
+                    "description": { "type": "string", "description": "What the script does" },
+                    "steps": { "type": "string", "description": "JSON array of steps. Each step: {type:'bash',name?,command,continueOnError?} | {type:'agent',name?,prompt,model?,command?} | {type:'check',name?,command,failMessage?}" }
+                },
+                "required": ["name", "steps"]
+            }),
+        ),
+        tool(
+            "run_script",
+            "Set a column trigger to run a script when tasks enter",
+            json!({
+                "type": "object",
+                "properties": {
+                    "script": { "type": "string", "description": "Script name or ID" },
+                    "column": { "type": "string", "description": "Column name or ID" },
+                    "workspace": { "type": "string", "description": "Workspace name or ID (optional if only one)" }
+                },
+                "required": ["script", "column"]
+            }),
+        ),
     ]
 }
 
@@ -508,6 +539,9 @@ fn handle_tool_call(conn: &Connection, name: &str, args: &Value) -> Value {
         "create_column" => handle_create_column(conn, args),
         "configure_triggers" => handle_configure_triggers(conn, args),
         "get_task" => handle_get_task(conn, args),
+        "list_scripts" => handle_list_scripts(conn),
+        "create_script" => handle_create_script(conn, args),
+        "run_script" => handle_run_script(conn, args),
         _ => json!({ "error": format!("Unknown tool: {}", name) }),
     }
 }
@@ -1196,6 +1230,162 @@ fn handle_get_task(conn: &Connection, args: &Value) -> Value {
     match find_task(conn, task_q, None) {
         Ok(task) => task,
         Err(e) => json!({ "error": e }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Script handlers
+// ---------------------------------------------------------------------------
+
+fn handle_list_scripts(conn: &Connection) -> Value {
+    let mut stmt = match conn.prepare(
+        "SELECT id, name, description, steps, is_built_in, created_at, updated_at \
+         FROM scripts ORDER BY is_built_in DESC, name",
+    ) {
+        Ok(s) => s,
+        Err(e) => return json!({ "error": e.to_string() }),
+    };
+
+    let rows: Vec<Value> = stmt
+        .query_map([], |r| {
+            let steps_str = r.get::<_, String>(3)?;
+            let steps_parsed: Value = serde_json::from_str(&steps_str).unwrap_or(Value::Array(vec![]));
+            let step_count = steps_parsed.as_array().map_or(0, |a| a.len());
+
+            Ok(json!({
+                "id": r.get::<_, String>(0)?,
+                "name": r.get::<_, String>(1)?,
+                "description": r.get::<_, Option<String>>(2)?,
+                "steps": steps_parsed,
+                "step_count": step_count,
+                "is_built_in": r.get::<_, i64>(4)? != 0,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect();
+
+    json!({ "scripts": rows, "count": rows.len() })
+}
+
+fn handle_create_script(conn: &Connection, args: &Value) -> Value {
+    let name = match args.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n,
+        None => return json!({ "error": "name is required" }),
+    };
+    let description = args.get("description").and_then(|v| v.as_str()).unwrap_or("");
+    let steps = match args.get("steps").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return json!({ "error": "steps is required (JSON array string)" }),
+    };
+
+    // Validate steps is valid JSON array
+    match serde_json::from_str::<Vec<Value>>(steps) {
+        Ok(_) => {}
+        Err(e) => return json!({ "error": format!("Invalid steps JSON: {}", e) }),
+    };
+
+    let id = new_id();
+    let ts = now();
+    match conn.execute(
+        "INSERT INTO scripts (id, name, description, steps, is_built_in, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)",
+        params![id, name, description, steps, ts, ts],
+    ) {
+        Ok(_) => json!({
+            "message": format!("Created script '{}'", name),
+            "id": id,
+            "name": name,
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+/// Find a script by name or ID
+fn find_script(conn: &Connection, query: &str) -> Result<(String, String), String> {
+    // Exact ID match
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM scripts WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+    if let Ok(row) = stmt.query_row(params![query], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }) {
+        return Ok(row);
+    }
+
+    // Case-insensitive exact name
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM scripts WHERE LOWER(name) = LOWER(?1)")
+        .map_err(|e| e.to_string())?;
+    if let Ok(row) = stmt.query_row(params![query], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }) {
+        return Ok(row);
+    }
+
+    // Partial name match
+    let pattern = format!("%{}%", query);
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM scripts WHERE LOWER(name) LIKE LOWER(?1)")
+        .map_err(|e| e.to_string())?;
+    if let Ok(row) = stmt.query_row(params![pattern], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }) {
+        return Ok(row);
+    }
+
+    Err(format!("Script '{}' not found", query))
+}
+
+fn handle_run_script(conn: &Connection, args: &Value) -> Value {
+    let script_q = match args.get("script").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return json!({ "error": "script is required" }),
+    };
+    let col_q = match args.get("column").and_then(|v| v.as_str()) {
+        Some(c) => c,
+        None => return json!({ "error": "column is required" }),
+    };
+
+    let (script_id, script_name) = match find_script(conn, script_q) {
+        Ok(s) => s,
+        Err(e) => return json!({ "error": e }),
+    };
+
+    // Find workspace (optional)
+    let workspace_id = if let Some(ws_q) = args.get("workspace").and_then(|v| v.as_str()) {
+        match find_workspace(conn, ws_q) {
+            Ok((id, _)) => id,
+            Err(e) => return json!({ "error": e }),
+        }
+    } else {
+        // Use first workspace
+        match conn.query_row("SELECT id FROM workspaces LIMIT 1", [], |r| r.get::<_, String>(0)) {
+            Ok(id) => id,
+            Err(_) => return json!({ "error": "No workspaces found" }),
+        }
+    };
+
+    let (col_id, col_name) = match find_column(conn, col_q, &workspace_id) {
+        Ok(c) => c,
+        Err(e) => return json!({ "error": e }),
+    };
+
+    // Set column's on_entry trigger to run_script
+    let triggers = json!({
+        "on_entry": { "type": "run_script", "script_id": script_id },
+    });
+    let ts = now();
+    match conn.execute(
+        "UPDATE columns SET triggers = ?1, updated_at = ?2 WHERE id = ?3",
+        params![triggers.to_string(), ts, col_id],
+    ) {
+        Ok(_) => json!({
+            "message": format!("Column '{}' will now run script '{}' on entry", col_name, script_name),
+            "column": col_name,
+            "script": script_name,
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
     }
 }
 
