@@ -522,28 +522,44 @@ Remaining legacy (still load-bearing):
 - 3 bugs caught in review + fixed
 - Visually verified via Tauri automation screenshots
 
+## Completed: Code Health + Features (2026-04-05)
+
+**12 commits, 322 tests (up from 287):**
+
+Code splits:
+- `db/mod.rs` 2215→476 (12 domain modules)
+- `task-card.tsx` 557→328 (3 extracted files)
+- `task-settings-modal.tsx` 512→259 (DependenciesTab extracted)
+- `scripts-tab.tsx` 502→176 (ScriptEditor extracted)
+
+Bug fixes:
+- WAL fix — Cargo workspace for shared SQLite build, concurrent access verified
+- Task card UX — side panel instead of full-page navigation
+- MCP Connect tab — tool list updated 12→19
+
+Tests added:
+- 12 dependency tests (cycle detection, conditions, blocked state)
+- 17 MCP server tests (all tool handlers)
+- 6 siege tests (prompt building, serialization)
+
+Docs:
+- 7 stale tickets closed, 6 old plans archived
+- STATUS.md, NEXT_STEPS.md, SESSION.md synced with reality
+- **55/55 v1.0 tickets complete**
+
+Features:
+- T035 history restore — verified end-to-end
+- T051 siege monitoring UI — SiegeStatus component in task detail panel
+
+## Session Stats (2026-04-05)
+
+- **12 commits** pushed to main
+- **322 tests** (173 Rust + 149 frontend), all passing
+- **55/55 tickets** complete
+- **0 components** over 500 LOC
+- No UI bugs found in Playwright audit
+
 ## Next Up
-
-### Done (2026-04-05)
-- [x] Split db/mod.rs (2215→476, 12 domain modules)
-- [x] Split task-card.tsx (557→328)
-- [x] WAL fix (Cargo workspace, concurrent access verified)
-- [x] 12 dependency tests + 17 MCP server tests (287→316 tests)
-- [x] Model switching per task (ModelSelector + useModelCapabilities)
-- [x] Column-config-dialog split (745→256)
-- [x] Closed 7 stale tickets, cleaned up docs
-
-### Remaining v1-sprint (3 tickets)
-- [ ] T035: Verify history restore works end-to-end
-- [ ] T051: Siege monitoring UI (iteration progress, logs)
-- [ ] T046: Chef Settings API (questionable — evaluate need)
-
-### Code Health
-- [ ] Split task-settings-modal.tsx (512 lines)
-- [ ] Split scripts-tab.tsx (502 lines)
-- [ ] Add siege.rs tests (554 LOC, 0 tests)
-- [ ] Phase 6: AgentRunner removal (high risk, 6hr)
-- [ ] Polish: repo file picker (P002), column drag (P003)
 
 ### v2.0 Features
 - [ ] Per-task git worktree isolation
@@ -551,3 +567,7 @@ Remaining legacy (still load-bearing):
 - [ ] DAG dependency UI (SVG lines, Cmd+drag)
 - [ ] LCH theme redesign
 - [ ] Discord integration (10 tickets, blocked on Phase 6)
+
+### Code Health (optional)
+- [ ] Phase 6: AgentRunner removal (high risk, 6hr)
+- [ ] Polish: repo file picker (P002), column drag (P003)

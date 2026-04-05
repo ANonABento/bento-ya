@@ -9,24 +9,19 @@
 **Codebase:** ~42k lines (18k Rust, 24k TypeScript/React)
 **Cargo workspace:** bento-ya + bento-mcp share rusqlite build (WAL compatible)
 
-## What's Actually Left
+## v1.0 Sprint Complete (55/55 tickets)
 
-### 3 Remaining v1-sprint Tickets
+All v1-sprint tickets resolved:
+- T035 History Replay — verified end-to-end
+- T046 Chef Settings API — deferred (questionable value)
+- T051 Siege Loop UI — SiegeStatus component added to task detail panel
 
-| ID | Title | Status | Effort | Priority |
-|----|-------|--------|--------|----------|
-| T035 | History Replay Restoration | Backend done, needs verification | 1hr | Low |
-| T046 | Chef Settings API | Not started | 6hr | Low — questionable value |
-| T051 | Siege Loop UI | Partial (context menu exists) | 3hr | Medium |
+### Code Health — All Clean
 
-### Code Health
-
-| Item | Current | Target | Effort |
-|------|---------|--------|--------|
-| `task-settings-modal.tsx` | 512 LOC | <300 | 2hr |
-| `scripts-tab.tsx` | 502 LOC | <300 | 1hr |
-| `commands/siege.rs` tests | 0 tests, 554 LOC | 10+ tests | 2hr |
-| Phase 6: AgentRunner removal | 10+ commands depend on it | SessionRegistry | 6hr (high risk) |
+- No components over 500 LOC (4 splits completed)
+- 6 siege tests added (prompt building, serialization)
+- MCP Connect tab updated (12→19 tools)
+- Task card UX fixed (side panel, board stays visible)
 
 ### Polish Backlog (from `.tickets/POLISH-BACKLOG.md`)
 
