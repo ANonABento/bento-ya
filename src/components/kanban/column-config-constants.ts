@@ -26,6 +26,7 @@ export const ICONS = [
 
 export const ACTION_TYPES: { value: ActionType; label: string; description: string }[] = [
   { value: 'none', label: 'None', description: 'No action' },
+  { value: 'run_script', label: 'Run Script', description: 'Run automation recipe' },
   { value: 'spawn_cli', label: 'Spawn CLI', description: 'Run AI agent with command' },
   { value: 'move_column', label: 'Move Column', description: 'Move task to another column' },
 ]

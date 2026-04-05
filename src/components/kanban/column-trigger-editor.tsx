@@ -1,13 +1,16 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type {
   ColumnTriggers,
   TriggerAction,
   SpawnCliAction,
   MoveColumnAction,
+  RunScriptAction,
   ExitCriteria,
+  Script,
   CliType,
   ActionType,
 } from '@/types'
+import { parseSteps } from '@/types'
 import { useColumnStore } from '@/stores/column-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSettingsStore } from '@/stores/settings-store'
@@ -194,6 +197,8 @@ function ActionEditor({
   const handleTypeChange = (type: ActionType) => {
     if (type === 'none') {
       setAction({ type: 'none' })
+    } else if (type === 'run_script') {
+      setAction({ type: 'run_script', script_id: '' })
     } else if (type === 'spawn_cli') {
       setAction({ ...DEFAULT_SPAWN_CLI })
     } else if (type === 'move_column') {
@@ -222,6 +227,14 @@ function ActionEditor({
         ))}
       </div>
 
+      {/* Run Script Options */}
+      {action.type === 'run_script' && (
+        <RunScriptEditor
+          action={action}
+          setAction={(a) => { setAction(a) }}
+        />
+      )}
+
       {/* Spawn CLI Options */}
       {action.type === 'spawn_cli' && (
         <SpawnCliEditor
@@ -236,6 +249,93 @@ function ActionEditor({
           action={action}
           setAction={(a) => { setAction(a) }}
         />
+      )}
+    </div>
+  )
+}
+
+// ─── Run Script Editor ──────────────────────────────────────────────────────
+
+function RunScriptEditor({
+  action,
+  setAction,
+}: {
+  action: RunScriptAction
+  setAction: (v: RunScriptAction) => void
+}) {
+  const [scripts, setScripts] = useState<Script[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    void ipc.listScripts().then((s) => {
+      setScripts(s)
+      setLoading(false)
+      // Auto-select first script if none selected
+      if (!action.script_id && s.length > 0) {
+        setAction({ ...action, script_id: s[0]!.id })
+      }
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selectedScript = scripts.find((s) => s.id === action.script_id)
+  const steps = selectedScript ? parseSteps(selectedScript.steps) : []
+
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-border-default bg-bg/50 p-3 text-sm text-text-secondary">
+        Loading scripts...
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border-default bg-bg/50 p-3">
+      <div>
+        <label className="mb-1 block text-xs font-medium text-text-secondary">
+          Script
+        </label>
+        <select
+          value={action.script_id}
+          onChange={(e) => { setAction({ ...action, script_id: e.target.value }) }}
+          className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
+        >
+          <option value="">Select a script...</option>
+          {scripts.filter((s) => s.isBuiltIn).length > 0 && (
+            <optgroup label="Built-in">
+              {scripts.filter((s) => s.isBuiltIn).map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </optgroup>
+          )}
+          {scripts.filter((s) => !s.isBuiltIn).length > 0 && (
+            <optgroup label="Custom">
+              {scripts.filter((s) => !s.isBuiltIn).map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      </div>
+
+      {/* Script preview */}
+      {selectedScript && (
+        <div>
+          <p className="mb-2 text-xs text-text-secondary">{selectedScript.description}</p>
+          <div className="space-y-1">
+            {steps.map((step, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs">
+                <span className={`rounded px-1.5 py-0.5 font-mono ${
+                  step.type === 'bash' ? 'bg-blue-500/10 text-blue-400' :
+                  step.type === 'agent' ? 'bg-purple-500/10 text-purple-400' :
+                  'bg-amber-500/10 text-amber-400'
+                }`}>
+                  {step.type}
+                </span>
+                <span className="text-text-secondary">{step.name || (step.type === 'agent' ? 'Agent' : step.command)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   )
