@@ -43,9 +43,9 @@ function McpSection() {
   }, null, 2)
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(mcpConfig).then(() => {
+    void navigator.clipboard.writeText(mcpConfig).then(() => {
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      setTimeout(() => { setCopied(false) }, 2000)
     })
   }
 

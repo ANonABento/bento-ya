@@ -112,7 +112,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
       action: () => {
         const firstColumn = columns.sort((a, b) => a.position - b.position)[0]
         if (firstColumn && activeWorkspaceId) {
-          addTask(activeWorkspaceId, firstColumn.id, search || 'New Task', '')
+          void addTask(activeWorkspaceId, firstColumn.id, search || 'New Task', '')
         }
       },
     })
@@ -125,7 +125,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
           id: 'task-duplicate',
           label: `Duplicate task: ${activeTask.title}`,
           category: 'Tasks',
-          action: () => { duplicateTask(activeTask.id) },
+          action: () => { void duplicateTask(activeTask.id) },
         })
       }
     }
