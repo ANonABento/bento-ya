@@ -87,7 +87,7 @@ See `.tickets/_docs/UNIFIED_CHAT.md` for the full migration plan (6 phases).
 
 ### Database (`src-tauri/src/db/`)
 
-SQLite with WAL mode. 28 versioned migrations. Both `bento-ya` and `bento-mcp` share the same `rusqlite` build via Cargo workspace, ensuring WAL format compatibility for concurrent access.
+SQLite with WAL mode. 29 versioned migrations (001-028 + scripts). Both `bento-ya` and `bento-mcp` share the same `rusqlite` build via Cargo workspace, ensuring WAL format compatibility for concurrent access.
 - `models.rs` — All 18 model structs (Workspace, Column, Task, AgentSession, ChatSession, etc.)
 - `mod.rs` — Init, migrations, re-exports from domain modules, tests
 - Domain modules: `workspace.rs`, `column.rs`, `task.rs`, `agent_session.rs`, `agent_message.rs`, `chat_session.rs`, `chat_message.rs`, `orchestrator_session.rs`, `checklist.rs`, `usage.rs`, `history.rs`, `script.rs`

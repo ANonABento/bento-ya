@@ -99,11 +99,11 @@ fire_trigger() → check V2 JSON → resolve_trigger() (merge column + task over
 
 ### Test Commands
 ```bash
-# Frontend unit tests (128 tests)
+# Frontend unit tests (149 tests)
 cd /Users/bentomac/bento-ya && npm run test:run
 
-# Backend unit tests (67 tests)
-cd /Users/bentomac/bento-ya/src-tauri && cargo test --lib
+# Backend unit tests — full workspace (167 tests: 150 bento-ya + 17 bento-mcp)
+cd /Users/bentomac/bento-ya && cargo test --workspace
 
 # Type check
 cd /Users/bentomac/bento-ya && npx tsc --noEmit
@@ -111,11 +111,11 @@ cd /Users/bentomac/bento-ya && npx tsc --noEmit
 # Lint
 cd /Users/bentomac/bento-ya && npm run lint
 
-# E2E (Playwright against Vite dev server)
+# E2E (WebDriverIO against Tauri WKWebView)
 cd /Users/bentomac/bento-ya && npm run test:e2e
 
-# Rust check
-cd /Users/bentomac/bento-ya/src-tauri && cargo check
+# Rust check (workspace)
+cd /Users/bentomac/bento-ya && cargo check --workspace
 ```
 
 ## Session Log
@@ -524,11 +524,30 @@ Remaining legacy (still load-bearing):
 
 ## Next Up
 
-- [ ] #11 Model switching per task (already in backlog)
-- [ ] Split task-card.tsx (614 lines)
-- [ ] Split column-config-dialog.tsx (745 lines)
-- [ ] Phase 6: rewire terminal view to PtyTransport
-- [ ] First-launch onboarding wizard
+### Done (2026-04-05)
+- [x] Split db/mod.rs (2215→476, 12 domain modules)
+- [x] Split task-card.tsx (557→328)
+- [x] WAL fix (Cargo workspace, concurrent access verified)
+- [x] 12 dependency tests + 17 MCP server tests (287→316 tests)
+- [x] Model switching per task (ModelSelector + useModelCapabilities)
+- [x] Column-config-dialog split (745→256)
+- [x] Closed 7 stale tickets, cleaned up docs
+
+### Remaining v1-sprint (3 tickets)
+- [ ] T035: Verify history restore works end-to-end
+- [ ] T051: Siege monitoring UI (iteration progress, logs)
+- [ ] T046: Chef Settings API (questionable — evaluate need)
+
+### Code Health
+- [ ] Split task-settings-modal.tsx (512 lines)
+- [ ] Split scripts-tab.tsx (502 lines)
+- [ ] Add siege.rs tests (554 LOC, 0 tests)
+- [ ] Phase 6: AgentRunner removal (high risk, 6hr)
+- [ ] Polish: repo file picker (P002), column drag (P003)
+
+### v2.0 Features
 - [ ] Per-task git worktree isolation
-- [ ] Multi-provider support (OpenAI API)
-- [ ] Connect choomfie natively (restart session to load MCP tools)
+- [ ] PR auto-create as column trigger action
+- [ ] DAG dependency UI (SVG lines, Cmd+drag)
+- [ ] LCH theme redesign
+- [ ] Discord integration (10 tickets, blocked on Phase 6)
