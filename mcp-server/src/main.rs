@@ -1515,3 +1515,365 @@ fn main() {
         stdout.flush().unwrap();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn setup_test_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+
+        // Run all migrations inline (matching src-tauri/src/db/migrations/)
+        conn.execute_batch("
+            -- 001_initial
+            CREATE TABLE IF NOT EXISTS workspaces (
+                id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, repo_path TEXT NOT NULL,
+                tab_order INTEGER NOT NULL DEFAULT 0, is_active INTEGER NOT NULL DEFAULT 0,
+                config TEXT DEFAULT '{}',
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS columns (
+                id TEXT PRIMARY KEY NOT NULL, workspace_id TEXT NOT NULL, name TEXT NOT NULL,
+                icon TEXT DEFAULT 'list', position INTEGER NOT NULL DEFAULT 0, color TEXT,
+                visible INTEGER NOT NULL DEFAULT 1, triggers TEXT DEFAULT '{}',
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS tasks (
+                id TEXT PRIMARY KEY NOT NULL, workspace_id TEXT NOT NULL, column_id TEXT NOT NULL,
+                title TEXT NOT NULL, description TEXT, position INTEGER NOT NULL DEFAULT 0,
+                priority TEXT NOT NULL DEFAULT 'medium', agent_mode TEXT, branch_name TEXT,
+                files_touched TEXT DEFAULT '[]', checklist TEXT,
+                pipeline_state TEXT DEFAULT 'idle', pipeline_triggered_at TEXT, pipeline_error TEXT,
+                agent_session_id TEXT, last_script_exit_code INTEGER, review_status TEXT,
+                pr_number INTEGER, pr_url TEXT,
+                siege_iteration INTEGER DEFAULT 0, siege_active INTEGER DEFAULT 0,
+                siege_max_iterations INTEGER DEFAULT 5, siege_last_checked TEXT,
+                pr_mergeable TEXT, pr_ci_status TEXT, pr_review_decision TEXT,
+                pr_comment_count INTEGER DEFAULT 0, pr_is_draft INTEGER DEFAULT 0,
+                pr_labels TEXT DEFAULT '[]', pr_last_fetched TEXT, pr_head_sha TEXT,
+                notify_stakeholders TEXT, notification_sent_at TEXT,
+                trigger_overrides TEXT DEFAULT '{}', trigger_prompt TEXT, last_output TEXT,
+                dependencies TEXT DEFAULT '[]', blocked INTEGER DEFAULT 0,
+                agent_status TEXT DEFAULT 'idle', queued_at TEXT,
+                retry_count INTEGER DEFAULT 0, model TEXT,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY (column_id) REFERENCES columns(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS agent_sessions (
+                id TEXT PRIMARY KEY NOT NULL, task_id TEXT NOT NULL,
+                pid INTEGER, status TEXT NOT NULL DEFAULT 'idle',
+                pty_cols INTEGER NOT NULL DEFAULT 80, pty_rows INTEGER NOT NULL DEFAULT 24,
+                last_output TEXT, exit_code INTEGER,
+                agent_type TEXT NOT NULL DEFAULT 'claude', working_dir TEXT,
+                scrollback TEXT, resumable INTEGER NOT NULL DEFAULT 0,
+                cli_session_id TEXT, model TEXT, effort_level TEXT,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS scripts (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '',
+                steps TEXT NOT NULL DEFAULT '[]', is_built_in INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+        ").unwrap();
+
+        conn
+    }
+
+    fn create_test_workspace(conn: &Connection) -> (String, String, String) {
+        let ws_id = new_id();
+        let col_id = new_id();
+        let ts = now();
+        conn.execute(
+            "INSERT INTO workspaces (id, name, repo_path, is_active, created_at, updated_at) VALUES (?1, 'Test WS', '/tmp/test', 1, ?2, ?3)",
+            params![ws_id, ts, ts],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO columns (id, workspace_id, name, position, created_at, updated_at) VALUES (?1, ?2, 'Backlog', 0, ?3, ?4)",
+            params![col_id, ws_id, ts, ts],
+        ).unwrap();
+        let col2_id = new_id();
+        conn.execute(
+            "INSERT INTO columns (id, workspace_id, name, position, created_at, updated_at) VALUES (?1, ?2, 'Done', 1, ?3, ?4)",
+            params![col2_id, ws_id, ts, ts],
+        ).unwrap();
+        (ws_id, col_id, col2_id)
+    }
+
+    #[test]
+    fn test_get_workspaces_empty() {
+        let conn = setup_test_db();
+        let result = handle_get_workspaces(&conn);
+        let ws = result["workspaces"].as_array().unwrap();
+        assert!(ws.is_empty());
+    }
+
+    #[test]
+    fn test_get_workspaces_returns_all() {
+        let conn = setup_test_db();
+        create_test_workspace(&conn);
+        let result = handle_get_workspaces(&conn);
+        let ws = result["workspaces"].as_array().unwrap();
+        assert_eq!(ws.len(), 1);
+        assert_eq!(ws[0]["name"], "Test WS");
+        assert_eq!(ws[0]["is_active"], true);
+    }
+
+    #[test]
+    fn test_create_workspace() {
+        let conn = setup_test_db();
+        let result = handle_create_workspace(&conn, &json!({
+            "name": "My Project",
+            "repo_path": "/home/user/project"
+        }));
+        assert!(result.get("error").is_none(), "Got error: {:?}", result);
+        assert_eq!(result["workspace"]["name"], "My Project");
+
+        // Verify it persisted
+        let ws = handle_get_workspaces(&conn);
+        assert_eq!(ws["workspaces"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_get_board() {
+        let conn = setup_test_db();
+        let (ws_id, col_id, _) = create_test_workspace(&conn);
+
+        // Create a task
+        let task_id = new_id();
+        let ts = now();
+        conn.execute(
+            "INSERT INTO tasks (id, workspace_id, column_id, title, position, created_at, updated_at) VALUES (?1, ?2, ?3, 'Test Task', 0, ?4, ?5)",
+            params![task_id, ws_id, col_id, ts, ts],
+        ).unwrap();
+
+        let result = handle_get_board(&conn, &json!({ "workspace": "Test WS" }));
+        assert!(result.get("error").is_none(), "Got error: {:?}", result);
+        assert_eq!(result["workspace"]["name"], "Test WS");
+        let columns = result["columns"].as_array().unwrap();
+        assert_eq!(columns.len(), 2);
+        assert_eq!(columns[0]["name"], "Backlog");
+        assert_eq!(columns[0]["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(columns[0]["tasks"][0]["title"], "Test Task");
+    }
+
+    #[test]
+    fn test_get_board_workspace_not_found() {
+        let conn = setup_test_db();
+        let result = handle_get_board(&conn, &json!({ "workspace": "nonexistent" }));
+        assert!(result["error"].as_str().unwrap().contains("not found"));
+    }
+
+    #[test]
+    fn test_create_task() {
+        let conn = setup_test_db();
+        create_test_workspace(&conn);
+
+        let result = handle_create_task(&conn, &json!({
+            "workspace": "Test WS",
+            "column": "Backlog",
+            "title": "New Task",
+            "description": "Do something"
+        }));
+        assert!(result.get("error").is_none(), "Got error: {:?}", result);
+        assert_eq!(result["task"]["title"], "New Task");
+    }
+
+    #[test]
+    fn test_create_task_missing_column() {
+        let conn = setup_test_db();
+        create_test_workspace(&conn);
+
+        let result = handle_create_task(&conn, &json!({
+            "workspace": "Test WS",
+            "column": "NonexistentColumn",
+            "title": "Task"
+        }));
+        assert!(result.get("error").is_some());
+    }
+
+    #[test]
+    fn test_move_task() {
+        let conn = setup_test_db();
+        let (ws_id, col_id, col2_id) = create_test_workspace(&conn);
+
+        let task_id = new_id();
+        let ts = now();
+        conn.execute(
+            "INSERT INTO tasks (id, workspace_id, column_id, title, position, created_at, updated_at) VALUES (?1, ?2, ?3, 'Task', 0, ?4, ?5)",
+            params![task_id, ws_id, col_id, ts, ts],
+        ).unwrap();
+
+        let result = handle_move_task(&conn, &json!({
+            "task": "Task",
+            "column": "Done"
+        }));
+        assert!(result.get("error").is_none(), "Got error: {:?}", result);
+        assert_eq!(result["message"].as_str().unwrap().contains("Done"), true);
+
+        // Verify task moved
+        let task: String = conn.query_row(
+            "SELECT column_id FROM tasks WHERE id = ?1", params![task_id], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(task, col2_id);
+    }
+
+    #[test]
+    fn test_update_task() {
+        let conn = setup_test_db();
+        let (ws_id, col_id, _) = create_test_workspace(&conn);
+
+        let task_id = new_id();
+        let ts = now();
+        conn.execute(
+            "INSERT INTO tasks (id, workspace_id, column_id, title, position, created_at, updated_at) VALUES (?1, ?2, ?3, 'Old Title', 0, ?4, ?5)",
+            params![task_id, ws_id, col_id, ts, ts],
+        ).unwrap();
+
+        let result = handle_update_task(&conn, &json!({
+            "task": "Old Title",
+            "title": "New Title"
+        }));
+        assert!(result.get("error").is_none(), "Got error: {:?}", result);
+        assert_eq!(result["title"], "New Title");
+        assert_eq!(result["message"], "Task updated");
+    }
+
+    #[test]
+    fn test_delete_task() {
+        let conn = setup_test_db();
+        let (ws_id, col_id, _) = create_test_workspace(&conn);
+
+        let task_id = new_id();
+        let ts = now();
+        conn.execute(
+            "INSERT INTO tasks (id, workspace_id, column_id, title, position, created_at, updated_at) VALUES (?1, ?2, ?3, 'To Delete', 0, ?4, ?5)",
+            params![task_id, ws_id, col_id, ts, ts],
+        ).unwrap();
+
+        let result = handle_delete_task(&conn, &json!({ "task": "To Delete" }));
+        assert!(result.get("error").is_none(), "Got error: {:?}", result);
+
+        // Verify deleted
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_approve_reject_task() {
+        let conn = setup_test_db();
+        let (ws_id, col_id, _) = create_test_workspace(&conn);
+
+        let task_id = new_id();
+        let ts = now();
+        conn.execute(
+            "INSERT INTO tasks (id, workspace_id, column_id, title, position, created_at, updated_at) VALUES (?1, ?2, ?3, 'Review Me', 0, ?4, ?5)",
+            params![task_id, ws_id, col_id, ts, ts],
+        ).unwrap();
+
+        // Approve
+        let result = handle_approve_task(&conn, &json!({ "task": "Review Me" }));
+        assert!(result.get("error").is_none());
+        let status: Option<String> = conn.query_row(
+            "SELECT review_status FROM tasks WHERE id = ?1", params![task_id], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(status.as_deref(), Some("approved"));
+
+        // Reject
+        let result = handle_reject_task(&conn, &json!({ "task": "Review Me" }));
+        assert!(result.get("error").is_none());
+        let status: Option<String> = conn.query_row(
+            "SELECT review_status FROM tasks WHERE id = ?1", params![task_id], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(status.as_deref(), Some("rejected"));
+    }
+
+    #[test]
+    fn test_create_column() {
+        let conn = setup_test_db();
+        create_test_workspace(&conn);
+
+        let result = handle_create_column(&conn, &json!({
+            "workspace": "Test WS",
+            "name": "In Progress",
+            "position": 1
+        }));
+        assert!(result.get("error").is_none(), "Got error: {:?}", result);
+        assert_eq!(result["column"]["name"], "In Progress");
+    }
+
+    #[test]
+    fn test_list_scripts_empty() {
+        let conn = setup_test_db();
+        let result = handle_list_scripts(&conn);
+        assert_eq!(result["scripts"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_create_script() {
+        let conn = setup_test_db();
+        let result = handle_create_script(&conn, &json!({
+            "name": "My Script",
+            "description": "Does stuff",
+            "steps": "[{\"type\":\"bash\",\"command\":\"echo hi\"}]"
+        }));
+        assert!(result.get("error").is_none(), "Got error: {:?}", result);
+        assert_eq!(result["name"], "My Script");
+
+        // Verify it shows in list
+        let list = handle_list_scripts(&conn);
+        assert_eq!(list["scripts"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_handle_tool_call_unknown() {
+        let conn = setup_test_db();
+        let result = handle_tool_call(&conn, "nonexistent_tool", &json!({}));
+        assert!(result["error"].as_str().unwrap().contains("Unknown tool"));
+    }
+
+    #[test]
+    fn test_fuzzy_workspace_resolution() {
+        let conn = setup_test_db();
+        let ws_id = new_id();
+        let ts = now();
+        conn.execute(
+            "INSERT INTO workspaces (id, name, repo_path, created_at, updated_at) VALUES (?1, 'My Cool Project', '/tmp', ?2, ?3)",
+            params![ws_id, ts, ts],
+        ).unwrap();
+
+        // Exact match
+        let result = handle_get_board(&conn, &json!({ "workspace": "My Cool Project" }));
+        assert_eq!(result["workspace"]["name"], "My Cool Project");
+
+        // Case-insensitive
+        let result = handle_get_board(&conn, &json!({ "workspace": "my cool project" }));
+        assert_eq!(result["workspace"]["name"], "My Cool Project");
+
+        // ID match
+        let result = handle_get_board(&conn, &json!({ "workspace": ws_id }));
+        assert_eq!(result["workspace"]["name"], "My Cool Project");
+    }
+
+    #[test]
+    fn test_get_task() {
+        let conn = setup_test_db();
+        let (ws_id, col_id, _) = create_test_workspace(&conn);
+
+        let task_id = new_id();
+        let ts = now();
+        conn.execute(
+            "INSERT INTO tasks (id, workspace_id, column_id, title, description, position, created_at, updated_at) VALUES (?1, ?2, ?3, 'Specific Task', 'Details here', 0, ?4, ?5)",
+            params![task_id, ws_id, col_id, ts, ts],
+        ).unwrap();
+
+        let result = handle_get_task(&conn, &json!({ "task": "Specific Task" }));
+        assert!(result.get("error").is_none(), "Got error: {:?}", result);
+        assert_eq!(result["title"], "Specific Task");
+        assert_eq!(result["description"], "Details here");
+    }
+}
