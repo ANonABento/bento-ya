@@ -5,7 +5,8 @@ node_modules/
 dist/
 dist-ssr/
 
-# Tauri build artifacts
+# Rust/Tauri build artifacts
+target/
 src-tauri/target/
 src-tauri/gen/
 src-tauri/WixTools/

@@ -82,6 +82,8 @@ pub fn init() -> SqlResult<Connection> {
     conn.execute_batch("PRAGMA journal_mode=WAL;")?;
     // Enable foreign key constraints
     conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+    // Busy timeout for concurrent access with bento-mcp
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
     run_migrations(&conn)?;
 

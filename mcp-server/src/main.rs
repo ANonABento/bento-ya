@@ -1456,17 +1456,15 @@ fn main() {
     let args = Args::parse();
     let db_path = args.db.unwrap_or_else(default_db_path);
 
-    // NOTE: When the Tauri app is running, its bundled SQLite holds the WAL/SHM
-    // lock and this connection will fail queries with "file is not a database".
-    // This is a known issue — the bundled SQLite in each binary may compile with
-    // different flags, making their WAL formats incompatible for concurrent access.
-    // Works fine when the app is closed (WAL gets checkpointed on clean shutdown).
+    // Both bento-ya and bento-mcp share the same rusqlite build via Cargo workspace,
+    // so WAL/SHM formats are guaranteed compatible for concurrent access.
     let conn = Connection::open(&db_path).unwrap_or_else(|e| {
         eprintln!("Failed to open database at {}: {}", db_path, e);
         std::process::exit(1);
     });
 
     conn.execute_batch("PRAGMA journal_mode=WAL;").ok();
+    conn.execute_batch("PRAGMA foreign_keys=ON;").ok();
     conn.busy_timeout(std::time::Duration::from_secs(5)).ok();
 
     let stdin = io::stdin();
