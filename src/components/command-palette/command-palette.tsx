@@ -79,6 +79,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
   const activeTaskId = useUIStore((s) => s.activeTaskId)
   const togglePanel = useUIStore((s) => s.togglePanel)
   const openSettings = useSettingsStore((s) => s.openSettings)
+  const setActiveTab = useSettingsStore((s) => s.setActiveTab)
 
   // Build command list
   const commands = useMemo<Command[]>(() => {
@@ -167,8 +168,27 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
       action: () => { onShowShortcuts() },
     })
 
+    // Settings tab shortcuts
+    const settingsTabs = [
+      { id: 'workspace', label: 'Workspace settings' },
+      { id: 'appearance', label: 'Appearance settings' },
+      { id: 'agent', label: 'Agent settings' },
+      { id: 'mcp', label: 'Connect / MCP settings' },
+      { id: 'board', label: 'Board settings (cards, scripts, templates)' },
+      { id: 'voice', label: 'Voice settings' },
+      { id: 'advanced', label: 'Advanced settings (pipeline, git)' },
+    ]
+    for (const tab of settingsTabs) {
+      cmds.push({
+        id: `settings-tab-${tab.id}`,
+        label: tab.label,
+        category: 'Settings',
+        action: () => { setActiveTab(tab.id); openSettings() },
+      })
+    }
+
     return cmds
-  }, [tasks, columns, workspaces, activeWorkspaceId, activeTaskId, search, openTask, closeTask, addTask, duplicateTask, setActiveWorkspace, togglePanel, openSettings, onShowShortcuts])
+  }, [tasks, columns, workspaces, activeWorkspaceId, activeTaskId, search, openTask, closeTask, addTask, duplicateTask, setActiveWorkspace, togglePanel, openSettings, setActiveTab, onShowShortcuts])
 
   // Filter commands
   const filtered = useMemo(() => {

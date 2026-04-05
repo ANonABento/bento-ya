@@ -194,6 +194,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     (cardSettings.showTimestamp && !isPipelineActive) ||
     isPipelineActive ||
     task.siegeActive ||
+    task.model ||
     (cardSettings.showPrBadge && task.prNumber) ||
     (cardSettings.showCommentCount && task.prCommentCount > 0) ||
     (cardSettings.showLabels && labels.length > 0)
@@ -474,6 +475,13 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
             {/* Agent type */}
             {cardSettings.showAgentType && task.agentType && (
               <span className="text-text-secondary/70">{task.agentType}</span>
+            )}
+
+            {/* Model badge */}
+            {task.model && (
+              <span className="rounded bg-accent/10 px-1 py-0.5 text-[10px] font-medium text-accent">
+                {task.model}
+              </span>
             )}
 
             {/* Branch - truncated */}
