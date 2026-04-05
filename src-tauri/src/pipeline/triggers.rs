@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use tauri::{AppHandle, Emitter};
 
 use super::template::{self, TemplateContext};
-use super::{emit_pipeline, PipelineState};
+use super::{emit_pipeline, PipelineState, EVT_TRIGGERED, EVT_RUNNING, EVT_ADVANCED};
 
 // ─── V2 Trigger Types ─────────────────────────────────────────────────────
 
@@ -210,7 +210,7 @@ pub fn fire_on_entry(
         Option::None,
     )?;
 
-    emit_pipeline(app, "pipeline:triggered", &task.id, &column.id, PipelineState::Triggered, Some("V2 trigger fired".to_string()));
+    emit_pipeline(app, EVT_TRIGGERED, &task.id, &column.id, PipelineState::Triggered, Some("V2 trigger fired".to_string()));
 
     execute_action(conn, app, &updated_task, column, &action, prev_column)
 }
@@ -343,7 +343,7 @@ fn execute_spawn_cli(
         env_vars.insert("TRIGGER_FLAGS".to_string(), f.join(" "));
     }
 
-    emit_pipeline(app, "pipeline:running", &task.id, &column.id, PipelineState::Running, Some(format!("CLI trigger: {}", cli_type)));
+    emit_pipeline(app, EVT_RUNNING, &task.id, &column.id, PipelineState::Running, Some(format!("CLI trigger: {}", cli_type)));
 
     // Resolve model: task override > trigger config > none
     let resolved_model = task.model.as_deref().or(model).map(|m| m.to_string());
@@ -382,7 +382,7 @@ fn execute_move_column(
             rusqlite::params![col.id, max_pos + 1, ts, task.id],
         ).map_err(AppError::from)?;
 
-        emit_pipeline(app, "pipeline:advanced", &task.id, &col.id, PipelineState::Idle, Some(format!("Moved to {}", col.name)));
+        emit_pipeline(app, EVT_ADVANCED, &task.id, &col.id, PipelineState::Idle, Some(format!("Moved to {}", col.name)));
 
         let moved_task = db::get_task(conn, &task.id)?;
         super::emit_tasks_changed(app, &task.workspace_id, "trigger_move_column");
@@ -478,7 +478,7 @@ fn execute_run_script(
                 Option::None,
             )?;
 
-            emit_pipeline(app, "pipeline:running", &task.id, &column.id, PipelineState::Running, Some(format!("Running script: {}", script.name)));
+            emit_pipeline(app, EVT_RUNNING, &task.id, &column.id, PipelineState::Running, Some(format!("Running script: {}", script.name)));
 
             // Parse steps
             let steps: Vec<serde_json::Value> = serde_json::from_str(&script.steps)

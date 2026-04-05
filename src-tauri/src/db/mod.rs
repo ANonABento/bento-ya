@@ -164,7 +164,7 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         branch_name: row.get(8)?,
         files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
         checklist: row.get(10)?,
-        pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()),
+        pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()), // PipelineState::Idle
         pipeline_triggered_at: row.get(12)?,
         pipeline_error: row.get(13)?,
         retry_count: row.get::<_, Option<i64>>(42)?.unwrap_or(0),

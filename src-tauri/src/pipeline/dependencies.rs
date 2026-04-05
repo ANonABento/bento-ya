@@ -8,10 +8,10 @@ use crate::db::{self, Task};
 use crate::error::AppError;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use super::triggers::{self, TriggerActionV2};
-use super::PipelineEvent;
+use super::{emit_pipeline, PipelineState, EVT_UNBLOCKED, EVT_DEP_MOVED};
 
 /// A dependency from one task to another.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,13 +129,7 @@ pub fn check_dependents(
         if all_met && dependent_task.blocked {
             update_blocked(conn, &dependent_task.id, false)?;
 
-            let _ = app.emit("pipeline:unblocked", &PipelineEvent {
-                task_id: dependent_task.id.clone(),
-                column_id: dependent_task.column_id.clone(),
-                event_type: "unblocked".to_string(),
-                state: "idle".to_string(),
-                message: Some(format!("All dependencies met, unblocked by {}", source_task.title)),
-            });
+            emit_pipeline(app, EVT_UNBLOCKED, &dependent_task.id, &dependent_task.column_id, PipelineState::Idle, Some(format!("All dependencies met, unblocked by {}", source_task.title)));
         }
     }
 
@@ -170,13 +164,7 @@ fn execute_on_met(
                 )
                 .map_err(AppError::from)?;
 
-                let _ = app.emit("pipeline:dependency_moved", &PipelineEvent {
-                    task_id: dependent_task.id.clone(),
-                    column_id: col.id.clone(),
-                    event_type: "dependency_moved".to_string(),
-                    state: "idle".to_string(),
-                    message: Some(format!("Moved to {} by dependency", col.name)),
-                });
+                emit_pipeline(app, EVT_DEP_MOVED, &dependent_task.id, &col.id, PipelineState::Idle, Some(format!("Moved to {} by dependency", col.name)));
 
                 // Fire on_entry trigger for the new column
                 let updated_task = db::get_task(conn, &dependent_task.id)?;

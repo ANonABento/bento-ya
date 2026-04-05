@@ -646,7 +646,7 @@ pub fn retry_pipeline(
     let column = db::get_column(&conn, &task.column_id)?;
 
     // Clear the error and reset state to idle
-    db::update_task_pipeline_state(&conn, &task_id, "idle", None, None)?;
+    db::update_task_pipeline_state(&conn, &task_id, pipeline::PipelineState::Idle.as_str(), None, None)?;
 
     // Re-fire the trigger
     let task = db::get_task(&conn, &task_id)?;

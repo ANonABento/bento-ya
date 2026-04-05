@@ -54,6 +54,15 @@ impl PipelineState {
     }
 }
 
+// ─── Pipeline Event Names ──────────────────────────────────────────────────
+
+/// Event name constants for cross-module use (triggers.rs, dependencies.rs).
+pub const EVT_TRIGGERED: &str = "pipeline:triggered";
+pub const EVT_RUNNING: &str = "pipeline:running";
+pub const EVT_ADVANCED: &str = "pipeline:advanced";
+pub const EVT_UNBLOCKED: &str = "pipeline:unblocked";
+pub const EVT_DEP_MOVED: &str = "pipeline:dependency_moved";
+
 // ─── Pipeline Events ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize)]
@@ -186,7 +195,7 @@ pub fn check_exit_met(task: &Task, exit_type: &str) -> Option<bool> {
         "agent_complete" => {
             // If no session ID, check pipeline state as fallback
             if task.agent_session_id.is_none() {
-                Some(task.pipeline_state == "running" || task.pipeline_state == "complete")
+                Some(task.pipeline_state == PipelineState::Running.as_str() || task.pipeline_state == "complete")
             } else {
                 None // Needs DB lookup — caller handles
             }
@@ -285,7 +294,7 @@ pub fn evaluate_exit_criteria(
                                     || (session.status == "stopped" && session.exit_code == Some(0))
                             }
                             Err(_) => {
-                                task.pipeline_state == "running" || task.pipeline_state == "complete"
+                                task.pipeline_state == PipelineState::Running.as_str() || task.pipeline_state == "complete"
                             }
                         }
                     } else {
