@@ -79,15 +79,15 @@ See `.tickets/_docs/UNIFIED_CHAT.md` for the full migration plan (6 phases).
 
 ### Process Management (`src-tauri/src/process/`) — legacy, partially replaced
 
-`cli_session.rs` was removed in Phase 6. Remaining files are still load-bearing:
-- `agent_cli_session.rs` — Agent CLI sessions (used by Discord integration)
+`cli_session.rs` removed in Phase 6, Discord integration removed entirely. Remaining files still load-bearing:
+- `agent_cli_session.rs` — Agent CLI sessions (used by agent commands, siege)
 - `cli_shared.rs` — Shared CLI process utilities (imported by agent_cli_session)
 - `pty_manager.rs` — PTY-based terminal sessions (used by terminal view commands)
 - `agent_runner.rs` — Agent queue/lifecycle management
 
 ### Database (`src-tauri/src/db/`)
 
-SQLite with WAL mode. 25 versioned migrations.
+SQLite with WAL mode. 27 versioned migrations.
 - `models.rs` — All 18 model structs (Workspace, Column, Task, AgentSession, ChatSession, etc.)
 - `mod.rs` — Init, migrations, CRUD functions organized by domain section
 - `schema.rs` — Schema constants
@@ -112,7 +112,8 @@ Zustand stores, each focused on a single domain:
 | `kanban/` | Board, columns, task cards | `task-card.tsx`, `column-config-dialog.tsx` |
 | `panel/` | Chat interfaces | `orchestrator-panel.tsx`, `agent-panel.tsx`, `chat-input.tsx` |
 | `command-palette/` | Cmd+K command palette | `command-palette.tsx` |
-| `settings/` | Six-tab settings modal | `settings-panel.tsx`, `tabs/*.tsx` |
+| `settings/` | 7-tab settings panel | `settings-panel.tsx`, `tabs/*.tsx` |
+| `onboarding/` | First-launch wizard | `onboarding-wizard.tsx` |
 | `shared/` | Reusable atoms | `dialog.tsx`, `tooltip.tsx`, `badge.tsx`, etc. |
 | `layout/` | App shell | `board.tsx`, `tab-bar.tsx`, `split-view.tsx` |
 | `task-detail/` | Task detail panel | `task-detail-panel.tsx`, sections |
@@ -131,7 +132,23 @@ Unified automation layer for task lifecycle. Columns define `on_entry`/`on_exit`
 
 **How triggers route:** `fire_trigger()` in `pipeline/mod.rs` checks `column.triggers` JSON (V2 only). Legacy V1 trigger_config/exit_config columns have been dropped from the DB.
 
-**Dependencies:** Tasks can depend on other tasks. When a task completes (`mark_complete`), the dependency engine finds dependents, checks conditions, and executes `on_met` actions (usually moving blocked tasks to a ready column).
+**Dependencies (DAG):** Tasks can depend on other tasks with cycle detection (DFS). Visual SVG bezier lines on the board show dependency relationships. Conditions: `completed`, `moved_to_column`, `agent_complete`. When a blocker completes, `check_dependents()` finds dependents, checks if ALL deps met, executes `on_met` actions. Interactive editor in task settings modal (L key shortcut). Blocked cards show "Waiting for: Task A".
+
+**Model per task:** Each task can specify an AI model (opus/sonnet/haiku). Resolution: task.model > trigger.model > CLI default. Passed as `--model` flag to CLI.
+
+## MCP Server (`mcp-server/`)
+
+Standalone Rust binary exposing the board as MCP tools over stdio. Any MCP client (Claude Code, Cursor, choomfie) can manage tasks externally.
+
+```
+mcp-server/
+├── Cargo.toml
+└── src/main.rs    — 16 tools, ~800 lines
+```
+
+**Tools:** get_workspaces, get_board, get_task, create_task, update_task, move_task, delete_task, approve_task, reject_task, add_dependency, remove_dependency, mark_complete, retry_task, create_workspace, create_column, configure_triggers
+
+**Config:** `{ "command": "bento-mcp" }` — auto-detects DB at `~/.bentoya/data.db`
 
 ## Type System
 

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { AnimatePresence } from 'motion/react'
 import { initializeTheme } from '@/lib/theme'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useSettingsStore } from '@/stores/settings-store'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { usePrStatusPolling } from '@/hooks/use-pr-status-polling'
 import { useTaskSync } from '@/hooks/use-task-sync'
@@ -29,9 +30,11 @@ function App() {
   // Keyboard shortcuts
   const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
   const toggleCommandPalette = useCallback(() => { setShowCommandPalette((prev) => !prev) }, [])
+  const openSettings = useSettingsStore((s) => s.openSettings)
   useKeyboardShortcuts([
     { key: '/', meta: true, handler: toggleAbout },
     { key: 'k', meta: true, handler: toggleCommandPalette },
+    { key: ',', meta: true, handler: openSettings },
   ])
 
   // Auto-detect CLI paths on startup
