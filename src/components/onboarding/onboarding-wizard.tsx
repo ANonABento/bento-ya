@@ -16,7 +16,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [name, setName] = useState('')
   const [repoPath, setRepoPath] = useState('')
   const [template, setTemplate] = useState('standard')
-  const [cliId, setCliId] = useState('')
+  const [selectedClis, setSelectedClis] = useState<Set<string>>(new Set())
   const [isCreating, setIsCreating] = useState(false)
   const [gitStatus, setGitStatus] = useState<GitStatus>(null)
   const [error, setError] = useState<string | null>(null)
@@ -31,8 +31,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       .then((clis) => {
         const available = clis.filter((c) => c.isAvailable)
         setDetectedClis(available)
-        if (available.length > 0 && !cliId) {
-          setCliId(available[0]!.id)
+        if (available.length > 0) {
+          setSelectedClis(new Set(available.map(c => c.id)))
         }
       })
       .catch(() => {
@@ -194,7 +194,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             >
               {BUILT_IN_TEMPLATES.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.name} — {t.description}
+                  {t.name} ({t.columns.length} columns)
                 </option>
               ))}
             </select>
@@ -203,21 +203,34 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           {/* Agent selector */}
           <div>
             <label htmlFor="onboard-cli" className="mb-1 block text-xs font-medium text-text-secondary">
-              Agent CLI
+              Agent
             </label>
             {detectedClis.length > 0 ? (
-              <select
-                id="onboard-cli"
-                value={cliId}
-                onChange={(e) => { setCliId(e.target.value) }}
-                className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
-              >
+              <div className="space-y-1.5">
                 {detectedClis.map((cli) => (
-                  <option key={cli.id} value={cli.id}>
-                    {cli.name}{cli.version ? ` (${cli.version})` : ''}
-                  </option>
+                  <label
+                    key={cli.id}
+                    className="flex items-center gap-3 rounded-lg border border-border-default bg-bg px-3 py-2 cursor-pointer hover:bg-surface-hover transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedClis.has(cli.id)}
+                      onChange={() => {
+                        setSelectedClis(prev => {
+                          const next = new Set(prev)
+                          if (next.has(cli.id)) { next.delete(cli.id) } else { next.add(cli.id) }
+                          return next
+                        })
+                      }}
+                      className="rounded border-border-default accent-accent"
+                    />
+                    <div className="flex-1">
+                      <span className="text-sm text-text-primary">{cli.name}</span>
+                      {cli.version && <span className="ml-2 text-xs text-text-secondary">{cli.version}</span>}
+                    </div>
+                  </label>
                 ))}
-              </select>
+              </div>
             ) : (
               <p className="rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-secondary">
                 No agent CLIs detected. You can configure one later in Settings.
