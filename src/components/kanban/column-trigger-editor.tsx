@@ -272,7 +272,8 @@ function RunScriptEditor({
       setLoading(false)
       // Auto-select first script if none selected
       if (!action.script_id && s.length > 0) {
-        setAction({ ...action, script_id: s[0]!.id })
+        const first = s[0]
+        if (first) setAction({ ...action, script_id: first.id })
       }
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
