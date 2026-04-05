@@ -21,12 +21,12 @@ export function SplitView({ taskId, onClose }: SplitViewProps) {
       {/* Left panel — task details */}
       <motion.div
         initial={{ width: 0, opacity: 0 }}
-        animate={{ width: 240, opacity: 1 }}
+        animate={{ width: 280, opacity: 1 }}
         exit={{ width: 0, opacity: 0 }}
         transition={SPRING}
         className="shrink-0 overflow-hidden border-r border-border-default bg-surface"
       >
-        <div className="h-full w-[240px]">
+        <div className="h-full w-[280px]">
           <TaskDetailPanel task={task} onClose={onClose} />
         </div>
       </motion.div>
@@ -39,31 +39,30 @@ export function SplitView({ taskId, onClose }: SplitViewProps) {
         transition={SPRING}
         className="flex flex-1 flex-col overflow-hidden"
       >
-        <AgentPanel task={task} />
+        <AgentPanel task={task} onClose={onClose} />
       </motion.div>
     </div>
   )
 }
 
-export function SplitViewWrapper({
-  isSplitView,
+/** Side panel that slides in from the right, used alongside the kanban board */
+export function TaskSidePanel({
   taskId,
   onClose,
 }: {
-  isSplitView: boolean
   taskId: string | null
   onClose: () => void
 }) {
   return (
     <AnimatePresence mode="wait">
-      {isSplitView && taskId && (
+      {taskId && (
         <motion.div
-          key="split-view"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
-          className="h-full"
+          key="task-side-panel"
+          initial={{ width: 0, opacity: 0 }}
+          animate={{ width: '50%', opacity: 1 }}
+          exit={{ width: 0, opacity: 0 }}
+          transition={SPRING}
+          className="h-full shrink-0 overflow-hidden border-l border-border-default"
         >
           <SplitView taskId={taskId} onClose={onClose} />
         </motion.div>

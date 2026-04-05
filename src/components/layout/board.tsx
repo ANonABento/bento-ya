@@ -15,7 +15,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { Column } from '@/components/kanban/column'
 import { DragOverlayContent } from '@/components/kanban/drag-overlay'
 import { DependencyLines } from '@/components/kanban/dependency-lines'
-import { SplitViewWrapper } from '@/components/layout/split-view'
+import { TaskSidePanel } from '@/components/layout/split-view'
 import { OrchestratorPanel } from '@/components/panel/orchestrator-panel'
 import { useDnd } from '@/hooks/use-dnd'
 import { useSplitView } from '@/hooks/use-split-view'
@@ -74,16 +74,6 @@ export function Board() {
     }
   }
 
-  if (isSplitView) {
-    return (
-      <SplitViewWrapper
-        isSplitView={isSplitView}
-        taskId={activeTaskId}
-        onClose={closeSplitView}
-      />
-    )
-  }
-
   return (
     <CardPositionContext.Provider value={{ registerCard, positions }}>
       <DndContext
@@ -93,35 +83,42 @@ export function Board() {
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
       >
-        <div className="flex h-full flex-col">
-          <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
-            <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
-              {sortedColumns.map((col) => (
-                <Column key={col.id} column={col} />
-              ))}
-            </SortableContext>
+        <div className="flex h-full">
+          {/* Board + orchestrator panel (left side, shrinks when task panel open) */}
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
+              <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
+                {sortedColumns.map((col) => (
+                  <Column key={col.id} column={col} />
+                ))}
+              </SortableContext>
 
-            {/* Add column button - styled like a column */}
-            <button
-              onClick={handleAddColumn}
-              className="group flex h-full w-[280px] min-w-[200px] shrink-0 flex-col items-center justify-center gap-2 border-r border-dashed border-border-default bg-surface/10 text-text-secondary/40 transition-all hover:border-accent/50 hover:bg-accent/10 hover:text-accent"
-            >
-              {/* View columns plus icon */}
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-8 w-8">
-                <path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4M9 3v18M9 3h6m-6 18h6m0-18h4a2 2 0 0 1 2 2v6m-6-8v10" strokeLinecap="round"/>
-                <path d="M19 15v3m0 3v-3m0 0h-3m3 0h3" strokeLinecap="round"/>
-              </svg>
-              <span className="text-xs font-medium">Add Column</span>
-            </button>
+              {/* Add column button */}
+              {!isSplitView && (
+                <button
+                  onClick={handleAddColumn}
+                  className="group flex h-full w-[280px] min-w-[200px] shrink-0 flex-col items-center justify-center gap-2 border-r border-dashed border-border-default bg-surface/10 text-text-secondary/40 transition-all hover:border-accent/50 hover:bg-accent/10 hover:text-accent"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-8 w-8">
+                    <path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4M9 3v18M9 3h6m-6 18h6m0-18h4a2 2 0 0 1 2 2v6m-6-8v10" strokeLinecap="round"/>
+                    <path d="M19 15v3m0 3v-3m0 0h-3m3 0h3" strokeLinecap="round"/>
+                  </svg>
+                  <span className="text-xs font-medium">Add Column</span>
+                </button>
+              )}
 
-            {/* Dependency lines overlay */}
-            <DependencyLines tasks={tasks} positions={positions} />
+              {/* Dependency lines overlay */}
+              <DependencyLines tasks={tasks} positions={positions} />
+            </div>
+
+            {/* Orchestrator panel */}
+            {activeWorkspaceId && (
+              <OrchestratorPanel workspaceId={activeWorkspaceId} />
+            )}
           </div>
 
-          {/* Orchestrator panel */}
-          {activeWorkspaceId && (
-            <OrchestratorPanel workspaceId={activeWorkspaceId} />
-          )}
+          {/* Task side panel (slides in from right, board stays visible) */}
+          <TaskSidePanel taskId={activeTaskId} onClose={closeSplitView} />
         </div>
         <DragOverlay dropAnimation={null}>
           {overlayContent}
