@@ -247,7 +247,7 @@ pub fn fire_on_exit(
     Ok(())
 }
 
-/// Execute a trigger action.
+/// Execute a trigger action — dispatches to per-action handler.
 fn execute_action(
     conn: &Connection,
     app: &AppHandle,
@@ -257,218 +257,208 @@ fn execute_action(
     other_column: Option<&Column>,
 ) -> Result<Task, AppError> {
     match action {
-        TriggerActionV2::SpawnCli {
-            cli,
-            command,
-            prompt_template,
-            prompt,
-            flags,
-            use_queue: _,
-            model,
-        } => {
-            // Build template context
-            let workspace = db::get_workspace(conn, &task.workspace_id)?;
-
-            // Validate workspace repo_path exists
-            if !workspace.repo_path.is_empty() && !std::path::Path::new(&workspace.repo_path).exists() {
-                log::warn!("Workspace repo_path '{}' does not exist, agent may fail", workspace.repo_path);
-            }
-
-            let ctx = TemplateContext {
-                task,
-                column,
-                workspace: &workspace,
-                prev_column: other_column,
-                next_column: Option::None,
-                dep_tasks: HashMap::new(),
-            };
-
-            // Resolve prompt: direct prompt wins over template
-            let resolved_prompt = if let Some(p) = prompt {
-                if !p.is_empty() {
-                    template::interpolate(p, &ctx)
-                } else if let Some(tmpl) = prompt_template {
-                    template::interpolate(tmpl, &ctx)
-                } else {
-                    format!("{}\n\n{}", task.title, task.description.as_deref().unwrap_or(""))
-                }
-            } else if let Some(tmpl) = prompt_template {
-                template::interpolate(tmpl, &ctx)
-            } else {
-                // Default prompt
-                format!("{}\n\n{}", task.title, task.description.as_deref().unwrap_or(""))
-            };
-
-            let cli_type = cli.as_deref().unwrap_or("claude").to_string();
-
-            // Build initial prompt: prepend slash command if provided
-            let initial_prompt = if let Some(ref cmd) = command {
-                if resolved_prompt.is_empty() {
-                    cmd.clone()
-                } else {
-                    format!("{}\n\n{}", cmd, resolved_prompt)
-                }
-            } else {
-                resolved_prompt
-            };
-
-            // Store resolved prompt in task
-            let ts = db::now();
-            if let Err(e) = conn.execute(
-                "UPDATE tasks SET trigger_prompt = ?1, updated_at = ?2 WHERE id = ?3",
-                rusqlite::params![initial_prompt, ts, task.id],
-            ) {
-                log::warn!("Failed to store trigger prompt for task {}: {}", task.id, e);
-            }
-
-            // Set pipeline state to Running
-            let updated_task = db::update_task_pipeline_state(
-                conn,
-                &task.id,
-                PipelineState::Running.as_str(),
-                Some(&ts),
-                Option::None,
-            )?;
-
-            // Build env vars
-            let mut env_vars = HashMap::new();
-            env_vars.insert("WORKING_DIR".to_string(), workspace.repo_path.clone());
-            env_vars.insert("TRIGGER_PROMPT".to_string(), initial_prompt.clone());
-            if let Some(ref cmd) = command {
-                env_vars.insert("TRIGGER_COMMAND".to_string(), cmd.clone());
-            }
-            if let Some(ref f) = flags {
-                env_vars.insert("TRIGGER_FLAGS".to_string(), f.join(" "));
-            }
-
-            // Emit running event for frontend state visualization
-            emit_pipeline(app, "pipeline:running", &task.id, &column.id, PipelineState::Running, Some(format!("CLI trigger: {}", cli_type)));
-
-            // Resolve model: task override > trigger config > none (CLI default)
-            let resolved_model = task.model.as_deref()
-                .or(model.as_deref())
-                .map(|m| m.to_string());
-
-            let mut cli_args = Vec::new();
-            if let Some(ref m) = resolved_model {
-                cli_args.push("--model".to_string());
-                cli_args.push(m.clone());
-            }
-
-            // Spawn background task — directly runs PTY session, monitors exit,
-            // calls mark_complete. No frontend round-trip needed.
-            bridge::spawn_cli_trigger_task(
-                app.clone(),
-                task.id.clone(),
-                cli_type,
-                cli_args,
-                workspace.repo_path.clone(),
-                initial_prompt,
-                Some(env_vars),
-            );
-
-            Ok(updated_task)
+        TriggerActionV2::SpawnCli { cli, command, prompt_template, prompt, flags, use_queue: _, model } => {
+            execute_spawn_cli(conn, app, task, column, other_column, cli.as_deref(), command.as_deref(), prompt_template.as_deref(), prompt.as_deref(), flags.as_deref(), model.as_deref())
         }
-
         TriggerActionV2::MoveColumn { target } => {
-            let target_col = resolve_column_target(conn, task, target)?;
-            if let Some(col) = target_col {
-                let ts = db::now();
-                let max_pos: i64 = conn
-                    .query_row(
-                        "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
-                        rusqlite::params![col.id],
-                        |row| row.get(0),
-                    )
-                    .unwrap_or(-1);
-
-                conn.execute(
-                    "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', updated_at = ?3 WHERE id = ?4",
-                    rusqlite::params![col.id, max_pos + 1, ts, task.id],
-                )
-                .map_err(AppError::from)?;
-
-                emit_pipeline(app, "pipeline:advanced", &task.id, &col.id, PipelineState::Idle, Some(format!("Moved to {}", col.name)));
-
-                let moved_task = db::get_task(conn, &task.id)?;
-                // Notify frontend that tasks changed
-                super::emit_tasks_changed(app, &task.workspace_id, "trigger_move_column");
-                // Fire on_entry on the new column
-                let _ = super::fire_trigger(conn, app, &moved_task, &col);
-                return Ok(db::get_task(conn, &task.id)?);
-            }
-            Ok(task.clone())
+            execute_move_column(conn, app, task, target)
         }
-
-        TriggerActionV2::TriggerTask {
-            target_task,
-            action: task_action,
-            target_column,
-            inject_prompt,
-        } => {
-            // Look up target task
-            if let Ok(target) = db::get_task(conn, target_task) {
-                match task_action.as_str() {
-                    "move_column" => {
-                        if let Some(col_target) = target_column {
-                            let col = resolve_column_target(conn, &target, col_target)?;
-                            if let Some(col) = col {
-                                let ts = db::now();
-                                let max_pos: i64 = conn
-                                    .query_row(
-                                        "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
-                                        rusqlite::params![col.id],
-                                        |row| row.get(0),
-                                    )
-                                    .unwrap_or(-1);
-
-                                conn.execute(
-                                    "UPDATE tasks SET column_id = ?1, position = ?2, updated_at = ?3 WHERE id = ?4",
-                                    rusqlite::params![col.id, max_pos + 1, ts, target.id],
-                                )
-                                .map_err(AppError::from)?;
-                            }
-                        }
-                    }
-                    "unblock" => {
-                        // Unblock the target task
-                        conn.execute(
-                            "UPDATE tasks SET blocked = 0, updated_at = ?1 WHERE id = ?2",
-                            rusqlite::params![db::now(), target.id],
-                        )
-                        .map_err(AppError::from)?;
-                    }
-                    "start" => {
-                        // Fire trigger on the target task's current column
-                        let col = db::get_column(conn, &target.column_id)?;
-                        let _ = super::fire_trigger(conn, app, &target, &col);
-                    }
-                    _ => {}
-                }
-
-                // Inject prompt if specified
-                if let Some(inject) = inject_prompt {
-                    let workspace = db::get_workspace(conn, &task.workspace_id)?;
-                    let ctx = TemplateContext {
-                        task,
-                        column,
-                        workspace: &workspace,
-                        prev_column: Option::None,
-                        next_column: Option::None,
-                        dep_tasks: HashMap::new(),
-                    };
-                    let resolved = template::interpolate(inject, &ctx);
-                    conn.execute(
-                        "UPDATE tasks SET trigger_prompt = ?1, updated_at = ?2 WHERE id = ?3",
-                        rusqlite::params![resolved, db::now(), target.id],
-                    )
-                    .map_err(AppError::from)?;
-                }
-            }
-            Ok(task.clone())
+        TriggerActionV2::TriggerTask { target_task, action: task_action, target_column, inject_prompt } => {
+            execute_trigger_task(conn, app, task, column, target_task, task_action, target_column.as_deref(), inject_prompt.as_deref())
         }
-
         TriggerActionV2::RunScript { script_id } => {
+            execute_run_script(conn, app, task, column, other_column, script_id)
+        }
+        TriggerActionV2::None => Ok(task.clone()),
+    }
+}
+
+// ─── Per-Action Handlers ──────────────────────────────────────────────────
+
+fn execute_spawn_cli(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    column: &Column,
+    other_column: Option<&Column>,
+    cli: Option<&str>,
+    command: Option<&str>,
+    prompt_template: Option<&str>,
+    prompt: Option<&str>,
+    flags: Option<&[String]>,
+    model: Option<&str>,
+) -> Result<Task, AppError> {
+    let workspace = db::get_workspace(conn, &task.workspace_id)?;
+
+    if !workspace.repo_path.is_empty() && !std::path::Path::new(&workspace.repo_path).exists() {
+        log::warn!("Workspace repo_path '{}' does not exist, agent may fail", workspace.repo_path);
+    }
+
+    let ctx = TemplateContext {
+        task, column, workspace: &workspace,
+        prev_column: other_column, next_column: Option::None, dep_tasks: HashMap::new(),
+    };
+
+    // Resolve prompt: direct prompt wins over template
+    let resolved_prompt = if let Some(p) = prompt {
+        if !p.is_empty() { template::interpolate(p, &ctx) }
+        else if let Some(tmpl) = prompt_template { template::interpolate(tmpl, &ctx) }
+        else { format!("{}\n\n{}", task.title, task.description.as_deref().unwrap_or("")) }
+    } else if let Some(tmpl) = prompt_template {
+        template::interpolate(tmpl, &ctx)
+    } else {
+        format!("{}\n\n{}", task.title, task.description.as_deref().unwrap_or(""))
+    };
+
+    let cli_type = cli.unwrap_or("claude").to_string();
+
+    // Prepend slash command if provided
+    let initial_prompt = match command {
+        Some(cmd) if resolved_prompt.is_empty() => cmd.to_string(),
+        Some(cmd) => format!("{}\n\n{}", cmd, resolved_prompt),
+        None => resolved_prompt,
+    };
+
+    // Store resolved prompt
+    let ts = db::now();
+    if let Err(e) = conn.execute(
+        "UPDATE tasks SET trigger_prompt = ?1, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![initial_prompt, ts, task.id],
+    ) {
+        log::warn!("Failed to store trigger prompt for task {}: {}", task.id, e);
+    }
+
+    let updated_task = db::update_task_pipeline_state(
+        conn, &task.id, PipelineState::Running.as_str(), Some(&ts), Option::None,
+    )?;
+
+    // Build env vars
+    let mut env_vars = HashMap::new();
+    env_vars.insert("WORKING_DIR".to_string(), workspace.repo_path.clone());
+    env_vars.insert("TRIGGER_PROMPT".to_string(), initial_prompt.clone());
+    if let Some(cmd) = command {
+        env_vars.insert("TRIGGER_COMMAND".to_string(), cmd.to_string());
+    }
+    if let Some(f) = flags {
+        env_vars.insert("TRIGGER_FLAGS".to_string(), f.join(" "));
+    }
+
+    emit_pipeline(app, "pipeline:running", &task.id, &column.id, PipelineState::Running, Some(format!("CLI trigger: {}", cli_type)));
+
+    // Resolve model: task override > trigger config > none
+    let resolved_model = task.model.as_deref().or(model).map(|m| m.to_string());
+    let mut cli_args = Vec::new();
+    if let Some(ref m) = resolved_model {
+        cli_args.push("--model".to_string());
+        cli_args.push(m.clone());
+    }
+
+    bridge::spawn_cli_trigger_task(
+        app.clone(), task.id.clone(), cli_type, cli_args,
+        workspace.repo_path.clone(), initial_prompt, Some(env_vars),
+    );
+
+    Ok(updated_task)
+}
+
+fn execute_move_column(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    target: &str,
+) -> Result<Task, AppError> {
+    let target_col = resolve_column_target(conn, task, target)?;
+    if let Some(col) = target_col {
+        let ts = db::now();
+        let max_pos: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
+                rusqlite::params![col.id], |row| row.get(0),
+            )
+            .unwrap_or(-1);
+
+        conn.execute(
+            "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', updated_at = ?3 WHERE id = ?4",
+            rusqlite::params![col.id, max_pos + 1, ts, task.id],
+        ).map_err(AppError::from)?;
+
+        emit_pipeline(app, "pipeline:advanced", &task.id, &col.id, PipelineState::Idle, Some(format!("Moved to {}", col.name)));
+
+        let moved_task = db::get_task(conn, &task.id)?;
+        super::emit_tasks_changed(app, &task.workspace_id, "trigger_move_column");
+        let _ = super::fire_trigger(conn, app, &moved_task, &col);
+        return Ok(db::get_task(conn, &task.id)?);
+    }
+    Ok(task.clone())
+}
+
+fn execute_trigger_task(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    column: &Column,
+    target_task_id: &str,
+    task_action: &str,
+    target_column: Option<&str>,
+    inject_prompt: Option<&str>,
+) -> Result<Task, AppError> {
+    if let Ok(target) = db::get_task(conn, target_task_id) {
+        match task_action {
+            "move_column" => {
+                if let Some(col_target) = target_column {
+                    if let Some(col) = resolve_column_target(conn, &target, col_target)? {
+                        let ts = db::now();
+                        let max_pos: i64 = conn
+                            .query_row(
+                                "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
+                                rusqlite::params![col.id], |row| row.get(0),
+                            )
+                            .unwrap_or(-1);
+                        conn.execute(
+                            "UPDATE tasks SET column_id = ?1, position = ?2, updated_at = ?3 WHERE id = ?4",
+                            rusqlite::params![col.id, max_pos + 1, ts, target.id],
+                        ).map_err(AppError::from)?;
+                    }
+                }
+            }
+            "unblock" => {
+                conn.execute(
+                    "UPDATE tasks SET blocked = 0, updated_at = ?1 WHERE id = ?2",
+                    rusqlite::params![db::now(), target.id],
+                ).map_err(AppError::from)?;
+            }
+            "start" => {
+                let col = db::get_column(conn, &target.column_id)?;
+                let _ = super::fire_trigger(conn, app, &target, &col);
+            }
+            _ => {}
+        }
+
+        // Inject prompt if specified
+        if let Some(inject) = inject_prompt {
+            let workspace = db::get_workspace(conn, &task.workspace_id)?;
+            let ctx = TemplateContext {
+                task, column, workspace: &workspace,
+                prev_column: Option::None, next_column: Option::None, dep_tasks: HashMap::new(),
+            };
+            let resolved = template::interpolate(inject, &ctx);
+            conn.execute(
+                "UPDATE tasks SET trigger_prompt = ?1, updated_at = ?2 WHERE id = ?3",
+                rusqlite::params![resolved, db::now(), target.id],
+            ).map_err(AppError::from)?;
+        }
+    }
+    Ok(task.clone())
+}
+
+fn execute_run_script(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    column: &Column,
+    other_column: Option<&Column>,
+    script_id: &str,
+) -> Result<Task, AppError> {
             // Load script from DB and execute steps sequentially
             let script = db::get_script(conn, script_id)
                 .map_err(|_| AppError::NotFound(format!("Script '{}' not found", script_id)))?;
@@ -675,10 +665,6 @@ fn execute_action(
             });
 
             Ok(updated_task)
-        }
-
-        TriggerActionV2::None => Ok(task.clone()),
-    }
 }
 
 // Note: dependency task interpolation ({dep.<id>.title}) is handled at the
