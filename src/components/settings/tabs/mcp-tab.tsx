@@ -53,10 +53,11 @@ export function McpTab() {
 
       {/* Available tools */}
       <div className="rounded-lg border border-border-default p-4">
-        <h4 className="text-sm font-medium text-text-primary mb-2">12 Available Tools</h4>
+        <h4 className="text-sm font-medium text-text-primary mb-2">19 Available Tools</h4>
         <div className="grid grid-cols-2 gap-1 text-xs text-text-secondary font-mono">
           <span>get_workspaces</span>
           <span>get_board</span>
+          <span>get_task</span>
           <span>create_task</span>
           <span>update_task</span>
           <span>move_task</span>
@@ -67,6 +68,12 @@ export function McpTab() {
           <span>remove_dependency</span>
           <span>mark_complete</span>
           <span>retry_task</span>
+          <span>create_workspace</span>
+          <span>create_column</span>
+          <span>configure_triggers</span>
+          <span>list_scripts</span>
+          <span>create_script</span>
+          <span>run_script</span>
         </div>
       </div>
     </div>
