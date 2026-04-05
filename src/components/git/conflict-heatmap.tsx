@@ -120,7 +120,7 @@ export function ConflictHeatmap({ repoPath }: Props) {
               ) : (
                 <div className="flex items-center justify-center py-8">
                   <div className="text-center">
-                    <div className="mb-2 text-2xl">✨</div>
+                    <div className="mb-2 text-2xl text-success">&#10003;</div>
                     <span className="text-sm text-text-secondary">
                       No potential conflicts detected
                     </span>

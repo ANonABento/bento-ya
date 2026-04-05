@@ -9,6 +9,7 @@ import { useAgentStreamingSync } from '@/hooks/use-agent-streaming-sync'
 import { useAutoDetectClis } from '@/hooks/use-cli-path'
 import { Board } from '@/components/layout/board'
 import { WorkspaceSetup } from '@/components/layout/workspace-setup'
+import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard'
 import { TabBar } from '@/components/layout/tab-bar'
 import { SettingsPanel } from '@/components/settings/settings-panel'
 import { ChecklistPanel } from '@/components/checklist/checklist-panel'
@@ -57,10 +58,16 @@ function App() {
     })
   }, [load])
 
-  const showSetup = loaded && (workspaces.length === 0 || !activeWorkspaceId)
+  const isFirstLaunch = loaded && workspaces.length === 0
+  const showSetup = loaded && !isFirstLaunch && !activeWorkspaceId
 
   return (
     <div className="flex h-screen flex-col bg-bg">
+      {/* Onboarding wizard (full-screen overlay on first launch) */}
+      {isFirstLaunch && (
+        <OnboardingWizard onComplete={() => { void load() }} />
+      )}
+
       {/* Tab bar */}
       <TabBar />
 

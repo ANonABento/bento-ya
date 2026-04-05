@@ -94,7 +94,7 @@ export function ChecklistItemRow({ item, categoryId, onFixThis }: Props) {
                 className="inline-flex items-center gap-1 rounded bg-accent/20 px-1.5 py-0.5 text-[10px] font-medium text-accent"
                 title="Linked to task"
               >
-                🔗 Task
+                Linked Task
               </span>
             )}
           </div>

@@ -62,7 +62,6 @@ export function AboutModal({ onClose }: Props) {
         <div className="max-h-[calc(85vh-72px)] overflow-y-auto p-6">
           {/* Version Info */}
           <div className="mb-6 text-center">
-            <div className="mb-2 text-4xl">🍱</div>
             <h3 className="text-lg font-semibold text-text-primary">Bento-ya</h3>
             <p className="text-sm text-text-secondary">Version {VERSION}</p>
             <p className="mt-2 text-sm text-text-secondary">
