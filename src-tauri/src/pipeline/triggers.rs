@@ -1060,4 +1060,153 @@ mod tests {
         assert!(exit.auto_advance);
         assert_eq!(exit.max_retries, Some(2));
     }
+
+    // ─── ResolvedStep construction tests ──────────────────────────────
+
+    #[test]
+    fn test_resolved_step_from_bash_json() {
+        let step_json: serde_json::Value = serde_json::from_str(
+            r#"{"type": "bash", "name": "Build", "command": "npm run build", "continueOnError": true}"#
+        ).unwrap();
+
+        let step_type = step_json.get("type").and_then(|v| v.as_str()).unwrap();
+        let step_name = step_json.get("name").and_then(|v| v.as_str()).unwrap();
+        let command = step_json.get("command").and_then(|v| v.as_str()).unwrap();
+        let continue_on_error = step_json.get("continueOnError").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        assert_eq!(step_type, "bash");
+        assert_eq!(step_name, "Build");
+        assert_eq!(command, "npm run build");
+        assert!(continue_on_error);
+    }
+
+    #[test]
+    fn test_resolved_step_from_check_json() {
+        let step_json: serde_json::Value = serde_json::from_str(
+            r#"{"type": "check", "name": "Lint clean", "command": "npm run lint", "failMessage": "Lint errors"}"#
+        ).unwrap();
+
+        let step_type = step_json.get("type").and_then(|v| v.as_str()).unwrap();
+        let fail_message = step_json.get("failMessage").and_then(|v| v.as_str());
+
+        assert_eq!(step_type, "check");
+        assert_eq!(fail_message, Some("Lint errors"));
+    }
+
+    #[test]
+    fn test_resolved_step_from_agent_json() {
+        let step_json: serde_json::Value = serde_json::from_str(
+            r#"{"type": "agent", "name": "Review", "prompt": "Review this code", "model": "sonnet", "command": "/code-check"}"#
+        ).unwrap();
+
+        let step_type = step_json.get("type").and_then(|v| v.as_str()).unwrap();
+        let prompt = step_json.get("prompt").and_then(|v| v.as_str()).unwrap();
+        let model = step_json.get("model").and_then(|v| v.as_str());
+        let command = step_json.get("command").and_then(|v| v.as_str());
+
+        assert_eq!(step_type, "agent");
+        assert_eq!(prompt, "Review this code");
+        assert_eq!(model, Some("sonnet"));
+        assert_eq!(command, Some("/code-check"));
+    }
+
+    #[test]
+    fn test_resolved_step_defaults() {
+        // Step with minimal fields — should use defaults
+        let step_json: serde_json::Value = serde_json::from_str(
+            r#"{"type": "bash"}"#
+        ).unwrap();
+
+        let command = step_json.get("command").and_then(|v| v.as_str()).unwrap_or("");
+        let name = step_json.get("name").and_then(|v| v.as_str()).unwrap_or("Step");
+        let continue_on_error = step_json.get("continueOnError").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        assert_eq!(command, "");
+        assert_eq!(name, "Step");
+        assert!(!continue_on_error);
+    }
+
+    #[test]
+    fn test_built_in_script_steps_parse() {
+        // Verify all built-in script JSON actually parses
+        let built_in_steps = vec![
+            r#"[{"type":"bash","name":"Type check","command":"npm run type-check"},{"type":"bash","name":"Lint","command":"npm run lint"}]"#,
+            r#"[{"type":"bash","name":"Run tests","command":"npm test"}]"#,
+            r#"[{"type":"bash","name":"Push branch","command":"git push -u origin HEAD"},{"type":"bash","name":"Create PR","command":"gh pr create --title '{task.title}' --fill"}]"#,
+            r#"[{"type":"agent","name":"Review code","prompt":"Review the changes","model":"sonnet"}]"#,
+            r#"[{"type":"bash","name":"Type check","command":"npm run type-check"},{"type":"bash","name":"Tests","command":"npm test"},{"type":"check","name":"Lint clean","command":"npm run lint","failMessage":"Lint errors found"},{"type":"bash","name":"Create PR","command":"gh pr create --title '{task.title}' --fill"}]"#,
+        ];
+
+        for steps_json in built_in_steps {
+            let parsed: Vec<serde_json::Value> = serde_json::from_str(steps_json)
+                .expect(&format!("Failed to parse: {}", steps_json));
+            assert!(!parsed.is_empty());
+            for step in &parsed {
+                let step_type = step.get("type").and_then(|v| v.as_str());
+                assert!(step_type.is_some(), "Step missing type field");
+                assert!(
+                    matches!(step_type.unwrap(), "bash" | "agent" | "check"),
+                    "Invalid step type: {:?}", step_type
+                );
+            }
+        }
+    }
+
+    // ─── Exit criteria parsing tests ──────────────────────────────────
+
+    #[test]
+    fn test_exit_criteria_type_extraction() {
+        // Mimics the JSON parsing in evaluate_exit_criteria
+        let triggers_json = r#"{"exit_criteria": {"type": "agent_complete", "auto_advance": true}}"#;
+        let parsed: serde_json::Value = serde_json::from_str(triggers_json).unwrap();
+        let exit_type = parsed.get("exit_criteria")
+            .and_then(|v| v.get("type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("manual");
+        assert_eq!(exit_type, "agent_complete");
+    }
+
+    #[test]
+    fn test_exit_criteria_missing_defaults_to_manual() {
+        let triggers_json = r#"{}"#;
+        let parsed: serde_json::Value = serde_json::from_str(triggers_json).unwrap();
+        let exit_type = parsed.get("exit_criteria")
+            .and_then(|v| v.get("type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("manual");
+        assert_eq!(exit_type, "manual");
+    }
+
+    #[test]
+    fn test_max_retries_extraction() {
+        let triggers_json = r#"{"exit_criteria": {"type": "agent_complete", "max_retries": 3}}"#;
+        let parsed: serde_json::Value = serde_json::from_str(triggers_json).unwrap();
+        let max_retries = parsed.get("exit_criteria")
+            .and_then(|v| v.get("max_retries"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        assert_eq!(max_retries, 3);
+    }
+
+    #[test]
+    fn test_auto_advance_extraction() {
+        let triggers_json = r#"{"exit_criteria": {"type": "script_success", "auto_advance": true}}"#;
+        let parsed: serde_json::Value = serde_json::from_str(triggers_json).unwrap();
+        let auto_advance = parsed.get("exit_criteria")
+            .and_then(|v| v.get("auto_advance"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        assert!(auto_advance);
+    }
+
+    #[test]
+    fn test_timeout_extraction() {
+        let triggers_json = r#"{"exit_criteria": {"type": "time_elapsed", "timeout": 600}}"#;
+        let parsed: serde_json::Value = serde_json::from_str(triggers_json).unwrap();
+        let timeout = parsed.get("exit_criteria")
+            .and_then(|v| v.get("timeout"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(300);
+        assert_eq!(timeout, 600);
+    }
 }

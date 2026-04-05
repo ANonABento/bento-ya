@@ -2318,4 +2318,65 @@ mod tests {
         let scripts = list_scripts(&conn).unwrap();
         assert_eq!(scripts.len(), 5);
     }
+
+    #[test]
+    fn test_script_update_preserves_unchanged_fields() {
+        let conn = init_test().unwrap();
+        let script = insert_script(&conn, "s1", "Original", "Desc", "[{\"type\":\"bash\",\"command\":\"echo hi\"}]", false).unwrap();
+        assert_eq!(script.name, "Original");
+        assert_eq!(script.description, "Desc");
+
+        // Update only name — description and steps should be preserved
+        let updated = update_script(&conn, "s1", Some("New Name"), None, None).unwrap();
+        assert_eq!(updated.name, "New Name");
+        assert_eq!(updated.description, "Desc");
+        assert!(updated.steps.contains("echo hi"));
+    }
+
+    #[test]
+    fn test_script_get_nonexistent_returns_error() {
+        let conn = init_test().unwrap();
+        let result = get_script(&conn, "nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_script_delete_nonexistent_succeeds() {
+        let conn = init_test().unwrap();
+        // DELETE on nonexistent row succeeds (0 rows affected, no error)
+        let result = delete_script(&conn, "nonexistent");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_script_list_ordering() {
+        let conn = init_test().unwrap();
+        // Seed built-ins first
+        seed_built_in_scripts(&conn).unwrap();
+        // Add a custom script
+        insert_script(&conn, "custom-1", "Zebra Script", "Custom", "[]", false).unwrap();
+        insert_script(&conn, "custom-2", "Alpha Script", "Custom", "[]", false).unwrap();
+
+        let scripts = list_scripts(&conn).unwrap();
+        // Built-in scripts come first (is_built_in DESC), then by name
+        assert_eq!(scripts.len(), 7);
+        assert!(scripts[0].is_built_in, "Built-ins should come first");
+        // Custom scripts should be last, sorted by name
+        let custom: Vec<&str> = scripts.iter().filter(|s| !s.is_built_in).map(|s| s.name.as_str()).collect();
+        assert_eq!(custom, vec!["Alpha Script", "Zebra Script"]);
+    }
+
+    #[test]
+    fn test_script_built_in_steps_are_valid_json() {
+        let conn = init_test().unwrap();
+        seed_built_in_scripts(&conn).unwrap();
+        let scripts = list_scripts(&conn).unwrap();
+
+        for script in &scripts {
+            let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(&script.steps);
+            assert!(parsed.is_ok(), "Built-in '{}' has invalid steps JSON: {}", script.name, script.steps);
+            let steps = parsed.unwrap();
+            assert!(!steps.is_empty(), "Built-in '{}' has no steps", script.name);
+        }
+    }
 }
