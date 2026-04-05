@@ -74,6 +74,24 @@ pub struct TasksChangedEvent {
     pub reason: String,
 }
 
+/// Emit a pipeline lifecycle event to the frontend.
+pub fn emit_pipeline(
+    app: &AppHandle,
+    event_name: &str,
+    task_id: &str,
+    column_id: &str,
+    state: PipelineState,
+    message: Option<String>,
+) {
+    let _ = app.emit(event_name, &PipelineEvent {
+        task_id: task_id.to_string(),
+        column_id: column_id.to_string(),
+        event_type: event_name.trim_start_matches("pipeline:").to_string(),
+        state: state.as_str().to_string(),
+        message,
+    });
+}
+
 /// Emit a global tasks:changed event so the frontend re-fetches.
 pub fn emit_tasks_changed(app: &AppHandle, workspace_id: &str, reason: &str) {
     let _ = app.emit("tasks:changed", &TasksChangedEvent {
@@ -250,13 +268,7 @@ pub fn evaluate_exit_criteria(
         task.pipeline_triggered_at.as_deref(), None,
     );
 
-    let _ = app.emit("pipeline:evaluating", &PipelineEvent {
-        task_id: task.id.clone(),
-        column_id: column.id.clone(),
-        event_type: "evaluating".to_string(),
-        state: PipelineState::Evaluating.as_str().to_string(),
-        message: Some(format!("Exit type: {}", exit_type)),
-    });
+    emit_pipeline(app, "pipeline:evaluating", &task.id, &column.id, PipelineState::Evaluating, Some(format!("Exit type: {}", exit_type)));
 
     // Try pure check first, fall back to external checks
     let exit_met = match check_exit_met(task, &exit_type) {
@@ -320,13 +332,7 @@ pub fn evaluate_exit_criteria(
     };
 
     if exit_met {
-        let _ = app.emit("pipeline:exit_met", &PipelineEvent {
-            task_id: task.id.clone(),
-            column_id: column.id.clone(),
-            event_type: "exit_met".to_string(),
-            state: PipelineState::Evaluating.as_str().to_string(),
-            message: Some(format!("Exit criteria met: {}", exit_type)),
-        });
+        emit_pipeline(app, "pipeline:exit_met", &task.id, &column.id, PipelineState::Evaluating, Some(format!("Exit criteria met: {}", exit_type)));
     }
 
     // Reset state to running or idle
@@ -381,13 +387,7 @@ pub fn try_auto_advance(
                 None,
             );
 
-            let _ = app.emit("pipeline:advancing", &PipelineEvent {
-                task_id: task.id.clone(),
-                column_id: current_column.id.clone(),
-                event_type: "advancing".to_string(),
-                state: PipelineState::Advancing.as_str().to_string(),
-                message: Some(format!("Moving to column: {}", next_col.name)),
-            });
+            emit_pipeline(app, "pipeline:advancing", &task.id, &current_column.id, PipelineState::Advancing, Some(format!("Moving to column: {}", next_col.name)));
 
             // Get next position in target column
             let max_pos: i64 = conn
@@ -407,13 +407,7 @@ pub fn try_auto_advance(
 
             let updated_task = db::get_task(conn, &task.id)?;
 
-            let _ = app.emit("pipeline:advanced", &PipelineEvent {
-                task_id: updated_task.id.clone(),
-                column_id: next_col.id.clone(),
-                event_type: "advanced".to_string(),
-                state: PipelineState::Idle.as_str().to_string(),
-                message: Some(format!("Moved from {} to {}", current_column.name, next_col.name)),
-            });
+            emit_pipeline(app, "pipeline:advanced", &updated_task.id, &next_col.id, PipelineState::Idle, Some(format!("Moved from {} to {}", current_column.name, next_col.name)));
 
             // Notify frontend that tasks changed
             emit_tasks_changed(app, &task.workspace_id, "pipeline_advanced");
@@ -453,13 +447,7 @@ pub fn handle_trigger_failure(
         Some(error_message),
     )?;
 
-    let _ = app.emit("pipeline:error", &PipelineEvent {
-        task_id: task.id.clone(),
-        column_id: column.id.clone(),
-        event_type: "error".to_string(),
-        state: PipelineState::Idle.as_str().to_string(),
-        message: Some(error_message.to_string()),
-    });
+    emit_pipeline(app, "pipeline:error", &task.id, &column.id, PipelineState::Idle, Some(error_message.to_string()));
 
     Ok(updated_task)
 }
@@ -528,13 +516,7 @@ pub fn mark_complete(
             increment_retry_count(conn, task_id)?;
             log::info!("[pipeline] Auto-retrying task {} (attempt {}/{})", task_id, attempt, max);
 
-            let _ = app.emit("pipeline:error", &PipelineEvent {
-                task_id: task_id.to_string(),
-                column_id: column.id.clone(),
-                event_type: "retry".to_string(),
-                state: PipelineState::Idle.as_str().to_string(),
-                message: Some(format!("Retrying ({}/{})", attempt, max)),
-            });
+            emit_pipeline(app, "pipeline:error", task_id, &column.id, PipelineState::Idle, Some(format!("Retrying ({}/{})", attempt, max)));
 
             let updated_task = db::get_task(conn, task_id)?;
             fire_trigger(conn, app, &updated_task, &column)
@@ -550,13 +532,7 @@ pub fn mark_complete(
 }
 
 fn emit_completion_event(app: &AppHandle, task_id: &str, column_id: &str, workspace_id: &str, success: bool) {
-    let _ = app.emit("pipeline:complete", &PipelineEvent {
-        task_id: task_id.to_string(),
-        column_id: column_id.to_string(),
-        event_type: "complete".to_string(),
-        state: PipelineState::Idle.as_str().to_string(),
-        message: Some(if success { "Success" } else { "Failed" }.to_string()),
-    });
+    emit_pipeline(app, "pipeline:complete", task_id, column_id, PipelineState::Idle, Some(if success { "Success" } else { "Failed" }.to_string()));
     emit_tasks_changed(app, workspace_id, "pipeline_complete");
 }
 

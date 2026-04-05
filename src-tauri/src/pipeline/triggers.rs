@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use tauri::{AppHandle, Emitter};
 
 use super::template::{self, TemplateContext};
-use super::{PipelineEvent, PipelineState};
+use super::{emit_pipeline, PipelineState};
 
 // ─── V2 Trigger Types ─────────────────────────────────────────────────────
 
@@ -210,16 +210,7 @@ pub fn fire_on_entry(
         Option::None,
     )?;
 
-    let _ = app.emit(
-        "pipeline:triggered",
-        &PipelineEvent {
-            task_id: task.id.clone(),
-            column_id: column.id.clone(),
-            event_type: "triggered".to_string(),
-            state: PipelineState::Triggered.as_str().to_string(),
-            message: Some("V2 trigger fired".to_string()),
-        },
-    );
+    emit_pipeline(app, "pipeline:triggered", &task.id, &column.id, PipelineState::Triggered, Some("V2 trigger fired".to_string()));
 
     execute_action(conn, app, &updated_task, column, &action, prev_column)
 }
@@ -351,16 +342,7 @@ fn execute_action(
             }
 
             // Emit running event for frontend state visualization
-            let _ = app.emit(
-                "pipeline:running",
-                &PipelineEvent {
-                    task_id: task.id.clone(),
-                    column_id: column.id.clone(),
-                    event_type: "running".to_string(),
-                    state: PipelineState::Running.as_str().to_string(),
-                    message: Some(format!("CLI trigger: {}", cli_type)),
-                },
-            );
+            emit_pipeline(app, "pipeline:running", &task.id, &column.id, PipelineState::Running, Some(format!("CLI trigger: {}", cli_type)));
 
             // Resolve model: task override > trigger config > none (CLI default)
             let resolved_model = task.model.as_deref()
@@ -406,16 +388,7 @@ fn execute_action(
                 )
                 .map_err(AppError::from)?;
 
-                let _ = app.emit(
-                    "pipeline:advanced",
-                    &PipelineEvent {
-                        task_id: task.id.clone(),
-                        column_id: col.id.clone(),
-                        event_type: "advanced".to_string(),
-                        state: "idle".to_string(),
-                        message: Some(format!("Moved to {}", col.name)),
-                    },
-                );
+                emit_pipeline(app, "pipeline:advanced", &task.id, &col.id, PipelineState::Idle, Some(format!("Moved to {}", col.name)));
 
                 let moved_task = db::get_task(conn, &task.id)?;
                 // Notify frontend that tasks changed
@@ -515,16 +488,7 @@ fn execute_action(
                 Option::None,
             )?;
 
-            let _ = app.emit(
-                "pipeline:running",
-                &PipelineEvent {
-                    task_id: task.id.clone(),
-                    column_id: column.id.clone(),
-                    event_type: "running".to_string(),
-                    state: PipelineState::Running.as_str().to_string(),
-                    message: Some(format!("Running script: {}", script.name)),
-                },
-            );
+            emit_pipeline(app, "pipeline:running", &task.id, &column.id, PipelineState::Running, Some(format!("Running script: {}", script.name)));
 
             // Parse steps
             let steps: Vec<serde_json::Value> = serde_json::from_str(&script.steps)
