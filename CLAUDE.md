@@ -118,7 +118,7 @@ Zustand stores, each focused on a single domain:
 - `attention-store.ts` — Notification badges
 - `templates-store.ts` — Pipeline templates
 - `ui-store.ts` — UI state (panels, modals)
-- `agent-streaming-store.ts` — Ephemeral per-task agent streaming data (live cards)
+- `agent-streaming-store.ts` — Ephemeral per-task agent streaming data (live cards + chat panel catchup). Stores full content, thinking, and tool calls for trigger-spawned agent catchup when chat panel opens late.
 - `script-store.ts` — Zustand store for caching scripts. Methods: `load()` (loads once, skips if loaded), `getScriptName(id)` (lookup by ID). Used by Column component (trigger badge) and Board (loads on mount)
 
 ### Frontend Components (`src/components/`)
