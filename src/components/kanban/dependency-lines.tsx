@@ -18,19 +18,56 @@ type LineData = {
   id: string
   fromId: string
   toId: string
-  condition: string
   path: string
-  color: string
 }
 
-const CONDITION_COLORS: Record<string, string> = {
-  completed: '#4ade80',
-  moved_to_column: '#60a5fa',
-  agent_complete: '#f59e0b',
-}
-const DEFAULT_COLOR = '#a78bfa'
+const LINE_COLOR = '#f59e0b' // amber-400
 
-/** Build SVG cubic bezier path string. */
+/**
+ * React Flow-inspired bezier path calculation.
+ *
+ * Forward:  cpOffset = max(dx * 0.5, 50)
+ * Reverse:  cpOffset = 25 * sqrt(abs(dx))  (prevents collapse on close nodes)
+ *
+ * Control points are always horizontal from the endpoints,
+ * so arrows approach the card edge cleanly.
+ */
+function calcPath(
+  fromRect: CardRect, fromY: number,
+  toRect: CardRect, toY: number,
+): string {
+  const fromCx = fromRect.x + fromRect.width / 2
+  const toCx = toRect.x + toRect.width / 2
+
+  // Pick exit/entry edges based on relative position — always face each other
+  let sx: number, tx: number, exitDir: number, entryDir: number
+
+  if (toCx >= fromCx) {
+    // Target is to the RIGHT: exit right, enter left
+    sx = fromRect.x + fromRect.width
+    tx = toRect.x
+    exitDir = 1
+    entryDir = -1
+  } else {
+    // Target is to the LEFT: exit left, enter right
+    sx = fromRect.x
+    tx = toRect.x + toRect.width
+    exitDir = -1
+    entryDir = 1
+  }
+
+  const gap = Math.abs(tx - sx)
+  const offset = Math.max(gap * 0.5, 60)
+
+  return [
+    'M', String(sx), String(fromY),
+    'C', String(sx + offset * exitDir), String(fromY) + ',',
+    String(tx + offset * entryDir), String(toY) + ',',
+    String(tx), String(toY),
+  ].join(' ')
+}
+
+/** Also exported for dep-drag-preview. */
 export function svgPath(
   mx: number, my: number,
   c1x: number, c1y: number,
@@ -39,8 +76,8 @@ export function svgPath(
 ): string {
   return [
     'M', String(mx), String(my),
-    'C', String(c1x), String(c1y),
-    String(c2x), String(c2y),
+    'C', String(c1x), String(c1y) + ',',
+    String(c2x), String(c2y) + ',',
     String(ex), String(ey),
   ].join(' ')
 }
@@ -51,10 +88,9 @@ function parseDeps(json: string | null): ParsedDep[] {
 }
 
 /**
- * Count how many lines connect to each card edge, and return the Y offset
- * for a specific connection index. Spreads ports evenly along the card edge.
+ * Spread multiple connection ports evenly along a card edge.
  */
-type PortTracker = Map<string, number> // cardId → next port index
+type PortTracker = Map<string, number>
 function getPortY(
   rect: CardRect,
   cardId: string,
@@ -67,8 +103,7 @@ function getPortY(
 
   if (total === 1) return rect.y + rect.height / 2
 
-  // Spread ports along the card's right/left edge with 8px padding top/bottom
-  const padding = 8
+  const padding = 10
   const usableHeight = rect.height - padding * 2
   const spacing = usableHeight / (total + 1)
   return rect.y + padding + spacing * (idx + 1)
@@ -78,9 +113,9 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
   const lines = useMemo(() => {
     const result: LineData[] = []
 
-    // First pass: count ports per card edge (outgoing from right, incoming to left)
-    const outPorts = new Map<string, number>() // blocker card → count of outgoing lines
-    const inPorts = new Map<string, number>()  // dependent card → count of incoming lines
+    // Count ports per card edge
+    const outPorts = new Map<string, number>()
+    const inPorts = new Map<string, number>()
 
     for (const task of tasks) {
       const deps = parseDeps(task.dependencies)
@@ -91,7 +126,6 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
       }
     }
 
-    // Second pass: build lines with spread port positions
     const outTracker: PortTracker = new Map()
     const inTracker: PortTracker = new Map()
 
@@ -107,41 +141,11 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
         const fromY = getPortY(fromRect, dep.task_id, outTracker, outPorts)
         const toY = getPortY(toRect, task.id, inTracker, inPorts)
 
-        const fromX = fromRect.x + fromRect.width
-        const toX = toRect.x
-
-        const sameColumn = Math.abs(fromRect.x - toRect.x) < 20
-
-        let path: string
-        if (sameColumn) {
-          // Same column: curve outward to the right
-          const offset = 35
-          path = svgPath(fromX, fromY, fromX + offset, fromY, fromX + offset, toY, fromX, toY)
-        } else if (toX < fromRect.x) {
-          // Reversed: blocker right of dependent
-          const ax = fromRect.x
-          const bx = toRect.x + toRect.width
-          const mx = (ax + bx) / 2
-          path = svgPath(ax, fromY, mx, fromY, mx, toY, bx, toY)
-        } else {
-          // Normal: clean bezier with control points pulled toward the midpoint
-          const gap = toX - fromX
-          const cpOffset = Math.min(gap * 0.4, 80) // control point distance, capped
-          path = svgPath(
-            fromX, fromY,
-            fromX + cpOffset, fromY,
-            toX - cpOffset, toY,
-            toX, toY,
-          )
-        }
-
         result.push({
           id: `${dep.task_id}-${task.id}`,
           fromId: dep.task_id,
           toId: task.id,
-          condition: dep.condition,
-          path,
-          color: CONDITION_COLORS[dep.condition] || DEFAULT_COLOR,
+          path: calcPath(fromRect, fromY, toRect, toY),
         })
       }
     }
@@ -149,7 +153,7 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
     return result
   }, [tasks, positions])
 
-  // Only show lines connected to the hovered card
+  // Only show lines for the hovered card
   if (!hoveredTaskId || lines.length === 0) return null
 
   const visibleLines = lines.filter(
@@ -163,61 +167,18 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
       className="absolute inset-0 pointer-events-none overflow-visible"
       style={{ zIndex: 10 }}
     >
-      <defs>
-        {Object.entries(CONDITION_COLORS).map(([condition, color]) => (
-          <marker
-            key={condition}
-            id={`dep-arrow-${condition}`}
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="7"
-            markerHeight="7"
-            orient="auto-start-reverse"
-          >
-            <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill={color} opacity="0.9" />
-          </marker>
-        ))}
-        <marker
-          id="dep-arrow-default"
-          viewBox="0 0 10 10"
-          refX="9"
-          refY="5"
-          markerWidth="7"
-          markerHeight="7"
-          orient="auto-start-reverse"
-        >
-          <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill={DEFAULT_COLOR} opacity="0.9" />
-        </marker>
-      </defs>
-
-      {visibleLines.map((line) => {
-        const markerId = CONDITION_COLORS[line.condition]
-          ? `dep-arrow-${line.condition}`
-          : 'dep-arrow-default'
-
-        return (
-          <g key={line.id}>
-            <path
-              d={line.path}
-              stroke={line.color}
-              strokeWidth="6"
-              fill="none"
-              opacity="0.1"
-              strokeLinecap="round"
-            />
-            <path
-              d={line.path}
-              stroke={line.color}
-              strokeWidth="2"
-              fill="none"
-              opacity="0.85"
-              strokeLinecap="round"
-              markerEnd={`url(#${markerId})`}
-            />
-          </g>
-        )
-      })}
+      {visibleLines.map((line) => (
+        <g key={line.id}>
+          <path
+            d={line.path}
+            stroke={LINE_COLOR}
+            strokeWidth="2"
+            fill="none"
+            opacity="0.7"
+            strokeLinecap="round"
+          />
+        </g>
+      ))}
     </svg>
   )
 }

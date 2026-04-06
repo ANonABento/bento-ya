@@ -51,7 +51,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const actions = useTaskCardActions(task)
 
   const { registerCard } = useCardPosition()
-  const { onDepDragStart, setHoveredTaskId } = useDepDragContext()
+  const { onDepDragStart, setHoveredTaskId, hoveredTaskId } = useDepDragContext()
 
   const {
     attributes,
@@ -138,6 +138,31 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     try { return (JSON.parse(task.dependencies) as unknown[]).length } catch { return 0 }
   }, [task.dependencies])
 
+  // Is this card connected to the hovered card? (for highlight/dim)
+  const isConnectedToHovered = useMemo(() => {
+    if (!hoveredTaskId || hoveredTaskId === task.id) return false
+    // Check if hovered card is in our blockers
+    if (task.dependencies) {
+      try {
+        const deps = JSON.parse(task.dependencies) as Array<{ task_id: string }>
+        if (deps.some((d) => d.task_id === hoveredTaskId)) return true
+      } catch { /* empty */ }
+    }
+    // Check if we are in the hovered card's blockers
+    const hoveredTask = useTaskStore.getState().tasks.find((t) => t.id === hoveredTaskId)
+    if (hoveredTask?.dependencies) {
+      try {
+        const deps = JSON.parse(hoveredTask.dependencies) as Array<{ task_id: string }>
+        if (deps.some((d) => d.task_id === task.id)) return true
+      } catch { /* empty */ }
+    }
+    return false
+  }, [hoveredTaskId, task.id, task.dependencies])
+
+  const isHovered = hoveredTaskId === task.id
+  const someCardHovered = hoveredTaskId !== null
+  const isDimmed = someCardHovered && !isHovered && !isConnectedToHovered
+
   const hasMetadata = (cardSettings.showBranch && task.branch) ||
     (cardSettings.showAgentType && task.agentType) ||
     (cardSettings.showTimestamp && !isPipelineActive) ||
@@ -156,8 +181,8 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       style={{
         ...style,
         cursor: 'pointer',
-        opacity: isDragging ? 0.4 : 1,
-        transition: isDragging ? 'opacity 150ms' : 'transform 200ms ease, opacity 150ms',
+        opacity: isDragging ? 0.4 : isDimmed ? 0.3 : task.blocked ? 0.7 : 1,
+        transition: 'transform 200ms ease, opacity 200ms ease',
       }}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
@@ -197,7 +222,13 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         }
       }}
       tabIndex={0}
-      className={`group relative rounded-lg border border-border-default bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent hover:border-accent/50 hover:bg-surface-hover ${isDragging ? 'z-0' : 'hover:z-10'} ${hasPipelineError ? 'border-l-4 border-l-error' : isPipelineActive ? `border-l-4 ${PIPELINE_COLORS[task.pipelineState]}` : ''}`}
+      className={`group relative rounded-lg border bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+        isConnectedToHovered ? 'border-amber-400 ring-1 ring-amber-400/50 z-10' :
+        isHovered ? 'border-accent ring-1 ring-accent/50 z-10' :
+        'border-border-default hover:border-accent/50 hover:bg-surface-hover'
+      } ${isDragging ? 'z-0' : !isConnectedToHovered && !isHovered ? 'hover:z-10' : ''} ${
+        hasPipelineError ? 'border-l-4 border-l-error' : isPipelineActive ? `border-l-4 ${PIPELINE_COLORS[task.pipelineState]}` : ''
+      }`}
       onPointerDownCapture={(e) => {
         if (e.metaKey || e.ctrlKey) {
           onDepDragStart(e, task.id)

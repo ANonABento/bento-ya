@@ -17,12 +17,12 @@ export function AttentionBanner({ attention }: { attention: AttentionItem }) {
 /** Blocked by dependencies banner */
 export function BlockedBanner({ blockerInfo }: { blockerInfo: string | null }) {
   return (
-    <div className="flex items-center gap-1.5 rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-500">
+    <div className="flex items-center gap-1.5 rounded bg-amber-500/10 px-2 py-1 text-[11px] text-amber-400">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
         <path fillRule="evenodd" d="M8 1a3.5 3.5 0 0 0-3.5 3.5V7A1.5 1.5 0 0 0 3 8.5v5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 11.5 7V4.5A3.5 3.5 0 0 0 8 1Zm2 6V4.5a2 2 0 1 0-4 0V7h4Z" clipRule="evenodd" />
       </svg>
       <span className="truncate">
-        {blockerInfo ? `Waiting for: ${blockerInfo}` : 'Blocked by dependencies'}
+        {blockerInfo ? `Blocked by: ${blockerInfo}` : 'Blocked'}
       </span>
     </div>
   )
