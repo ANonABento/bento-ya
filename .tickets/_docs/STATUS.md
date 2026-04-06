@@ -98,9 +98,9 @@ From `docs/ROADMAP.md`:
 
 | ID | Feature | Status |
 |----|---------|--------|
-| BEN-311 | Per-task git worktree isolation | Not started |
-| BEN-312 | Worktree branch management | Not started |
-| BEN-321 | Auto-create PR from task | Infra exists (`create_pr` cmd), needs trigger wiring |
+| BEN-311 | Per-task git worktree isolation | ✅ Done (git2 worktree API, trigger cwd, auto-cleanup) |
+| BEN-312 | Worktree branch management | ✅ Done (auto-create branch, auto-gitignore) |
+| BEN-321 | Auto-create PR from task | ✅ Done (CreatePr trigger action, frontend editor) |
 | BEN-322 | PR status tracking on cards | ✅ Done (badges, polling hook) |
 | BEN-323 | Conflict resolution UI | Not started |
 | BEN-324 | Branch comparison view | Not started |

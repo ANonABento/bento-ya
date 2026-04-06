@@ -4,9 +4,10 @@
 
 ## Current State
 
-**Version:** v1.0 complete, polish backlog cleared, ready for v2.0
+**Version:** v2.0 in progress
 **Architecture:** Unified chat system (Phases 1-5 complete, Phase 6 partial)
 **Tests:** 339 total (156 Rust + 17 MCP + 149 frontend + 17 E2E)
+**DB Migrations:** 29 (latest: 029_task_worktree)
 **Codebase:** ~42k lines (18k Rust, 24k TypeScript/React)
 **Cargo workspace:** bento-ya + bento-mcp share rusqlite build (WAL compatible)
 **MCP Server:** 19 tools, standalone binary
@@ -27,11 +28,11 @@
 ## v2.0 Feature Roadmap
 
 ### Tier 1 — High Impact
-| Feature | Effort | Description |
-|---------|--------|-------------|
-| Per-task git worktree isolation | 8-12hr | `git worktree add` per task, agents work in isolation, no conflicts |
-| PR auto-create trigger | 5hr | Native trigger action type for auto-PR on column entry (built-in script exists, this adds first-class support) |
-| DAG dependency UI (Phases 3-5) | 12-16hr | SVG lines on board showing dependencies, Cmd+drag to connect. Backend complete. |
+| Feature | Effort | Status | Description |
+|---------|--------|--------|-------------|
+| Per-task git worktree isolation | 8-12hr | **DONE** | `git worktree add` per task, agents work in isolation, no conflicts |
+| PR auto-create trigger | 5hr | **DONE** | Native `create_pr` trigger action type with base branch config |
+| DAG dependency UI (Phases 3-5) | 12-16hr | Not started | SVG lines on board showing dependencies, Cmd+drag to connect. Backend complete. |
 
 ### Tier 2 — Nice to Have
 | Feature | Effort | Description |
@@ -53,6 +54,28 @@
 | Item | Status | Notes |
 |------|--------|-------|
 | Phase 6 — CliSessionManager removal | Partial | Unified chat phases 1-5 done. Legacy code remains. Blocks Discord integration. |
+
+## What Was Completed (Session: 2026-04-06 v2.0)
+
+### Features
+- **PR auto-create trigger** — `CreatePr { base_branch }` action type on TriggerActionV2, async gh CLI, mark_complete for pipeline advance
+- **Per-task git worktree isolation** — `create_task_worktree`/`remove_task_worktree` via git2 API, `resolve_working_dir()` in all trigger handlers, auto-gitignore, auto-cleanup on task delete
+- **Worktree frontend** — purple dot on task cards, "worktree" badge in detail panel, IPC functions, `worktreePath` on Task type
+- **CreatePrEditor** — base branch input in column trigger config UI
+- **Template variable** — `{task.worktree_path}` for prompt interpolation
+
+### DB
+- Migration 029: `worktree_path TEXT` column on tasks
+
+### Review Fixes (2 passes)
+- Fixed worktree name containing `/` (would corrupt `.git/worktrees/`)
+- Auto-gitignore `.worktrees/` directory
+- Moved filesystem I/O out of DB mutex in `delete_task`
+- Removed duplicate `tasks:changed` emit in create_pr
+- Consolidated two DB opens into one in async create_pr block
+- Removed redundant variable clone
+
+---
 
 ## What Was Completed (Session: 2026-04-05/06)
 

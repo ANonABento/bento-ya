@@ -54,7 +54,7 @@ Columns define `on_entry`/`on_exit` triggers. Tasks can override. See `.tickets/
 - `template.rs` — Prompt variable interpolation (`{task.title}`, `{workspace.path}`, etc.)
 - `dependencies.rs` — Task dependency resolution, `on_met` actions
 
-**Action types:** `spawn_cli`, `move_column`, `trigger_task`, `none`
+**Action types:** `spawn_cli`, `move_column`, `trigger_task`, `run_script`, `create_pr`, `none`
 
 **Exit criteria:** `manual`, `agent_complete`, `script_success`, `checklist_done`, `time_elapsed`, `pr_approved`, `manual_approval`, `notification_sent`. Supports `auto_advance` and `max_retries`.
 
@@ -63,6 +63,20 @@ Columns define `on_entry`/`on_exit` triggers. Tasks can override. See `.tickets/
 **Auto-retry:** When `max_retries` is set on exit criteria, failed triggers automatically re-fire up to N times. Retry count tracked per-task, resets on success.
 
 **Trigger execution:** All trigger types execute directly in the backend via `chat::bridge::spawn_cli_trigger_task()`. No frontend round-trip.
+
+**Worktree-aware cwd:** `resolve_working_dir()` in triggers.rs picks `task.worktree_path` (if set and exists) over `workspace.repo_path`. Used by `spawn_cli`, `run_script`, and `create_pr` actions. Template variable: `{task.worktree_path}`.
+
+### Per-Task Git Worktrees (`src-tauri/src/git/branch_manager.rs`)
+
+Tasks can have isolated git worktrees so agents don't conflict on branches.
+
+- `create_task_worktree(repo_path, branch, task_id)` — creates at `<repo>/.worktrees/bentoya-<taskId>/`
+- `remove_task_worktree(repo_path, task_id)` — prunes git tracking + removes directory
+- Auto-gitignores `.worktrees/` on first creation
+- `delete_task` auto-cleans up worktrees (filesystem I/O runs outside DB mutex)
+- Tauri commands: `create_task_worktree`, `remove_task_worktree`
+- DB: `worktree_path TEXT` column on tasks (migration 029)
+- Frontend: purple dot on task cards, "worktree" badge in detail panel
 
 ### Unified Chat System (`src-tauri/src/chat/`)
 
