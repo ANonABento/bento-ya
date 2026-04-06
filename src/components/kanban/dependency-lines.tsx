@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import type { Task } from '@/types'
 
 type CardRect = { x: number; y: number; width: number; height: number }
@@ -6,48 +6,43 @@ type CardRect = { x: number; y: number; width: number; height: number }
 type DependencyLinesProps = {
   tasks: Task[]
   positions: Map<string, CardRect>
+  hoveredTaskId: string | null
 }
 
 type ParsedDep = {
   task_id: string
   condition: string
-  target_column?: string
 }
 
 type LineData = {
   id: string
   fromId: string
   toId: string
-  fromTitle: string
-  toTitle: string
   condition: string
   path: string
   color: string
-  midX: number
-  midY: number
 }
 
 const CONDITION_COLORS: Record<string, string> = {
-  completed: '#4ade80',       // green
-  moved_to_column: '#60a5fa', // blue
-  agent_complete: '#f59e0b',  // amber
+  completed: '#4ade80',
+  moved_to_column: '#60a5fa',
+  agent_complete: '#f59e0b',
 }
-const DEFAULT_COLOR = '#a78bfa' // purple fallback
+const DEFAULT_COLOR = '#a78bfa'
 
-const CONDITION_LABELS: Record<string, string> = {
-  completed: 'completed',
-  moved_to_column: 'moved to column',
-  agent_complete: 'agent complete',
-}
-
-/** Build an SVG cubic bezier path string (lint-safe, no number-in-template). */
+/** Build SVG cubic bezier path string. */
 export function svgPath(
   mx: number, my: number,
   c1x: number, c1y: number,
   c2x: number, c2y: number,
   ex: number, ey: number,
 ): string {
-  return `M ${String(mx)},${String(my)} C ${String(c1x)},${String(c1y)} ${String(c2x)},${String(c2y)} ${String(ex)},${String(ey)}`
+  return [
+    'M', String(mx), String(my),
+    'C', String(c1x), String(c1y),
+    String(c2x), String(c2y),
+    String(ex), String(ey),
+  ].join(' ')
 }
 
 function parseDeps(json: string | null): ParsedDep[] {
@@ -55,21 +50,50 @@ function parseDeps(json: string | null): ParsedDep[] {
   try { return JSON.parse(json) as ParsedDep[] } catch { return [] }
 }
 
-function getColor(condition: string): string {
-  return CONDITION_COLORS[condition] || DEFAULT_COLOR
+/**
+ * Count how many lines connect to each card edge, and return the Y offset
+ * for a specific connection index. Spreads ports evenly along the card edge.
+ */
+type PortTracker = Map<string, number> // cardId → next port index
+function getPortY(
+  rect: CardRect,
+  cardId: string,
+  tracker: PortTracker,
+  totalPorts: Map<string, number>,
+): number {
+  const total = totalPorts.get(cardId) ?? 1
+  const idx = tracker.get(cardId) ?? 0
+  tracker.set(cardId, idx + 1)
+
+  if (total === 1) return rect.y + rect.height / 2
+
+  // Spread ports along the card's right/left edge with 8px padding top/bottom
+  const padding = 8
+  const usableHeight = rect.height - padding * 2
+  const spacing = usableHeight / (total + 1)
+  return rect.y + padding + spacing * (idx + 1)
 }
 
-export function DependencyLines({ tasks, positions }: DependencyLinesProps) {
-  const [hoveredLine, setHoveredLine] = useState<string | null>(null)
-
-  const taskMap = useMemo(() => {
-    const m = new Map<string, Task>()
-    for (const t of tasks) m.set(t.id, t)
-    return m
-  }, [tasks])
-
+export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyLinesProps) {
   const lines = useMemo(() => {
     const result: LineData[] = []
+
+    // First pass: count ports per card edge (outgoing from right, incoming to left)
+    const outPorts = new Map<string, number>() // blocker card → count of outgoing lines
+    const inPorts = new Map<string, number>()  // dependent card → count of incoming lines
+
+    for (const task of tasks) {
+      const deps = parseDeps(task.dependencies)
+      if (deps.length === 0) continue
+      inPorts.set(task.id, (inPorts.get(task.id) ?? 0) + deps.length)
+      for (const dep of deps) {
+        outPorts.set(dep.task_id, (outPorts.get(dep.task_id) ?? 0) + 1)
+      }
+    }
+
+    // Second pass: build lines with spread port positions
+    const outTracker: PortTracker = new Map()
+    const inTracker: PortTracker = new Map()
 
     for (const task of tasks) {
       const deps = parseDeps(task.dependencies)
@@ -80,145 +104,117 @@ export function DependencyLines({ tasks, positions }: DependencyLinesProps) {
         const fromRect = positions.get(dep.task_id)
         if (!fromRect) continue
 
-        const fromTask = taskMap.get(dep.task_id)
+        const fromY = getPortY(fromRect, dep.task_id, outTracker, outPorts)
+        const toY = getPortY(toRect, task.id, inTracker, inPorts)
 
-        // "from" = blocker card, "to" = dependent card
         const fromX = fromRect.x + fromRect.width
-        const fromY = fromRect.y + fromRect.height / 2
         const toX = toRect.x
-        const toY = toRect.y + toRect.height / 2
 
         const sameColumn = Math.abs(fromRect.x - toRect.x) < 20
 
         let path: string
-        let midX: number
-        let midY: number
-
         if (sameColumn) {
-          const offset = 50
+          // Same column: curve outward to the right
+          const offset = 35
           path = svgPath(fromX, fromY, fromX + offset, fromY, fromX + offset, toY, fromX, toY)
-          midX = fromX + offset
-          midY = (fromY + toY) / 2
         } else if (toX < fromRect.x) {
-          const altFromX = fromRect.x
-          const altToX = toRect.x + toRect.width
-          midX = (altFromX + altToX) / 2
-          midY = (fromY + toY) / 2
-          path = svgPath(altFromX, fromY, midX, fromY, midX, toY, altToX, toY)
+          // Reversed: blocker right of dependent
+          const ax = fromRect.x
+          const bx = toRect.x + toRect.width
+          const mx = (ax + bx) / 2
+          path = svgPath(ax, fromY, mx, fromY, mx, toY, bx, toY)
         } else {
-          midX = (fromX + toX) / 2
-          midY = (fromY + toY) / 2
-          path = svgPath(fromX, fromY, midX, fromY, midX, toY, toX, toY)
+          // Normal: clean bezier with control points pulled toward the midpoint
+          const gap = toX - fromX
+          const cpOffset = Math.min(gap * 0.4, 80) // control point distance, capped
+          path = svgPath(
+            fromX, fromY,
+            fromX + cpOffset, fromY,
+            toX - cpOffset, toY,
+            toX, toY,
+          )
         }
 
         result.push({
           id: `${dep.task_id}-${task.id}`,
           fromId: dep.task_id,
           toId: task.id,
-          fromTitle: fromTask?.title || dep.task_id,
-          toTitle: task.title,
           condition: dep.condition,
           path,
-          color: getColor(dep.condition),
-          midX,
-          midY,
+          color: CONDITION_COLORS[dep.condition] || DEFAULT_COLOR,
         })
       }
     }
 
     return result
-  }, [tasks, positions, taskMap])
+  }, [tasks, positions])
 
-  if (lines.length === 0) return null
+  // Only show lines connected to the hovered card
+  if (!hoveredTaskId || lines.length === 0) return null
+
+  const visibleLines = lines.filter(
+    (l) => l.fromId === hoveredTaskId || l.toId === hoveredTaskId,
+  )
+
+  if (visibleLines.length === 0) return null
 
   return (
     <svg
       className="absolute inset-0 pointer-events-none overflow-visible"
-      style={{ zIndex: 5 }}
+      style={{ zIndex: 10 }}
     >
       <defs>
-        {/* One arrow marker per condition color */}
         {Object.entries(CONDITION_COLORS).map(([condition, color]) => (
           <marker
             key={condition}
             id={`dep-arrow-${condition}`}
             viewBox="0 0 10 10"
-            refX="10"
+            refX="9"
             refY="5"
-            markerWidth="6"
-            markerHeight="6"
+            markerWidth="7"
+            markerHeight="7"
             orient="auto-start-reverse"
           >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill={color} opacity="0.8" />
+            <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill={color} opacity="0.9" />
           </marker>
         ))}
         <marker
           id="dep-arrow-default"
           viewBox="0 0 10 10"
-          refX="10"
+          refX="9"
           refY="5"
-          markerWidth="6"
-          markerHeight="6"
+          markerWidth="7"
+          markerHeight="7"
           orient="auto-start-reverse"
         >
-          <path d="M 0 0 L 10 5 L 0 10 z" fill={DEFAULT_COLOR} opacity="0.8" />
+          <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill={DEFAULT_COLOR} opacity="0.9" />
         </marker>
       </defs>
 
-      {lines.map((line) => {
-        const isHovered = hoveredLine === line.id
+      {visibleLines.map((line) => {
         const markerId = CONDITION_COLORS[line.condition]
           ? `dep-arrow-${line.condition}`
           : 'dep-arrow-default'
 
         return (
           <g key={line.id}>
-            {/* Wider invisible hit area for easier hover */}
-            <path
-              d={line.path}
-              stroke="transparent"
-              strokeWidth="12"
-              fill="none"
-              style={{ pointerEvents: 'stroke', cursor: 'default' }}
-              onMouseEnter={() => { setHoveredLine(line.id) }}
-              onMouseLeave={() => { setHoveredLine(null) }}
-            />
-            {/* Visible line */}
             <path
               d={line.path}
               stroke={line.color}
-              strokeWidth={isHovered ? 2.5 : 1.5}
-              strokeDasharray={isHovered ? 'none' : '6 4'}
+              strokeWidth="6"
               fill="none"
-              opacity={isHovered ? 1 : 0.5}
-              markerEnd={`url(#${markerId})`}
-              className="transition-all duration-200"
-              style={{ pointerEvents: 'none' }}
+              opacity="0.1"
+              strokeLinecap="round"
             />
-            {/* Tooltip on hover */}
-            {isHovered && (
-              <foreignObject
-                x={line.midX - 100}
-                y={line.midY - 32}
-                width="200"
-                height="48"
-                style={{ pointerEvents: 'none', overflow: 'visible' }}
-              >
-                <div className="flex items-center justify-center">
-                  <div className="rounded-lg border border-border-default bg-surface px-2.5 py-1.5 text-[11px] text-text-primary shadow-lg whitespace-nowrap">
-                    <span className="font-medium">{line.fromTitle}</span>
-                    <span className="mx-1.5 text-text-secondary">→</span>
-                    <span className="font-medium">{line.toTitle}</span>
-                    <span
-                      className="ml-1.5 rounded px-1 py-0.5 text-[10px] font-medium"
-                      style={{ backgroundColor: `${line.color}20`, color: line.color }}
-                    >
-                      {CONDITION_LABELS[line.condition] || line.condition}
-                    </span>
-                  </div>
-                </div>
-              </foreignObject>
-            )}
+            <path
+              d={line.path}
+              stroke={line.color}
+              strokeWidth="2"
+              fill="none"
+              opacity="0.85"
+              strokeLinecap="round"
+              markerEnd={`url(#${markerId})`}
+            />
           </g>
         )
       })}

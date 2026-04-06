@@ -34,7 +34,16 @@ export function useCardPositionProvider() {
           height: rect.height,
         })
       })
-      setPositions(next)
+
+      // Skip update if nothing changed (avoid re-renders on every scroll tick)
+      setPositions((prev) => {
+        if (prev.size !== next.size) return next
+        for (const [id, r] of next) {
+          const p = prev.get(id)
+          if (!p || p.x !== r.x || p.y !== r.y || p.width !== r.width || p.height !== r.height) return next
+        }
+        return prev
+      })
     })
   }, [])
 

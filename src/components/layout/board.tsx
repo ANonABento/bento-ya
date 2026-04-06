@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -44,6 +44,7 @@ export function Board() {
 
   const { registerCard, positions } = useCardPositionProvider()
   const { dragState, handlePointerDown: onDepDragStart } = useDepDrag(tasks, positions)
+  const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null)
 
   const { isSplitView, activeTaskId, closeSplitView } = useSplitView()
 
@@ -64,6 +65,7 @@ export function Board() {
   )
 
   useEffect(() => {
+    setHoveredTaskId(null)
     if (activeWorkspaceId) {
       void loadColumns(activeWorkspaceId)
       void loadTasks(activeWorkspaceId)
@@ -85,11 +87,11 @@ export function Board() {
 
   return (
     <CardPositionContext.Provider value={{ registerCard, positions }}>
-    <DepDragContext.Provider value={{ onDepDragStart, isDraggingDep: !!dragState }}>
+    <DepDragContext.Provider value={{ onDepDragStart, isDraggingDep: !!dragState, hoveredTaskId, setHoveredTaskId }}>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
-        onDragStart={onDragStart}
+        onDragStart={(e) => { setHoveredTaskId(null); onDragStart(e) }}
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
       >
@@ -118,7 +120,7 @@ export function Board() {
               )}
 
               {/* Dependency lines overlay */}
-              <DependencyLines tasks={tasks} positions={positions} />
+              <DependencyLines tasks={tasks} positions={positions} hoveredTaskId={hoveredTaskId} />
               {dragState && <DepDragPreview dragState={dragState} positions={positions} />}
             </div>
 

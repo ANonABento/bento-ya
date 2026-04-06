@@ -51,7 +51,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const actions = useTaskCardActions(task)
 
   const { registerCard } = useCardPosition()
-  const { onDepDragStart } = useDepDragContext()
+  const { onDepDragStart, setHoveredTaskId } = useDepDragContext()
 
   const {
     attributes,
@@ -132,6 +132,12 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const isPipelineActive = task.pipelineState !== 'idle'
   const hasPipelineError = !!task.pipelineError
 
+  // Count incoming dependency links
+  const depCount = useMemo(() => {
+    if (!task.dependencies) return 0
+    try { return (JSON.parse(task.dependencies) as unknown[]).length } catch { return 0 }
+  }, [task.dependencies])
+
   const hasMetadata = (cardSettings.showBranch && task.branch) ||
     (cardSettings.showAgentType && task.agentType) ||
     (cardSettings.showTimestamp && !isPipelineActive) ||
@@ -140,7 +146,8 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     task.model ||
     (cardSettings.showPrBadge && task.prNumber) ||
     (cardSettings.showCommentCount && task.prCommentCount > 0) ||
-    (cardSettings.showLabels && labels.length > 0)
+    (cardSettings.showLabels && labels.length > 0) ||
+    depCount > 0
 
   return (
     <>
@@ -191,6 +198,13 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       }}
       tabIndex={0}
       className={`group relative rounded-lg border border-border-default bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent hover:border-accent/50 hover:bg-surface-hover ${isDragging ? 'z-0' : 'hover:z-10'} ${hasPipelineError ? 'border-l-4 border-l-error' : isPipelineActive ? `border-l-4 ${PIPELINE_COLORS[task.pipelineState]}` : ''}`}
+      onPointerDownCapture={(e) => {
+        if (e.metaKey || e.ctrlKey) {
+          onDepDragStart(e, task.id)
+        }
+      }}
+      onMouseEnter={() => { if (!isDragging) setHoveredTaskId(task.id) }}
+      onMouseLeave={() => { if (!isDragging) setHoveredTaskId(null) }}
     >
       {/* Quick actions on hover */}
       {!isDragging && (
@@ -207,11 +221,6 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         {...listeners}
         className="p-3 space-y-2"
         style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
-        onPointerDown={(e) => {
-          if (e.metaKey || e.ctrlKey) {
-            onDepDragStart(e, task.id)
-          }
-        }}
       >
         {/* Title */}
         <div className="flex items-start gap-2">
@@ -278,6 +287,14 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0" />
                 )}
                 {task.branch}
+              </span>
+            )}
+            {depCount > 0 && (
+              <span className="inline-flex items-center gap-0.5 text-text-secondary/50" title={`${String(depCount)} dependency link${depCount > 1 ? 's' : ''} — hover to see`}>
+                <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M6 3L10 3M10 3L10 7M10 3L3 10" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <span className="text-[10px]">{depCount}</span>
               </span>
             )}
             <span className="flex-1" />

@@ -11,15 +11,11 @@ import type { Task } from '@/types'
 import * as ipc from '@/lib/ipc'
 
 export type DepDragState = {
-  /** Source task being dragged from */
   sourceId: string
-  /** Source card center position (relative to board) */
   sourceX: number
   sourceY: number
-  /** Current cursor position (relative to board) */
   cursorX: number
   cursorY: number
-  /** Target task being hovered over (if any) */
   targetId: string | null
 }
 
@@ -32,19 +28,21 @@ export function useDepDrag(
   positions: Map<string, CardRect>,
 ) {
   const [dragState, setDragState] = useState<DepDragState | null>(null)
-  const boardRef = useRef<HTMLElement | null>(null)
   const dragActive = useRef(false)
 
-  // Resolve board element once
-  useEffect(() => {
-    boardRef.current = document.querySelector('[data-board-scroll]')
-  }, [])
+  // Keep refs current so event handlers always read latest values
+  const positionsRef = useRef(positions)
+  positionsRef.current = positions
+  const tasksRef = useRef(tasks)
+  tasksRef.current = tasks
+  const dragStateRef = useRef(dragState)
+  dragStateRef.current = dragState
 
   const getBoardOffset = useCallback(() => {
-    const board = boardRef.current
+    const board = document.querySelector('[data-board-scroll]')
     if (!board) return { x: 0, y: 0 }
     const rect = board.getBoundingClientRect()
-    return { x: rect.x - board.scrollLeft, y: rect.y - board.scrollTop }
+    return { x: rect.x - (board as HTMLElement).scrollLeft, y: rect.y - (board as HTMLElement).scrollTop }
   }, [])
 
   const handlePointerDown = useCallback((e: React.PointerEvent, taskId: string) => {
@@ -52,7 +50,7 @@ export function useDepDrag(
     e.preventDefault()
     e.stopPropagation()
 
-    const pos = positions.get(taskId)
+    const pos = positionsRef.current.get(taskId)
     if (!pos) return
 
     const board = getBoardOffset()
@@ -66,15 +64,10 @@ export function useDepDrag(
       cursorY: e.clientY - board.y,
       targetId: null,
     })
-  }, [positions, getBoardOffset])
+  }, [getBoardOffset])
 
-  // Stable refs for async handler
-  const tasksRef = useRef(tasks)
-  tasksRef.current = tasks
-  const dragStateRef = useRef(dragState)
-  dragStateRef.current = dragState
-
-  // Global pointer move/up listeners during drag
+  // Set up global listeners once when drag starts, tear down when it ends.
+  // Uses refs to avoid re-creating listeners on every state change.
   useEffect(() => {
     if (!dragState) return
 
@@ -86,9 +79,8 @@ export function useDepDrag(
       const cursorX = e.clientX - board.x
       const cursorY = e.clientY - board.y
 
-      // Find which card the cursor is over
       let targetId: string | null = null
-      for (const [id, rect] of positions) {
+      for (const [id, rect] of positionsRef.current) {
         if (id === sourceId) continue
         if (cursorX >= rect.x && cursorX <= rect.x + rect.width &&
             cursorY >= rect.y && cursorY <= rect.y + rect.height) {
@@ -97,12 +89,7 @@ export function useDepDrag(
         }
       }
 
-      setDragState((prev) => prev ? {
-        ...prev,
-        cursorX,
-        cursorY,
-        targetId,
-      } : null)
+      setDragState((prev) => prev ? { ...prev, cursorX, cursorY, targetId } : null)
     }
 
     const handleUp = () => {
@@ -121,13 +108,25 @@ export function useDepDrag(
       setDragState(null)
     }
 
+    // Escape to cancel
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        dragActive.current = false
+        setDragState(null)
+      }
+    }
+
     window.addEventListener('pointermove', handleMove)
     window.addEventListener('pointerup', handleUp)
+    window.addEventListener('keydown', handleKeyDown)
     return () => {
       window.removeEventListener('pointermove', handleMove)
       window.removeEventListener('pointerup', handleUp)
+      window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [dragState, positions, getBoardOffset])
+    // Only re-create listeners when drag starts/stops (sourceId changes), not on every move
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragState?.sourceId, getBoardOffset])
 
   return { dragState, handlePointerDown }
 }
@@ -137,7 +136,6 @@ async function createDependency(sourceId: string, targetId: string, tasks: Task[
   const target = tasks.find((t) => t.id === targetId)
   if (!target) return
 
-  // Parse existing deps
   let deps: DepEntry[] = []
   if (target.dependencies) {
     try {
@@ -146,22 +144,19 @@ async function createDependency(sourceId: string, targetId: string, tasks: Task[
     } catch { /* empty */ }
   }
 
-  // Skip if already exists
   if (deps.some((d) => d.task_id === sourceId)) return
 
-  // Add new dependency with default condition
   deps.push({ task_id: sourceId, condition: 'completed' })
 
-  // Validate (cycle detection)
   try {
     await ipc.validateTaskDependencies(targetId, JSON.stringify(deps))
   } catch {
     return
   }
 
-  // Save
+  // Save deps — set blocked as safe default, check_dependents will unblock if deps already met
   await ipc.updateTaskTriggers(targetId, {
     dependencies: JSON.stringify(deps),
-    blocked: deps.length > 0,
+    blocked: true,
   })
 }
