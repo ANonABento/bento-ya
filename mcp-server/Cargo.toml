@@ -11,3 +11,4 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 dirs = "5"
 clap = { version = "4", features = ["derive"] }
+ureq = { version = "3", features = ["json"] }

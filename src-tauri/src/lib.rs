@@ -2,6 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
+pub mod api;
 pub mod chat;
 pub mod checklist;
 pub mod commands;
@@ -259,6 +260,14 @@ pub fn run() {
             commands::github::fetch_pr_status_batch,
             commands::github::should_refresh_pr_status,
         ])
+        .setup(|app| {
+            // Start HTTP API server for external MCP control
+            api::start(app.handle().clone());
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+
+    // Cleanup port file on exit
+    api::cleanup();
 }

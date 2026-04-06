@@ -58,6 +58,27 @@ struct JsonRpcResponse {
 }
 
 // ---------------------------------------------------------------------------
+// API bridge — proxies mutations through the Tauri app's HTTP API
+// ---------------------------------------------------------------------------
+
+/// Read the API port from ~/.bentoya/api.port
+fn read_api_port() -> Option<u16> {
+    let home = dirs::home_dir()?;
+    let port_str = std::fs::read_to_string(home.join(".bentoya").join("api.port")).ok()?;
+    port_str.trim().parse().ok()
+}
+
+/// Call the Tauri app's HTTP API. Returns the response JSON or None if app isn't running.
+fn api_call(endpoint: &str, body: &Value) -> Option<Value> {
+    let port = read_api_port()?;
+    let url = format!("http://127.0.0.1:{}{}", port, endpoint);
+    let resp = ureq::post(&url)
+        .send_json(body)
+        .ok()?;
+    resp.into_body().read_json().ok()
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -703,6 +724,22 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
 
     let model = args.get("model").and_then(|v| v.as_str());
 
+    // Try API bridge first (triggers pipeline + updates UI)
+    if let Some(resp) = api_call("/api/create_task", &json!({
+        "workspace_id": ws_id,
+        "column_id": col_id,
+        "title": title,
+        "description": description,
+    })) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "task": resp.get("data"),
+                "message": format!("Created task '{}' in column '{}'", title, col_name)
+            });
+        }
+    }
+
+    // Fallback: direct DB write
     let id = new_id();
     let ts = now();
     let position = max_task_position(conn, &col_id) + 1;
@@ -722,7 +759,7 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
                 "description": description,
                 "position": position,
             },
-            "message": format!("Created task '{}' in column '{}'", title, col_name)
+            "message": format!("Created task '{}' in column '{}' (direct — app not running)", title, col_name)
         }),
         Err(e) => json!({ "error": e.to_string() }),
     }
@@ -752,8 +789,25 @@ fn handle_move_task(conn: &Connection, args: &Value) -> Value {
     };
 
     let position = max_task_position(conn, &col_id) + 1;
-    let ts = now();
 
+    // Try API bridge first (triggers pipeline + updates UI)
+    if let Some(resp) = api_call("/api/move_task", &json!({
+        "id": task_id,
+        "target_column_id": col_id,
+        "position": position,
+    })) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "task_id": task_id,
+                "title": task["title"],
+                "column": col_name,
+                "message": format!("Moved '{}' to '{}'", task["title"].as_str().unwrap_or("?"), col_name)
+            });
+        }
+    }
+
+    // Fallback: direct DB write (no pipeline triggers)
+    let ts = now();
     match conn.execute(
         "UPDATE tasks SET column_id = ?1, position = ?2, updated_at = ?3 WHERE id = ?4",
         params![col_id, position, ts, task_id],
@@ -762,7 +816,7 @@ fn handle_move_task(conn: &Connection, args: &Value) -> Value {
             "task_id": task_id,
             "title": task["title"],
             "column": col_name,
-            "message": format!("Moved '{}' to '{}'", task["title"].as_str().unwrap_or("?"), col_name)
+            "message": format!("Moved '{}' to '{}' (direct — app not running)", task["title"].as_str().unwrap_or("?"), col_name)
         }),
         Err(e) => json!({ "error": e.to_string() }),
     }
@@ -834,6 +888,13 @@ fn handle_delete_task(conn: &Connection, args: &Value) -> Value {
     let task_id = task["id"].as_str().unwrap();
     let title = task["title"].as_str().unwrap_or("?");
 
+    // Try API bridge first (cleans up worktrees + updates UI)
+    if let Some(resp) = api_call("/api/delete_task", &json!({"id": task_id})) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({ "message": format!("Deleted task '{}'", title) });
+        }
+    }
+
     match conn.execute("DELETE FROM tasks WHERE id = ?1", params![task_id]) {
         Ok(_) => json!({ "message": format!("Deleted task '{}'", title) }),
         Err(e) => json!({ "error": e.to_string() }),
@@ -851,8 +912,20 @@ fn handle_approve_task(conn: &Connection, args: &Value) -> Value {
         Err(e) => return json!({ "error": e }),
     };
     let task_id = task["id"].as_str().unwrap();
-    let ts = now();
 
+    // Try API bridge first (triggers auto-advance + updates UI)
+    if let Some(resp) = api_call("/api/approve_task", &json!({"id": task_id})) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "task_id": task_id,
+                "title": task["title"],
+                "review_status": "approved",
+                "message": format!("Approved task '{}'", task["title"].as_str().unwrap_or("?"))
+            });
+        }
+    }
+
+    let ts = now();
     match conn.execute(
         "UPDATE tasks SET review_status = 'approved', updated_at = ?1 WHERE id = ?2",
         params![ts, task_id],
@@ -879,8 +952,21 @@ fn handle_reject_task(conn: &Connection, args: &Value) -> Value {
     };
     let task_id = task["id"].as_str().unwrap();
     let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("");
-    let ts = now();
 
+    // Try API bridge first (updates UI)
+    if let Some(resp) = api_call("/api/reject_task", &json!({"id": task_id})) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "task_id": task_id,
+                "title": task["title"],
+                "review_status": "rejected",
+                "reason": reason,
+                "message": format!("Rejected task '{}'", task["title"].as_str().unwrap_or("?"))
+            });
+        }
+    }
+
+    let ts = now();
     // Store reason in pipeline_error for visibility
     match conn.execute(
         "UPDATE tasks SET review_status = 'rejected', pipeline_error = ?1, updated_at = ?2 WHERE id = ?3",
@@ -1064,6 +1150,18 @@ fn handle_retry_task(conn: &Connection, args: &Value) -> Value {
         Err(e) => return json!({ "error": e }),
     };
     let task_id = task["id"].as_str().unwrap();
+
+    // Try API bridge first (re-fires pipeline trigger + updates UI)
+    if let Some(resp) = api_call("/api/retry_task", &json!({"task_id": task_id})) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "task_id": task_id,
+                "title": task["title"],
+                "message": format!("Retrying '{}'", task["title"].as_str().unwrap_or("?"))
+            });
+        }
+    }
+
     let retry_count = task["retry_count"].as_i64().unwrap_or(0) + 1;
     let ts = now();
 
