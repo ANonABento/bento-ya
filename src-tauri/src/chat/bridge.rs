@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
 use super::events::ChatEvent;
-use super::pty_transport::PtyTransport;
+use super::pipe_transport::PipeTransport;
 use super::transport::{ChatTransport, SpawnConfig, TransportEvent};
 use crate::db;
 use crate::pipeline;
@@ -144,11 +144,22 @@ pub fn spawn_cli_trigger_task(
 
     tokio::spawn(async move {
         let result: Result<(), String> = async {
-            let mut transport = PtyTransport::new();
+            // Use PipeTransport for structured JSON output (parsed chat events)
+            let mut transport = PipeTransport::new();
+
+            // Build args: add --output-format stream-json and -p for the prompt
+            let mut full_args = args;
+            full_args.push("--output-format".to_string());
+            full_args.push("stream-json".to_string());
+            full_args.push("--verbose".to_string());
+            if !initial_prompt.is_empty() {
+                full_args.push("-p".to_string());
+                full_args.push(initial_prompt);
+            }
 
             let spawn_config = SpawnConfig {
                 command: cli_command,
-                args,
+                args: full_args,
                 working_dir: Some(working_dir),
                 env_vars,
                 cols: 120,
@@ -170,14 +181,6 @@ pub fn spawn_cli_trigger_task(
                         );
                     }
                 }
-            }
-
-            // Send initial prompt if provided
-            if !initial_prompt.is_empty() {
-                let prompt_bytes = format!("{}\n", initial_prompt);
-                transport
-                    .write(prompt_bytes.as_bytes())
-                    .map_err(|e| format!("Failed to write prompt: {}", e))?;
             }
 
             // Bridge events to frontend AND wait for exit
