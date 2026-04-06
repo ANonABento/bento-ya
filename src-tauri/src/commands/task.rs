@@ -6,9 +6,9 @@ use std::process::Command;
 use tauri::{AppHandle, State};
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn create_task(
+pub async fn create_task(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<'_, AppState>,
     workspace_id: String,
     column_id: String,
     title: String,
@@ -189,9 +189,9 @@ pub fn update_task_triggers(
 }
 
 #[tauri::command]
-pub fn move_task(
+pub async fn move_task(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<'_, AppState>,
     id: String,
     target_column_id: String,
     position: i64,
@@ -315,9 +315,9 @@ pub fn delete_task(
 
 /// Approve a task - sets review_status to "approved" and triggers auto-advance if exit_type is manual_approval
 #[tauri::command]
-pub fn approve_task(
+pub async fn approve_task(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<'_, AppState>,
     id: String,
 ) -> Result<Task, AppError> {
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
@@ -654,9 +654,9 @@ pub fn validate_task_dependencies(
 /// Retry a failed pipeline trigger
 /// Clears the error and re-fires the column trigger
 #[tauri::command(rename_all = "camelCase")]
-pub fn retry_pipeline(
+pub async fn retry_pipeline(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<'_, AppState>,
     task_id: String,
 ) -> Result<Task, AppError> {
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
