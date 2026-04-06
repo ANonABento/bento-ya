@@ -62,6 +62,36 @@ pub fn spawn_cli_trigger_task(
     initial_prompt: String,
     env_vars: Option<HashMap<String, String>>,
 ) {
+    // Create agent session record so the UI can track this agent
+    let session_id = {
+        if let Ok(conn) = Connection::open(db::db_path()) {
+            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+            match db::insert_agent_session(&conn, &task_id, &cli_command, Some(&working_dir)) {
+                Ok(session) => {
+                    // Link session to task and set running status
+                    let _ = db::update_agent_session(
+                        &conn, &session.id,
+                        None, Some("running"), None, None, None, None,
+                    );
+                    let _ = db::update_task_agent_status(&conn, &task_id, Some("running"), None);
+                    let ts = db::now();
+                    let _ = conn.execute(
+                        "UPDATE tasks SET agent_session_id = ?1, updated_at = ?2 WHERE id = ?3",
+                        rusqlite::params![session.id, ts, task_id],
+                    );
+                    pipeline::emit_tasks_changed(&app, "", "agent_session_created");
+                    Some(session.id)
+                }
+                Err(e) => {
+                    log::error!("[bridge] Failed to create agent session: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    };
+
     tokio::spawn(async move {
         let result: Result<(), String> = async {
             let mut transport = PtyTransport::new();
@@ -79,8 +109,20 @@ pub fn spawn_cli_trigger_task(
                 .spawn(spawn_config)
                 .map_err(|e| format!("Failed to spawn CLI trigger: {}", e))?;
 
-            // Send initial prompt if provided — write immediately, kernel
-            // PTY buffer holds the data until the child process reads it
+            // Update session with PID if available
+            if let Some(ref sid) = session_id {
+                if let Some(pid) = transport.pid() {
+                    if let Ok(conn) = Connection::open(db::db_path()) {
+                        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                        let _ = db::update_agent_session(
+                            &conn, sid,
+                            Some(Some(pid as i64)), None, None, None, None, None,
+                        );
+                    }
+                }
+            }
+
+            // Send initial prompt if provided
             if !initial_prompt.is_empty() {
                 let prompt_bytes = format!("{}\n", initial_prompt);
                 transport
@@ -91,11 +133,19 @@ pub fn spawn_cli_trigger_task(
             // Bridge events to frontend AND wait for exit
             bridge_pty_to_tauri(&app, &task_id, event_rx).await;
 
-            // Process exited — open fresh DB connection and mark pipeline complete
+            // Process exited — update session + mark pipeline complete
             let conn = Connection::open(db::db_path())
                 .map_err(|e| format!("Failed to open DB: {}", e))?;
-            conn.execute_batch("PRAGMA foreign_keys=ON;")
-                .map_err(|e| format!("Failed to set pragmas: {}", e))?;
+            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+
+            if let Some(ref sid) = session_id {
+                let _ = db::update_agent_session(
+                    &conn, sid,
+                    None, Some("completed"), Some(Some(0)), None, None, None,
+                );
+                let _ = db::update_task_agent_status(&conn, &task_id, Some("completed"), None);
+            }
+
             let _ = pipeline::mark_complete(&conn, &app, &task_id, true);
 
             Ok(())
@@ -104,9 +154,18 @@ pub fn spawn_cli_trigger_task(
 
         if let Err(e) = result {
             eprintln!("CLI trigger failed for task {}: {}", task_id, e);
-            // Set pipeline error state with fresh connection
             if let Ok(conn) = Connection::open(db::db_path()) {
-                let _ = conn.execute_batch("PRAGMA foreign_keys=ON;");
+                let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+
+                // Mark session as failed
+                if let Some(ref sid) = session_id {
+                    let _ = db::update_agent_session(
+                        &conn, sid,
+                        None, Some("failed"), Some(Some(1)), None, None, None,
+                    );
+                    let _ = db::update_task_agent_status(&conn, &task_id, Some("failed"), None);
+                }
+
                 if let Ok(task) = db::get_task(&conn, &task_id) {
                     if let Ok(col) = db::get_column(&conn, &task.column_id) {
                         let _ =
