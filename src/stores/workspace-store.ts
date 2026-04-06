@@ -13,6 +13,7 @@ type WorkspaceState = {
   add: (name: string, repoPath: string) => Promise<void>
   clone: (sourceId: string, newName: string) => Promise<void>
   remove: (id: string) => Promise<void>
+  update: (id: string, updates: Partial<Workspace>) => Promise<void>
   reorder: (ids: string[]) => Promise<void>
 }
 
@@ -57,6 +58,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         }))
         try {
           await ipc.deleteWorkspace(id)
+        } catch {
+          set({ workspaces: prev })
+        }
+      },
+
+      update: async (id, updates) => {
+        const prev = get().workspaces
+        set((s) => ({
+          workspaces: s.workspaces.map((w) =>
+            w.id === id ? { ...w, ...updates, updatedAt: new Date().toISOString() } : w,
+          ),
+        }))
+        try {
+          await ipc.updateWorkspace(id, updates)
         } catch {
           set({ workspaces: prev })
         }

@@ -89,9 +89,9 @@ export function useDnd() {
       const activeData = active.data.current as { type: string } | undefined
 
       if (activeData?.type === 'column') {
-        // Reorder columns
+        // Reorder columns (only visible — matches SortableContext in board.tsx)
         const columnIds = columns
-          .slice()
+          .filter((c) => c.visible)
           .sort((a, b) => a.position - b.position)
           .map((c) => c.id)
         const oldIndex = columnIds.indexOf(String(active.id))

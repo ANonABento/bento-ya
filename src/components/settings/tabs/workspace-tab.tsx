@@ -1,14 +1,16 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { SettingSection } from '@/components/shared/setting-components'
+import { PathPicker } from '@/components/shared/path-picker'
 
 export function WorkspaceTab() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const setActive = useWorkspaceStore((s) => s.setActive)
   const removeWorkspace = useWorkspaceStore((s) => s.remove)
+  const updateWorkspace = useWorkspaceStore((s) => s.update)
   const loadColumns = useColumnStore((s) => s.load)
   const loadTasks = useTaskStore((s) => s.load)
 
@@ -18,6 +20,16 @@ export function WorkspaceTab() {
   const [isSwitching, setIsSwitching] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const handleRepoPathChange = useCallback(async (path: string) => {
+    if (!workspace) return
+    try {
+      await updateWorkspace(workspace.id, { repoPath: path })
+      setMessage({ type: 'success', text: 'Repository path updated' })
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to update repo path' })
+    }
+  }, [workspace, updateWorkspace])
 
   const handleSwitchWorkspace = async (workspaceId: string) => {
     if (workspaceId === activeWorkspaceId) return
@@ -92,7 +104,13 @@ export function WorkspaceTab() {
             </div>
             <div>
               <label className="text-xs font-medium text-text-secondary">Repository Path</label>
-              <p className="text-sm text-text-primary font-mono">{workspace.repoPath}</p>
+              <div className="mt-1">
+                <PathPicker
+                  value={workspace.repoPath}
+                  onChange={(path) => { void handleRepoPathChange(path) }}
+                  readOnly
+                />
+              </div>
             </div>
             <div className="flex gap-4 text-xs text-text-secondary">
               <span>Created: {new Date(workspace.createdAt).toLocaleDateString()}</span>
