@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 
-type ViewMode = 'board' | 'split'
+type ViewMode = 'board' | 'chat'
 type PanelDock = 'bottom' | 'right'
 
 type ModalState = {
@@ -37,7 +37,8 @@ function getMaxPanelWidth(): number {
 
 type UIState = {
   viewMode: ViewMode
-  activeTaskId: string | null
+  activeTaskId: string | null // task whose chat panel is open
+  expandedTaskId: string | null // task card expanded inline
   modal: ModalState
 
   // Orchestrator panel state
@@ -47,7 +48,14 @@ type UIState = {
   isPanelCollapsed: boolean
 
   setViewMode: (mode: ViewMode) => void
+  expandTask: (taskId: string) => void
+  focusTask: (taskId: string) => void
+  collapseTask: () => void
+  openChat: (taskId: string) => void
+  closeChat: () => void
+  /** @deprecated Use openChat — kept for backward compat */
   openTask: (taskId: string) => void
+  /** @deprecated Use closeChat — kept for backward compat */
   closeTask: () => void
   openModal: (type: string, props?: Record<string, unknown>) => void
   closeModal: () => void
@@ -67,6 +75,7 @@ export const useUIStore = create<UIState>()(
       (set) => ({
         viewMode: 'board',
         activeTaskId: null,
+        expandedTaskId: null,
         modal: null,
         panelHeight: DEFAULT_PANEL_HEIGHT,
         panelWidth: DEFAULT_PANEL_WIDTH,
@@ -77,13 +86,33 @@ export const useUIStore = create<UIState>()(
           set({ viewMode: mode })
         },
 
-        openTask: (taskId) => {
-          set({ viewMode: 'split', activeTaskId: taskId })
+        // Card expansion (inline detail)
+        expandTask: (taskId) => {
+          set((state) => ({
+            expandedTaskId: state.expandedTaskId === taskId ? null : taskId,
+          }))
         },
 
-        closeTask: () => {
+        focusTask: (taskId) => {
+          set({ expandedTaskId: taskId })
+        },
+
+        collapseTask: () => {
+          set({ expandedTaskId: null })
+        },
+
+        // Chat panel (right slide-in)
+        openChat: (taskId) => {
+          set({ viewMode: 'chat', activeTaskId: taskId })
+        },
+
+        closeChat: () => {
           set({ viewMode: 'board', activeTaskId: null })
         },
+
+        // Deprecated aliases
+        openTask: (taskId) => { set({ viewMode: 'chat', activeTaskId: taskId }) },
+        closeTask: () => { set({ viewMode: 'board', activeTaskId: null }) },
 
         openModal: (type, props) => {
           set({ modal: { type, props } })

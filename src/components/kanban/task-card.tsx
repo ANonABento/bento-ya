@@ -1,4 +1,5 @@
 import { memo, useMemo, useState, useCallback, useEffect } from 'react'
+import { AnimatePresence } from 'motion/react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { Task } from '@/types'
@@ -10,6 +11,7 @@ import { useTaskStore } from '@/stores/task-store'
 import { TaskContextMenu } from './task-context-menu'
 import { TaskSettingsModal } from './task-settings-modal'
 import { TaskQuickActions } from './task-quick-actions'
+import { TaskCardExpanded } from './task-card-expanded'
 import { useAgentStreamingStore } from '@/stores/agent-streaming-store'
 import { getColumnTriggers } from '@/types/column'
 import { useCardPosition } from '@/hooks/use-card-positions'
@@ -22,7 +24,9 @@ import { AttentionBanner, BlockedBanner, QualityGateBanner, PipelineErrorBanner 
 import { AgentActivityPreview } from './task-card-activity'
 
 export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
-  const openTask = useUIStore((s) => s.openTask)
+  const expandTask = useUIStore((s) => s.expandTask)
+  const expandedTaskId = useUIStore((s) => s.expandedTaskId)
+  const isExpanded = expandedTaskId === task.id
   const hasAttention = useAttentionStore((s) => s.hasAttention(task.id))
   const attention = useAttentionStore((s) => s.getAttention(task.id))
   const markViewed = useAttentionStore((s) => s.markViewed)
@@ -94,7 +98,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     if (hasAttention) {
       markViewed(task.id)
     }
-    openTask(task.id)
+    expandTask(task.id)
   }
 
   function handlePrClick(e: React.MouseEvent) {
@@ -175,6 +179,9 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       onContextMenu={handleContextMenu}
       onKeyDown={(e) => {
         if (e.metaKey || e.ctrlKey || e.altKey) return
+        // Don't intercept keyboard shortcuts when user is typing in an input
+        const tag = (e.target as HTMLElement).tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return
         switch (e.key) {
           case 'Enter':
           case ' ':
@@ -338,6 +345,11 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           </div>
         )}
       </div>
+
+      {/* Expanded card detail */}
+      <AnimatePresence>
+        {isExpanded && <TaskCardExpanded task={task} />}
+      </AnimatePresence>
     </div>
 
     {/* Context Menu */}

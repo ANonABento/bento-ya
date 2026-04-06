@@ -125,14 +125,14 @@ Zustand stores, each focused on a single domain:
 
 | Directory | Purpose | Key files |
 |-----------|---------|-----------|
-| `kanban/` | Board, columns, task cards | `task-card.tsx`, `column-config-dialog.tsx` |
+| `kanban/` | Board, columns, task cards | `task-card.tsx`, `task-card-expanded.tsx`, `column-config-dialog.tsx` |
 | `panel/` | Chat interfaces | `orchestrator-panel.tsx`, `agent-panel.tsx`, `chat-input.tsx` |
 | `command-palette/` | Cmd+K command palette | `command-palette.tsx` |
 | `settings/` | 7-tab settings panel | `settings-panel.tsx`, `tabs/*.tsx` (`scripts-tab.tsx` has quick-attach dropdown on ScriptCard for attaching scripts to columns) |
 | `onboarding/` | First-launch wizard | `onboarding-wizard.tsx` |
 | `shared/` | Reusable atoms | `dialog.tsx`, `tooltip.tsx`, `badge.tsx`, `path-picker.tsx` (directory picker: input + Browse button, uses @tauri-apps/plugin-dialog) |
-| `layout/` | App shell | `board.tsx`, `tab-bar.tsx`, `split-view.tsx` |
-| `task-detail/` | Task detail panel | `task-detail-panel.tsx`, sections |
+| `layout/` | App shell | `board.tsx`, `tab-bar.tsx`, `split-view.tsx` (chat-only slide-in panel) |
+| `task-detail/` | Detail sub-sections | `changes-section.tsx`, `commits-section.tsx`, `task-checklist.tsx`, `usage-section.tsx`, `notification-section.tsx`, `siege-status.tsx` |
 | `review/` | Code review | `diff-viewer.tsx` |
 
 ## Column Triggers System
