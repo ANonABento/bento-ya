@@ -9,6 +9,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { Task } from '@/types'
 import type { CardRect } from '@/hooks/use-card-positions'
+import { parseDeps } from '@/lib/dependency-utils'
 import * as ipc from '@/lib/ipc'
 
 export type DepDragState = {
@@ -19,8 +20,6 @@ export type DepDragState = {
   cursorY: number
   targetId: string | null
 }
-
-type DepEntry = { task_id: string; condition: string }
 
 export function useDepDrag(
   tasks: Task[],
@@ -135,13 +134,7 @@ async function createDependency(sourceId: string, targetId: string, tasks: Task[
   const target = tasks.find((t) => t.id === targetId)
   if (!target) return
 
-  let deps: DepEntry[] = []
-  if (target.dependencies) {
-    try {
-      const parsed: unknown = JSON.parse(target.dependencies)
-      if (Array.isArray(parsed)) deps = parsed as DepEntry[]
-    } catch { /* empty */ }
-  }
+  const deps = parseDeps(target.dependencies)
 
   if (deps.some((d) => d.task_id === sourceId)) return
 

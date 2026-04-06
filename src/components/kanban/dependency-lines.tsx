@@ -1,16 +1,12 @@
 import { useMemo } from 'react'
 import type { Task } from '@/types'
 import type { CardRect } from '@/hooks/use-card-positions'
+import { parseDeps, type DepEntry } from '@/lib/dependency-utils'
 
 type DependencyLinesProps = {
   tasks: Task[]
   positions: Map<string, CardRect>
   hoveredTaskId: string | null
-}
-
-type ParsedDep = {
-  task_id: string
-  condition: string
 }
 
 type LineData = {
@@ -20,7 +16,19 @@ type LineData = {
   path: string
 }
 
-const LINE_COLOR = '#f59e0b' // amber-400
+// ─── Visual constants ───────────────────────────────────────────────────────
+
+const LINE_COLOR = '#f59e0b'      // amber-400
+const SAME_COL_THRESHOLD = 20     // px — cards closer than this are "same column"
+const CURVE_PULL_FACTOR = 0.35    // control point distance as fraction of euclidean distance
+const CURVE_PULL_MIN = 42         // px — minimum control point distance
+const CURVE_PULL_MAX = 200        // px — maximum control point distance
+const SOURCE_PADDING = 2          // px — anchor offset from source card edge
+const TARGET_PADDING = 8          // px — anchor offset from target card edge (room for arrow)
+const LANE_SPACING = 9            // px — gap between parallel connections on same card edge
+const LINE_OPACITY = 0.7
+const LINE_WIDTH = 2
+const SVG_Z_INDEX = 10
 
 // ─── Side normals ───────────────────────────────────────────────────────────
 
@@ -43,7 +51,7 @@ function clamp(v: number, min: number, max: number): number {
 function chooseSides(fromRect: CardRect, toRect: CardRect): [Side, Side] {
   const fromCx = fromRect.x + fromRect.width / 2
   const toCx = toRect.x + toRect.width / 2
-  const sameColumn = Math.abs(fromRect.x - toRect.x) < 20
+  const sameColumn = Math.abs(fromRect.x - toRect.x) < SAME_COL_THRESHOLD
 
   if (sameColumn) return ['right', 'right']          // U-curve to the right
   if (toCx >= fromCx) return ['right', 'left']       // forward: right → left
@@ -67,22 +75,17 @@ function calcPath(
   tx: number, ty: number, targetSide: Side,
 ): string {
   const dist = Math.hypot(tx - sx, ty - sy)
-  const pull = clamp(dist * 0.35, 42, 200)
+  const pull = clamp(dist * CURVE_PULL_FACTOR, CURVE_PULL_MIN, CURVE_PULL_MAX)
 
   const sn = NORMALS[sourceSide]
   const tn = NORMALS[targetSide]
 
-  const c1x = sx + sn.x * pull
-  const c1y = sy + sn.y * pull
-  const c2x = tx + tn.x * pull
-  const c2y = ty + tn.y * pull
-
-  return [
-    'M', String(sx), String(sy),
-    'C', String(c1x), String(c1y) + ',',
-    String(c2x), String(c2y) + ',',
-    String(tx), String(ty),
-  ].join(' ')
+  return svgPath(
+    sx, sy,
+    sx + sn.x * pull, sy + sn.y * pull,
+    tx + tn.x * pull, ty + tn.y * pull,
+    tx, ty,
+  )
 }
 
 /** Build SVG cubic bezier path string (used by dep-drag-preview). */
@@ -100,14 +103,7 @@ export function svgPath(
   ].join(' ')
 }
 
-function parseDeps(json: string | null): ParsedDep[] {
-  if (!json) return []
-  try { return JSON.parse(json) as ParsedDep[] } catch { return [] }
-}
-
 // ─── Lane spacing ───────────────────────────────────────────────────────────
-
-const LANE_SPACING = 9 // px between parallel connections on same card edge
 
 type LaneTracker = Map<string, number>
 
@@ -131,7 +127,7 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
     const result: LineData[] = []
 
     // Parse deps once, count lanes per card edge
-    const taskDeps = new Map<string, ParsedDep[]>()
+    const taskDeps = new Map<string, DepEntry[]>()
     const outLanes = new Map<string, number>()
     const inLanes = new Map<string, number>()
 
@@ -161,8 +157,8 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
         const srcOffset = getLaneOffset(dep.task_id, outTracker, outLanes)
         const tgtOffset = getLaneOffset(taskId, inTracker, inLanes)
 
-        const src = anchor(fromRect, sourceSide, srcOffset, 2)
-        const tgt = anchor(toRect, targetSide, tgtOffset, 8)  // extra padding for arrowhead
+        const src = anchor(fromRect, sourceSide, srcOffset, SOURCE_PADDING)
+        const tgt = anchor(toRect, targetSide, tgtOffset, TARGET_PADDING)
 
         result.push({
           id: `${dep.task_id}-${taskId}`,
@@ -187,7 +183,7 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
   return (
     <svg
       className="absolute inset-0 pointer-events-none overflow-visible"
-      style={{ zIndex: 10 }}
+      style={{ zIndex: SVG_Z_INDEX }}
     >
       <defs>
         <marker
@@ -213,9 +209,9 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
           key={line.id}
           d={line.path}
           stroke={LINE_COLOR}
-          strokeWidth="2"
+          strokeWidth={LINE_WIDTH}
           fill="none"
-          opacity="0.7"
+          opacity={LINE_OPACITY}
           strokeLinecap="round"
           markerEnd="url(#dep-arrow)"
         />

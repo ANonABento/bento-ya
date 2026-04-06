@@ -14,6 +14,7 @@ import { useAgentStreamingStore } from '@/stores/agent-streaming-store'
 import { getColumnTriggers } from '@/types/column'
 import { useCardPosition } from '@/hooks/use-card-positions'
 import { useDepDragContext } from '@/hooks/use-dep-drag-context'
+import { parseDeps } from '@/lib/dependency-utils'
 import { PIPELINE_LABELS, PIPELINE_COLORS, formatRelativeTime } from './task-card-utils'
 import { PrStatusIndicator, SiegeBadge } from './task-card-badges'
 import { useTaskCardActions } from './use-task-card-actions'
@@ -117,15 +118,14 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
 
   // Derive blocker task names for the blocked badge
   const blockerInfo = useMemo(() => {
-    if (!task.blocked || !task.dependencies) return null
-    try {
-      const deps = JSON.parse(task.dependencies) as Array<{ task_id: string }>
-      const tasks = useTaskStore.getState().tasks
-      const names = deps
-        .map(d => tasks.find(t => t.id === d.task_id)?.title)
-        .filter(Boolean)
-      return names.length > 0 ? names.join(', ') : null
-    } catch { return null }
+    if (!task.blocked) return null
+    const deps = parseDeps(task.dependencies)
+    if (deps.length === 0) return null
+    const allTasks = useTaskStore.getState().tasks
+    const names = deps
+      .map(d => allTasks.find(t => t.id === d.task_id)?.title)
+      .filter(Boolean)
+    return names.length > 0 ? names.join(', ') : null
   }, [task.blocked, task.dependencies])
 
   const needsAttention = hasAttention || task.agentStatus === 'needs_attention'
@@ -133,29 +133,16 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const hasPipelineError = !!task.pipelineError
 
   // Count incoming dependency links
-  const depCount = useMemo(() => {
-    if (!task.dependencies) return 0
-    try { return (JSON.parse(task.dependencies) as unknown[]).length } catch { return 0 }
-  }, [task.dependencies])
+  const depCount = useMemo(() => parseDeps(task.dependencies).length, [task.dependencies])
 
   // Is this card connected to the hovered card? (for highlight/dim)
+  // Note: reads hovered task's deps via getState() — won't re-render if those change,
+  // but hover is transient so staleness is acceptable.
   const isConnectedToHovered = useMemo(() => {
     if (!hoveredTaskId || hoveredTaskId === task.id) return false
-    // Check if hovered card is in our blockers
-    if (task.dependencies) {
-      try {
-        const deps = JSON.parse(task.dependencies) as Array<{ task_id: string }>
-        if (deps.some((d) => d.task_id === hoveredTaskId)) return true
-      } catch { /* empty */ }
-    }
-    // Check if we are in the hovered card's blockers
+    if (parseDeps(task.dependencies).some((d) => d.task_id === hoveredTaskId)) return true
     const hoveredTask = useTaskStore.getState().tasks.find((t) => t.id === hoveredTaskId)
-    if (hoveredTask?.dependencies) {
-      try {
-        const deps = JSON.parse(hoveredTask.dependencies) as Array<{ task_id: string }>
-        if (deps.some((d) => d.task_id === task.id)) return true
-      } catch { /* empty */ }
-    }
+    if (parseDeps(hoveredTask?.dependencies).some((d) => d.task_id === task.id)) return true
     return false
   }, [hoveredTaskId, task.id, task.dependencies])
 
