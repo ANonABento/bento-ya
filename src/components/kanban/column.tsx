@@ -3,10 +3,12 @@ import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-
 import { useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { motion, AnimatePresence } from 'motion/react'
-import type { Column as ColumnType } from '@/types'
+import type { Column as ColumnType, RunScriptAction } from '@/types'
+import { getColumnTriggers } from '@/types/column'
 import { useTaskStore } from '@/stores/task-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useScriptStore } from '@/stores/script-store'
 import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
@@ -20,6 +22,7 @@ export const Column = memo(function Column({ column }: ColumnProps) {
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
+  const getScriptName = useScriptStore((s) => s.getScriptName)
 
   // Memoize filtered tasks to prevent infinite loops
   const tasks = useMemo(
@@ -29,6 +32,23 @@ export const Column = memo(function Column({ column }: ColumnProps) {
     [allTasks, column.id]
   )
   const taskIds = useMemo(() => tasks.map((t) => t.id), [tasks])
+
+  const scriptTrigger = useMemo(() => {
+    const triggers = getColumnTriggers(column)
+    const entryIsScript = triggers.on_entry?.type === 'run_script'
+    const exitIsScript = triggers.on_exit?.type === 'run_script'
+    if (!entryIsScript && !exitIsScript) return undefined
+
+    const scriptId = entryIsScript
+      ? (triggers.on_entry as RunScriptAction).script_id
+      : (triggers.on_exit as RunScriptAction).script_id
+    const scriptName = getScriptName(scriptId)
+    if (!scriptName) return undefined
+
+    const event = entryIsScript && exitIsScript ? 'both' as const
+      : entryIsScript ? 'entry' as const : 'exit' as const
+    return { scriptName, event }
+  }, [column, getScriptName])
 
   const [showConfigDialog, setShowConfigDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -115,6 +135,7 @@ export const Column = memo(function Column({ column }: ColumnProps) {
             icon={column.icon || 'list'}
             taskCount={tasks.length}
             color={column.color}
+            scriptTrigger={scriptTrigger}
             onConfigure={handleConfigure}
             onDelete={handleDelete}
             onAddTask={handleAddTask}

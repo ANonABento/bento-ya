@@ -2,11 +2,17 @@ import { memo, useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { IconButton } from '@/components/shared/icon-button'
 
+type ScriptTriggerInfo = {
+  scriptName: string
+  event: 'entry' | 'exit' | 'both'
+}
+
 type ColumnHeaderProps = {
   name: string
   icon: string
   taskCount: number
   color: string
+  scriptTrigger?: ScriptTriggerInfo
   onConfigure: () => void
   onDelete: () => void
   onAddTask: () => void
@@ -74,6 +80,7 @@ export const ColumnHeader = memo(function ColumnHeader({
   icon,
   taskCount,
   color,
+  scriptTrigger,
   onConfigure,
   onDelete,
   onAddTask,
@@ -107,6 +114,15 @@ export const ColumnHeader = memo(function ColumnHeader({
       <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
         {taskCount}
       </span>
+
+      {scriptTrigger && (
+        <span
+          className="truncate rounded bg-purple-500/10 px-1.5 py-0.5 text-[10px] font-medium text-purple-400"
+          title={`Script: ${scriptTrigger.scriptName} (${scriptTrigger.event === 'both' ? 'entry + exit' : `on ${scriptTrigger.event}`})`}
+        >
+          {scriptTrigger.scriptName}
+        </span>
+      )}
 
       <div className="ml-auto flex items-center gap-0.5">
         {/* Add task button */}
