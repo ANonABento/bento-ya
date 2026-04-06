@@ -1,66 +1,85 @@
 # Bento-ya Next Steps
 
-> Updated: 2026-04-05. Previous version was from 2026-04-04.
+> Updated: 2026-04-06.
 
 ## Current State
 
-**Architecture:** Unified chat system complete (Phases 1-5, Phase 6 partial)
-**Tests:** 333 total (167 Rust + 149 frontend + 17 E2E)
+**Version:** v1.0 complete, polish backlog cleared, ready for v2.0
+**Architecture:** Unified chat system (Phases 1-5 complete, Phase 6 partial)
+**Tests:** 339 total (156 Rust + 17 MCP + 149 frontend + 17 E2E)
 **Codebase:** ~42k lines (18k Rust, 24k TypeScript/React)
 **Cargo workspace:** bento-ya + bento-mcp share rusqlite build (WAL compatible)
+**MCP Server:** 19 tools, standalone binary
 
-## v1.0 Sprint Complete (55/55 tickets)
+## v1.0 — COMPLETE
 
-All v1-sprint tickets resolved:
-- T035 History Replay — verified end-to-end
-- T046 Chef Settings API — deferred (questionable value)
-- T051 Siege Loop UI — SiegeStatus component added to task detail panel
+55/55 tickets resolved. Polish backlog 8/8 resolved.
 
-### Code Health — All Clean
+### Recent Additions (2026-04-05/06)
+- **Script trigger badge** on column headers — purple pill shows attached script name
+- **Quick-attach scripts** to columns from Scripts settings tab (dropdown picker)
+- **PathPicker** shared component — reused in workspace settings + onboarding wizard
+- **Chef panel docking** — toggle between bottom and right positions (persisted)
+- **Coming Soon indicators** — badges on unfinished settings features (git, shortcuts)
+- **Column DnD bug fix** — visible filter for correct drag indices
+- **Workspace store update()** — optimistic update with rollback
 
-- No components over 500 LOC (4 splits completed)
-- 6 siege tests added (prompt building, serialization)
-- MCP Connect tab updated (12→19 tools)
-- Task card UX fixed (side panel, board stays visible)
-
-### Polish Backlog (from `.tickets/POLISH-BACKLOG.md`)
-
-| ID | Issue | Effort | Status |
-|----|-------|--------|--------|
-| P002 | Repo path file picker button | 30min | ✅ Complete |
-| P003 | Column drag-and-drop | 1hr | ✅ Complete (visible filter bug fixed) |
-| P004 | Chef panel docking options | 2hr | |
-
-## Feature Roadmap (v2.0)
-
-Prioritized by user value:
+## v2.0 Feature Roadmap
 
 ### Tier 1 — High Impact
-- **Per-task git worktree isolation** — agents work on isolated branches, no conflicts
-- **PR auto-create trigger** — wire existing `create_pr` command as a column trigger action
-- **DAG dependency UI** — SVG lines on board (backend complete, frontend phases 3-5 remaining)
+| Feature | Effort | Description |
+|---------|--------|-------------|
+| Per-task git worktree isolation | 8-12hr | `git worktree add` per task, agents work in isolation, no conflicts |
+| PR auto-create trigger | 5hr | Native trigger action type for auto-PR on column entry (built-in script exists, this adds first-class support) |
+| DAG dependency UI (Phases 3-5) | 12-16hr | SVG lines on board showing dependencies, Cmd+drag to connect. Backend complete. |
 
 ### Tier 2 — Nice to Have
-- **LCH theme redesign** — perceptually uniform colors, dark mode polish
-- **Agent thought stream** — show reasoning/thinking in agent panel
-- **Branch comparison view** — visual diff between task branches
+| Feature | Effort | Description |
+|---------|--------|-------------|
+| LCH theme redesign | 4-6hr | Perceptually uniform colors, dark mode polish |
+| Agent thought stream | 4hr | Show reasoning/thinking tokens in agent panel |
+| Branch comparison view | 4hr | Visual diff between task branches |
+| Dynamic model discovery | 3-4hr | Auto-fetch available models from Anthropic/OpenAI APIs |
 
 ### Tier 3 — Future (v2.1+)
-- **Discord integration** — 10 tickets (T052-T060), blocked on Phase 6 cleanup
-- **Multi-provider support** — OpenAI API alongside Anthropic
-- **Conflict resolution UI** — visual merge conflict helper
-- **First-launch onboarding wizard**
+| Feature | Effort | Description |
+|---------|--------|-------------|
+| Discord integration | 40hr+ | 10 tickets (T052-T060), blocked on Phase 6 cleanup |
+| Multi-provider support | 8hr | OpenAI API alongside Anthropic |
+| Conflict resolution UI | 8hr | Visual merge conflict helper |
 
-## What Was Completed (This Session — 2026-04-05)
+## Architecture Debt
 
-- Split `db/mod.rs` 2215→476 lines (12 domain modules)
-- Split `task-card.tsx` 557→328 lines (3 extracted files)
-- WAL fix: Cargo workspace for shared SQLite build
-- 12 dependency tests (4→16), 17 MCP server tests (0→17)
-- Closed 7 stale tickets (T026-T028, T047-T050 — all already done)
-- Updated STATUS.md, NEXT_STEPS.md, moved tickets
+| Item | Status | Notes |
+|------|--------|-------|
+| Phase 6 — CliSessionManager removal | Partial | Unified chat phases 1-5 done. Legacy code remains. Blocks Discord integration. |
 
-## What Was Completed (Previous Sessions)
+## What Was Completed (Session: 2026-04-05/06)
+
+### Features
+- Script trigger badge on column headers (script-store.ts, column-header.tsx)
+- Quick-attach scripts to columns (scripts-tab.tsx dropdown)
+- PathPicker shared component (path-picker.tsx, replaces duplication)
+- Browse button for repo path in workspace settings
+- Chef panel docking — bottom/right toggle (ui-store, orchestrator-panel, board)
+- Coming Soon indicators on placeholder features (git-tab, shortcuts-tab)
+
+### Bug Fixes
+- Column DnD: filter hidden columns in onDragEnd (use-dnd.ts)
+
+### Refactors
+- Workspace store: added update() method with optimistic update + rollback
+
+### Docs
+- CLAUDE.md: script-store, PathPicker, workspace-store.update(), MCP 16→19 tools
+- POLISH-BACKLOG.md: all 8 items resolved
+- NEXT_STEPS.md: updated for v2.0 roadmap
+
+### Testing
+- MCP integration test: 14/14 tools verified (create/move/approve/reject/retry/complete)
+- WebDriver E2E: 16/17 pass (tauri-plugin-webdriver-automation has stability issue with events)
+
+## Previous Sessions
 
 - Unified Chat System (Phases 1-6 partial) — 8 files in `src-tauri/src/chat/`
 - MCP Server — 19 tools, standalone binary, concurrent WAL access
@@ -69,6 +88,8 @@ Prioritized by user value:
 - Discord integration removed (-5,216 lines)
 - ipc.ts split into 19 domain modules
 - Trigger config V2 migration complete
-- Column-config-dialog split (745→256)
 - Scripts system (5 phases, 19 MCP tools)
 - 63 new Rust tests across 4 review passes
+- db/mod.rs split 2215→476 lines (12 domain modules)
+- task-card.tsx split 557→328 lines (3 extracted files)
+- WAL fix: Cargo workspace for shared SQLite build
