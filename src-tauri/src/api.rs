@@ -10,7 +10,7 @@ use axum::{
     extract::State as AxumState,
     http::StatusCode,
     response::IntoResponse,
-    routing::post,
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -65,33 +65,40 @@ async fn move_task(
     AxumState(api): AxumState<Arc<ApiState>>,
     Json(req): Json<MoveTaskReq>,
 ) -> impl IntoResponse {
-    let conn = get_db!(api);
+    // Phase 1: DB updates (hold lock briefly)
+    let (task, task_before, old_column_id, column_changed) = {
+        let conn = get_db!(api);
 
-    let task_before = match db::get_task(&conn, &req.id) {
-        Ok(t) => t, Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
-    };
+        let task_before = match db::get_task(&conn, &req.id) {
+            Ok(t) => t, Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
+        };
 
-    let old_column_id = task_before.column_id.clone();
-    let column_changed = old_column_id != req.target_column_id;
+        let old_column_id = task_before.column_id.clone();
+        let column_changed = old_column_id != req.target_column_id;
 
-    let ts = db::now();
+        let ts = db::now();
+        if column_changed {
+            let _ = conn.execute(
+                "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = NULL, updated_at = ?3 WHERE id = ?4",
+                rusqlite::params![req.target_column_id, req.position, ts, req.id],
+            );
+        } else {
+            let _ = conn.execute(
+                "UPDATE tasks SET column_id = ?1, position = ?2, updated_at = ?3 WHERE id = ?4",
+                rusqlite::params![req.target_column_id, req.position, ts, req.id],
+            );
+        }
+
+        let task = match db::get_task(&conn, &req.id) {
+            Ok(t) => t, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        };
+
+        (task, task_before, old_column_id, column_changed)
+    }; // DB lock released
+
+    // Phase 2: Pipeline triggers (may spawn async tasks)
     if column_changed {
-        let _ = conn.execute(
-            "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = NULL, updated_at = ?3 WHERE id = ?4",
-            rusqlite::params![req.target_column_id, req.position, ts, req.id],
-        );
-    } else {
-        let _ = conn.execute(
-            "UPDATE tasks SET column_id = ?1, position = ?2, updated_at = ?3 WHERE id = ?4",
-            rusqlite::params![req.target_column_id, req.position, ts, req.id],
-        );
-    }
-
-    let task = match db::get_task(&conn, &req.id) {
-        Ok(t) => t, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-    };
-
-    if column_changed {
+        let conn = get_db!(api);
         let old_column = db::get_column(&conn, &old_column_id).ok();
         let target_column = db::get_column(&conn, &req.target_column_id).ok();
 
@@ -104,9 +111,11 @@ async fn move_task(
         if let Some(ref tgt_col) = target_column {
             let _ = pipeline::fire_trigger(&conn, &api.app, &task, tgt_col);
         }
+
+        let task = db::get_task(&conn, &req.id).unwrap_or(task);
+        return ok_response(serde_json::to_value(&task).unwrap_or_default()).into_response();
     }
 
-    let task = db::get_task(&conn, &req.id).unwrap_or(task);
     ok_response(serde_json::to_value(&task).unwrap_or_default()).into_response()
 }
 
@@ -276,7 +285,7 @@ pub fn start(app: AppHandle) {
 
     tauri::async_runtime::spawn(async move {
         let router = Router::new()
-            .route("/api/health", post(health))
+            .route("/api/health", get(health))
             .route("/api/move_task", post(move_task))
             .route("/api/create_task", post(create_task))
             .route("/api/delete_task", post(delete_task))
