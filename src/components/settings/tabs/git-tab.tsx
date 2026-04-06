@@ -54,24 +54,38 @@ export function GitTab() {
       </SettingSection>
 
       <SettingSection title="Automation">
-        <SettingRow
-          label="Auto-create PR"
-          description="Automatically create PR when task reaches Review column"
-        >
-          <Toggle
-            checked={git.autoPr}
-            onChange={(checked) => { updateGit({ autoPr: checked }); }}
-          />
-        </SettingRow>
+        <div className="relative">
+          <span className="absolute -top-7 right-0 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent">
+            Coming Soon
+          </span>
+          <div className="opacity-50 pointer-events-none">
+            <SettingRow
+              label="Auto-create PR"
+              description="Automatically create PR when task reaches Review column"
+            >
+              <Toggle
+                checked={git.autoPr}
+                onChange={(checked) => { updateGit({ autoPr: checked }); }}
+              />
+            </SettingRow>
+          </div>
+        </div>
       </SettingSection>
 
       <SettingSection title="PR Template" description="Default template for pull request descriptions">
-        <SettingTextarea
-          value={git.prTemplate}
-          onChange={(value) => { updateGit({ prTemplate: value }); }}
-          placeholder="## Summary&#10;&#10;## Changes&#10;&#10;## Testing"
-          rows={6}
-        />
+        <div className="relative">
+          <span className="absolute -top-7 right-0 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent">
+            Coming Soon
+          </span>
+          <div className="opacity-50 pointer-events-none">
+            <SettingTextarea
+              value={git.prTemplate}
+              onChange={(value) => { updateGit({ prTemplate: value }); }}
+              placeholder="## Summary&#10;&#10;## Changes&#10;&#10;## Testing"
+              rows={6}
+            />
+          </div>
+        </div>
       </SettingSection>
     </div>
   )
