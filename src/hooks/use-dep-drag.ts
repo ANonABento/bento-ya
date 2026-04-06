@@ -37,10 +37,10 @@ export function useDepDrag(
   dragStateRef.current = dragState
 
   const getBoardOffset = useCallback(() => {
-    const board = document.querySelector('[data-board-scroll]')
+    const board = document.querySelector<HTMLElement>('[data-board-scroll]')
     if (!board) return { x: 0, y: 0 }
     const rect = board.getBoundingClientRect()
-    return { x: rect.x - (board as HTMLElement).scrollLeft, y: rect.y - (board as HTMLElement).scrollTop }
+    return { x: rect.x - board.scrollLeft, y: rect.y - board.scrollTop }
   }, [])
 
   const handlePointerDown = useCallback((e: React.PointerEvent, taskId: string) => {
