@@ -46,9 +46,12 @@ export function ShortcutsTab() {
         ))}
       </div>
 
-      <div className="rounded-lg border border-warning/30 bg-warning/5 p-4">
+      <div className="rounded-lg border border-accent/30 bg-accent/5 p-4">
         <p className="text-xs text-text-secondary">
-          <span className="font-medium text-warning">Note:</span> Some system shortcuts cannot be overridden. Conflicting shortcuts will be highlighted.
+          <span className="inline-flex items-center gap-1.5">
+            <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent">Coming Soon</span>
+            Custom key bindings and conflict detection are not yet active. Shortcuts shown are the current defaults.
+          </span>
         </p>
       </div>
     </div>

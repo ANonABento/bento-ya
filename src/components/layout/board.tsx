@@ -20,9 +20,11 @@ import { TaskSidePanel } from '@/components/layout/split-view'
 import { OrchestratorPanel } from '@/components/panel/orchestrator-panel'
 import { useDnd } from '@/hooks/use-dnd'
 import { useSplitView } from '@/hooks/use-split-view'
+import { useUIStore } from '@/stores/ui-store'
 import { CardPositionContext, useCardPositionProvider } from '@/hooks/use-card-positions'
 
 export function Board() {
+  const panelDock = useUIStore((s) => s.panelDock)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const columns = useColumnStore((s) => s.columns)
   const loadColumns = useColumnStore((s) => s.load)
@@ -114,11 +116,16 @@ export function Board() {
               <DependencyLines tasks={tasks} positions={positions} />
             </div>
 
-            {/* Orchestrator panel */}
-            {activeWorkspaceId && (
+            {/* Orchestrator panel - bottom dock */}
+            {activeWorkspaceId && panelDock === 'bottom' && (
               <OrchestratorPanel workspaceId={activeWorkspaceId} />
             )}
           </div>
+
+          {/* Orchestrator panel - right dock */}
+          {activeWorkspaceId && panelDock === 'right' && (
+            <OrchestratorPanel workspaceId={activeWorkspaceId} />
+          )}
 
           {/* Task side panel (slides in from right, board stays visible) */}
           <TaskSidePanel taskId={activeTaskId} onClose={closeSplitView} />

@@ -30,10 +30,16 @@ const COLLAPSED_HEIGHT = 40
 export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   // UI stores
   const panelHeight = useUIStore((s) => s.panelHeight)
+  const panelWidth = useUIStore((s) => s.panelWidth)
+  const panelDock = useUIStore((s) => s.panelDock)
   const isPanelCollapsed = useUIStore((s) => s.isPanelCollapsed)
   const setPanelHeight = useUIStore((s) => s.setPanelHeight)
+  const setPanelWidth = useUIStore((s) => s.setPanelWidth)
+  const setPanelDock = useUIStore((s) => s.setPanelDock)
   const togglePanel = useUIStore((s) => s.togglePanel)
   const loadTasks = useTaskStore((s) => s.load)
+
+  const isRightDock = panelDock === 'right'
 
   // Get settings for LLM connection
   const settings = useSettingsStore((s) => s.global)
@@ -178,10 +184,10 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     if (isPanelCollapsed) return
     e.preventDefault()
     e.stopPropagation()
-    dragStartY.current = e.clientY
-    dragStartHeight.current = panelHeight
+    dragStartY.current = isRightDock ? e.clientX : e.clientY
+    dragStartHeight.current = isRightDock ? panelWidth : panelHeight
     setIsDragging(true)
-  }, [panelHeight, isPanelCollapsed])
+  }, [panelHeight, panelWidth, isPanelCollapsed, isRightDock])
 
   // Header click handler (toggle panel)
   const handleHeaderClick = useCallback((e: React.MouseEvent) => {
@@ -192,14 +198,21 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   useEffect(() => {
     if (!isDragging) return
 
-    document.body.style.cursor = 'ns-resize'
+    document.body.style.cursor = isRightDock ? 'ew-resize' : 'ns-resize'
     document.body.style.userSelect = 'none'
 
     const handleMouseMove = (e: MouseEvent) => {
-      // Handle at top edge of bottom panel: drag UP → panel grows, drag DOWN → panel shrinks
-      const deltaY = dragStartY.current - e.clientY
-      const newHeight = dragStartHeight.current + deltaY
-      setPanelHeight(newHeight)
+      if (isRightDock) {
+        // Handle at left edge of right panel: drag LEFT → panel grows, drag RIGHT → panel shrinks
+        const deltaX = dragStartY.current - e.clientX
+        const newWidth = dragStartHeight.current + deltaX
+        setPanelWidth(newWidth)
+      } else {
+        // Handle at top edge of bottom panel: drag UP → panel grows, drag DOWN → panel shrinks
+        const deltaY = dragStartY.current - e.clientY
+        const newHeight = dragStartHeight.current + deltaY
+        setPanelHeight(newHeight)
+      }
     }
 
     const handleMouseUp = () => {
@@ -217,7 +230,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
-  }, [isDragging, setPanelHeight])
+  }, [isDragging, setPanelHeight, setPanelWidth, isRightDock])
 
   // Re-clamp panel height on mount and window resize (prevent board from being squished)
   useEffect(() => {
@@ -227,13 +240,14 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
   useEffect(() => {
     const handleResize = () => {
-      // Read latest panelHeight from store (avoids re-registering listener on every drag)
-      const current = useUIStore.getState().panelHeight
-      setPanelHeight(current)
+      // Read latest values from store (avoids re-registering listener on every drag)
+      const state = useUIStore.getState()
+      setPanelHeight(state.panelHeight)
+      setPanelWidth(state.panelWidth)
     }
     window.addEventListener('resize', handleResize)
     return () => { window.removeEventListener('resize', handleResize) }
-  }, [setPanelHeight])
+  }, [setPanelHeight, setPanelWidth])
 
   // Clear error when user starts typing (like AgentPanel)
   const handleInputChange = useCallback(() => {
@@ -281,32 +295,51 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     }
   }, [deleteSession])
 
-  const displayHeight = isPanelCollapsed ? COLLAPSED_HEIGHT : panelHeight
+  const displayHeight = isPanelCollapsed ? COLLAPSED_HEIGHT : (isRightDock ? undefined : panelHeight)
+  const displayWidth = isPanelCollapsed ? COLLAPSED_HEIGHT : (isRightDock ? panelWidth : undefined)
   const isLoading = sessionsLoading || messagesLoading
   const isProcessing = chat.streaming.isStreaming
 
   const toolCalls = mapToolCalls(chat.streaming.toolCalls, workspaceId)
 
   return (
-    <div className="relative">
-      {/* Resize handle - above the panel, not clipped by motion overflow */}
+    <div className={`relative ${isRightDock ? 'flex h-full' : ''}`}>
+      {/* Resize handle */}
       {!isPanelCollapsed && (
-        <div
-          onMouseDown={handleResizeMouseDown}
-          className="absolute -top-1.5 left-0 right-0 h-3 z-50 group"
-          style={{ cursor: 'row-resize' }}
-        >
-          <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-transparent group-hover:bg-accent/60 transition-colors -translate-y-1/2" />
-        </div>
+        isRightDock ? (
+          <div
+            onMouseDown={handleResizeMouseDown}
+            className="absolute -left-1.5 top-0 bottom-0 w-3 z-50 group"
+            style={{ cursor: 'col-resize' }}
+          >
+            <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-transparent group-hover:bg-accent/60 transition-colors -translate-x-1/2" />
+          </div>
+        ) : (
+          <div
+            onMouseDown={handleResizeMouseDown}
+            className="absolute -top-1.5 left-0 right-0 h-3 z-50 group"
+            style={{ cursor: 'row-resize' }}
+          >
+            <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-transparent group-hover:bg-accent/60 transition-colors -translate-y-1/2" />
+          </div>
+        )
       )}
 
       <motion.div
         ref={panelRef}
         initial={false}
-        animate={{ height: displayHeight }}
+        animate={isRightDock
+          ? { width: isPanelCollapsed ? COLLAPSED_HEIGHT : displayWidth }
+          : { height: displayHeight }
+        }
         transition={isDragging ? { duration: 0 } : { type: 'spring', stiffness: 500, damping: 35 }}
-        className="flex flex-col border-t border-border-default bg-surface overflow-hidden"
-        style={{ minHeight: COLLAPSED_HEIGHT }}
+        className={`flex flex-col bg-surface overflow-hidden ${
+          isRightDock ? 'border-l border-border-default h-full' : 'border-t border-border-default'
+        }`}
+        style={isRightDock
+          ? { minWidth: COLLAPSED_HEIGHT }
+          : { minHeight: COLLAPSED_HEIGHT }
+        }
       >
 
       {/* Header - clickable to toggle */}
@@ -375,6 +408,27 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
           <span className="text-xs text-text-secondary">
             {isPanelCollapsed ? 'Cmd+J to expand' : 'Cmd+J'}
           </span>
+          {/* Dock position toggle */}
+          {!isPanelCollapsed && (
+            <button
+              type="button"
+              onClick={() => { setPanelDock(isRightDock ? 'bottom' : 'right') }}
+              title={isRightDock ? 'Dock to bottom' : 'Dock to right'}
+              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+            >
+              {isRightDock ? (
+                /* Icon: dock bottom */
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v7.5h13V4.25a.75.75 0 0 0-.75-.75H4.25ZM3.5 13.25v2.5c0 .414.336.75.75.75h11.5a.75.75 0 0 0 .75-.75v-2.5h-13Z" clipRule="evenodd" />
+                </svg>
+              ) : (
+                /* Icon: dock right */
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v11.5c0 .414.336.75.75.75h7.5V3.5H4.25Zm9 0v13h2.5a.75.75 0 0 0 .75-.75V4.25a.75.75 0 0 0-.75-.75h-2.5Z" clipRule="evenodd" />
+                </svg>
+              )}
+            </button>
+          )}
           <button
             type="button"
             onClick={togglePanel}
@@ -384,13 +438,25 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 20 20"
               fill="currentColor"
-              className={`h-4 w-4 transition-transform ${isPanelCollapsed ? 'rotate-180' : ''}`}
+              className={`h-4 w-4 transition-transform ${
+                isRightDock
+                  ? (isPanelCollapsed ? 'rotate-180' : '')
+                  : (isPanelCollapsed ? 'rotate-180' : '')
+              }`}
             >
-              <path
-                fillRule="evenodd"
-                d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z"
-                clipRule="evenodd"
-              />
+              {isRightDock ? (
+                <path
+                  fillRule="evenodd"
+                  d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z"
+                  clipRule="evenodd"
+                />
+              ) : (
+                <path
+                  fillRule="evenodd"
+                  d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z"
+                  clipRule="evenodd"
+                />
+              )}
             </svg>
           </button>
         </div>
