@@ -6,6 +6,7 @@
 use crate::chat::bridge;
 use crate::db::{self, Column, Task};
 use crate::error::AppError;
+use crate::git::branch_manager;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -290,6 +291,55 @@ fn resolve_working_dir(task: &Task, workspace_repo_path: &str) -> String {
     workspace_repo_path.to_string()
 }
 
+/// Auto-create a branch + worktree for a task if missing.
+/// Returns the updated task with `branch_name` and `worktree_path` set.
+fn ensure_task_worktree(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    repo_path: &str,
+) -> Result<Task, AppError> {
+    let mut task = task.clone();
+
+    // Step 1: Ensure task has a branch
+    if task.branch_name.as_deref().unwrap_or("").is_empty() {
+        let slug = branch_manager::slugify(&task.title);
+        match branch_manager::create_task_branch(repo_path, &slug, None) {
+            Ok(branch_name) => {
+                task = db::update_task_branch(conn, &task.id, Some(&branch_name))?;
+                log::info!("[triggers] Auto-created branch '{}' for task {}", branch_name, task.id);
+            }
+            Err(e) => {
+                // Branch may already exist (e.g. from a previous attempt)
+                let branch_name = format!("bentoya/{}", slug);
+                log::warn!("[triggers] Branch creation failed ({}), trying existing '{}'", e, branch_name);
+                task = db::update_task_branch(conn, &task.id, Some(&branch_name))?;
+            }
+        }
+    }
+
+    let branch_name = task.branch_name.as_deref().unwrap_or("");
+    if branch_name.is_empty() {
+        log::warn!("[triggers] Could not determine branch for task {}, skipping worktree", task.id);
+        return Ok(task);
+    }
+
+    // Step 2: Create worktree
+    match branch_manager::create_task_worktree(repo_path, branch_name, &task.id) {
+        Ok(wt_path) => {
+            task = db::update_task_worktree_path(conn, &task.id, Some(&wt_path))?;
+            super::emit_tasks_changed(app, &task.workspace_id, "worktree_auto_created");
+            log::info!("[triggers] Auto-created worktree at '{}' for task {}", wt_path, task.id);
+        }
+        Err(e) => {
+            log::error!("[triggers] Failed to create worktree for task {}: {}", task.id, e);
+            // Continue without worktree — agent falls back to repo root
+        }
+    }
+
+    Ok(task)
+}
+
 // ─── Per-Action Handlers ──────────────────────────────────────────────────
 
 fn execute_spawn_cli(
@@ -306,14 +356,22 @@ fn execute_spawn_cli(
     model: Option<&str>,
 ) -> Result<Task, AppError> {
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
-    let working_dir = resolve_working_dir(task, &workspace.repo_path);
+
+    // Auto-create worktree for trigger-spawned agents to sandbox them
+    let task = if task.worktree_path.is_none() && !workspace.repo_path.is_empty() {
+        ensure_task_worktree(conn, app, task, &workspace.repo_path)?
+    } else {
+        task.clone()
+    };
+
+    let working_dir = resolve_working_dir(&task, &workspace.repo_path);
 
     if !working_dir.is_empty() && !std::path::Path::new(&working_dir).exists() {
         log::warn!("Working dir '{}' does not exist, agent may fail", working_dir);
     }
 
     let ctx = TemplateContext {
-        task, column, workspace: &workspace,
+        task: &task, column, workspace: &workspace,
         prev_column: other_column, next_column: Option::None, dep_tasks: HashMap::new(),
     };
 
