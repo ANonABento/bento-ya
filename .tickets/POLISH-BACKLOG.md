@@ -7,11 +7,11 @@
 | ID | Issue | Severity | Notes |
 |----|-------|----------|-------|
 | P001 | Workspace tab drag spawns at wrong location | Low | Should spawn where cursor is |
-| P002 | Repo path needs file picker button | Low | Add folder selection dialog |
-| P003 | Columns not draggable | Medium | DnD works for tasks but not columns |
+| P002 | Repo path needs file picker button | Low | ✅ Complete |
+| P003 | Columns not draggable | Medium | ✅ Complete (visible filter bug fixed) |
 | P004 | Chef panel docking options | Medium | Allow side/top/bottom docking |
 | P005 | Chef panel resize inconsistent | Low | Should use same resize util as sidebar |
-| P006 | Voice settings missing download options | Low | Voice feature disabled in build |
+| P006 | Voice settings missing download options | Low | Deferred (voice feature disabled) |
 | P007 | Default settings tab should be Workspace | Low | Currently defaults to Appearance |
 | P008 | Add "Coming Soon" indicators | Low | Mark unfinished features clearly |
 

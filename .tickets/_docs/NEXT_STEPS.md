@@ -25,11 +25,11 @@ All v1-sprint tickets resolved:
 
 ### Polish Backlog (from `.tickets/POLISH-BACKLOG.md`)
 
-| ID | Issue | Effort |
-|----|-------|--------|
-| P002 | Repo path file picker button | 30min |
-| P003 | Column drag-and-drop | 1hr |
-| P004 | Chef panel docking options | 2hr |
+| ID | Issue | Effort | Status |
+|----|-------|--------|--------|
+| P002 | Repo path file picker button | 30min | ✅ Complete |
+| P003 | Column drag-and-drop | 1hr | ✅ Complete (visible filter bug fixed) |
+| P004 | Chef panel docking options | 2hr | |
 
 ## Feature Roadmap (v2.0)
 

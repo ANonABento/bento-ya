@@ -98,13 +98,14 @@ SQLite with WAL mode. 29 versioned migrations (001-028 + scripts). Both `bento-y
 Zustand stores, each focused on a single domain:
 - `task-store.ts` — Task CRUD, board state
 - `column-store.ts` — Column config, ordering
-- `workspace-store.ts` — Workspace selection
+- `workspace-store.ts` — Workspace selection, `update(id, updates)` (optimistic update with rollback)
 - `settings-store.ts` — User preferences (persisted)
 - `checklist-store.ts` — Production checklists
 - `attention-store.ts` — Notification badges
 - `templates-store.ts` — Pipeline templates
 - `ui-store.ts` — UI state (panels, modals)
 - `agent-streaming-store.ts` — Ephemeral per-task agent streaming data (live cards)
+- `script-store.ts` — Zustand store for caching scripts. Methods: `load()` (loads once, skips if loaded), `getScriptName(id)` (lookup by ID). Used by Column component (trigger badge) and Board (loads on mount)
 
 ### Frontend Components (`src/components/`)
 
@@ -113,9 +114,9 @@ Zustand stores, each focused on a single domain:
 | `kanban/` | Board, columns, task cards | `task-card.tsx`, `column-config-dialog.tsx` |
 | `panel/` | Chat interfaces | `orchestrator-panel.tsx`, `agent-panel.tsx`, `chat-input.tsx` |
 | `command-palette/` | Cmd+K command palette | `command-palette.tsx` |
-| `settings/` | 7-tab settings panel | `settings-panel.tsx`, `tabs/*.tsx` |
+| `settings/` | 7-tab settings panel | `settings-panel.tsx`, `tabs/*.tsx` (`scripts-tab.tsx` has quick-attach dropdown on ScriptCard for attaching scripts to columns) |
 | `onboarding/` | First-launch wizard | `onboarding-wizard.tsx` |
-| `shared/` | Reusable atoms | `dialog.tsx`, `tooltip.tsx`, `badge.tsx`, etc. |
+| `shared/` | Reusable atoms | `dialog.tsx`, `tooltip.tsx`, `badge.tsx`, `path-picker.tsx` (directory picker: input + Browse button, uses @tauri-apps/plugin-dialog) |
 | `layout/` | App shell | `board.tsx`, `tab-bar.tsx`, `split-view.tsx` |
 | `task-detail/` | Task detail panel | `task-detail-panel.tsx`, sections |
 | `review/` | Code review | `diff-viewer.tsx` |
@@ -144,10 +145,10 @@ Standalone Rust binary exposing the board as MCP tools over stdio. Any MCP clien
 ```
 mcp-server/
 ├── Cargo.toml
-└── src/main.rs    — 16 tools, ~800 lines
+└── src/main.rs    — 19 tools, ~800 lines
 ```
 
-**Tools:** get_workspaces, get_board, get_task, create_task, update_task, move_task, delete_task, approve_task, reject_task, add_dependency, remove_dependency, mark_complete, retry_task, create_workspace, create_column, configure_triggers
+**Tools:** get_workspaces, get_board, get_task, create_task, update_task, move_task, delete_task, approve_task, reject_task, add_dependency, remove_dependency, mark_complete, retry_task, create_workspace, create_column, configure_triggers, list_scripts, create_script, run_script
 
 **Config:** `{ "command": "bento-mcp" }` — auto-detects DB at `~/.bentoya/data.db`
 
