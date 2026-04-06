@@ -13,6 +13,7 @@ import { TaskQuickActions } from './task-quick-actions'
 import { useAgentStreamingStore } from '@/stores/agent-streaming-store'
 import { getColumnTriggers } from '@/types/column'
 import { useCardPosition } from '@/hooks/use-card-positions'
+import { useDepDragContext } from '@/hooks/use-dep-drag-context'
 import { PIPELINE_LABELS, PIPELINE_COLORS, formatRelativeTime } from './task-card-utils'
 import { PrStatusIndicator, SiegeBadge } from './task-card-badges'
 import { useTaskCardActions } from './use-task-card-actions'
@@ -50,6 +51,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const actions = useTaskCardActions(task)
 
   const { registerCard } = useCardPosition()
+  const { onDepDragStart } = useDepDragContext()
 
   const {
     attributes,
@@ -205,6 +207,11 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         {...listeners}
         className="p-3 space-y-2"
         style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+        onPointerDown={(e) => {
+          if (e.metaKey || e.ctrlKey) {
+            onDepDragStart(e, task.id)
+          }
+        }}
       >
         {/* Title */}
         <div className="flex items-start gap-2">

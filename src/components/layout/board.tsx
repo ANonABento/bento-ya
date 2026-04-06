@@ -16,12 +16,15 @@ import { useScriptStore } from '@/stores/script-store'
 import { Column } from '@/components/kanban/column'
 import { DragOverlayContent } from '@/components/kanban/drag-overlay'
 import { DependencyLines } from '@/components/kanban/dependency-lines'
+import { DepDragPreview } from '@/components/kanban/dep-drag-preview'
+import { useDepDrag } from '@/hooks/use-dep-drag'
 import { TaskSidePanel } from '@/components/layout/split-view'
 import { OrchestratorPanel } from '@/components/panel/orchestrator-panel'
 import { useDnd } from '@/hooks/use-dnd'
 import { useSplitView } from '@/hooks/use-split-view'
 import { useUIStore } from '@/stores/ui-store'
 import { CardPositionContext, useCardPositionProvider } from '@/hooks/use-card-positions'
+import { DepDragContext } from '@/hooks/use-dep-drag-context'
 
 export function Board() {
   const panelDock = useUIStore((s) => s.panelDock)
@@ -40,6 +43,7 @@ export function Board() {
   }, [activeWorkspaceId, columns.length, addColumn])
 
   const { registerCard, positions } = useCardPositionProvider()
+  const { dragState, handlePointerDown: onDepDragStart } = useDepDrag(tasks, positions)
 
   const { isSplitView, activeTaskId, closeSplitView } = useSplitView()
 
@@ -81,6 +85,7 @@ export function Board() {
 
   return (
     <CardPositionContext.Provider value={{ registerCard, positions }}>
+    <DepDragContext.Provider value={{ onDepDragStart, isDraggingDep: !!dragState }}>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
@@ -114,6 +119,7 @@ export function Board() {
 
               {/* Dependency lines overlay */}
               <DependencyLines tasks={tasks} positions={positions} />
+              {dragState && <DepDragPreview dragState={dragState} positions={positions} />}
             </div>
 
             {/* Orchestrator panel - bottom dock */}
@@ -134,6 +140,7 @@ export function Board() {
           {overlayContent}
         </DragOverlay>
       </DndContext>
+    </DepDragContext.Provider>
     </CardPositionContext.Provider>
   )
 }
