@@ -4,9 +4,8 @@
  */
 
 import type { DepDragState } from '@/hooks/use-dep-drag'
+import type { CardRect } from '@/hooks/use-card-positions'
 import { svgPath } from './dependency-lines'
-
-type CardRect = { x: number; y: number; width: number; height: number }
 
 type Props = {
   dragState: DepDragState

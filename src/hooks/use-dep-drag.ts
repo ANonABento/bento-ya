@@ -8,6 +8,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { Task } from '@/types'
+import type { CardRect } from '@/hooks/use-card-positions'
 import * as ipc from '@/lib/ipc'
 
 export type DepDragState = {
@@ -18,8 +19,6 @@ export type DepDragState = {
   cursorY: number
   targetId: string | null
 }
-
-type CardRect = { x: number; y: number; width: number; height: number }
 
 type DepEntry = { task_id: string; condition: string }
 

@@ -1,6 +1,6 @@
 import { createContext, useContext, useCallback, useRef, useEffect, useState } from 'react'
 
-type CardRect = { x: number; y: number; width: number; height: number }
+export type CardRect = { x: number; y: number; width: number; height: number }
 
 type CardPositionContextValue = {
   registerCard: (taskId: string, element: HTMLElement | null) => void

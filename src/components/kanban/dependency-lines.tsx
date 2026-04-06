@@ -1,7 +1,6 @@
 import { useMemo } from 'react'
 import type { Task } from '@/types'
-
-type CardRect = { x: number; y: number; width: number; height: number }
+import type { CardRect } from '@/hooks/use-card-positions'
 
 type DependencyLinesProps = {
   tasks: Task[]
