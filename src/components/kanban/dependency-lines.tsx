@@ -23,40 +23,66 @@ type LineData = {
 
 const LINE_COLOR = '#f59e0b' // amber-400
 
+// ─── Side normals ───────────────────────────────────────────────────────────
+
+type Side = 'left' | 'right'
+const NORMALS: Record<Side, { x: number; y: number }> = {
+  left: { x: -1, y: 0 },
+  right: { x: 1, y: 0 },
+}
+
+// ─── Connection point + path calculation ────────────────────────────────────
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.min(Math.max(v, min), max)
+}
+
 /**
- * Bezier path between two cards.
- * Exits/enters from whichever edge faces the other card.
- * Control points extend horizontally for clean S-curves.
+ * Choose which side each card connects from based on relative column position.
+ * Returns [sourceSide, targetSide].
  */
-function calcPath(
-  fromRect: CardRect, fromY: number,
-  toRect: CardRect, toY: number,
-): string {
+function chooseSides(fromRect: CardRect, toRect: CardRect): [Side, Side] {
   const fromCx = fromRect.x + fromRect.width / 2
   const toCx = toRect.x + toRect.width / 2
+  const sameColumn = Math.abs(fromRect.x - toRect.x) < 20
 
-  let sx: number, tx: number, exitDir: number, entryDir: number
+  if (sameColumn) return ['right', 'right']          // U-curve to the right
+  if (toCx >= fromCx) return ['right', 'left']       // forward: right → left
+  return ['left', 'right']                           // reverse: left → right
+}
 
-  if (toCx >= fromCx) {
-    sx = fromRect.x + fromRect.width
-    tx = toRect.x
-    exitDir = 1
-    entryDir = -1
-  } else {
-    sx = fromRect.x
-    tx = toRect.x + toRect.width
-    exitDir = -1
-    entryDir = 1
-  }
+/** Get the anchor point on a card edge with lane offset. */
+function anchor(rect: CardRect, side: Side, laneOffset: number, padding: number): { x: number; y: number } {
+  const y = rect.y + rect.height / 2 + laneOffset
+  if (side === 'left') return { x: rect.x - padding, y }
+  return { x: rect.x + rect.width + padding, y }
+}
 
-  const gap = Math.abs(tx - sx)
-  const offset = Math.max(gap * 0.5, 60)
+/**
+ * Build bezier path between two anchored points.
+ * curvePull = clamp(euclidean_distance * 0.35, 42, 200)
+ * Control points extend along the side normal by curvePull distance.
+ */
+function calcPath(
+  sx: number, sy: number, sourceSide: Side,
+  tx: number, ty: number, targetSide: Side,
+): string {
+  const dist = Math.hypot(tx - sx, ty - sy)
+  const pull = clamp(dist * 0.35, 42, 200)
+
+  const sn = NORMALS[sourceSide]
+  const tn = NORMALS[targetSide]
+
+  const c1x = sx + sn.x * pull
+  const c1y = sy + sn.y * pull
+  const c2x = tx + tn.x * pull
+  const c2y = ty + tn.y * pull
 
   return [
-    'M', String(sx), String(fromY),
-    'C', String(sx + offset * exitDir), String(fromY) + ',',
-    String(tx + offset * entryDir), String(toY) + ',',
-    String(tx), String(toY),
+    'M', String(sx), String(sy),
+    'C', String(c1x), String(c1y) + ',',
+    String(c2x), String(c2y) + ',',
+    String(tx), String(ty),
   ].join(' ')
 }
 
@@ -80,48 +106,49 @@ function parseDeps(json: string | null): ParsedDep[] {
   try { return JSON.parse(json) as ParsedDep[] } catch { return [] }
 }
 
-/** Spread multiple connection ports evenly along a card edge. */
-type PortTracker = Map<string, number>
-function getPortY(
-  rect: CardRect,
+// ─── Lane spacing ───────────────────────────────────────────────────────────
+
+const LANE_SPACING = 9 // px between parallel connections on same card edge
+
+type LaneTracker = Map<string, number>
+
+function getLaneOffset(
   cardId: string,
-  tracker: PortTracker,
-  totalPorts: Map<string, number>,
+  tracker: LaneTracker,
+  totalLanes: Map<string, number>,
 ): number {
-  const total = totalPorts.get(cardId) ?? 1
+  const total = totalLanes.get(cardId) ?? 1
   const idx = tracker.get(cardId) ?? 0
   tracker.set(cardId, idx + 1)
 
-  if (total === 1) return rect.y + rect.height / 2
-
-  const padding = 10
-  const usableHeight = rect.height - padding * 2
-  const spacing = usableHeight / (total + 1)
-  return rect.y + padding + spacing * (idx + 1)
+  if (total === 1) return 0
+  return (idx - (total - 1) / 2) * LANE_SPACING
 }
+
+// ─── Component ──────────────────────────────────────────────────────────────
 
 export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyLinesProps) {
   const lines = useMemo(() => {
     const result: LineData[] = []
 
-    // Parse deps once per task, count ports
+    // Parse deps once, count lanes per card edge
     const taskDeps = new Map<string, ParsedDep[]>()
-    const outPorts = new Map<string, number>()
-    const inPorts = new Map<string, number>()
+    const outLanes = new Map<string, number>()
+    const inLanes = new Map<string, number>()
 
     for (const task of tasks) {
       const deps = parseDeps(task.dependencies)
       if (deps.length === 0) continue
       taskDeps.set(task.id, deps)
-      inPorts.set(task.id, (inPorts.get(task.id) ?? 0) + deps.length)
+      inLanes.set(task.id, (inLanes.get(task.id) ?? 0) + deps.length)
       for (const dep of deps) {
-        outPorts.set(dep.task_id, (outPorts.get(dep.task_id) ?? 0) + 1)
+        outLanes.set(dep.task_id, (outLanes.get(dep.task_id) ?? 0) + 1)
       }
     }
 
-    // Build lines with spread port positions
-    const outTracker: PortTracker = new Map()
-    const inTracker: PortTracker = new Map()
+    // Build lines with lane-spaced connection points
+    const outTracker: LaneTracker = new Map()
+    const inTracker: LaneTracker = new Map()
 
     for (const [taskId, deps] of taskDeps) {
       const toRect = positions.get(taskId)
@@ -131,14 +158,18 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
         const fromRect = positions.get(dep.task_id)
         if (!fromRect) continue
 
-        const fromY = getPortY(fromRect, dep.task_id, outTracker, outPorts)
-        const toY = getPortY(toRect, taskId, inTracker, inPorts)
+        const [sourceSide, targetSide] = chooseSides(fromRect, toRect)
+        const srcOffset = getLaneOffset(dep.task_id, outTracker, outLanes)
+        const tgtOffset = getLaneOffset(taskId, inTracker, inLanes)
+
+        const src = anchor(fromRect, sourceSide, srcOffset, 2)
+        const tgt = anchor(toRect, targetSide, tgtOffset, 2)
 
         result.push({
           id: `${dep.task_id}-${taskId}`,
           fromId: dep.task_id,
           toId: taskId,
-          path: calcPath(fromRect, fromY, toRect, toY),
+          path: calcPath(src.x, src.y, sourceSide, tgt.x, tgt.y, targetSide),
         })
       }
     }
