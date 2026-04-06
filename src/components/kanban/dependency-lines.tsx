@@ -24,13 +24,9 @@ type LineData = {
 const LINE_COLOR = '#f59e0b' // amber-400
 
 /**
- * React Flow-inspired bezier path calculation.
- *
- * Forward:  cpOffset = max(dx * 0.5, 50)
- * Reverse:  cpOffset = 25 * sqrt(abs(dx))  (prevents collapse on close nodes)
- *
- * Control points are always horizontal from the endpoints,
- * so arrows approach the card edge cleanly.
+ * Bezier path between two cards.
+ * Exits/enters from whichever edge faces the other card.
+ * Control points extend horizontally for clean S-curves.
  */
 function calcPath(
   fromRect: CardRect, fromY: number,
@@ -39,17 +35,14 @@ function calcPath(
   const fromCx = fromRect.x + fromRect.width / 2
   const toCx = toRect.x + toRect.width / 2
 
-  // Pick exit/entry edges based on relative position — always face each other
   let sx: number, tx: number, exitDir: number, entryDir: number
 
   if (toCx >= fromCx) {
-    // Target is to the RIGHT: exit right, enter left
     sx = fromRect.x + fromRect.width
     tx = toRect.x
     exitDir = 1
     entryDir = -1
   } else {
-    // Target is to the LEFT: exit left, enter right
     sx = fromRect.x
     tx = toRect.x + toRect.width
     exitDir = -1
@@ -67,7 +60,7 @@ function calcPath(
   ].join(' ')
 }
 
-/** Also exported for dep-drag-preview. */
+/** Build SVG cubic bezier path string (used by dep-drag-preview). */
 export function svgPath(
   mx: number, my: number,
   c1x: number, c1y: number,
@@ -87,9 +80,7 @@ function parseDeps(json: string | null): ParsedDep[] {
   try { return JSON.parse(json) as ParsedDep[] } catch { return [] }
 }
 
-/**
- * Spread multiple connection ports evenly along a card edge.
- */
+/** Spread multiple connection ports evenly along a card edge. */
 type PortTracker = Map<string, number>
 function getPortY(
   rect: CardRect,
@@ -113,38 +104,40 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
   const lines = useMemo(() => {
     const result: LineData[] = []
 
-    // Count ports per card edge
+    // Parse deps once per task, count ports
+    const taskDeps = new Map<string, ParsedDep[]>()
     const outPorts = new Map<string, number>()
     const inPorts = new Map<string, number>()
 
     for (const task of tasks) {
       const deps = parseDeps(task.dependencies)
       if (deps.length === 0) continue
+      taskDeps.set(task.id, deps)
       inPorts.set(task.id, (inPorts.get(task.id) ?? 0) + deps.length)
       for (const dep of deps) {
         outPorts.set(dep.task_id, (outPorts.get(dep.task_id) ?? 0) + 1)
       }
     }
 
+    // Build lines with spread port positions
     const outTracker: PortTracker = new Map()
     const inTracker: PortTracker = new Map()
 
-    for (const task of tasks) {
-      const deps = parseDeps(task.dependencies)
-      const toRect = positions.get(task.id)
-      if (!toRect || deps.length === 0) continue
+    for (const [taskId, deps] of taskDeps) {
+      const toRect = positions.get(taskId)
+      if (!toRect) continue
 
       for (const dep of deps) {
         const fromRect = positions.get(dep.task_id)
         if (!fromRect) continue
 
         const fromY = getPortY(fromRect, dep.task_id, outTracker, outPorts)
-        const toY = getPortY(toRect, task.id, inTracker, inPorts)
+        const toY = getPortY(toRect, taskId, inTracker, inPorts)
 
         result.push({
-          id: `${dep.task_id}-${task.id}`,
+          id: `${dep.task_id}-${taskId}`,
           fromId: dep.task_id,
-          toId: task.id,
+          toId: taskId,
           path: calcPath(fromRect, fromY, toRect, toY),
         })
       }
@@ -153,7 +146,6 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
     return result
   }, [tasks, positions])
 
-  // Only show lines for the hovered card
   if (!hoveredTaskId || lines.length === 0) return null
 
   const visibleLines = lines.filter(
@@ -168,16 +160,15 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
       style={{ zIndex: 10 }}
     >
       {visibleLines.map((line) => (
-        <g key={line.id}>
-          <path
-            d={line.path}
-            stroke={LINE_COLOR}
-            strokeWidth="2"
-            fill="none"
-            opacity="0.7"
-            strokeLinecap="round"
-          />
-        </g>
+        <path
+          key={line.id}
+          d={line.path}
+          stroke={LINE_COLOR}
+          strokeWidth="2"
+          fill="none"
+          opacity="0.7"
+          strokeLinecap="round"
+        />
       ))}
     </svg>
   )
