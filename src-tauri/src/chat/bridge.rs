@@ -19,22 +19,72 @@ use crate::pipeline;
 
 /// Forward PTY transport events to Tauri events for frontend rendering.
 ///
-/// Consumes the event channel and emits:
-/// - `pty:{task_id}:output` — base64-encoded terminal output
-/// - `pty:{task_id}:exit` — process exited
-///
-/// Returns when the transport exits.
+/// Emits both raw PTY events (for terminal view) and parsed agent events
+/// (for chat panel). Also saves assistant messages to DB.
 pub async fn bridge_pty_to_tauri(
     app: &AppHandle,
     task_id: &str,
     mut event_rx: mpsc::Receiver<TransportEvent>,
 ) {
+    // Accumulate text content for saving to DB on complete
+    let mut accumulated_text = String::new();
+
     while let Some(event) = event_rx.recv().await {
         match event {
             TransportEvent::Chat(ChatEvent::RawOutput(data)) => {
                 let _ = app.emit(&format!("pty:{}:output", task_id), data);
             }
+            TransportEvent::Chat(ChatEvent::TextContent(text)) => {
+                accumulated_text.push_str(&text);
+                let _ = app.emit("agent:stream", &serde_json::json!({
+                    "taskId": task_id,
+                    "content": text,
+                }));
+            }
+            TransportEvent::Chat(ChatEvent::ThinkingContent { content, is_complete }) => {
+                let _ = app.emit("agent:thinking", &serde_json::json!({
+                    "taskId": task_id,
+                    "content": content,
+                    "isComplete": is_complete,
+                }));
+            }
+            TransportEvent::Chat(ChatEvent::ToolUse { id, name, input, status }) => {
+                let _ = app.emit("agent:tool_call", &serde_json::json!({
+                    "taskId": task_id,
+                    "toolId": id,
+                    "toolName": name,
+                    "toolInput": input.unwrap_or_default(),
+                    "status": format!("{:?}", status).to_lowercase(),
+                }));
+            }
+            TransportEvent::Chat(ChatEvent::Complete) => {
+                // Save accumulated text as an agent message
+                if !accumulated_text.is_empty() {
+                    if let Ok(conn) = Connection::open(db::db_path()) {
+                        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                        let _ = db::insert_agent_message(
+                            &conn, task_id, "assistant", &accumulated_text,
+                            None, None, None, None,
+                        );
+                    }
+                    accumulated_text.clear();
+                }
+                let _ = app.emit("agent:complete", &serde_json::json!({
+                    "taskId": task_id,
+                    "success": true,
+                }));
+            }
             TransportEvent::Exited(_) => {
+                // Save any remaining text
+                if !accumulated_text.is_empty() {
+                    if let Ok(conn) = Connection::open(db::db_path()) {
+                        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                        let _ = db::insert_agent_message(
+                            &conn, task_id, "assistant", &accumulated_text,
+                            None, None, None, None,
+                        );
+                    }
+                }
                 let _ = app.emit(
                     &format!("pty:{}:exit", task_id),
                     serde_json::json!({ "taskId": task_id }),
