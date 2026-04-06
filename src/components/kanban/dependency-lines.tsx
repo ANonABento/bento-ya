@@ -163,7 +163,7 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
         const tgtOffset = getLaneOffset(taskId, inTracker, inLanes)
 
         const src = anchor(fromRect, sourceSide, srcOffset, 2)
-        const tgt = anchor(toRect, targetSide, tgtOffset, 2)
+        const tgt = anchor(toRect, targetSide, tgtOffset, 8)  // extra padding for arrowhead
 
         result.push({
           id: `${dep.task_id}-${taskId}`,
@@ -190,6 +190,25 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
       className="absolute inset-0 pointer-events-none overflow-visible"
       style={{ zIndex: 10 }}
     >
+      <defs>
+        <marker
+          id="dep-arrow"
+          viewBox="0 0 10 10"
+          refX="7"
+          refY="5"
+          markerWidth="5"
+          markerHeight="5"
+          orient="auto-start-reverse"
+        >
+          <path
+            d="M 0 0 L 10 5 L 0 10 z"
+            fill={LINE_COLOR}
+            stroke={LINE_COLOR}
+            strokeWidth="1.2"
+            strokeLinejoin="round"
+          />
+        </marker>
+      </defs>
       {visibleLines.map((line) => (
         <path
           key={line.id}
@@ -199,6 +218,7 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
           fill="none"
           opacity="0.7"
           strokeLinecap="round"
+          markerEnd="url(#dep-arrow)"
         />
       ))}
     </svg>
