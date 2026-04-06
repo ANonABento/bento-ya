@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'motion/react'
-import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentBranch, detectClis } from '@/lib/ipc'
 import type { DetectedCli } from '@/lib/ipc/cli'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { PathPicker } from '@/components/shared/path-picker'
 import { BUILT_IN_TEMPLATES } from '@/types/templates'
 
 type OnboardingWizardProps = {
@@ -61,18 +61,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
     return () => { clearTimeout(timeout) }
   }, [repoPath])
-
-  const handleBrowse = useCallback(async () => {
-    try {
-      const selected = await open({ directory: true, multiple: false })
-      if (selected) {
-        setRepoPath(selected)
-        setError(null)
-      }
-    } catch {
-      // User cancelled
-    }
-  }, [])
 
   const handleCreate = useCallback(async () => {
     const trimmedName = name.trim() || 'My Project'
@@ -144,26 +132,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             <label htmlFor="onboard-path" className="mb-1 block text-xs font-medium text-text-secondary">
               Repository Path
             </label>
-            <div className="flex gap-2">
-              <input
-                id="onboard-path"
-                type="text"
-                value={repoPath}
-                onChange={(e) => {
-                  setRepoPath(e.target.value)
-                  setError(null)
-                }}
-                placeholder="/Users/you/project"
-                className="flex-1 rounded-lg border border-border-default bg-bg px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
-              />
-              <button
-                type="button"
-                onClick={() => { void handleBrowse() }}
-                className="shrink-0 rounded-lg border border-border-default bg-bg px-3 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover"
-              >
-                Browse
-              </button>
-            </div>
+            <PathPicker
+              value={repoPath}
+              onChange={(path) => { setRepoPath(path); setError(null) }}
+              placeholder="/Users/you/project"
+            />
             {/* Git status */}
             {gitStatus === 'checking' && (
               <p className="mt-1 text-xs text-text-secondary">Checking repository...</p>

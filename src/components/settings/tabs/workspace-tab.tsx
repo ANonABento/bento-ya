@@ -1,9 +1,9 @@
 import { useState, useCallback } from 'react'
-import { open } from '@tauri-apps/plugin-dialog'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { SettingSection } from '@/components/shared/setting-components'
+import { PathPicker } from '@/components/shared/path-picker'
 
 export function WorkspaceTab() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
@@ -21,16 +21,13 @@ export function WorkspaceTab() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  const handleBrowseRepoPath = useCallback(async () => {
+  const handleRepoPathChange = useCallback(async (path: string) => {
     if (!workspace) return
     try {
-      const selected = await open({ directory: true, multiple: false })
-      if (selected) {
-        await updateWorkspace(workspace.id, { repoPath: selected })
-        setMessage({ type: 'success', text: 'Repository path updated' })
-      }
+      await updateWorkspace(workspace.id, { repoPath: path })
+      setMessage({ type: 'success', text: 'Repository path updated' })
     } catch {
-      setMessage({ type: 'error', text: 'Failed to select folder' })
+      setMessage({ type: 'error', text: 'Failed to update repo path' })
     }
   }, [workspace, updateWorkspace])
 
@@ -107,20 +104,12 @@ export function WorkspaceTab() {
             </div>
             <div>
               <label className="text-xs font-medium text-text-secondary">Repository Path</label>
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
+              <div className="mt-1">
+                <PathPicker
                   value={workspace.repoPath}
-                  className="flex-1 rounded-lg border border-border-default bg-bg px-3 py-1.5 font-mono text-sm text-text-primary focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+                  onChange={(path) => { void handleRepoPathChange(path) }}
+                  readOnly
                 />
-                <button
-                  type="button"
-                  onClick={() => { void handleBrowseRepoPath() }}
-                  className="shrink-0 rounded-lg border border-border-default bg-bg px-3 py-1.5 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover"
-                >
-                  Browse
-                </button>
               </div>
             </div>
             <div className="flex gap-4 text-xs text-text-secondary">
