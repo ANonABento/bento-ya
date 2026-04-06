@@ -3,7 +3,7 @@ import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-
 import { useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { motion, AnimatePresence } from 'motion/react'
-import type { Column as ColumnType } from '@/types'
+import type { Column as ColumnType, RunScriptAction } from '@/types'
 import { getColumnTriggers } from '@/types/column'
 import { useTaskStore } from '@/stores/task-store'
 import { useColumnStore } from '@/stores/column-store'
@@ -22,7 +22,6 @@ export const Column = memo(function Column({ column }: ColumnProps) {
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
-  const loadScripts = useScriptStore((s) => s.load)
   const getScriptName = useScriptStore((s) => s.getScriptName)
 
   // Memoize filtered tasks to prevent infinite loops
@@ -34,8 +33,6 @@ export const Column = memo(function Column({ column }: ColumnProps) {
   )
   const taskIds = useMemo(() => tasks.map((t) => t.id), [tasks])
 
-  useEffect(() => { void loadScripts() }, [loadScripts])
-
   const scriptTrigger = useMemo(() => {
     const triggers = getColumnTriggers(column)
     const entryIsScript = triggers.on_entry?.type === 'run_script'
@@ -43,8 +40,8 @@ export const Column = memo(function Column({ column }: ColumnProps) {
     if (!entryIsScript && !exitIsScript) return undefined
 
     const scriptId = entryIsScript
-      ? (triggers.on_entry as { script_id: string }).script_id
-      : (triggers.on_exit as { script_id: string }).script_id
+      ? (triggers.on_entry as RunScriptAction).script_id
+      : (triggers.on_exit as RunScriptAction).script_id
     const scriptName = getScriptName(scriptId)
     if (!scriptName) return undefined
 

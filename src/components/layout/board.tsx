@@ -12,6 +12,7 @@ import { SortableContext, horizontalListSortingStrategy, sortableKeyboardCoordin
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useScriptStore } from '@/stores/script-store'
 import { Column } from '@/components/kanban/column'
 import { DragOverlayContent } from '@/components/kanban/drag-overlay'
 import { DependencyLines } from '@/components/kanban/dependency-lines'
@@ -28,6 +29,7 @@ export function Board() {
   const addColumn = useColumnStore((s) => s.add)
   const loadTasks = useTaskStore((s) => s.load)
   const tasks = useTaskStore((s) => s.tasks)
+  const loadScripts = useScriptStore((s) => s.load)
 
   const handleAddColumn = useCallback(() => {
     if (!activeWorkspaceId) return
@@ -59,8 +61,9 @@ export function Board() {
     if (activeWorkspaceId) {
       void loadColumns(activeWorkspaceId)
       void loadTasks(activeWorkspaceId)
+      void loadScripts()
     }
-  }, [activeWorkspaceId, loadColumns, loadTasks])
+  }, [activeWorkspaceId, loadColumns, loadTasks, loadScripts])
 
   // Resolve overlay content
   let overlayContent = null
