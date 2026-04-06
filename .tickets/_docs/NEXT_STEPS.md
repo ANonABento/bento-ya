@@ -32,7 +32,7 @@
 |---------|--------|--------|-------------|
 | Per-task git worktree isolation | 8-12hr | **DONE** | `git worktree add` per task, agents work in isolation, no conflicts |
 | PR auto-create trigger | 5hr | **DONE** | Native `create_pr` trigger action type with base branch config |
-| DAG dependency UI (Phases 3-5) | 12-16hr | Not started | SVG lines on board showing dependencies, Cmd+drag to connect. Backend complete. |
+| DAG dependency UI (Phases 3-5) | 12-16hr | **DONE** | Condition-colored lines, hover tooltips, Cmd+drag to link cards |
 
 ### Tier 2 — Nice to Have
 | Feature | Effort | Description |
@@ -63,6 +63,8 @@
 - **Worktree frontend** — purple dot on task cards, "worktree" badge in detail panel, IPC functions, `worktreePath` on Task type
 - **CreatePrEditor** — base branch input in column trigger config UI
 - **Template variable** — `{task.worktree_path}` for prompt interpolation
+- **DAG dependency lines** — condition-colored (green/blue/amber), hover tooltips with task names + condition badge, wider hit area
+- **Cmd+drag linking** — hold Cmd/Ctrl + drag between cards to create dependency, preview bezier with color feedback, cycle detection on drop
 
 ### DB
 - Migration 029: `worktree_path TEXT` column on tasks

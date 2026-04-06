@@ -104,8 +104,8 @@ From `docs/ROADMAP.md`:
 | BEN-322 | PR status tracking on cards | ✅ Done (badges, polling hook) |
 | BEN-323 | Conflict resolution UI | Not started |
 | BEN-324 | Branch comparison view | Not started |
-| DAG Phase 3 | SVG dependency lines on board | Not started |
-| DAG Phase 4 | Cmd+drag to create links | Not started |
+| DAG Phase 3 | SVG dependency lines on board | ✅ Done (condition colors, hover tooltips) |
+| DAG Phase 4 | Cmd+drag to create links | ✅ Done (Cmd+drag with preview line, cycle validation) |
 | Discord | E001 epic (10 tickets T052-T060) | Not started, blocked on Phase 6 |
 
 ---
