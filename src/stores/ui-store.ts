@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 
 type ViewMode = 'board' | 'split'
+type PanelDock = 'bottom' | 'right'
 
 type ModalState = {
   type: string
@@ -14,11 +15,24 @@ const MIN_PANEL_HEIGHT = 150
 const MAX_PANEL_HEIGHT = 600 // absolute max, also clamped to leave MIN_BOARD_HEIGHT
 const MIN_BOARD_HEIGHT = 200 // board always gets at least this much space
 
+// Right-dock panel constants
+const DEFAULT_PANEL_WIDTH = 400
+const MIN_PANEL_WIDTH = 300
+const MAX_PANEL_WIDTH = 800
+const MIN_BOARD_WIDTH = 400
+
 /** Get the effective max panel height based on current viewport */
 function getMaxPanelHeight(): number {
   if (typeof window === 'undefined') return MAX_PANEL_HEIGHT
   const viewportMax = Math.floor(window.innerHeight - MIN_BOARD_HEIGHT)
   return Math.min(MAX_PANEL_HEIGHT, viewportMax)
+}
+
+/** Get the effective max panel width based on current viewport */
+function getMaxPanelWidth(): number {
+  if (typeof window === 'undefined') return MAX_PANEL_WIDTH
+  const viewportMax = Math.floor(window.innerWidth - MIN_BOARD_WIDTH)
+  return Math.min(MAX_PANEL_WIDTH, viewportMax)
 }
 
 type UIState = {
@@ -28,6 +42,8 @@ type UIState = {
 
   // Orchestrator panel state
   panelHeight: number
+  panelWidth: number
+  panelDock: PanelDock
   isPanelCollapsed: boolean
 
   setViewMode: (mode: ViewMode) => void
@@ -38,6 +54,8 @@ type UIState = {
 
   // Panel actions
   setPanelHeight: (height: number) => void
+  setPanelWidth: (width: number) => void
+  setPanelDock: (dock: PanelDock) => void
   togglePanel: () => void
   collapsePanel: () => void
   expandPanel: () => void
@@ -51,6 +69,8 @@ export const useUIStore = create<UIState>()(
         activeTaskId: null,
         modal: null,
         panelHeight: DEFAULT_PANEL_HEIGHT,
+        panelWidth: DEFAULT_PANEL_WIDTH,
+        panelDock: 'bottom' as PanelDock,
         isPanelCollapsed: false,
 
         setViewMode: (mode) => {
@@ -79,6 +99,16 @@ export const useUIStore = create<UIState>()(
           set({ panelHeight: clamped })
         },
 
+        setPanelWidth: (width) => {
+          const max = getMaxPanelWidth()
+          const clamped = Math.min(Math.max(width, MIN_PANEL_WIDTH), max)
+          set({ panelWidth: clamped })
+        },
+
+        setPanelDock: (dock) => {
+          set({ panelDock: dock })
+        },
+
         togglePanel: () => {
           set((state) => ({ isPanelCollapsed: !state.isPanelCollapsed }))
         },
@@ -95,6 +125,8 @@ export const useUIStore = create<UIState>()(
         name: 'bento-ya-ui',
         partialize: (state) => ({
           panelHeight: state.panelHeight,
+          panelWidth: state.panelWidth,
+          panelDock: state.panelDock,
           isPanelCollapsed: state.isPanelCollapsed,
         }),
       },
@@ -104,3 +136,5 @@ export const useUIStore = create<UIState>()(
 )
 
 export { MIN_PANEL_HEIGHT, MAX_PANEL_HEIGHT, DEFAULT_PANEL_HEIGHT, MIN_BOARD_HEIGHT }
+export { MIN_PANEL_WIDTH, MAX_PANEL_WIDTH, DEFAULT_PANEL_WIDTH, MIN_BOARD_WIDTH }
+export type { PanelDock }
