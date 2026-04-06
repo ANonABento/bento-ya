@@ -69,6 +69,7 @@ export const mockTask = (overrides: Partial<Task> = {}): Task => ({
   lastOutput: null,
   dependencies: null,
   blocked: false,
+  worktreePath: null,
   queuedAt: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),

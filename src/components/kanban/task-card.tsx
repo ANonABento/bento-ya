@@ -266,7 +266,10 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
               </span>
             )}
             {cardSettings.showBranch && task.branch && (
-              <span className="font-mono truncate max-w-[100px]" title={task.branch}>
+              <span className="font-mono truncate max-w-[100px] flex items-center gap-1" title={task.worktreePath ? `Worktree: ${task.worktreePath}` : task.branch}>
+                {task.worktreePath && (
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0" />
+                )}
                 {task.branch}
               </span>
             )}

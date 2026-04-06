@@ -7,6 +7,7 @@ export type {
   MoveColumnAction,
   TriggerTaskAction,
   RunScriptAction,
+  CreatePrAction,
   NoneAction,
   ExitCriteria,
   ExitCriteriaType,

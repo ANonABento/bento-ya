@@ -278,12 +278,34 @@ pub fn delete_task(
     state: State<AppState>,
     id: String,
 ) -> Result<(), AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    use crate::git::branch_manager;
 
-    // Get task info before deletion for the event
-    let task = db::get_task(&conn, &id)?;
+    // Read task + workspace info, then release lock before filesystem I/O
+    let (task, repo_path) = {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let task = db::get_task(&conn, &id)?;
+        let repo_path = if task.worktree_path.is_some() {
+            db::get_workspace(&conn, &task.workspace_id).ok().map(|ws| ws.repo_path)
+        } else {
+            None
+        };
+        (task, repo_path)
+    };
 
-    db::delete_task(&conn, &id)?;
+    // Clean up worktree outside the DB lock (filesystem I/O)
+    if task.worktree_path.is_some() {
+        if let Some(ref rp) = repo_path {
+            if let Err(e) = branch_manager::remove_task_worktree(rp, &id) {
+                log::warn!("Failed to clean up worktree for deleted task {}: {}", id, e);
+            }
+        }
+    }
+
+    // Re-acquire lock for deletion
+    {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        db::delete_task(&conn, &id)?;
+    }
 
     // Notify frontend to refresh task store
     pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_deleted");
@@ -653,4 +675,119 @@ pub fn retry_pipeline(
     let task = pipeline::fire_trigger(&conn, &app, &task, &column)?;
 
     Ok(task)
+}
+
+// ─── Worktree Commands ────────────────────────────────────────────────────
+
+/// Create a git worktree for a task. Auto-creates the branch if needed.
+/// Returns the updated task with worktree_path set.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn create_task_worktree(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    task_id: String,
+    base_branch: Option<String>,
+) -> Result<Task, AppError> {
+    use crate::git::branch_manager;
+
+    let (task, workspace) = {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let task = db::get_task(&conn, &task_id)?;
+        let workspace = db::get_workspace(&conn, &task.workspace_id)?;
+        (task, workspace)
+    };
+
+    if workspace.repo_path.is_empty() {
+        return Err(AppError::InvalidInput("Workspace has no repo_path".into()));
+    }
+
+    // Already has a worktree
+    if let Some(ref wt) = task.worktree_path {
+        if !wt.is_empty() && std::path::Path::new(wt).exists() {
+            return Ok(task);
+        }
+    }
+
+    let repo_path = workspace.repo_path.clone();
+
+    // Ensure task has a branch
+    let branch = match &task.branch_name {
+        Some(b) if !b.is_empty() => b.clone(),
+        _ => {
+            let slug = branch_manager::slugify(&task.title);
+            let branch = tokio::task::spawn_blocking({
+                let repo_path = repo_path.clone();
+                let base = base_branch.clone();
+                move || branch_manager::create_task_branch(&repo_path, &slug, base.as_deref())
+            })
+            .await
+            .map_err(|e| AppError::CommandError(e.to_string()))?
+            .map_err(AppError::CommandError)?;
+
+            let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            db::update_task_branch(&conn, &task_id, Some(&branch))?;
+            branch
+        }
+    };
+
+    // Create worktree
+    let worktree_path = tokio::task::spawn_blocking({
+        let repo_path = repo_path.clone();
+        let branch = branch.clone();
+        let task_id = task_id.clone();
+        move || branch_manager::create_task_worktree(&repo_path, &branch, &task_id)
+    })
+    .await
+    .map_err(|e| AppError::CommandError(e.to_string()))?
+    .map_err(AppError::CommandError)?;
+
+    // Update task with worktree path
+    let updated = {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        db::update_task_worktree_path(&conn, &task_id, Some(&worktree_path))?
+    };
+
+    pipeline::emit_tasks_changed(&app, &updated.workspace_id, "worktree_created");
+
+    Ok(updated)
+}
+
+/// Remove a task's git worktree and clear the worktree_path field.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn remove_task_worktree(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    task_id: String,
+) -> Result<Task, AppError> {
+    use crate::git::branch_manager;
+
+    let (task, workspace) = {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let task = db::get_task(&conn, &task_id)?;
+        let workspace = db::get_workspace(&conn, &task.workspace_id)?;
+        (task, workspace)
+    };
+
+    if task.worktree_path.is_none() {
+        // Nothing to remove
+        return Ok(task);
+    }
+
+    tokio::task::spawn_blocking({
+        let repo_path = workspace.repo_path.clone();
+        let task_id = task_id.clone();
+        move || branch_manager::remove_task_worktree(&repo_path, &task_id)
+    })
+    .await
+    .map_err(|e| AppError::CommandError(e.to_string()))?
+    .map_err(AppError::CommandError)?;
+
+    let updated = {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        db::update_task_worktree_path(&conn, &task_id, None)?
+    };
+
+    pipeline::emit_tasks_changed(&app, &updated.workspace_id, "worktree_removed");
+
+    Ok(updated)
 }

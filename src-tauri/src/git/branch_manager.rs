@@ -1,5 +1,6 @@
-use git2::{BranchType, Repository, Signature, StashFlags};
+use git2::{BranchType, Repository, Signature, StashFlags, WorktreeAddOptions};
 use serde::Serialize;
+use std::path::PathBuf;
 
 const BRANCH_PREFIX: &str = "bentoya/";
 const AUTO_STASH_PREFIX: &str = "bentoya-auto-stash-";
@@ -210,6 +211,132 @@ pub fn delete_task_branch(repo_path: &str, branch: &str) -> Result<bool, String>
     branch_ref.delete().map_err(|e| e.to_string())?;
 
     Ok(is_unmerged)
+}
+
+// ─── Worktree Operations ──────────────────────────────────────────────────
+
+/// Git-internal worktree name (no slashes — git stores metadata at `.git/worktrees/<name>/`).
+fn worktree_name(task_id: &str) -> String {
+    format!("bentoya-{}", task_id)
+}
+
+/// On-disk worktree path: `<repo>/.worktrees/bentoya-<task_id>/`.
+fn worktree_path(repo_path: &str, task_id: &str) -> PathBuf {
+    PathBuf::from(repo_path).join(".worktrees").join(worktree_name(task_id))
+}
+
+/// Create a git worktree for a task, checked out to the given branch.
+/// Returns the absolute path to the worktree directory.
+///
+/// Worktrees live at `<repo>/.worktrees/bentoya-<task_id>/` to keep
+/// them out of the way while staying inside the repo root.
+pub fn create_task_worktree(
+    repo_path: &str,
+    branch_name: &str,
+    task_id: &str,
+) -> Result<String, String> {
+    let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
+
+    let wt_name = worktree_name(task_id);
+    let wt_path = worktree_path(repo_path, task_id);
+
+    // Already exists — return the path
+    if wt_path.exists() {
+        return Ok(wt_path.to_string_lossy().to_string());
+    }
+
+    // Ensure parent dir exists
+    if let Some(parent) = wt_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create worktree parent dir: {}", e))?;
+    }
+
+    // Resolve the branch reference
+    let branch = repo
+        .find_branch(branch_name, BranchType::Local)
+        .map_err(|e| format!("Branch '{}' not found: {}", branch_name, e))?;
+    let reference = branch.into_reference();
+
+    let mut opts = WorktreeAddOptions::new();
+    opts.reference(Some(&reference));
+
+    repo.worktree(&wt_name, &wt_path, Some(&opts))
+        .map_err(|e| format!("Failed to create worktree: {}", e))?;
+
+    // Ensure .worktrees/ is in .gitignore so worktrees don't show as untracked
+    ensure_worktrees_gitignored(repo_path);
+
+    Ok(wt_path.to_string_lossy().to_string())
+}
+
+/// Add `.worktrees/` to .gitignore if not already present.
+fn ensure_worktrees_gitignored(repo_path: &str) {
+    let gitignore_path = PathBuf::from(repo_path).join(".gitignore");
+    let pattern = ".worktrees/";
+
+    let contents = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
+    if contents.lines().any(|line| line.trim() == pattern) {
+        return;
+    }
+
+    // Append to .gitignore
+    let append = if contents.is_empty() || contents.ends_with('\n') {
+        format!("{}\n", pattern)
+    } else {
+        format!("\n{}\n", pattern)
+    };
+
+    if let Err(e) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&gitignore_path)
+        .and_then(|mut f| {
+            use std::io::Write;
+            f.write_all(append.as_bytes())
+        })
+    {
+        log::warn!("Failed to add .worktrees/ to .gitignore: {}", e);
+    }
+}
+
+/// Remove a task's worktree and clean up on disk.
+pub fn remove_task_worktree(repo_path: &str, task_id: &str) -> Result<(), String> {
+    let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
+
+    let wt_name = worktree_name(task_id);
+    let wt_path = worktree_path(repo_path, task_id);
+
+    // Prune the worktree from git's tracking
+    if let Ok(wt) = repo.find_worktree(&wt_name) {
+        wt.prune(Some(
+            git2::WorktreePruneOptions::new()
+                .valid(true)
+                .working_tree(true),
+        ))
+        .map_err(|e| format!("Failed to prune worktree: {}", e))?;
+    }
+
+    // Remove directory if it still exists
+    if wt_path.exists() {
+        std::fs::remove_dir_all(&wt_path)
+            .map_err(|e| format!("Failed to remove worktree directory: {}", e))?;
+    }
+
+    Ok(())
+}
+
+/// List all bentoya worktrees in a repo.
+pub fn list_worktrees(repo_path: &str) -> Result<Vec<String>, String> {
+    let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
+
+    let names = repo.worktrees()
+        .map_err(|e| format!("Failed to list worktrees: {}", e))?;
+
+    Ok(names
+        .iter()
+        .filter_map(|n| n.map(|s| s.to_string()))
+        .filter(|name| name.starts_with("bentoya-"))
+        .collect())
 }
 
 #[cfg(test)]

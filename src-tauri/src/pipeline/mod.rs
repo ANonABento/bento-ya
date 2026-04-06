@@ -597,6 +597,7 @@ mod tests {
             last_output: None,
             dependencies: None,
             blocked: false,
+            worktree_path: None,
             created_at: "2024-01-01T00:00:00Z".into(),
             updated_at: "2024-01-01T00:00:00Z".into(),
         }

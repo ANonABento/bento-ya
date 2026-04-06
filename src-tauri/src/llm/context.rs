@@ -226,6 +226,7 @@ mod tests {
                 last_output: None,
                 dependencies: None,
                 blocked: false,
+                worktree_path: None,
                 agent_status: None,
                 queued_at: None,
                 created_at: "2024-01-01".to_string(),

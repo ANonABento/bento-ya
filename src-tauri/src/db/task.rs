@@ -3,8 +3,8 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use super::models::Task;
 use super::{new_id, now};
 
-/// Shared SELECT columns for tasks (44 fields).
-const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model";
+/// Shared SELECT columns for tasks (45 fields).
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path";
 
 /// Map a database row to a Task struct.
 fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
@@ -51,6 +51,7 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         last_output: row.get(35)?,
         dependencies: row.get(36)?,
         blocked: row.get::<_, Option<i64>>(37)?.unwrap_or(0) != 0,
+        worktree_path: row.get(44)?,
         created_at: row.get(38)?,
         updated_at: row.get(39)?,
     })
@@ -214,6 +215,20 @@ pub fn update_task_branch(
     conn.execute(
         "UPDATE tasks SET branch_name = ?1, updated_at = ?2 WHERE id = ?3",
         params![branch_name, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Update worktree_path for a task
+pub fn update_task_worktree_path(
+    conn: &Connection,
+    id: &str,
+    worktree_path: Option<&str>,
+) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET worktree_path = ?1, updated_at = ?2 WHERE id = ?3",
+        params![worktree_path, ts, id],
     )?;
     get_task(conn, id)
 }

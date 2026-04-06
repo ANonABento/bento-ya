@@ -51,6 +51,10 @@ pub fn interpolate(template: &str, ctx: &TemplateContext) -> String {
         "{task.pr_url}",
         ctx.task.pr_url.as_deref().unwrap_or(""),
     );
+    result = result.replace(
+        "{task.worktree_path}",
+        ctx.task.worktree_path.as_deref().unwrap_or(""),
+    );
 
     // Column variables
     result = result.replace("{column.name}", &ctx.column.name);
@@ -134,6 +138,7 @@ mod tests {
             last_output: Some("API endpoints: /login, /refresh".to_string()),
             dependencies: None,
             blocked: false,
+            worktree_path: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
         }

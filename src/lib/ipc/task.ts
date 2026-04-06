@@ -123,3 +123,16 @@ export async function createPr(
 ): Promise<CreatePrResult> {
   return invoke<CreatePrResult>('create_pr', { taskId, repoPath, baseBranch })
 }
+
+// ─── Worktree Commands ────────────────────────────────────────────────────
+
+export async function createTaskWorktree(
+  taskId: string,
+  baseBranch?: string,
+): Promise<Task> {
+  return invoke<Task>('create_task_worktree', { taskId, baseBranch })
+}
+
+export async function removeTaskWorktree(taskId: string): Promise<Task> {
+  return invoke<Task>('remove_task_worktree', { taskId })
+}

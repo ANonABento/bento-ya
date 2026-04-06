@@ -133,6 +133,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("026_remove_discord", include_str!("migrations/026_remove_discord.sql")),
         ("027_task_model", include_str!("migrations/027_task_model.sql")),
         ("028_scripts", include_str!("migrations/028_scripts.sql")),
+        ("029_task_worktree", include_str!("migrations/029_task_worktree.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -195,8 +196,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 28 migrations: 001-028
-        assert_eq!(count, 28);
+        // We have 29 migrations: 001-029
+        assert_eq!(count, 29);
     }
 
     #[test]

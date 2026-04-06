@@ -50,6 +50,10 @@ pub enum TriggerActionV2 {
     RunScript {
         script_id: String,
     },
+    CreatePr {
+        #[serde(default)]
+        base_branch: Option<String>,
+    },
     None,
 }
 
@@ -269,8 +273,21 @@ fn execute_action(
         TriggerActionV2::RunScript { script_id } => {
             execute_run_script(conn, app, task, column, other_column, script_id)
         }
+        TriggerActionV2::CreatePr { base_branch } => {
+            execute_create_pr(conn, app, task, column, base_branch.as_deref())
+        }
         TriggerActionV2::None => Ok(task.clone()),
     }
+}
+
+/// Resolve working directory for a task: worktree_path (if set and exists) > workspace.repo_path.
+fn resolve_working_dir(task: &Task, workspace_repo_path: &str) -> String {
+    if let Some(ref wt) = task.worktree_path {
+        if !wt.is_empty() && std::path::Path::new(wt).exists() {
+            return wt.clone();
+        }
+    }
+    workspace_repo_path.to_string()
 }
 
 // ─── Per-Action Handlers ──────────────────────────────────────────────────
@@ -289,9 +306,10 @@ fn execute_spawn_cli(
     model: Option<&str>,
 ) -> Result<Task, AppError> {
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
+    let working_dir = resolve_working_dir(task, &workspace.repo_path);
 
-    if !workspace.repo_path.is_empty() && !std::path::Path::new(&workspace.repo_path).exists() {
-        log::warn!("Workspace repo_path '{}' does not exist, agent may fail", workspace.repo_path);
+    if !working_dir.is_empty() && !std::path::Path::new(&working_dir).exists() {
+        log::warn!("Working dir '{}' does not exist, agent may fail", working_dir);
     }
 
     let ctx = TemplateContext {
@@ -334,7 +352,7 @@ fn execute_spawn_cli(
 
     // Build env vars
     let mut env_vars = HashMap::new();
-    env_vars.insert("WORKING_DIR".to_string(), workspace.repo_path.clone());
+    env_vars.insert("WORKING_DIR".to_string(), working_dir.clone());
     env_vars.insert("TRIGGER_PROMPT".to_string(), initial_prompt.clone());
     if let Some(cmd) = command {
         env_vars.insert("TRIGGER_COMMAND".to_string(), cmd.to_string());
@@ -355,7 +373,7 @@ fn execute_spawn_cli(
 
     bridge::spawn_cli_trigger_task(
         app.clone(), task.id.clone(), cli_type, cli_args,
-        workspace.repo_path.clone(), initial_prompt, Some(env_vars),
+        working_dir, initial_prompt, Some(env_vars),
     );
 
     Ok(updated_task)
@@ -451,6 +469,121 @@ fn execute_trigger_task(
     Ok(task.clone())
 }
 
+fn execute_create_pr(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    column: &Column,
+    base_branch: Option<&str>,
+) -> Result<Task, AppError> {
+    let workspace = db::get_workspace(conn, &task.workspace_id)?;
+
+    let branch_name = match &task.branch_name {
+        Some(b) if !b.is_empty() => b.clone(),
+        _ => {
+            return super::handle_trigger_failure(
+                conn, app, task, column,
+                "Cannot create PR: task has no branch_name",
+            );
+        }
+    };
+
+    if task.pr_number.is_some() {
+        log::info!("[create_pr] Task {} already has PR #{}, skipping", task.id, task.pr_number.unwrap());
+        let updated = db::update_task_pipeline_state(
+            conn, &task.id, PipelineState::Idle.as_str(), None, None,
+        )?;
+        return Ok(updated);
+    }
+
+    let base = base_branch.unwrap_or("main").to_string();
+    let pr_title = task.title.clone();
+    let pr_body = task.description.clone().unwrap_or_default();
+    let repo_path = resolve_working_dir(task, &workspace.repo_path);
+    let task_id = task.id.clone();
+    let column_id = column.id.clone();
+
+    let updated_task = db::update_task_pipeline_state(
+        conn, &task.id, PipelineState::Running.as_str(),
+        Some(&db::now()), None,
+    )?;
+
+    emit_pipeline(app, EVT_RUNNING, &task.id, &column.id, PipelineState::Running, Some("Creating PR".to_string()));
+
+    let app_handle = app.clone();
+
+    tokio::spawn(async move {
+        let result = tokio::task::spawn_blocking(move || -> Result<(i64, String), String> {
+            let output = std::process::Command::new("gh")
+                .args([
+                    "pr", "create",
+                    "--title", &pr_title,
+                    "--body", &pr_body,
+                    "--base", &base,
+                    "--head", &branch_name,
+                ])
+                .current_dir(&repo_path)
+                .output()
+                .map_err(|e| format!("Failed to run gh CLI: {}", e))?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(format!("gh pr create failed: {}", stderr));
+            }
+
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let pr_url = stdout.trim().to_string();
+            let pr_number = pr_url
+                .rsplit('/')
+                .next()
+                .and_then(|s| s.parse::<i64>().ok())
+                .ok_or_else(|| format!("Failed to parse PR number from URL: {}", pr_url))?;
+
+            Ok((pr_number, pr_url))
+        }).await;
+
+        let db_path = crate::db::db_path();
+        let conn = match rusqlite::Connection::open(&db_path) {
+            Ok(c) => { let _ = c.execute_batch("PRAGMA journal_mode=WAL;"); Some(c) }
+            Err(e) => { log::error!("[create_pr] Failed to open DB: {}", e); None }
+        };
+
+        let success = match result {
+            Ok(Ok((pr_number, pr_url))) => {
+                log::info!("[create_pr] Created PR #{} for task {}: {}", pr_number, task_id, pr_url);
+                if let Some(ref conn) = conn {
+                    let _ = db::update_task_pr_info(conn, &task_id, Some(pr_number), Some(&pr_url));
+                }
+                true
+            }
+            Ok(Err(e)) => {
+                log::error!("[create_pr] Failed for task {}: {}", task_id, e);
+                let _ = app_handle.emit("pipeline:error", &super::PipelineEvent {
+                    task_id: task_id.clone(),
+                    column_id: column_id.clone(),
+                    event_type: "error".to_string(),
+                    state: PipelineState::Idle.as_str().to_string(),
+                    message: Some(e),
+                });
+                false
+            }
+            Err(e) => {
+                log::error!("[create_pr] Join error for task {}: {}", task_id, e);
+                false
+            }
+        };
+
+        // Mark complete so pipeline can advance (also emits tasks:changed)
+        if let Some(conn) = conn {
+            if let Err(e) = super::mark_complete(&conn, &app_handle, &task_id, success) {
+                log::error!("[create_pr] mark_complete failed: {}", e);
+            }
+        }
+    });
+
+    Ok(updated_task)
+}
+
 fn execute_run_script(
     conn: &Connection,
     app: &AppHandle,
@@ -463,10 +596,11 @@ fn execute_run_script(
             let script = db::get_script(conn, script_id)
                 .map_err(|_| AppError::NotFound(format!("Script '{}' not found", script_id)))?;
             let workspace = db::get_workspace(conn, &task.workspace_id)?;
+            let working_dir = resolve_working_dir(task, &workspace.repo_path);
 
-            // Validate workspace repo_path exists
-            if !workspace.repo_path.is_empty() && !std::path::Path::new(&workspace.repo_path).exists() {
-                log::warn!("Workspace repo_path '{}' does not exist, script may fail", workspace.repo_path);
+            // Validate working dir exists
+            if !working_dir.is_empty() && !std::path::Path::new(&working_dir).exists() {
+                log::warn!("Working dir '{}' does not exist, script may fail", working_dir);
             }
 
             let ts = db::now();
@@ -506,7 +640,7 @@ fn execute_run_script(
                         let work_dir = step.get("workDir")
                             .and_then(|v| v.as_str())
                             .map(|d| template::interpolate(d, &ctx))
-                            .unwrap_or_else(|| workspace.repo_path.clone());
+                            .unwrap_or_else(|| working_dir.clone());
                         let continue_on_error = step.get("continueOnError")
                             .and_then(|v| v.as_bool())
                             .unwrap_or(false);
@@ -540,7 +674,7 @@ fn execute_run_script(
                         name: step_name,
                         is_check: false,
                         command: String::new(),
-                        work_dir: workspace.repo_path.clone(),
+                        work_dir: working_dir.clone(),
                         continue_on_error: true,
                         fail_message: None,
                     },
@@ -550,7 +684,7 @@ fn execute_run_script(
             let task_id = task.id.clone();
             let app_handle = app.clone();
             let column_id = column.id.clone();
-            let workspace_path = workspace.repo_path.clone();
+            let workspace_path = working_dir.clone();
 
             // Execute steps in a background task (all data is owned)
             tokio::spawn(async move {

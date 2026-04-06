@@ -94,6 +94,8 @@ pub struct Task {
     pub last_output: Option<String>,
     pub dependencies: Option<String>,
     pub blocked: bool,
+    /// Per-task git worktree path (absolute). When set, agents use this as cwd instead of workspace.repo_path.
+    pub worktree_path: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

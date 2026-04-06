@@ -60,6 +60,7 @@ export type Task = {
   lastOutput: string | null        // Last output from trigger execution
   dependencies: string | null      // JSON array of dependency specs
   blocked: boolean                 // Whether task is blocked by dependencies
+  worktreePath: string | null      // Per-task git worktree path (absolute)
   position: number
   createdAt: string
   updatedAt: string

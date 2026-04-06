@@ -147,6 +147,11 @@ export function TaskDetailPanel({ task, onClose }: TaskDetailPanelProps) {
               <span className="truncate font-mono text-[11px] text-accent">
                 {task.branch}
               </span>
+              {task.worktreePath && (
+                <span className="rounded bg-purple-500/10 px-1 py-0.5 text-[10px] font-medium text-purple-400" title={task.worktreePath}>
+                  worktree
+                </span>
+              )}
             </div>
           )}
 
