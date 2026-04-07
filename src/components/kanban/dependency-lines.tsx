@@ -23,9 +23,12 @@ const SAME_COL_THRESHOLD = 20     // px — cards closer than this are "same col
 const CURVE_PULL_FACTOR = 0.35    // control point distance as fraction of euclidean distance
 const CURVE_PULL_MIN = 42         // px — minimum control point distance
 const CURVE_PULL_MAX = 200        // px — maximum control point distance
-const SOURCE_PADDING = 2          // px — anchor offset from source card edge
-const TARGET_PADDING = 8          // px — anchor offset from target card edge (room for arrow)
-const LANE_SPACING = 9            // px — gap between parallel connections on same card edge
+/** Horizontal offset: how far the bezier endpoint sits from the card edge */
+const SOURCE_OFFSET_X = 2
+/** Horizontal offset: how far the arrowhead sits from the target card edge */
+const TARGET_OFFSET_X = 8
+/** Vertical spacing between multiple arrows connecting to the same card edge */
+const LANE_SPACING_Y = 9
 const LINE_OPACITY = 0.7
 const LINE_WIDTH = 2
 const SVG_Z_INDEX = 10
@@ -117,7 +120,7 @@ function getLaneOffset(
   tracker.set(cardId, idx + 1)
 
   if (total === 1) return 0
-  return (idx - (total - 1) / 2) * LANE_SPACING
+  return (idx - (total - 1) / 2) * LANE_SPACING_Y
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -157,8 +160,8 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
         const srcOffset = getLaneOffset(dep.task_id, outTracker, outLanes)
         const tgtOffset = getLaneOffset(taskId, inTracker, inLanes)
 
-        const src = anchor(fromRect, sourceSide, srcOffset, SOURCE_PADDING)
-        const tgt = anchor(toRect, targetSide, tgtOffset, TARGET_PADDING)
+        const src = anchor(fromRect, sourceSide, srcOffset, SOURCE_OFFSET_X)
+        const tgt = anchor(toRect, targetSide, tgtOffset, TARGET_OFFSET_X)
 
         result.push({
           id: `${dep.task_id}-${taskId}`,
