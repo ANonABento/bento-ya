@@ -99,7 +99,6 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const openChat = useUIStore((s) => s.openChat)
   const closeChat = useUIStore((s) => s.closeChat)
   const collapseTask = useUIStore((s) => s.collapseTask)
-  const viewMode = useUIStore((s) => s.viewMode)
 
   function handleClick() {
     if (hasAttention) {
@@ -116,43 +115,26 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       openChat(task.id)
 
       // Center the column in the visible board area.
+      // rAF loop locks the column at center every frame — handles both
+      // panel opening (board shrinks) and card switching (layout shifts).
       const scrollContainer = document.querySelector('[data-board-scroll]')
       const column = cardElRef.current?.closest('[data-column-id]') as HTMLElement | null
       if (scrollContainer && column) {
         const colCenter = column.offsetLeft + column.offsetWidth / 2
-
-        let boardWidth: number
-        if (viewMode === 'chat') {
-          // Panel already open — board width is stable
-          boardWidth = scrollContainer.clientWidth
-          scrollContainer.scrollTo({
-            left: colCenter - boardWidth / 2,
-            behavior: 'smooth',
-          })
-        } else {
-          // Panel about to open and animate to final width.
-          // Scroll smoothly alongside the panel animation — both arrive
-          // at the correct state together. Start from current width,
-          // the ResizeObserver fires one final scroll when settled.
-          scrollContainer.scrollTo({
-            left: colCenter - scrollContainer.clientWidth / 2,
-            behavior: 'instant',
-          })
-          // Then correct to final position once panel settles
-          let timer: ReturnType<typeof setTimeout>
-          const observer = new ResizeObserver(() => {
-            clearTimeout(timer)
-            timer = setTimeout(() => {
-              observer.disconnect()
-              const finalCenter = scrollContainer.clientWidth / 2
-              scrollContainer.scrollTo({
-                left: colCenter - finalCenter,
-                behavior: 'smooth',
-              })
-            }, 50)
-          })
-          observer.observe(scrollContainer)
+        let lastWidth = scrollContainer.clientWidth
+        let stableFrames = 0
+        const lockScroll = () => {
+          scrollContainer.scrollLeft = colCenter - scrollContainer.clientWidth / 2
+          if (scrollContainer.clientWidth === lastWidth) {
+            stableFrames++
+            if (stableFrames > 10) return
+          } else {
+            stableFrames = 0
+            lastWidth = scrollContainer.clientWidth
+          }
+          requestAnimationFrame(lockScroll)
         }
+        requestAnimationFrame(lockScroll)
       }
     }
   }

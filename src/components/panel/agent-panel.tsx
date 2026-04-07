@@ -131,6 +131,7 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
           >
             Clear
           </button>
+          <span className="text-[10px] text-text-secondary">Cmd+L</span>
         </div>
       </div>
 
