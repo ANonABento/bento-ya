@@ -117,7 +117,7 @@ Zustand stores, each focused on a single domain:
 - `checklist-store.ts` — Production checklists
 - `attention-store.ts` — Notification badges
 - `templates-store.ts` — Pipeline templates
-- `ui-store.ts` — UI state (panels, modals)
+- `ui-store.ts` — UI state (panels, modals, card expansion). Includes `expandedTaskId` for inline card detail, `activeTaskId`/`viewMode` for chat panel, orchestrator panel geometry, and agent panel width (persisted).
 - `agent-streaming-store.ts` — Ephemeral per-task agent streaming data (live cards + chat panel catchup). Stores full content, thinking, and tool calls for trigger-spawned agent catchup when chat panel opens late.
 - `script-store.ts` — Zustand store for caching scripts. Methods: `load()` (loads once, skips if loaded), `getScriptName(id)` (lookup by ID). Used by Column component (trigger badge) and Board (loads on mount)
 
@@ -130,8 +130,8 @@ Zustand stores, each focused on a single domain:
 | `command-palette/` | Cmd+K command palette | `command-palette.tsx` |
 | `settings/` | 7-tab settings panel | `settings-panel.tsx`, `tabs/*.tsx` (`scripts-tab.tsx` has quick-attach dropdown on ScriptCard for attaching scripts to columns) |
 | `onboarding/` | First-launch wizard | `onboarding-wizard.tsx` |
-| `shared/` | Reusable atoms | `dialog.tsx`, `tooltip.tsx`, `badge.tsx`, `path-picker.tsx` (directory picker: input + Browse button, uses @tauri-apps/plugin-dialog) |
-| `layout/` | App shell | `board.tsx`, `tab-bar.tsx`, `split-view.tsx` (chat-only slide-in panel) |
+| `shared/` | Reusable atoms | `dialog.tsx`, `tooltip.tsx`, `badge.tsx`, `path-picker.tsx`, `resize-handle.tsx` |
+| `layout/` | App shell | `board.tsx`, `tab-bar.tsx`, `split-view.tsx` (resizable chat panel) |
 | `task-detail/` | Detail sub-sections | `changes-section.tsx`, `commits-section.tsx`, `task-checklist.tsx`, `usage-section.tsx`, `notification-section.tsx`, `siege-status.tsx` |
 | `review/` | Code review | `diff-viewer.tsx` |
 
