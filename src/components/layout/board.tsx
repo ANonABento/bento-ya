@@ -49,6 +49,12 @@ export function Board() {
   const { isChatOpen, activeTaskId, closeChat } = useChatPanel()
   const collapseTask = useUIStore((s) => s.collapseTask)
 
+  // Unified close: collapse card + close chat (used by back button, Escape, re-click)
+  const handleCloseAll = useCallback(() => {
+    closeChat()
+    collapseTask()
+  }, [closeChat, collapseTask])
+
   const sortedColumns = columns
     .filter((c) => c.visible)
     .sort((a, b) => a.position - b.position)
@@ -96,7 +102,7 @@ export function Board() {
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
       >
-        <div className="flex h-full">
+        <div className="flex h-full" data-board-container>
           {/* Board + orchestrator panel (left side, shrinks when task panel open) */}
           <div className="flex flex-1 flex-col overflow-hidden">
             <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
@@ -137,7 +143,7 @@ export function Board() {
           )}
 
           {/* Task side panel (slides in from right, board stays visible) */}
-          <TaskSidePanel taskId={activeTaskId} onClose={closeChat} />
+          <TaskSidePanel taskId={activeTaskId} onClose={handleCloseAll} />
         </div>
         <DragOverlay dropAnimation={null}>
           {overlayContent}

@@ -180,10 +180,15 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
 
   if (visibleLines.length === 0) return null
 
+  // Get scroll content dimensions so SVG covers full content area
+  const boardEl = document.querySelector('[data-board-scroll]')
+  const svgWidth = boardEl ? boardEl.scrollWidth : '100%'
+  const svgHeight = boardEl ? boardEl.scrollHeight : '100%'
+
   return (
     <svg
-      className="absolute inset-0 pointer-events-none overflow-visible"
-      style={{ zIndex: SVG_Z_INDEX }}
+      className="absolute top-0 left-0 pointer-events-none"
+      style={{ zIndex: SVG_Z_INDEX, width: svgWidth, height: svgHeight }}
     >
       <defs>
         <marker

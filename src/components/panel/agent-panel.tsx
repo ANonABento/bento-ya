@@ -95,9 +95,10 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
               type="button"
               onClick={onClose}
               className="rounded p-1 text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+              title="Close agent chat (Esc)"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M8 3L4 7l4 4" />
+                <path d="M5 3l5 4-5 4" />
               </svg>
             </button>
           )}

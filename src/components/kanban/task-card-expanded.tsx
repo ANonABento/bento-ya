@@ -1,32 +1,14 @@
 import { motion } from 'motion/react'
 import type { Task } from '@/types'
-import { useUIStore } from '@/stores/ui-store'
-import { useTaskDetail, STATUS_VARIANT } from '@/hooks/use-task-detail'
-import { Badge } from '@/components/shared/badge'
+import { useTaskDetail } from '@/hooks/use-task-detail'
 import { ChangesSection } from '@/components/task-detail/changes-section'
 import { CommitsSection } from '@/components/task-detail/commits-section'
-import { UsageSection } from '@/components/task-detail/usage-section'
-import { TaskChecklist } from '@/components/task-detail/task-checklist'
-import { NotificationSection } from '@/components/task-detail/notification-section'
-import { ReviewActions } from '@/components/review/review-actions'
 import { SiegeStatus } from '@/components/task-detail/siege-status'
 
 const EXPANDED_MAX_HEIGHT = 400
 
 export function TaskCardExpanded({ task }: { task: Task }) {
-  const openChat = useUIStore((s) => s.openChat)
-  const {
-    repoPath,
-    updateTask,
-    isReviewPending,
-    changes,
-    commits,
-    loading,
-    handleApprove,
-    handleReject,
-    handleChecklistUpdate,
-    handleNotificationUpdate,
-  } = useTaskDetail(task)
+  const { updateTask, changes, commits, loading } = useTaskDetail(task)
 
   return (
     <motion.div
@@ -68,12 +50,6 @@ export function TaskCardExpanded({ task }: { task: Task }) {
               )}
             </div>
           )}
-          {task.agentStatus && (
-            <Badge
-              variant={STATUS_VARIANT[task.agentStatus]}
-              className="shrink-0"
-            />
-          )}
           {task.model && (
             <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
               {task.model}
@@ -81,15 +57,7 @@ export function TaskCardExpanded({ task }: { task: Task }) {
           )}
         </div>
 
-        {/* Review Actions */}
-        <ReviewActions
-          reviewStatus={task.reviewStatus}
-          onApprove={() => { void handleApprove() }}
-          onReject={() => { void handleReject() }}
-          disabled={isReviewPending}
-        />
-
-        {/* Siege Loop Status */}
+        {/* Siege Loop Status (only when active) */}
         {(task.siegeActive || task.siegeIteration > 0) && (
           <div>
             <h4 className="text-[11px] font-medium uppercase tracking-wider text-text-secondary mb-1">
@@ -98,18 +66,6 @@ export function TaskCardExpanded({ task }: { task: Task }) {
             <SiegeStatus task={task} onUpdate={updateTask} />
           </div>
         )}
-
-        {/* Test Checklist */}
-        <div>
-          <h4 className="text-[11px] font-medium uppercase tracking-wider text-text-secondary mb-1">
-            Checklist
-          </h4>
-          <TaskChecklist
-            task={task}
-            onUpdate={(items) => { void handleChecklistUpdate(items) }}
-            repoPath={repoPath}
-          />
-        </div>
 
         {/* Changes */}
         <div>
@@ -127,34 +83,6 @@ export function TaskCardExpanded({ task }: { task: Task }) {
           <CommitsSection commits={commits} />
         </div>
 
-        {/* Usage */}
-        <UsageSection
-          agentType={task.agentType}
-          agentStatus={task.agentStatus}
-          startedAt={task.agentStatus === 'running' ? task.updatedAt : null}
-        />
-
-        {/* Notifications */}
-        <NotificationSection
-          taskId={task.id}
-          stakeholders={task.notifyStakeholders}
-          notificationSentAt={task.notificationSentAt}
-          onUpdate={() => { void handleNotificationUpdate() }}
-        />
-
-        {/* Action buttons */}
-        <div className="flex items-center gap-2 pt-1 border-t border-border-default">
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); openChat(task.id) }}
-            className="flex items-center gap-1.5 rounded-md bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 transition-colors"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-            Open Agent Chat
-          </button>
-        </div>
       </div>
     </motion.div>
   )

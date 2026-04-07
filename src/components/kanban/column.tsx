@@ -125,6 +125,7 @@ export const Column = memo(function Column({ column }: ColumnProps) {
         ref={setNodeRef}
         style={style}
         layout
+        data-column-id={column.id}
         className={`flex w-[300px] min-w-[280px] max-w-[360px] shrink-0 flex-col border-r border-border-default bg-surface/30 ${
           isDragging ? 'opacity-50' : ''
         }`}

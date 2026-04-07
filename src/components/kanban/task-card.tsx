@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, useCallback, useEffect } from 'react'
+import { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { AnimatePresence } from 'motion/react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -70,7 +70,9 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     data: { type: 'task' },
   })
 
+  const cardElRef = useRef<HTMLElement | null>(null)
   const cardRef = useCallback((element: HTMLElement | null) => {
+    cardElRef.current = element
     setNodeRef(element)
     registerCard(task.id, element)
   }, [setNodeRef, registerCard, task.id])
@@ -94,11 +96,65 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     }
   }, [task.prLabels])
 
+  const openChat = useUIStore((s) => s.openChat)
+  const closeChat = useUIStore((s) => s.closeChat)
+  const collapseTask = useUIStore((s) => s.collapseTask)
+  const viewMode = useUIStore((s) => s.viewMode)
+
   function handleClick() {
     if (hasAttention) {
       markViewed(task.id)
     }
-    expandTask(task.id)
+
+    if (isExpanded) {
+      // Re-click: close everything
+      collapseTask()
+      closeChat()
+    } else {
+      // Open: expand card + open chat + scroll column to center of board
+      expandTask(task.id)
+      openChat(task.id)
+
+      // Center the column in the visible board area.
+      const scrollContainer = document.querySelector('[data-board-scroll]')
+      const column = cardElRef.current?.closest('[data-column-id]') as HTMLElement | null
+      if (scrollContainer && column) {
+        const colCenter = column.offsetLeft + column.offsetWidth / 2
+
+        let boardWidth: number
+        if (viewMode === 'chat') {
+          // Panel already open — board width is stable
+          boardWidth = scrollContainer.clientWidth
+          scrollContainer.scrollTo({
+            left: colCenter - boardWidth / 2,
+            behavior: 'smooth',
+          })
+        } else {
+          // Panel about to open and animate to final width.
+          // Scroll smoothly alongside the panel animation — both arrive
+          // at the correct state together. Start from current width,
+          // the ResizeObserver fires one final scroll when settled.
+          scrollContainer.scrollTo({
+            left: colCenter - scrollContainer.clientWidth / 2,
+            behavior: 'instant',
+          })
+          // Then correct to final position once panel settles
+          let timer: ReturnType<typeof setTimeout>
+          const observer = new ResizeObserver(() => {
+            clearTimeout(timer)
+            timer = setTimeout(() => {
+              observer.disconnect()
+              const finalCenter = scrollContainer.clientWidth / 2
+              scrollContainer.scrollTo({
+                left: colCenter - finalCenter,
+                behavior: 'smooth',
+              })
+            }, 50)
+          })
+          observer.observe(scrollContainer)
+        }
+      }
+    }
   }
 
   function handlePrClick(e: React.MouseEvent) {
@@ -254,8 +310,8 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           </h4>
         </div>
 
-        {/* Description */}
-        {cardSettings.showDescription && task.description && (
+        {/* Description — hidden when expanded (expanded view shows full description) */}
+        {!isExpanded && cardSettings.showDescription && task.description && (
           <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed">
             {task.description}
           </p>
@@ -267,13 +323,13 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         {isQualityGate && !hasPipelineError && <QualityGateBanner reviewStatus={reviewStatus} />}
         {hasPipelineError && <PipelineErrorBanner task={task} onRetry={() => { void actions.handleRetryPipeline() }} />}
 
-        {/* Agent activity preview */}
-        {!needsAttention && !hasPipelineError && (
+        {/* Agent activity preview — hidden when expanded */}
+        {!isExpanded && !needsAttention && !hasPipelineError && (
           <AgentActivityPreview task={task} agentStream={agentStream} />
         )}
 
-        {/* Compact metadata row */}
-        {hasMetadata && (
+        {/* Compact metadata row — hidden when expanded (expanded view has its own) */}
+        {!isExpanded && hasMetadata && (
           <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px] text-text-secondary">
             {isPipelineActive && !hasPipelineError && (
               <span className="inline-flex items-center gap-1 text-running">
@@ -331,8 +387,8 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           </div>
         )}
 
-        {/* Labels */}
-        {cardSettings.showLabels && labels.length > 0 && (
+        {/* Labels — hidden when expanded */}
+        {!isExpanded && cardSettings.showLabels && labels.length > 0 && (
           <div className="flex items-center gap-1 flex-wrap">
             {labels.slice(0, 3).map((label) => (
               <span key={label} className="rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary">
