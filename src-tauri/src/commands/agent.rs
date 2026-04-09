@@ -73,39 +73,34 @@ pub async fn start_agent(
 ) -> Result<AgentInfo, String> {
     let cli = cli_path.unwrap_or_else(|| "claude".to_string());
 
-    let event_rx = {
-        let mut registry = session_registry.lock().await;
+    let mut registry = session_registry.lock().await;
 
-        // Clean up any existing session (handles React strict mode double-mount
-        // and stale sessions from previous app instances)
-        registry.remove(&task_id);
+    // Clean up any existing session (handles React strict mode double-mount
+    // and stale sessions from previous app instances)
+    registry.remove(&task_id);
 
-        let config = SessionConfig {
-            cli_path: cli.clone(),
-            model: "sonnet".to_string(),
-            system_prompt: String::new(),
-            working_dir: Some(working_dir.clone()),
-            effort_level: None,
-        };
-
-        let session = registry
-            .get_or_create(&task_id, config, TransportType::Pty)
-            .map_err(|e| e.to_string())?;
-
-        session.start_pty(120, 40)?
+    let config = SessionConfig {
+        cli_path: cli.clone(),
+        model: "sonnet".to_string(),
+        system_prompt: String::new(),
+        working_dir: Some(working_dir.clone()),
+        effort_level: None,
     };
 
-    // Bridge PTY events to frontend
-    let task_id_clone = task_id.clone();
-    let app_clone = app_handle;
-    tokio::spawn(async move {
-        crate::chat::bridge::bridge_pty_to_tauri(&app_clone, &task_id_clone, event_rx).await;
-    });
+    let session = registry
+        .get_or_create(&task_id, config, TransportType::Pty)
+        .map_err(|e| e.to_string())?;
 
-    let pid = {
-        let registry = session_registry.lock().await;
-        registry.get(&task_id).and_then(|s| s.pid())
-    };
+    let _mpsc_rx = session.start_pty(120, 40)?;
+    let pid = session.pid();
+
+    // Start managed bridge via broadcast
+    if let Some(rx) = session.resubscribe() {
+        let bridge = crate::chat::bridge::ManagedBridge::start(
+            app_handle, task_id.clone(), rx,
+        );
+        registry.set_bridge(&task_id, bridge);
+    }
 
     Ok(AgentInfo {
         task_id,
@@ -386,7 +381,7 @@ Be concise and helpful."#,
 ///
 /// If a session exists: suspends it (preserving resume ID), switches transport.
 /// If no session exists and switching to PTY: creates a new PTY session.
-/// This ensures the terminal view always has a backing PTY session.
+/// Uses managed bridge for PTY event forwarding.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn switch_agent_transport(
     app: AppHandle,
@@ -407,58 +402,57 @@ pub async fn switch_agent_transport(
     let c = cols.unwrap_or(120);
     let r = rows.unwrap_or(40);
 
-    let event_rx = {
-        let mut registry = session_registry.lock().await;
+    let mut registry = session_registry.lock().await;
 
-        if let Some(session) = registry.get_mut(&task_id) {
-            // Session exists — switch transport
+    let has_session = registry.has(&task_id);
+    let current_type = registry.get(&task_id).map(|s| s.transport_type());
 
-            // Already using this transport — no-op
-            if session.transport_type() == target_type {
-                return Ok(());
-            }
-
-            // Suspend current session (saves resume ID, kills transport)
-            session.suspend().map_err(|e| AppError::InvalidInput(e))?;
-
-            // Switch transport type
-            session.set_transport_type(target_type);
-
-            // If switching to PTY, start the PTY session immediately
-            if target_type == TransportType::Pty {
-                Some(session.start_pty(c, r).map_err(|e| AppError::InvalidInput(e))?)
-            } else {
-                // Pipe mode: session stays idle until next send_message()
-                None
-            }
-        } else if target_type == TransportType::Pty {
-            // No session exists — create a new PTY session
-            let cli = cli_path.unwrap_or_else(|| "claude".to_string());
-            let config = SessionConfig {
-                cli_path: cli,
-                model: "sonnet".to_string(),
-                system_prompt: String::new(),
-                working_dir,
-                effort_level: None,
-            };
-
-            let session = registry
-                .get_or_create(&task_id, config, TransportType::Pty)
-                .map_err(|e| AppError::InvalidInput(e))?;
-
-            Some(session.start_pty(c, r).map_err(|e| AppError::InvalidInput(e))?)
-        } else {
-            // No session + switching to pipe — nothing to do
-            None
+    if has_session {
+        // Already using this transport — no-op
+        if current_type == Some(target_type) {
+            return Ok(());
         }
-    };
 
-    // Bridge PTY events to frontend outside the lock
-    if let Some(rx) = event_rx {
-        let task_id_clone = task_id.clone();
-        tokio::spawn(async move {
-            crate::chat::bridge::bridge_pty_to_tauri(&app, &task_id_clone, rx).await;
-        });
+        // Cancel existing bridge when switching transport
+        registry.cancel_bridge(&task_id);
+
+        let session = registry.get_mut(&task_id).unwrap();
+        session.suspend().map_err(|e| AppError::InvalidInput(e))?;
+        session.set_transport_type(target_type);
+
+        if target_type == TransportType::Pty {
+            let _mpsc_rx = session.start_pty(c, r).map_err(|e| AppError::InvalidInput(e))?;
+            let rx = session.resubscribe();
+
+            if let Some(rx) = rx {
+                let bridge = crate::chat::bridge::ManagedBridge::start(
+                    app, task_id.clone(), rx,
+                );
+                registry.set_bridge(&task_id, bridge);
+            }
+        }
+    } else if target_type == TransportType::Pty {
+        let cli = cli_path.unwrap_or_else(|| "claude".to_string());
+        let config = SessionConfig {
+            cli_path: cli,
+            model: "sonnet".to_string(),
+            system_prompt: String::new(),
+            working_dir,
+            effort_level: None,
+        };
+
+        let session = registry
+            .get_or_create(&task_id, config, TransportType::Pty)
+            .map_err(|e| AppError::InvalidInput(e))?;
+
+        let _mpsc_rx = session.start_pty(c, r).map_err(|e| AppError::InvalidInput(e))?;
+
+        if let Some(rx) = session.resubscribe() {
+            let bridge = crate::chat::bridge::ManagedBridge::start(
+                app, task_id.clone(), rx,
+            );
+            registry.set_bridge(&task_id, bridge);
+        }
     }
 
     Ok(())
@@ -466,9 +460,10 @@ pub async fn switch_agent_transport(
 
 /// Ensure a PTY session exists for a task. Spawns a bare shell if none exists.
 ///
-/// Called by the terminal view on mount. If a session is already alive,
-/// resubscribes to its event stream (no kill) and returns scrollback for replay.
-/// If no session exists or process exited, spawns a fresh shell.
+/// Called by the terminal view on mount. Uses a single managed bridge per task:
+/// - Session alive + bridge alive → return scrollback (no new bridge)
+/// - Session alive + bridge dead → start new managed bridge
+/// - Session dead or missing → spawn fresh shell + managed bridge
 #[tauri::command(rename_all = "camelCase")]
 pub async fn ensure_pty_session(
     app: AppHandle,
@@ -478,117 +473,75 @@ pub async fn ensure_pty_session(
     cols: u16,
     rows: u16,
 ) -> Result<AgentInfo, String> {
-    enum Action {
-        /// Session alive — resubscribe to broadcast channel, replay scrollback
-        Reconnect {
-            scrollback: String,
-            pid: Option<u32>,
-            rx: tokio::sync::broadcast::Receiver<crate::chat::transport::TransportEvent>,
-        },
-        /// No session or dead — spawn fresh shell
-        SpawnFresh {
-            event_rx: tokio::sync::mpsc::Receiver<crate::chat::transport::TransportEvent>,
-        },
+    let mut registry = session_registry.lock().await;
+
+    // Case 1: Session is alive
+    let session_alive = registry.get(&task_id).map(|s| s.is_alive()).unwrap_or(false);
+    if session_alive {
+        let needs_bridge = !registry.has_active_bridge(&task_id);
+
+        let (scrollback, pid, resubscribe_rx) = {
+            let session = registry.get(&task_id).unwrap();
+            let scrollback = session.scrollback();
+            let pid = session.pid();
+            let rx = if needs_bridge { session.resubscribe() } else { None };
+            (scrollback, pid, rx)
+        }; // session borrow ends
+
+        if let Some(rx) = resubscribe_rx {
+            let bridge = crate::chat::bridge::ManagedBridge::start(
+                app.clone(), task_id.clone(), rx,
+            );
+            registry.set_bridge(&task_id, bridge);
+        }
+
+        return Ok(AgentInfo {
+            task_id,
+            agent_type: "shell".to_string(),
+            status: "Running".to_string(),
+            pid,
+            working_dir,
+            scrollback: if scrollback.is_empty() { None } else { Some(scrollback) },
+        });
     }
 
-    let action = {
-        let mut registry = session_registry.lock().await;
+    // Case 2: Session dead or missing — spawn fresh
+    // Remove dead session (caches scrollback + cancels old bridge)
+    registry.remove(&task_id);
+    let cached_scrollback = registry.take_scrollback(&task_id);
 
-        // Check if an alive session exists
-        if let Some(session) = registry.get(&task_id) {
-            if session.is_alive() {
-                if let Some(rx) = session.resubscribe() {
-                    let scrollback = session.scrollback();
-                    let pid = session.pid();
-                    Action::Reconnect { scrollback, pid, rx }
-                } else {
-                    // Alive but can't resubscribe (shouldn't happen for PTY)
-                    // Fall through to spawn fresh
-                    registry.remove(&task_id);
-                    registry.take_scrollback(&task_id);
-                    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-                    let config = SessionConfig {
-                        cli_path: shell, model: String::new(),
-                        system_prompt: String::new(),
-                        working_dir: Some(working_dir.clone()),
-                        effort_level: None,
-                    };
-                    let session = registry.get_or_create(&task_id, config, TransportType::Pty)
-                        .map_err(|e| e.to_string())?;
-                    Action::SpawnFresh { event_rx: session.start_pty(cols, rows)? }
-                }
-            } else {
-                // Session exists but dead — remove and spawn fresh
-                registry.remove(&task_id);
-                let scrollback = registry.take_scrollback(&task_id);
-                let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-                let config = SessionConfig {
-                    cli_path: shell, model: String::new(),
-                    system_prompt: String::new(),
-                    working_dir: Some(working_dir.clone()),
-                    effort_level: None,
-                };
-                let session = registry.get_or_create(&task_id, config, TransportType::Pty)
-                    .map_err(|e| e.to_string())?;
-                let event_rx = session.start_pty(cols, rows)?;
-                // Return scrollback from dead session so terminal shows history
-                return {
-                    let pid = session.pid();
-                    let task_id_clone = task_id.clone();
-                    tokio::spawn(async move {
-                        crate::chat::bridge::bridge_pty_to_tauri(&app, &task_id_clone, event_rx).await;
-                    });
-                    Ok(AgentInfo {
-                        task_id, agent_type: "shell".to_string(),
-                        status: "Running".to_string(), pid, working_dir,
-                        scrollback: if scrollback.is_empty() { None } else { Some(scrollback) },
-                    })
-                };
-            }
-        } else {
-            // No session at all — spawn fresh
-            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-            let config = SessionConfig {
-                cli_path: shell, model: String::new(),
-                system_prompt: String::new(),
-                working_dir: Some(working_dir.clone()),
-                effort_level: None,
-            };
-            let session = registry.get_or_create(&task_id, config, TransportType::Pty)
-                .map_err(|e| e.to_string())?;
-            Action::SpawnFresh { event_rx: session.start_pty(cols, rows)? }
-        }
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let config = SessionConfig {
+        cli_path: shell,
+        model: String::new(),
+        system_prompt: String::new(),
+        working_dir: Some(working_dir.clone()),
+        effort_level: None,
     };
-    // Registry lock released
 
-    match action {
-        Action::Reconnect { scrollback, pid, rx: _ } => {
-            // No new bridge needed — the original bridge (from spawn_cli_trigger_task
-            // or the first ensure_pty_session) is still forwarding events via mpsc.
-            // Frontend just needs to re-register its Tauri event listeners (which it
-            // does on mount in terminal-view.tsx). Return scrollback for replay.
-            Ok(AgentInfo {
-                task_id, agent_type: "shell".to_string(),
-                status: "Running".to_string(), pid, working_dir,
-                scrollback: if scrollback.is_empty() { None } else { Some(scrollback) },
-            })
-        }
-        Action::SpawnFresh { event_rx } => {
-            let pid = {
-                let registry = session_registry.lock().await;
-                registry.get(&task_id).and_then(|s| s.pid())
-            };
-            let task_id_clone = task_id.clone();
-            tokio::spawn(async move {
-                crate::chat::bridge::bridge_pty_to_tauri(&app, &task_id_clone, event_rx).await;
-            });
-            Ok(AgentInfo {
-                task_id, agent_type: "shell".to_string(),
-                status: "Running".to_string(), pid, working_dir,
-                scrollback: None,
-            })
-        }
+    let session = registry
+        .get_or_create(&task_id, config, TransportType::Pty)
+        .map_err(|e| e.to_string())?;
+
+    let _mpsc_rx = session.start_pty(cols, rows)?;
+    let pid = session.pid();
+
+    // Start managed bridge via broadcast
+    if let Some(rx) = session.resubscribe() {
+        let bridge = crate::chat::bridge::ManagedBridge::start(
+            app.clone(), task_id.clone(), rx,
+        );
+        registry.set_bridge(&task_id, bridge);
     }
+
+    Ok(AgentInfo {
+        task_id,
+        agent_type: "shell".to_string(),
+        status: "Running".to_string(),
+        pid,
+        working_dir,
+        scrollback: if cached_scrollback.is_empty() { None } else { Some(cached_scrollback) },
+    })
 }
 
 /// Cancel an ongoing agent chat (kills the session)

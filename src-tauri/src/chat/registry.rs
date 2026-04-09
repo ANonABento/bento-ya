@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
 
+use super::bridge::ManagedBridge;
 use super::session::{SessionConfig, SessionState, TransportType, UnifiedChatSession};
 
 const DEFAULT_MAX_SESSIONS: usize = 20;
@@ -25,6 +26,9 @@ pub struct SessionRegistry {
     /// Cached scrollback buffers from killed/suspended sessions (base64-encoded).
     /// Keyed by task_id. Cleared when a new session is created for the same key.
     scrollback_cache: HashMap<String, String>,
+    /// Active bridges per task. Only one bridge per task at a time.
+    /// The bridge forwards PTY broadcast events to Tauri frontend events.
+    bridges: HashMap<String, ManagedBridge>,
     max_sessions: usize,
     idle_timeout: Duration,
 }
@@ -34,6 +38,7 @@ impl SessionRegistry {
         Self {
             sessions: HashMap::new(),
             scrollback_cache: HashMap::new(),
+            bridges: HashMap::new(),
             max_sessions: DEFAULT_MAX_SESSIONS,
             idle_timeout: DEFAULT_IDLE_TIMEOUT,
         }
@@ -43,6 +48,7 @@ impl SessionRegistry {
         Self {
             sessions: HashMap::new(),
             scrollback_cache: HashMap::new(),
+            bridges: HashMap::new(),
             max_sessions,
             idle_timeout: DEFAULT_IDLE_TIMEOUT,
         }
@@ -80,6 +86,10 @@ impl SessionRegistry {
                 // Uses self.remove() to properly kill transport + cache scrollback
                 if let Some(evict_key) = self.find_oldest_idle() {
                     // Can't call self.remove() due to borrow, so inline the logic
+                    // Cancel associated bridge first
+                    if let Some(bridge) = self.bridges.remove(&evict_key) {
+                        bridge.cancel();
+                    }
                     if let Some(mut session) = self.sessions.remove(&evict_key) {
                         let scrollback = session.scrollback();
                         if !scrollback.is_empty() {
@@ -118,7 +128,11 @@ impl SessionRegistry {
     }
 
     /// Remove a session, caching its scrollback before killing.
+    /// Also cancels any associated bridge.
     pub fn remove(&mut self, key: &str) -> Option<UnifiedChatSession> {
+        // Cancel associated bridge
+        self.cancel_bridge(key);
+
         if let Some(mut session) = self.sessions.remove(key) {
             // Cache scrollback before killing (so panel reopen can restore it)
             let scrollback = session.scrollback();
@@ -142,6 +156,29 @@ impl SessionRegistry {
     /// Returns empty string if no cache exists.
     pub fn take_scrollback(&mut self, key: &str) -> String {
         self.scrollback_cache.remove(key).unwrap_or_default()
+    }
+
+    // ─── Bridge Management ───────────────────────────────────────────────
+
+    /// Set the managed bridge for a task. Cancels any existing bridge first.
+    pub fn set_bridge(&mut self, key: &str, bridge: ManagedBridge) {
+        // Cancel old bridge if present (abort its tokio task)
+        if let Some(old) = self.bridges.remove(key) {
+            old.cancel();
+        }
+        self.bridges.insert(key.to_string(), bridge);
+    }
+
+    /// Cancel and remove the bridge for a task.
+    pub fn cancel_bridge(&mut self, key: &str) {
+        if let Some(bridge) = self.bridges.remove(key) {
+            bridge.cancel();
+        }
+    }
+
+    /// Check if an active (not finished) bridge exists for a task.
+    pub fn has_active_bridge(&self, key: &str) -> bool {
+        self.bridges.get(key).map(|b| b.is_alive()).unwrap_or(false)
     }
 
     /// Number of active sessions.
@@ -175,7 +212,12 @@ impl SessionRegistry {
     }
 
     /// Kill all sessions and clear the registry.
+    /// Also cancels all bridges.
     pub fn kill_all(&mut self) {
+        // Cancel all bridges first
+        for (_, bridge) in self.bridges.drain() {
+            bridge.cancel();
+        }
         for session in self.sessions.values_mut() {
             let _ = session.kill();
         }

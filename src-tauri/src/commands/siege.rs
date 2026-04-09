@@ -308,7 +308,7 @@ pub async fn start_siege(
             .get_or_create(&task_id, config, TransportType::Pty)
             .map_err(|e| e.to_string())?;
 
-        let event_rx = session.start_pty(120, 40)?;
+        let _mpsc_rx = session.start_pty(120, 40)?;
 
         // Send the initial prompt
         let prompt_bytes = format!("{}\n", prompt);
@@ -316,12 +316,13 @@ pub async fn start_siege(
 
         let pid = session.pid();
 
-        // Bridge PTY events to frontend
-        let task_id_for_bridge = task_id.clone();
-        let app_for_bridge = app_handle.clone();
-        tokio::spawn(async move {
-            crate::chat::bridge::bridge_pty_to_tauri(&app_for_bridge, &task_id_for_bridge, event_rx).await;
-        });
+        // Start managed bridge via broadcast
+        if let Some(rx) = session.resubscribe() {
+            let bridge = crate::chat::bridge::ManagedBridge::start(
+                app_handle.clone(), task_id.clone(), rx,
+            );
+            registry.set_bridge(&task_id, bridge);
+        }
 
         pid
     };
@@ -526,16 +527,18 @@ pub async fn continue_siege(
             .get_or_create(&task_id, config, TransportType::Pty)
             .map_err(|e| e.to_string())?;
 
-        let event_rx = session.start_pty(120, 40)?;
+        let _mpsc_rx = session.start_pty(120, 40)?;
         let prompt_bytes = format!("{}\n", prompt);
         session.write_pty(prompt_bytes.as_bytes())?;
         let pid = session.pid();
 
-        let task_id_for_bridge = task_id.clone();
-        let app_for_bridge = app_handle.clone();
-        tokio::spawn(async move {
-            crate::chat::bridge::bridge_pty_to_tauri(&app_for_bridge, &task_id_for_bridge, event_rx).await;
-        });
+        // Start managed bridge via broadcast
+        if let Some(rx) = session.resubscribe() {
+            let bridge = crate::chat::bridge::ManagedBridge::start(
+                app_handle.clone(), task_id.clone(), rx,
+            );
+            registry.set_bridge(&task_id, bridge);
+        }
 
         pid
     };
