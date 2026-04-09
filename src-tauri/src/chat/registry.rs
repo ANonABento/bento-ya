@@ -249,7 +249,7 @@ pub fn new_shared_session_registry() -> SharedSessionRegistry {
 /// Start a periodic idle sweep task. Runs every 60s.
 /// Suspends sessions that have been idle longer than the registry's idle_timeout.
 pub fn start_idle_sweep(registry: SharedSessionRegistry) {
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
