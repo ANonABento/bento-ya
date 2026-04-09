@@ -76,8 +76,16 @@ impl SessionRegistry {
         if !self.sessions.contains_key(key) {
             if self.sessions.len() >= self.max_sessions {
                 // LRU eviction: find the oldest idle session and remove it
+                // Uses self.remove() to properly kill transport + cache scrollback
                 if let Some(evict_key) = self.find_oldest_idle() {
-                    self.sessions.remove(&evict_key);
+                    // Can't call self.remove() due to borrow, so inline the logic
+                    if let Some(mut session) = self.sessions.remove(&evict_key) {
+                        let scrollback = session.scrollback();
+                        if !scrollback.is_empty() {
+                            self.scrollback_cache.insert(evict_key, scrollback);
+                        }
+                        let _ = session.kill();
+                    }
                 } else {
                     return Err(format!(
                         "Maximum {} concurrent sessions reached (all busy)",

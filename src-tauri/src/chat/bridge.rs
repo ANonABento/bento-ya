@@ -232,9 +232,9 @@ pub fn spawn_cli_trigger_task(
 
             // Wrap with sentinel for exit detection
             let sentinel_cmd = format!(
-                "{} ; echo \"{}{{}}{}\"\n",
+                "{} ; echo \"{}$?{}\"\n",
                 full_cmd, SENTINEL_PREFIX, SENTINEL_SUFFIX
-            ).replace("{}", "$?");
+            );
 
             // Check if a PTY session already exists for this task
             if let Some(session) = reg.get_mut(&task_id) {
@@ -280,25 +280,33 @@ pub fn spawn_cli_trigger_task(
 
             let event_rx = session.start_pty(120, 40)?;
 
-            // Write the trigger command after a short delay (let shell initialize)
-            let cmd_bytes = sentinel_cmd.into_bytes();
-            session.write_pty(&cmd_bytes)?;
+            // Get PID before dropping lock
+            let pid = session.pid();
 
-            // Update PID
+            // Drop registry lock before delay + bridging
+            drop(reg);
+
+            // Update PID in agent session record
             if let Some(ref sid) = session_id {
-                if let Some(pid) = session.pid() {
+                if let Some(p) = pid {
                     if let Ok(conn) = Connection::open(db::db_path()) {
                         let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
                         let _ = db::update_agent_session(
                             &conn, sid,
-                            Some(Some(pid as i64)), None, None, None, None, None,
+                            Some(Some(p as i64)), None, None, None, None, None,
                         );
                     }
                 }
             }
 
-            // Drop registry lock before bridging
-            drop(reg);
+            // Brief delay for shell rc file processing before injecting command
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            {
+                let mut reg = registry.lock().await;
+                if let Some(session) = reg.get_mut(&task_id) {
+                    session.write_pty(sentinel_cmd.as_bytes())?;
+                }
+            }
 
             // Bridge events (includes sentinel detection for trigger completion)
             bridge_pty_to_tauri(&app, &task_id, event_rx).await;

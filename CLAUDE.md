@@ -86,8 +86,8 @@ Transport abstraction + session layer (all 6 phases complete):
 - `pty_transport.rs` — `PtyTransport` (interactive terminal, xterm.js)
 - `pipe_transport.rs` — `PipeTransport` (structured JSON streaming, chat bubbles)
 - `session.rs` — `UnifiedChatSession` (lifecycle: idle/running/suspended, resume ID tracking, pipe + PTY modes, transport switching)
-- `registry.rs` — `SessionRegistry` (max concurrent sessions, get-or-create, idle timeout, LRU-ready)
-- `bridge.rs` — Tauri event bridge (`bridge_pty_to_tauri`, base64 PTY output) + background trigger runner (`spawn_cli_trigger_task`)
+- `registry.rs` — `SessionRegistry` (max 20 sessions, LRU eviction, idle timeout sweep, scrollback cache)
+- `bridge.rs` — Tauri event bridge (`bridge_pty_to_tauri` with sentinel detection) + trigger runner (`spawn_cli_trigger_task` injects into PTY)
 - `chef.rs` — ChefSession layer (orchestrator capabilities)
 
 Legacy `process/` module fully removed — `PtyManager`, `AgentRunner` replaced by unified system.
@@ -101,7 +101,15 @@ Each task gets an embedded terminal (xterm.js) backed by a lazy PTY session:
 - Frontend decodes base64 and writes raw bytes to xterm.js (WebGL renderer, 10k scrollback)
 - User can type commands, approve agent prompts, inspect files — full interactive terminal
 - Session killed + respawned on each panel open (ensures fresh event bridge)
-- Bubble chat view disabled — can be re-enabled later as overlay
+- Bubble chat view disconnected — components intact, can be re-enabled as overlay
+
+**Trigger integration:** `spawn_cli_trigger_task` injects CLI commands into the task's existing PTY shell (or spawns one if none exists). Commands are wrapped with a sentinel (`___BENTOYA_DONE_$?___`) for exit detection — `bridge_pty_to_tauri` watches raw output for the sentinel, extracts exit code, calls `mark_complete` for pipeline auto-advance. Shell stays alive after.
+
+**LRU eviction:** `SessionRegistry` max 20 concurrent PTYs (configurable). When at capacity, `get_or_create` evicts the oldest idle session. Periodic sweep (every 60s) suspends sessions idle > 5 minutes.
+
+**Scrollback persistence:** When a PTY is killed (panel close, LRU eviction, idle timeout), its scrollback buffer is cached in the registry. On next panel open, `ensure_pty_session` returns cached scrollback, frontend writes it to xterm before live output starts.
+
+Key files: `src/components/panel/terminal-view.tsx`, `src/components/panel/agent-panel.tsx`, `src/lib/ipc/terminal.ts`, `.tickets/_docs/TERMINAL_VIEW_V2.md`
 
 ### Database (`src-tauri/src/db/`)
 
