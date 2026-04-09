@@ -1,6 +1,7 @@
 import { memo, useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { IconButton } from '@/components/shared/icon-button'
+import { shouldEnableColumnShortcuts } from './column-shortcuts'
 
 type ScriptTriggerInfo = {
   scriptName: string
@@ -91,7 +92,7 @@ export const ColumnHeader = memo(function ColumnHeader({
 }: ColumnHeaderProps) {
   const [showMenu, setShowMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
-  const showShortcutHint = columnCount <= 6
+  const showShortcutHint = shouldEnableColumnShortcuts(columnCount)
 
   // Close menu when clicking outside
   useEffect(() => {
