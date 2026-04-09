@@ -486,8 +486,10 @@ pub async fn ensure_pty_session(
         // old listeners are dead and we need a new bridge.
         registry.remove(&task_id);
 
-        // Retrieve cached scrollback from previous session (if any)
-        let scrollback = registry.take_scrollback(&task_id);
+        // Skip scrollback restore — we always respawn a fresh shell,
+        // so old scrollback would just be stale prompts that duplicate
+        // with the new shell's prompt. Clear the cache instead.
+        registry.take_scrollback(&task_id);
 
         // Use user's default shell
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
@@ -505,7 +507,7 @@ pub async fn ensure_pty_session(
             .map_err(|e| e.to_string())?;
 
         let rx = session.start_pty(cols, rows)?;
-        (rx, if scrollback.is_empty() { None } else { Some(scrollback) })
+        (rx, None) // No scrollback restore — fresh shell has its own prompt
     };
 
     // Bridge PTY events to frontend
