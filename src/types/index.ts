@@ -6,6 +6,7 @@ export type {
   SpawnCliAction,
   MoveColumnAction,
   TriggerTaskAction,
+  TriggerTaskActionType,
   RunScriptAction,
   CreatePrAction,
   NoneAction,

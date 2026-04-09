@@ -1,28 +1,11 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import { motion } from 'motion/react'
-import { getWorkspaceUsage, getWorkspaceUsageSummary, type UsageSummary, type UsageRecord } from '@/lib/ipc'
+import { useWorkspaceUsage } from '@/hooks/use-workspace-usage'
+import { formatUsageCost, formatUsageDate, formatUsageTokens } from '@/lib/usage'
 
 type Props = {
   workspaceId: string
   onClose: () => void
-}
-
-function formatCost(usd: number): string {
-  if (usd < 0.01) return '<$0.01'
-  return `$${usd.toFixed(2)}`
-}
-
-function formatTokens(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`
-  return String(count)
-}
-
-function formatDate(isoDate: string): string {
-  return new Date(isoDate).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  })
 }
 
 type ModelStats = {
@@ -40,28 +23,9 @@ type DailyStats = {
 }
 
 export function MetricsDashboard({ workspaceId, onClose }: Props) {
-  const [summary, setSummary] = useState<UsageSummary | null>(null)
-  const [records, setRecords] = useState<UsageRecord[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-
-  useEffect(() => {
-    const load = async () => {
-      setIsLoading(true)
-      try {
-        const [summaryData, recordsData] = await Promise.all([
-          getWorkspaceUsageSummary(workspaceId),
-          getWorkspaceUsage(workspaceId, 500),
-        ])
-        setSummary(summaryData)
-        setRecords(recordsData)
-      } catch {
-        // Ignore errors
-      } finally {
-        setIsLoading(false)
-      }
-    }
-    void load()
-  }, [workspaceId])
+  const { summary, records, isLoading, error } = useWorkspaceUsage(workspaceId, {
+    limit: 500,
+  })
 
   const modelStats = useMemo((): ModelStats[] => {
     const map = new Map<string, ModelStats>()
@@ -130,6 +94,10 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
             <div className="flex items-center justify-center py-20">
               <span className="text-text-secondary">Loading metrics...</span>
             </div>
+          ) : error ? (
+            <div className="rounded-xl bg-red-500/10 px-4 py-6 text-sm text-red-400">
+              {error}
+            </div>
           ) : !summary || summary.recordCount === 0 ? (
             <div className="flex flex-col items-center justify-center py-20">
               <div className="mb-4 text-5xl">0</div>
@@ -143,15 +111,15 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
               {/* Summary Cards */}
               <div className="grid grid-cols-4 gap-4">
                 <div className="rounded-xl bg-bg p-4">
-                  <div className="text-2xl font-bold text-accent">{formatCost(summary.totalCostUsd)}</div>
+                  <div className="text-2xl font-bold text-accent">{formatUsageCost(summary.totalCostUsd)}</div>
                   <div className="mt-1 text-sm text-text-secondary">Total Cost</div>
                 </div>
                 <div className="rounded-xl bg-bg p-4">
-                  <div className="text-2xl font-bold text-text-primary">{formatTokens(summary.totalInputTokens)}</div>
+                  <div className="text-2xl font-bold text-text-primary">{formatUsageTokens(summary.totalInputTokens)}</div>
                   <div className="mt-1 text-sm text-text-secondary">Input Tokens</div>
                 </div>
                 <div className="rounded-xl bg-bg p-4">
-                  <div className="text-2xl font-bold text-text-primary">{formatTokens(summary.totalOutputTokens)}</div>
+                  <div className="text-2xl font-bold text-text-primary">{formatUsageTokens(summary.totalOutputTokens)}</div>
                   <div className="mt-1 text-sm text-text-secondary">Output Tokens</div>
                 </div>
                 <div className="rounded-xl bg-bg p-4">
@@ -171,13 +139,13 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
                         className="group relative flex flex-1 flex-col items-center"
                       >
                         <div className="absolute -top-8 hidden rounded bg-surface px-2 py-1 text-xs shadow-lg group-hover:block">
-                          {formatCost(day.cost)}
+                          {formatUsageCost(day.cost)}
                         </div>
                         <div
                           className="w-full rounded-t bg-accent transition-all hover:bg-accent/80"
                           style={{ height: `${String((day.cost / maxDailyCost) * 100)}%`, minHeight: day.cost > 0 ? '4px' : '0' }}
                         />
-                        <div className="mt-1 text-[10px] text-text-secondary">{formatDate(day.date)}</div>
+                        <div className="mt-1 text-[10px] text-text-secondary">{formatUsageDate(day.date)}</div>
                       </div>
                     ))}
                   </div>
@@ -194,7 +162,7 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
                         <div className="flex items-center justify-between text-sm">
                           <span className="font-mono text-text-primary">{model.model.split('/').pop()}</span>
                           <span className="text-text-secondary">
-                            {formatCost(model.cost)} ({model.count} calls)
+                            {formatUsageCost(model.cost)} ({model.count} calls)
                           </span>
                         </div>
                         <div className="h-2 rounded-full bg-surface">
@@ -204,8 +172,8 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
                           />
                         </div>
                         <div className="flex gap-4 text-xs text-text-secondary">
-                          <span>In: {formatTokens(model.inputTokens)}</span>
-                          <span>Out: {formatTokens(model.outputTokens)}</span>
+                          <span>In: {formatUsageTokens(model.inputTokens)}</span>
+                          <span>Out: {formatUsageTokens(model.outputTokens)}</span>
                         </div>
                       </div>
                     ))}
@@ -231,9 +199,9 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
                       {records.slice(0, 50).map((record) => (
                         <tr key={record.id} className="text-text-primary">
                           <td className="py-2 font-mono text-xs">{record.model.split('/').pop()}</td>
-                          <td className="py-2">{formatTokens(record.inputTokens)}</td>
-                          <td className="py-2">{formatTokens(record.outputTokens)}</td>
-                          <td className="py-2 text-right text-accent">{formatCost(record.costUsd)}</td>
+                          <td className="py-2">{formatUsageTokens(record.inputTokens)}</td>
+                          <td className="py-2">{formatUsageTokens(record.outputTokens)}</td>
+                          <td className="py-2 text-right text-accent">{formatUsageCost(record.costUsd)}</td>
                           <td className="py-2 text-right text-text-secondary">
                             {new Date(record.createdAt).toLocaleTimeString('en-US', {
                               hour: '2-digit',

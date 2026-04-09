@@ -1,52 +1,19 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { getWorkspaceUsageSummary, getWorkspaceUsage, type UsageSummary, type UsageRecord } from '@/lib/ipc'
+import { useWorkspaceUsage } from '@/hooks/use-workspace-usage'
+import { formatUsageCost, formatUsageTokens } from '@/lib/usage'
 
 type Props = {
   workspaceId: string
   onOpenDashboard?: () => void
 }
 
-function formatCost(usd: number): string {
-  if (usd < 0.01) return '<$0.01'
-  if (usd < 1) return `$${usd.toFixed(2)}`
-  return `$${usd.toFixed(2)}`
-}
-
-function formatTokens(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`
-  return String(count)
-}
-
 export function CostBadge({ workspaceId, onOpenDashboard }: Props) {
   const [isOpen, setIsOpen] = useState(false)
-  const [summary, setSummary] = useState<UsageSummary | null>(null)
-  const [records, setRecords] = useState<UsageRecord[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-
-  const refresh = async () => {
-    setIsLoading(true)
-    try {
-      const [summaryData, recordsData] = await Promise.all([
-        getWorkspaceUsageSummary(workspaceId),
-        getWorkspaceUsage(workspaceId, 20),
-      ])
-      setSummary(summaryData)
-      setRecords(recordsData)
-    } catch {
-      // Ignore errors - just show empty state
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    if (isOpen && !summary) {
-      void refresh()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen])
+  const { summary, records, isLoading, error, refresh } = useWorkspaceUsage(workspaceId, {
+    enabled: isOpen,
+    limit: 20,
+  })
 
   const totalCost = summary?.totalCostUsd ?? 0
 
@@ -70,7 +37,7 @@ export function CostBadge({ workspaceId, onOpenDashboard }: Props) {
           <path d="M10.75 10.818v2.614A3.13 3.13 0 0 0 11.888 13c.482-.315.612-.648.612-.875 0-.227-.13-.56-.612-.875a3.13 3.13 0 0 0-1.138-.432ZM8.33 8.62c.053.055.115.11.184.164.208.16.46.284.736.363V6.603a2.45 2.45 0 0 0-.35.13c-.14.065-.27.143-.386.233-.377.292-.514.627-.514.909 0 .184.058.39.202.592.037.051.08.102.128.152Z" />
           <path fillRule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-6a.75.75 0 0 1 .75.75v.316a3.78 3.78 0 0 1 1.653.713c.426.33.744.74.925 1.2a.75.75 0 0 1-1.395.55 1.35 1.35 0 0 0-.447-.563 2.187 2.187 0 0 0-.736-.363V9.3c.698.093 1.383.32 1.959.696.787.514 1.29 1.27 1.29 2.13 0 .86-.504 1.616-1.29 2.13-.576.377-1.261.603-1.96.696v.299a.75.75 0 1 1-1.5 0v-.3a3.78 3.78 0 0 1-1.653-.713 2.97 2.97 0 0 1-.925-1.2.75.75 0 0 1 1.395-.55c.12.308.313.524.447.563.235.18.505.317.736.363v-2.614a3.78 3.78 0 0 1-1.959-.696C6.503 9.746 6 8.99 6 8.13c0-.86.504-1.616 1.29-2.13.576-.377 1.261-.603 1.96-.696v-.549A.75.75 0 0 1 10 4Z" clipRule="evenodd" />
         </svg>
-        <span className="font-medium">{formatCost(totalCost)}</span>
+        <span className="font-medium">{formatUsageCost(totalCost)}</span>
       </button>
 
       <AnimatePresence>
@@ -109,24 +76,28 @@ export function CostBadge({ workspaceId, onOpenDashboard }: Props) {
                 <div className="flex items-center justify-center py-6">
                   <span className="text-sm text-text-secondary">Loading...</span>
                 </div>
+              ) : error ? (
+                <div className="rounded-lg bg-red-500/10 px-3 py-4 text-sm text-red-400">
+                  {error}
+                </div>
               ) : summary && summary.recordCount > 0 ? (
                 <>
                   <div className="mb-4 grid grid-cols-3 gap-3">
                     <div className="rounded-lg bg-bg p-3 text-center">
                       <div className="text-lg font-semibold text-accent">
-                        {formatCost(summary.totalCostUsd)}
+                        {formatUsageCost(summary.totalCostUsd)}
                       </div>
                       <div className="text-xs text-text-secondary">Total Cost</div>
                     </div>
                     <div className="rounded-lg bg-bg p-3 text-center">
                       <div className="text-lg font-semibold text-text-primary">
-                        {formatTokens(summary.totalInputTokens)}
+                        {formatUsageTokens(summary.totalInputTokens)}
                       </div>
                       <div className="text-xs text-text-secondary">Input</div>
                     </div>
                     <div className="rounded-lg bg-bg p-3 text-center">
                       <div className="text-lg font-semibold text-text-primary">
-                        {formatTokens(summary.totalOutputTokens)}
+                        {formatUsageTokens(summary.totalOutputTokens)}
                       </div>
                       <div className="text-xs text-text-secondary">Output</div>
                     </div>
@@ -149,10 +120,10 @@ export function CostBadge({ workspaceId, onOpenDashboard }: Props) {
                           </div>
                           <div className="flex items-center gap-3">
                             <span className="text-text-secondary">
-                              {formatTokens(record.inputTokens + record.outputTokens)}
+                              {formatUsageTokens(record.inputTokens + record.outputTokens)}
                             </span>
                             <span className="font-medium text-accent">
-                              {formatCost(record.costUsd)}
+                              {formatUsageCost(record.costUsd)}
                             </span>
                           </div>
                         </div>

@@ -72,7 +72,7 @@ export function PipelineErrorBanner({
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
         <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm.75-8.25a.75.75 0 0 0-1.5 0v3.5a.75.75 0 0 0 1.5 0v-3.5ZM8 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
       </svg>
-      <span className="truncate flex-1">{task.pipelineError}{task.retryCount > 0 && ` (${task.retryCount} retries)`}</span>
+      <span className="truncate flex-1">{task.pipelineError}{task.retryCount > 0 && ` (${String(task.retryCount)} retries)`}</span>
       <button
         onClick={(e) => {
           e.stopPropagation()

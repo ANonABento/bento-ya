@@ -7,6 +7,7 @@ use crate::error::AppError;
 use crate::llm::tools::{ToolResult, ToolUse};
 use crate::pipeline;
 use rusqlite::Connection;
+use serde::Serialize;
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
 
@@ -18,6 +19,42 @@ pub struct ExecutionResult {
     pub tasks_updated: Vec<Task>,
     pub tasks_deleted: Vec<String>,
     pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskCreatedPayload {
+    workspace_id: String,
+    task: Task,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskUpdatedPayload {
+    workspace_id: String,
+    task: Task,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskDeletedPayload {
+    workspace_id: String,
+    task_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct QueueBatchRequestedPayload {
+    workspace_id: String,
+    task_ids: Vec<String>,
+    agent_type: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ColumnUpdatedPayload {
+    workspace_id: String,
+    column_id: String,
 }
 
 /// Execute a list of tool uses and return results
@@ -59,10 +96,10 @@ pub fn execute_tools(
                             is_error: false,
                         });
                         // Emit event for frontend
-                        let _ = app.emit("task:created", json!({
-                            "workspace_id": workspace_id,
-                            "task": &task
-                        }));
+                        let _ = app.emit("task:created", TaskCreatedPayload {
+                            workspace_id: workspace_id.to_string(),
+                            task: task.clone(),
+                        });
                         // Emit tasks:changed so frontend refreshes
                         pipeline::emit_tasks_changed(app, workspace_id, "orchestrator_tool");
                         tasks_created.push(task);
@@ -73,10 +110,10 @@ pub fn execute_tools(
                             content: format!("Updated task: \"{}\"", task.title),
                             is_error: false,
                         });
-                        let _ = app.emit("task:updated", json!({
-                            "workspace_id": workspace_id,
-                            "task": &task
-                        }));
+                        let _ = app.emit("task:updated", TaskUpdatedPayload {
+                            workspace_id: workspace_id.to_string(),
+                            task: task.clone(),
+                        });
                         tasks_updated.push(task);
                     }
                     ToolOutcome::TaskMoved(task, from_col, to_col) => {
@@ -97,10 +134,10 @@ pub fn execute_tools(
                             content: format!("Moved \"{}\" from {} to {}", task.title, from_col, to_col),
                             is_error: false,
                         });
-                        let _ = app.emit("task:updated", json!({
-                            "workspace_id": workspace_id,
-                            "task": &task
-                        }));
+                        let _ = app.emit("task:updated", TaskUpdatedPayload {
+                            workspace_id: workspace_id.to_string(),
+                            task: task.clone(),
+                        });
                         // Emit tasks:changed so frontend refreshes
                         pipeline::emit_tasks_changed(app, workspace_id, "orchestrator_tool");
                         tasks_updated.push(task);
@@ -111,10 +148,10 @@ pub fn execute_tools(
                             content: format!("Deleted task: \"{}\"", title),
                             is_error: false,
                         });
-                        let _ = app.emit("task:deleted", json!({
-                            "workspace_id": workspace_id,
-                            "task_id": &task_id
-                        }));
+                        let _ = app.emit("task:deleted", TaskDeletedPayload {
+                            workspace_id: workspace_id.to_string(),
+                            task_id: task_id.clone(),
+                        });
                         tasks_deleted.push(task_id);
                     }
                     ToolOutcome::TasksQueued(task_ids, agent_type) => {
@@ -124,11 +161,11 @@ pub fn execute_tools(
                             is_error: false,
                         });
                         // Emit event for frontend to handle batch agent spawning
-                        let _ = app.emit("queue:batch_requested", json!({
-                            "workspace_id": workspace_id,
-                            "task_ids": &task_ids,
-                            "agent_type": &agent_type
-                        }));
+                        let _ = app.emit("queue:batch_requested", QueueBatchRequestedPayload {
+                            workspace_id: workspace_id.to_string(),
+                            task_ids: task_ids.clone(),
+                            agent_type: agent_type.clone(),
+                        });
                     }
                     ToolOutcome::TriggersConfigured(column_id, column_name, triggers_json) => {
                         results.push(ToolResult {
@@ -136,10 +173,10 @@ pub fn execute_tools(
                             content: format!("Configured triggers for column \"{}\":\n{}", column_name, triggers_json),
                             is_error: false,
                         });
-                        let _ = app.emit("column:updated", json!({
-                            "workspace_id": workspace_id,
-                            "column_id": &column_id
-                        }));
+                        let _ = app.emit("column:updated", ColumnUpdatedPayload {
+                            workspace_id: workspace_id.to_string(),
+                            column_id: column_id.clone(),
+                        });
                     }
                 }
             }

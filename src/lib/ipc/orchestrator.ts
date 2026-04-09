@@ -65,13 +65,6 @@ export async function getOrchestratorSession(workspaceId: string): Promise<Orche
   return invoke<OrchestratorSession>('get_orchestrator_session', { workspaceId })
 }
 
-export async function sendOrchestratorMessage(
-  workspaceId: string,
-  message: string,
-): Promise<ChatMessage> {
-  return invoke<ChatMessage>('send_orchestrator_message', { workspaceId, message })
-}
-
 // Chat session management
 export async function listChatSessions(workspaceId: string): Promise<ChatSession[]> {
   return invoke<ChatSession[]>('list_chat_sessions', { workspaceId })

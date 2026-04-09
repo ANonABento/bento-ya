@@ -41,7 +41,7 @@ pub enum TriggerActionV2 {
     },
     TriggerTask {
         target_task: String,
-        action: String,
+        action: TriggerTaskActionTypeV2,
         #[serde(default)]
         target_column: Option<String>,
         #[serde(default)]
@@ -57,8 +57,45 @@ pub enum TriggerActionV2 {
     None,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TriggerTaskActionTypeV2 {
+    MoveColumn,
+    Start,
+    Unblock,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ExitCriteriaTypeV2 {
+    #[default]
+    Manual,
+    AgentComplete,
+    ScriptSuccess,
+    ChecklistDone,
+    TimeElapsed,
+    PrApproved,
+    ManualApproval,
+    NotificationSent,
+}
+
+impl ExitCriteriaTypeV2 {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ExitCriteriaTypeV2::Manual => "manual",
+            ExitCriteriaTypeV2::AgentComplete => "agent_complete",
+            ExitCriteriaTypeV2::ScriptSuccess => "script_success",
+            ExitCriteriaTypeV2::ChecklistDone => "checklist_done",
+            ExitCriteriaTypeV2::TimeElapsed => "time_elapsed",
+            ExitCriteriaTypeV2::PrApproved => "pr_approved",
+            ExitCriteriaTypeV2::ManualApproval => "manual_approval",
+            ExitCriteriaTypeV2::NotificationSent => "notification_sent",
+        }
+    }
+}
+
 /// Column-level triggers configuration (V2).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ColumnTriggersV2 {
     pub on_entry: Option<TriggerActionV2>,
     pub on_exit: Option<TriggerActionV2>,
@@ -68,8 +105,8 @@ pub struct ColumnTriggersV2 {
 /// Exit criteria (V2 format).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExitCriteriaV2 {
-    #[serde(rename = "type")]
-    pub criteria_type: String,
+    #[serde(rename = "type", default)]
+    pub criteria_type: ExitCriteriaTypeV2,
     #[serde(default)]
     pub auto_advance: bool,
     #[serde(default)]
@@ -87,6 +124,12 @@ pub struct TaskTriggerOverrides {
     pub on_exit: Option<serde_json::Value>,
     #[serde(default)]
     pub skip_triggers: Option<bool>,
+}
+
+pub fn parse_column_triggers(triggers_json: Option<&str>) -> ColumnTriggersV2 {
+    triggers_json
+        .and_then(|json| serde_json::from_str::<ColumnTriggersV2>(json).ok())
+        .unwrap_or_default()
 }
 
 // ─── Resolved Script Steps (owned data for async execution) ───────────────
@@ -228,15 +271,7 @@ pub fn fire_on_exit(
     next_column: Option<&Column>,
 ) -> Result<(), AppError> {
     // Parse V2 triggers
-    let triggers: ColumnTriggersV2 = column
-        .triggers
-        .as_deref()
-        .and_then(|json| serde_json::from_str(json).ok())
-        .unwrap_or(ColumnTriggersV2 {
-            on_entry: Option::None,
-            on_exit: Option::None,
-            exit_criteria: Option::None,
-        });
+    let triggers = parse_column_triggers(column.triggers.as_deref());
 
     let action = match resolve_trigger(&triggers, task, "on_exit") {
         Some(a) => a,
@@ -416,13 +451,13 @@ fn execute_trigger_task(
     task: &Task,
     column: &Column,
     target_task_id: &str,
-    task_action: &str,
+    task_action: &TriggerTaskActionTypeV2,
     target_column: Option<&str>,
     inject_prompt: Option<&str>,
 ) -> Result<Task, AppError> {
     if let Ok(target) = db::get_task(conn, target_task_id) {
         match task_action {
-            "move_column" => {
+            TriggerTaskActionTypeV2::MoveColumn => {
                 if let Some(col_target) = target_column {
                     if let Some(col) = resolve_column_target(conn, &target, col_target)? {
                         let ts = db::now();
@@ -439,17 +474,16 @@ fn execute_trigger_task(
                     }
                 }
             }
-            "unblock" => {
+            TriggerTaskActionTypeV2::Unblock => {
                 conn.execute(
                     "UPDATE tasks SET blocked = 0, updated_at = ?1 WHERE id = ?2",
                     rusqlite::params![db::now(), target.id],
                 ).map_err(AppError::from)?;
             }
-            "start" => {
+            TriggerTaskActionTypeV2::Start => {
                 let col = db::get_column(conn, &target.column_id)?;
                 let _ = super::fire_trigger(conn, app, &target, &col);
             }
-            _ => {}
         }
 
         // Inject prompt if specified
@@ -1111,7 +1145,9 @@ mod tests {
         let variants = vec![
             r#"{"type":"spawn_cli","cli":"claude","command":"/start-task"}"#,
             r#"{"type":"move_column","target":"next"}"#,
+            r#"{"type":"trigger_task","target_task":"task-123","action":"unblock"}"#,
             r#"{"type":"run_script","script_id":"test-1"}"#,
+            r#"{"type":"create_pr","base_branch":"main"}"#,
             r#"{"type":"none"}"#,
         ];
         for json in variants {
@@ -1140,9 +1176,28 @@ mod tests {
         assert!(matches!(triggers.on_exit, Some(TriggerActionV2::MoveColumn { .. })));
         assert!(triggers.exit_criteria.is_some());
         let exit = triggers.exit_criteria.unwrap();
-        assert_eq!(exit.criteria_type, "agent_complete");
+        assert_eq!(exit.criteria_type, ExitCriteriaTypeV2::AgentComplete);
         assert!(exit.auto_advance);
         assert_eq!(exit.max_retries, Some(2));
+    }
+
+    #[test]
+    fn test_column_triggers_v2_shared_fixture_contract() {
+        let json = include_str!("../../../src/testing/fixtures/column-triggers-v2.json");
+        let triggers: ColumnTriggersV2 = serde_json::from_str(json).unwrap();
+
+        assert!(matches!(
+            triggers.on_entry,
+            Some(TriggerActionV2::TriggerTask {
+                action: TriggerTaskActionTypeV2::Unblock,
+                ..
+            })
+        ));
+        assert!(matches!(triggers.on_exit, Some(TriggerActionV2::SpawnCli { .. })));
+        assert_eq!(
+            triggers.exit_criteria.unwrap().criteria_type,
+            ExitCriteriaTypeV2::AgentComplete
+        );
     }
 
     // ─── ResolvedStep construction tests ──────────────────────────────

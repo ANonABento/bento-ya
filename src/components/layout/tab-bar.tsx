@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   DndContext,
@@ -22,8 +22,9 @@ import { useAttentionStore } from '@/stores/attention-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useChecklistStore } from '@/stores/checklist-store'
 import { Tooltip } from '@/components/shared/tooltip'
-import { useSwipeNavigation } from '@/hooks/use-swipe'
 import type { Workspace } from '@/types'
+import { AddWorkspaceDialog } from './add-workspace-dialog'
+import { useTabBarNavigation } from './use-tab-bar-navigation'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -232,84 +233,13 @@ export function TabBar() {
     }),
   )
 
-  // ─── Tab Navigation ─────────────────────────────────────────────────────────
-
-  const selectByIndex = useCallback(
-    (index: number) => {
-      const workspace = sortedWorkspaces[index]
-      if (workspace) {
-        setActive(workspace.id)
-      }
-    },
-    [sortedWorkspaces, setActive],
-  )
-
-  const selectPrev = useCallback(() => {
-    const currentIndex = sortedWorkspaces.findIndex((w) => w.id === activeWorkspaceId)
-    const newIndex = currentIndex > 0 ? currentIndex - 1 : sortedWorkspaces.length - 1
-    selectByIndex(newIndex)
-  }, [sortedWorkspaces, activeWorkspaceId, selectByIndex])
-
-  const selectNext = useCallback(() => {
-    const currentIndex = sortedWorkspaces.findIndex((w) => w.id === activeWorkspaceId)
-    const newIndex = currentIndex < sortedWorkspaces.length - 1 ? currentIndex + 1 : 0
-    selectByIndex(newIndex)
-  }, [sortedWorkspaces, activeWorkspaceId, selectByIndex])
-
-  const closeCurrentTab = useCallback(() => {
-    if (activeWorkspaceId && sortedWorkspaces.length > 1) {
-      void remove(activeWorkspaceId)
-    }
-  }, [activeWorkspaceId, sortedWorkspaces.length, remove])
-
-  // ─── Swipe Navigation ───────────────────────────────────────────────────────
-
-  useSwipeNavigation(selectPrev, selectNext, sortedWorkspaces.length > 1)
-
-  // ─── Keyboard Shortcuts ─────────────────────────────────────────────────────
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const isMod = e.metaKey || e.ctrlKey
-
-      if (isMod && !e.shiftKey) {
-        // Cmd+1-9: Switch to tab by index
-        if (e.key >= '1' && e.key <= '9') {
-          e.preventDefault()
-          const index = parseInt(e.key, 10) - 1
-          selectByIndex(index)
-          return
-        }
-
-        // Cmd+T: New tab
-        if (e.key === 't') {
-          e.preventDefault()
-          setShowAddDialog(true)
-          return
-        }
-
-        // Cmd+W: Close current tab
-        if (e.key === 'w') {
-          e.preventDefault()
-          closeCurrentTab()
-          return
-        }
-      }
-
-      // Ctrl+Tab / Ctrl+Shift+Tab: Next/Prev tab
-      if (e.ctrlKey && e.key === 'Tab') {
-        e.preventDefault()
-        if (e.shiftKey) {
-          selectPrev()
-        } else {
-          selectNext()
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => { window.removeEventListener('keydown', handleKeyDown); }
-  }, [selectByIndex, selectPrev, selectNext, closeCurrentTab])
+  useTabBarNavigation({
+    sortedWorkspaces,
+    activeWorkspaceId,
+    setActive,
+    remove,
+    openAddDialog: () => { setShowAddDialog(true) },
+  })
 
   // ─── Drag Handlers ──────────────────────────────────────────────────────────
 
@@ -386,93 +316,5 @@ export function TabBar() {
         <AddWorkspaceDialog onClose={() => { setShowAddDialog(false); }} />
       )}
     </>
-  )
-}
-
-// ─── AddWorkspaceDialog ─────────────────────────────────────────────────────
-
-function AddWorkspaceDialog({ onClose }: { onClose: () => void }) {
-  const add = useWorkspaceStore((s) => s.add)
-  const [name, setName] = useState('')
-  const [repoPath, setRepoPath] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
-
-  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    if (!name.trim() || !repoPath.trim() || isSubmitting) return
-
-    setIsSubmitting(true)
-    try {
-      await add(name.trim(), repoPath.trim())
-      onClose()
-    } catch (err) {
-      console.error('Failed to add workspace:', err)
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        onClick={(e) => { e.stopPropagation(); }}
-        className="w-full max-w-md rounded-xl border border-border-default bg-surface p-6 shadow-xl"
-      >
-        <h2 className="mb-4 text-lg font-semibold text-text-primary">Add Workspace</h2>
-
-        <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm text-text-secondary">Name</label>
-            <input
-              ref={inputRef}
-              type="text"
-              value={name}
-              onChange={(e) => { setName(e.target.value); }}
-              placeholder="My Project"
-              className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm text-text-secondary">Repository Path</label>
-            <input
-              type="text"
-              value={repoPath}
-              onChange={(e) => { setRepoPath(e.target.value); }}
-              placeholder="/path/to/repo"
-              className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!name.trim() || !repoPath.trim() || isSubmitting}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg disabled:opacity-50"
-            >
-              {isSubmitting ? 'Adding...' : 'Add'}
-            </button>
-          </div>
-        </form>
-      </motion.div>
-    </div>
   )
 }

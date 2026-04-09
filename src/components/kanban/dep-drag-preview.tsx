@@ -5,7 +5,7 @@
 
 import type { DepDragState } from '@/hooks/use-dep-drag'
 import type { CardRect } from '@/hooks/use-card-positions'
-import { svgPath } from './dependency-lines'
+import { svgPath } from './dependency-path'
 
 const COLOR_SNAPPED = '#4ade80'  // green — hovering valid target
 const COLOR_DRAGGING = '#a78bfa' // purple — free dragging

@@ -38,7 +38,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       .catch(() => {
         // CLI detection is non-critical
       })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   // Validate git repo when path changes
   useEffect(() => {

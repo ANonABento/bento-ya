@@ -72,7 +72,7 @@ pub fn run() {
     let agent_runner_for_shutdown = Arc::clone(&agent_runner);
     let session_registry_for_shutdown = Arc::clone(&session_registry);
 
-    let mut builder = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -188,7 +188,6 @@ pub fn run() {
             // Orchestrator commands
             commands::orchestrator::get_orchestrator_context,
             commands::orchestrator::get_orchestrator_session,
-            commands::orchestrator::send_orchestrator_message,
             commands::orchestrator::list_chat_sessions,
             commands::orchestrator::get_active_chat_session,
             commands::orchestrator::create_chat_session,

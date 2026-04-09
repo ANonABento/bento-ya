@@ -5,21 +5,20 @@
  * - useChatSession for chat logic (send, cancel, queue, streaming)
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { listen } from '@tauri-apps/api/event'
-import { useUIStore } from '@/stores/ui-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useOrchestratorSessions } from '@/hooks/use-orchestrator-sessions'
 import { useChatSession } from '@/hooks/chat-session'
-import { getChatHistory, type ChatMessage } from '@/lib/ipc'
 import { buildPromptWithAttachments } from '@/types'
 import { useCliPath } from '@/hooks/use-cli-path'
+import { useOrchestratorPanelLayout } from './use-orchestrator-panel-layout'
+import { useOrchestratorTaskRefresh } from './use-orchestrator-task-refresh'
 import { ChatHistory } from './chat-history'
 import { PanelSidebar } from './panel-sidebar'
 import { ChatErrorBoundary } from './chat-error-boundary'
-import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls } from './shared'
+import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapMessages, mapToolCalls } from './shared'
 
 type OrchestratorPanelProps = {
   workspaceId: string
@@ -28,18 +27,19 @@ type OrchestratorPanelProps = {
 const COLLAPSED_HEIGHT = 40
 
 export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
-  // UI stores
-  const panelHeight = useUIStore((s) => s.panelHeight)
-  const panelWidth = useUIStore((s) => s.panelWidth)
-  const panelDock = useUIStore((s) => s.panelDock)
-  const isPanelCollapsed = useUIStore((s) => s.isPanelCollapsed)
-  const setPanelHeight = useUIStore((s) => s.setPanelHeight)
-  const setPanelWidth = useUIStore((s) => s.setPanelWidth)
-  const setPanelDock = useUIStore((s) => s.setPanelDock)
-  const togglePanel = useUIStore((s) => s.togglePanel)
   const loadTasks = useTaskStore((s) => s.load)
-
-  const isRightDock = panelDock === 'right'
+  const {
+    panelRef,
+    isPanelCollapsed,
+    isRightDock,
+    isDragging,
+    displayHeight,
+    displayWidth,
+    setPanelDock,
+    togglePanel,
+    handleResizeMouseDown,
+    handleHeaderClick,
+  } = useOrchestratorPanelLayout()
 
   // Get settings for LLM connection
   const settings = useSettingsStore((s) => s.global)
@@ -84,9 +84,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
   // Local UI state
   const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | null>(null)
-  const [isDragging, setIsDragging] = useState(false)
-  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
-  const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
 
   // Sync hook error to local state (like AgentPanel does)
@@ -95,159 +92,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     if (chat.error) setLocalError(chat.error)
   }, [chat.error])
 
-  const panelRef = useRef<HTMLDivElement>(null)
-  const dragStartY = useRef(0)
-  const dragStartHeight = useRef(0)
-
-  // Load messages when active session changes
-  useEffect(() => {
-    if (!activeSession) {
-      setLocalMessages([])
-      return
-    }
-    setMessagesLoading(true)
-    void getChatHistory(activeSession.id, 100)
-      .then(setLocalMessages)
-      .catch((err: unknown) => {
-        console.error('[OrchestratorPanel] Failed to load messages:', err)
-      })
-      .finally(() => {
-        setMessagesLoading(false)
-      })
-  }, [activeSession])
-
-  // Sync chat hook messages with local messages
-  useEffect(() => {
-    if (chat.messages.length > 0) {
-      setLocalMessages(chat.messages.map((m) => ({
-        id: m.id,
-        workspaceId,
-        sessionId: activeSession?.id ?? null,
-        role: m.role,
-        content: m.content,
-        createdAt: m.createdAt,
-      })))
-    }
-  }, [chat.messages, workspaceId, activeSession?.id])
-
-  // Listen for task events to refresh board
-  useEffect(() => {
-    const unsubscribes: Array<() => void> = []
-
-    const setupListeners = async () => {
-      const unsubTaskCreated = await listen('task:created', (event) => {
-        const payload = event.payload as { workspace_id?: string }
-        if (payload.workspace_id === workspaceId) {
-          void loadTasks(workspaceId)
-        }
-      })
-      unsubscribes.push(unsubTaskCreated)
-
-      const unsubTaskUpdated = await listen('task:updated', (event) => {
-        const payload = event.payload as { workspace_id?: string }
-        if (payload.workspace_id === workspaceId) {
-          void loadTasks(workspaceId)
-        }
-      })
-      unsubscribes.push(unsubTaskUpdated)
-
-      const unsubTaskDeleted = await listen('task:deleted', (event) => {
-        const payload = event.payload as { workspace_id?: string }
-        if (payload.workspace_id === workspaceId) {
-          void loadTasks(workspaceId)
-        }
-      })
-      unsubscribes.push(unsubTaskDeleted)
-    }
-
-    void setupListeners()
-
-    return () => {
-      unsubscribes.forEach((unsub) => { unsub() })
-    }
-  }, [workspaceId, loadTasks])
-
-  // Keyboard shortcut: Cmd+J to toggle
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
-        e.preventDefault()
-        togglePanel()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => { window.removeEventListener('keydown', handleKeyDown) }
-  }, [togglePanel])
-
-  // Resize handle drag handler
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
-    if (isPanelCollapsed) return
-    e.preventDefault()
-    e.stopPropagation()
-    dragStartY.current = isRightDock ? e.clientX : e.clientY
-    dragStartHeight.current = isRightDock ? panelWidth : panelHeight
-    setIsDragging(true)
-  }, [panelHeight, panelWidth, isPanelCollapsed, isRightDock])
-
-  // Header click handler (toggle panel)
-  const handleHeaderClick = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button')) return
-    togglePanel()
-  }, [togglePanel])
-
-  useEffect(() => {
-    if (!isDragging) return
-
-    document.body.style.cursor = isRightDock ? 'ew-resize' : 'ns-resize'
-    document.body.style.userSelect = 'none'
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isRightDock) {
-        // Handle at left edge of right panel: drag LEFT → panel grows, drag RIGHT → panel shrinks
-        const deltaX = dragStartY.current - e.clientX
-        const newWidth = dragStartHeight.current + deltaX
-        setPanelWidth(newWidth)
-      } else {
-        // Handle at top edge of bottom panel: drag UP → panel grows, drag DOWN → panel shrinks
-        const deltaY = dragStartY.current - e.clientY
-        const newHeight = dragStartHeight.current + deltaY
-        setPanelHeight(newHeight)
-      }
-    }
-
-    const handleMouseUp = () => {
-      setIsDragging(false)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-  }, [isDragging, setPanelHeight, setPanelWidth, isRightDock])
-
-  // Re-clamp panel height on mount and window resize (prevent board from being squished)
-  useEffect(() => {
-    // Clamp on mount in case persisted value exceeds current viewport
-    setPanelHeight(panelHeight)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- clamp once on mount
-
-  useEffect(() => {
-    const handleResize = () => {
-      // Read latest values from store (avoids re-registering listener on every drag)
-      const state = useUIStore.getState()
-      setPanelHeight(state.panelHeight)
-      setPanelWidth(state.panelWidth)
-    }
-    window.addEventListener('resize', handleResize)
-    return () => { window.removeEventListener('resize', handleResize) }
-  }, [setPanelHeight, setPanelWidth])
+  useOrchestratorTaskRefresh(workspaceId, loadTasks)
 
   // Clear error when user starts typing (like AgentPanel)
   const handleInputChange = useCallback(() => {
@@ -270,17 +115,16 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   }, [chat])
 
   const handleNewChat = useCallback(async () => {
-    if (localMessages.length === 0) return
+    if (chat.messages.length === 0) return
     try {
       if (activeSession) {
         await resetSession()
       }
       await createSession()
-      setLocalMessages([])
     } catch (err) {
       console.error('[OrchestratorPanel] Failed to create new chat:', err)
     }
-  }, [localMessages.length, activeSession, resetSession, createSession])
+  }, [chat.messages.length, activeSession, resetSession, createSession])
 
   const handleSelectSession = useCallback((session: typeof activeSession) => {
     if (!session) return
@@ -295,10 +139,11 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     }
   }, [deleteSession])
 
-  const displayHeight = isPanelCollapsed ? COLLAPSED_HEIGHT : (isRightDock ? undefined : panelHeight)
-  const displayWidth = isPanelCollapsed ? COLLAPSED_HEIGHT : (isRightDock ? panelWidth : undefined)
-  const isLoading = sessionsLoading || messagesLoading
+  const isLoading = sessionsLoading || chat.isLoading
   const isProcessing = chat.streaming.isStreaming
+  const historyMessages = activeSession
+    ? mapMessages(chat.messages, workspaceId, activeSession.id)
+    : []
 
   const toolCalls = mapToolCalls(chat.streaming.toolCalls, workspaceId)
 
@@ -396,7 +241,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             <button
               type="button"
               onClick={() => { void handleNewChat() }}
-              disabled={localMessages.length === 0}
+              disabled={historyMessages.length === 0}
               className="flex h-6 cursor-pointer items-center gap-1 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
@@ -477,7 +322,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               sessions={sessions}
               activeSessionId={activeSession?.id}
               workspaceId={workspaceId}
-              isCurrentChatEmpty={localMessages.length === 0}
+              isCurrentChatEmpty={historyMessages.length === 0}
               onNewChat={() => { void handleNewChat() }}
               onSelectSession={(session) => { handleSelectSession(session) }}
               onDeleteSession={(sessionId) => { void handleDeleteSession(sessionId) }}
@@ -504,7 +349,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   />
                 )}
                 <ChatHistory
-                  messages={localMessages}
+                  messages={historyMessages}
                   isLoading={isLoading}
                   streamingContent={chat.streaming.content}
                   processingStartTime={chat.streaming.startTime}

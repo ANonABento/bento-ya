@@ -364,7 +364,6 @@ const mockCommands: Record<string, CommandHandler> = {
   // Orchestrator commands (stubs)
   get_orchestrator_context: () => ({ workspaceId: '', workspaceName: '', columns: [], tasks: [], recentMessages: [] }),
   get_orchestrator_session: () => ({ id: '', workspaceId: '', status: 'idle', lastError: null, createdAt: '', updatedAt: '' }),
-  send_orchestrator_message: () => ({ id: '', workspaceId: '', sessionId: null, role: 'user', content: '', createdAt: '' }),
   list_chat_sessions: () => [],
   get_active_chat_session: () => ({ id: 'mock-session', workspaceId: '', title: 'New Chat', createdAt: '', updatedAt: '' }),
   create_chat_session: () => ({ id: 'mock-session', workspaceId: '', title: 'New Chat', createdAt: '', updatedAt: '' }),

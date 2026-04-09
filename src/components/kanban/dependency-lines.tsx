@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import type { Task } from '@/types'
 import type { CardRect } from '@/hooks/use-card-positions'
 import { parseDeps, type DepEntry } from '@/lib/dependency-utils'
+import { svgPath } from './dependency-path'
 
 type DependencyLinesProps = {
   tasks: Task[]
@@ -86,21 +87,6 @@ function calcPath(
     tx + tn.x * pull, ty + tn.y * pull,
     tx, ty,
   )
-}
-
-/** Build SVG cubic bezier path string (used by dep-drag-preview). */
-export function svgPath(
-  mx: number, my: number,
-  c1x: number, c1y: number,
-  c2x: number, c2y: number,
-  ex: number, ey: number,
-): string {
-  return [
-    'M', String(mx), String(my),
-    'C', String(c1x), String(c1y) + ',',
-    String(c2x), String(c2y) + ',',
-    String(ex), String(ey),
-  ].join(' ')
 }
 
 // ─── Lane spacing ───────────────────────────────────────────────────────────
