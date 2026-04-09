@@ -268,12 +268,23 @@ async fn handle_bridge_event(
                 sentinel_buffer.push_str(&String::from_utf8_lossy(&decoded));
                 if let Some(exit_code) = extract_sentinel_for_task(task_id, sentinel_buffer).await {
                     // Clear the nonce — trigger is done
+                    eprintln!("[bridge] Sentinel detected for task {}: exit_code={}, buffer_tail={:?}",
+                        task_id, exit_code, &sentinel_buffer[sentinel_buffer.len().saturating_sub(200)..]);
                     { sentinel_nonces().lock().await.remove(task_id); }
                     let success = exit_code == 0;
                     if let Ok(conn) = Connection::open(db::db_path()) {
                         let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
                         let status = if success { "completed" } else { "failed" };
                         let _ = db::update_task_agent_status(&conn, task_id, Some(status), None);
+                        // Also update the agent_session status (exit criteria checks this)
+                        if let Ok(task) = db::get_task(&conn, task_id) {
+                            if let Some(ref sid) = task.agent_session_id {
+                                let _ = db::update_agent_session(
+                                    &conn, sid,
+                                    None, Some(status), Some(Some(exit_code as i64)), None, None, None,
+                                );
+                            }
+                        }
                         let _ = pipeline::mark_complete(&conn, app, task_id, success);
                     }
                     pipeline::emit_tasks_changed(app, "", "trigger_complete");
@@ -463,8 +474,12 @@ pub fn spawn_cli_trigger_task(
             let mut cmd_parts = vec![cli_command.clone()];
             cmd_parts.extend(args);
             if !initial_prompt.is_empty() {
-                cmd_parts.push("-p".to_string());
                 let escaped = initial_prompt.replace('\'', "'\\''");
+                // claude CLI uses -p for prompt; codex takes prompt as positional arg
+                let cli_name = cli_command.rsplit('/').next().unwrap_or(&cli_command);
+                if cli_name == "claude" {
+                    cmd_parts.push("-p".to_string());
+                }
                 cmd_parts.push(format!("'{}'", escaped));
             }
             let full_cmd = cmd_parts.join(" ");
@@ -582,11 +597,13 @@ pub fn spawn_cli_trigger_task(
             }
 
             // Wait for shell to be ready (prompt detection) before injecting command
+            eprintln!("[bridge] Waiting for shell ready for task {}", task_id);
             if let Err(e) = wait_for_shell_ready(ready_rx).await {
                 return Err(format!("Shell ready detection failed: {}", e));
             }
 
             // Inject the command
+            eprintln!("[bridge] Shell ready, injecting command for task {}: {}", task_id, full_cmd);
             {
                 let mut reg = registry.lock().await;
                 if let Some(session) = reg.get_mut(&task_id) {

@@ -448,6 +448,7 @@ pub fn handle_trigger_failure(
     column: &Column,
     error_message: &str,
 ) -> Result<Task, AppError> {
+    eprintln!("[pipeline] handle_trigger_failure: task={}, error={}", task.id, error_message);
     let updated_task = db::update_task_pipeline_state(
         conn,
         &task.id,
@@ -477,6 +478,7 @@ pub fn mark_complete(
     task_id: &str,
     success: bool,
 ) -> Result<Task, AppError> {
+    eprintln!("[pipeline] mark_complete called: task={}, success={}, backtrace:\n{}", task_id, success, std::backtrace::Backtrace::force_capture());
     let task = db::get_task(conn, task_id)?;
     let column = db::get_column(conn, &task.column_id)?;
 

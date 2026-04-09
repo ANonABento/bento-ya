@@ -481,7 +481,10 @@ pub async fn ensure_pty_session(
         let needs_bridge = !registry.has_active_bridge(&task_id);
 
         let (scrollback, pid, resubscribe_rx) = {
-            let session = registry.get(&task_id).unwrap();
+            let session = registry.get_mut(&task_id).unwrap();
+            // Resize PTY to match panel dimensions (sends SIGWINCH to running process)
+            // This fixes TUI apps (codex, vim) that were spawned at a different size
+            let _ = session.resize_pty(cols, rows);
             let scrollback = session.scrollback();
             let pid = session.pid();
             let rx = if needs_bridge { session.resubscribe() } else { None };
