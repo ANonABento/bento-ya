@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { Task } from '@/types'
 import * as ipc from '@/lib/ipc'
+import { useWorkspaceStore } from './workspace-store'
 
 type TaskState = {
   tasks: Task[]
@@ -31,13 +32,18 @@ export const useTaskStore = create<TaskState>()(
       add: async (workspaceId, columnId, title, description) => {
         const task = await ipc.createTask(workspaceId, columnId, title, description)
         set((s) => ({ tasks: [...s.tasks, task] }))
+        await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
       },
 
       remove: async (id) => {
         const prev = get().tasks
+        const task = prev.find((t) => t.id === id)
         set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }))
         try {
           await ipc.deleteTask(id)
+          if (task) {
+            await useWorkspaceStore.getState().refreshWorkspace(task.workspaceId)
+          }
         } catch {
           set({ tasks: prev })
         }
@@ -45,6 +51,7 @@ export const useTaskStore = create<TaskState>()(
 
       move: async (id, targetColumnId, position) => {
         const prev = get().tasks
+        const task = prev.find((t) => t.id === id)
         set((s) => ({
           tasks: s.tasks.map((t) =>
             t.id === id ? { ...t, columnId: targetColumnId, position } : t,
@@ -52,6 +59,9 @@ export const useTaskStore = create<TaskState>()(
         }))
         try {
           await ipc.moveTask(id, targetColumnId, position)
+          if (task) {
+            await useWorkspaceStore.getState().refreshWorkspace(task.workspaceId)
+          }
         } catch {
           set({ tasks: prev })
         }
@@ -98,6 +108,7 @@ export const useTaskStore = create<TaskState>()(
           original.description,
         )
         set((s) => ({ tasks: [...s.tasks, task] }))
+        await useWorkspaceStore.getState().refreshWorkspace(original.workspaceId)
         return task
       },
     }),

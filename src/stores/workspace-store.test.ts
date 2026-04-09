@@ -84,6 +84,28 @@ describe('workspace-store', () => {
     })
   })
 
+  describe('refreshWorkspace', () => {
+    it('should replace the matching workspace with backend data', async () => {
+      useWorkspaceStore.setState({
+        workspaces: [
+          mockWorkspace,
+          { ...mockWorkspace, id: 'ws-2', name: 'Other Workspace', activeTaskCount: 1 },
+        ],
+        activeWorkspaceId: 'ws-1',
+      })
+      const refreshed = { ...mockWorkspace, name: 'Updated Workspace', activeTaskCount: 3 }
+      vi.mocked(invoke).mockResolvedValueOnce(refreshed)
+
+      await useWorkspaceStore.getState().refreshWorkspace('ws-1')
+
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith('get_workspace', { id: 'ws-1' })
+      expect(useWorkspaceStore.getState().workspaces).toEqual([
+        refreshed,
+        { ...mockWorkspace, id: 'ws-2', name: 'Other Workspace', activeTaskCount: 1 },
+      ])
+    })
+  })
+
   describe('remove', () => {
     it('should delete workspace and remove from store', async () => {
       useWorkspaceStore.setState({
