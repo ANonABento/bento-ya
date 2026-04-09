@@ -1,16 +1,11 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::chat::registry::SharedSessionRegistry;
-use crate::chat::session::SessionConfig;
+use crate::chat::session::{SessionConfig, SessionState, TransportType};
 use crate::chat::events::{ChatEvent, ToolStatus};
-use crate::chat::session::TransportType;
 use crate::db::{self, AppState, AgentMessage};
 use crate::error::AppError;
-use crate::process::agent_runner::{AgentRunner, AgentSession};
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -22,30 +17,6 @@ pub struct AgentInfo {
     pub status: String,
     pub pid: Option<u32>,
     pub working_dir: String,
-}
-
-impl From<&AgentSession> for AgentInfo {
-    fn from(s: &AgentSession) -> Self {
-        Self {
-            task_id: s.task_id.clone(),
-            agent_type: s.agent_type.clone(),
-            status: format!("{:?}", s.status),
-            pid: s.pid,
-            working_dir: s.working_dir.clone(),
-        }
-    }
-}
-
-impl From<AgentSession> for AgentInfo {
-    fn from(s: AgentSession) -> Self {
-        Self {
-            task_id: s.task_id.clone(),
-            agent_type: s.agent_type.clone(),
-            status: format!("{:?}", s.status),
-            pid: s.pid,
-            working_dir: s.working_dir.clone(),
-        }
-    }
 }
 
 /// Agent completion payload for frontend
@@ -85,80 +56,130 @@ struct AgentToolCallPayload {
     status: String,
 }
 
-// ─── PTY Agent Commands (unchanged — used by terminal view) ───────────────
+// ─── PTY Agent Commands (via SessionRegistry) ──────────────────────────────
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn start_agent(
     task_id: String,
-    agent_type: String,
+    _agent_type: String,
     working_dir: String,
-    env_vars: Option<HashMap<String, String>>,
+    _env_vars: Option<std::collections::HashMap<String, String>>,
     cli_path: Option<String>,
     app_handle: AppHandle,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    session_registry: State<'_, SharedSessionRegistry>,
 ) -> Result<AgentInfo, String> {
-    let mut runner = agent_runner
-        .lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
+    let cli = cli_path.unwrap_or_else(|| "claude".to_string());
 
-    let session = runner.start_agent(
-        &task_id,
-        &agent_type,
-        &working_dir,
-        env_vars,
-        cli_path,
-        app_handle,
-    )?;
+    let event_rx = {
+        let mut registry = session_registry.lock().await;
 
-    Ok(AgentInfo::from(session))
+        // Clean up any existing session (handles React strict mode double-mount
+        // and stale sessions from previous app instances)
+        registry.remove(&task_id);
+
+        let config = SessionConfig {
+            cli_path: cli.clone(),
+            model: "sonnet".to_string(),
+            system_prompt: String::new(),
+            working_dir: Some(working_dir.clone()),
+            effort_level: None,
+        };
+
+        let session = registry
+            .get_or_create(&task_id, config, TransportType::Pty)
+            .map_err(|e| e.to_string())?;
+
+        session.start_pty(120, 40)?
+    };
+
+    // Bridge PTY events to frontend
+    let task_id_clone = task_id.clone();
+    let app_clone = app_handle;
+    tokio::spawn(async move {
+        crate::chat::bridge::bridge_pty_to_tauri(&app_clone, &task_id_clone, event_rx).await;
+    });
+
+    let pid = {
+        let registry = session_registry.lock().await;
+        registry.get(&task_id).and_then(|s| s.pid())
+    };
+
+    Ok(AgentInfo {
+        task_id,
+        agent_type: "claude".to_string(),
+        status: "Running".to_string(),
+        pid,
+        working_dir,
+    })
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn stop_agent(
+pub async fn stop_agent(
     task_id: String,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    session_registry: State<'_, SharedSessionRegistry>,
 ) -> Result<(), String> {
-    let mut runner = agent_runner
-        .lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
-    runner.stop_agent(&task_id)
+    let mut registry = session_registry.lock().await;
+    if let Some(session) = registry.get_mut(&task_id) {
+        // Send Ctrl+C via PTY write
+        session.write_pty(&[0x03]).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn force_stop_agent(
+pub async fn force_stop_agent(
     task_id: String,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    session_registry: State<'_, SharedSessionRegistry>,
 ) -> Result<(), String> {
-    let mut runner = agent_runner
-        .lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
-    runner.force_stop_agent(&task_id)
+    let mut registry = session_registry.lock().await;
+    if let Some(session) = registry.get_mut(&task_id) {
+        session.kill().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn get_agent_status(
+pub async fn get_agent_status(
     task_id: String,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    session_registry: State<'_, SharedSessionRegistry>,
 ) -> Result<AgentInfo, String> {
-    let runner = agent_runner
-        .lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
+    let registry = session_registry.lock().await;
+    let session = registry
+        .get(&task_id)
+        .ok_or_else(|| format!("No agent session for task: {}", task_id))?;
 
-    runner
-        .get_status(&task_id)
-        .map(AgentInfo::from)
-        .ok_or_else(|| format!("No agent session for task: {}", task_id))
+    let status = match session.state() {
+        SessionState::Running => "Running",
+        SessionState::Idle => "Idle",
+        SessionState::Suspended => "Suspended",
+    };
+
+    Ok(AgentInfo {
+        task_id: task_id.clone(),
+        agent_type: "claude".to_string(),
+        status: status.to_string(),
+        pid: session.pid(),
+        working_dir: String::new(),
+    })
 }
 
-#[tauri::command]
-pub fn list_active_agents(
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+#[tauri::command(rename_all = "camelCase")]
+pub async fn list_active_agents(
+    session_registry: State<'_, SharedSessionRegistry>,
 ) -> Result<Vec<AgentInfo>, String> {
-    let runner = agent_runner
-        .lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
-
-    Ok(runner.list_active().into_iter().map(AgentInfo::from).collect())
+    let registry = session_registry.lock().await;
+    Ok(registry
+        .list()
+        .into_iter()
+        .filter(|(_, state)| *state == SessionState::Running)
+        .map(|(key, _)| AgentInfo {
+            task_id: key,
+            agent_type: "claude".to_string(),
+            status: "Running".to_string(),
+            pid: None,
+            working_dir: String::new(),
+        })
+        .collect())
 }
 
 // ─── Agent Message Commands ────────────────────────────────────────────────
@@ -339,6 +360,148 @@ Be concise and helpful."#,
     );
 
     Ok(())
+}
+
+/// Switch transport type for an agent session (pipe ↔ pty).
+///
+/// If a session exists: suspends it (preserving resume ID), switches transport.
+/// If no session exists and switching to PTY: creates a new PTY session.
+/// This ensures the terminal view always has a backing PTY session.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn switch_agent_transport(
+    app: AppHandle,
+    session_registry: State<'_, SharedSessionRegistry>,
+    task_id: String,
+    transport_type: String,
+    cli_path: Option<String>,
+    working_dir: Option<String>,
+    cols: Option<u16>,
+    rows: Option<u16>,
+) -> Result<(), AppError> {
+    let target_type = match transport_type.as_str() {
+        "pipe" => TransportType::Pipe,
+        "pty" => TransportType::Pty,
+        _ => return Err(AppError::InvalidInput(format!("Invalid transport type: {}", transport_type))),
+    };
+
+    let c = cols.unwrap_or(120);
+    let r = rows.unwrap_or(40);
+
+    let event_rx = {
+        let mut registry = session_registry.lock().await;
+
+        if let Some(session) = registry.get_mut(&task_id) {
+            // Session exists — switch transport
+
+            // Already using this transport — no-op
+            if session.transport_type() == target_type {
+                return Ok(());
+            }
+
+            // Suspend current session (saves resume ID, kills transport)
+            session.suspend().map_err(|e| AppError::InvalidInput(e))?;
+
+            // Switch transport type
+            session.set_transport_type(target_type);
+
+            // If switching to PTY, start the PTY session immediately
+            if target_type == TransportType::Pty {
+                Some(session.start_pty(c, r).map_err(|e| AppError::InvalidInput(e))?)
+            } else {
+                // Pipe mode: session stays idle until next send_message()
+                None
+            }
+        } else if target_type == TransportType::Pty {
+            // No session exists — create a new PTY session
+            let cli = cli_path.unwrap_or_else(|| "claude".to_string());
+            let config = SessionConfig {
+                cli_path: cli,
+                model: "sonnet".to_string(),
+                system_prompt: String::new(),
+                working_dir,
+                effort_level: None,
+            };
+
+            let session = registry
+                .get_or_create(&task_id, config, TransportType::Pty)
+                .map_err(|e| AppError::InvalidInput(e))?;
+
+            Some(session.start_pty(c, r).map_err(|e| AppError::InvalidInput(e))?)
+        } else {
+            // No session + switching to pipe — nothing to do
+            None
+        }
+    };
+
+    // Bridge PTY events to frontend outside the lock
+    if let Some(rx) = event_rx {
+        let task_id_clone = task_id.clone();
+        tokio::spawn(async move {
+            crate::chat::bridge::bridge_pty_to_tauri(&app, &task_id_clone, rx).await;
+        });
+    }
+
+    Ok(())
+}
+
+/// Ensure a PTY session exists for a task. Spawns a bare shell if none exists.
+///
+/// Called by the terminal view on mount. Returns immediately if a session
+/// is already running. Handles suspended sessions by resuming them.
+/// The PTY runs the user's default shell in the task's working directory.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn ensure_pty_session(
+    app: AppHandle,
+    session_registry: State<'_, SharedSessionRegistry>,
+    task_id: String,
+    working_dir: String,
+    cols: u16,
+    rows: u16,
+) -> Result<AgentInfo, String> {
+    let event_rx = {
+        let mut registry = session_registry.lock().await;
+
+        // Always kill + respawn to ensure a fresh event bridge.
+        // The bridge is a one-shot tokio task — if the frontend reloads,
+        // old listeners are dead and we need a new bridge.
+        registry.remove(&task_id);
+
+        // Use user's default shell
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+
+        let config = SessionConfig {
+            cli_path: shell,
+            model: String::new(),
+            system_prompt: String::new(),
+            working_dir: Some(working_dir.clone()),
+            effort_level: None,
+        };
+
+        let session = registry
+            .get_or_create(&task_id, config, TransportType::Pty)
+            .map_err(|e| e.to_string())?;
+
+        session.start_pty(cols, rows)?
+    };
+
+    // Bridge PTY events to frontend
+    let task_id_clone = task_id.clone();
+    tokio::spawn(async move {
+        crate::chat::bridge::bridge_pty_to_tauri(&app, &task_id_clone, event_rx).await;
+    });
+
+    let pid = {
+        let registry = session_registry.lock().await;
+        registry.get(&task_id).and_then(|s| s.pid())
+    };
+
+    Ok(AgentInfo {
+        task_id,
+        agent_type: "shell".to_string(),
+        status: "Running".to_string(),
+        pid,
+        working_dir,
+    })
 }
 
 /// Cancel an ongoing agent chat (kills the session)

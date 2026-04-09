@@ -26,10 +26,23 @@ async function tauriInvoke(browser, cmd, args = {}) {
 }
 
 describe('Bento-ya Core Flow', () => {
+  // Seed demo data before any tests — ensures workspace + columns + tasks exist
+  before(async () => {
+    await browser.pause(2000)
+    const wsResult = await tauriInvoke(browser, 'list_workspaces')
+    if (!wsResult.ok || wsResult.data.length === 0) {
+      const seedResult = await tauriInvoke(browser, 'seed_demo_data', { repoPath: '/tmp/e2e-demo-repo' })
+      if (!seedResult.ok) throw new Error(`Failed to seed demo data: ${seedResult.error}`)
+      // Wait for frontend to pick up the new workspace
+      await browser.pause(2000)
+      // Reload to ensure the UI reflects the seeded state
+      await browser.refresh()
+      await browser.pause(2000)
+    }
+  })
+
   describe('App Launch', () => {
     it('should load and display the app title', async () => {
-      // Give the app a moment to fully render
-      await browser.pause(2000)
       const title = await browser.getTitle()
       expect(title).toBe('Bento-ya')
     })

@@ -6,11 +6,11 @@
 
 use std::collections::HashMap;
 use std::process::Command;
-use std::sync::{Arc, Mutex};
 
+use crate::chat::registry::SharedSessionRegistry;
+use crate::chat::session::{SessionConfig, TransportType};
 use crate::db::{self, AppState, Task};
 use crate::error::AppError;
-use crate::process::agent_runner::AgentRunner;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -227,11 +227,11 @@ fn build_comment_prompt(pr_status: &PrStatus) -> String {
 pub async fn start_siege(
     task_id: String,
     max_iterations: Option<i64>,
-    env_vars: Option<HashMap<String, String>>,
+    _env_vars: Option<HashMap<String, String>>,
     cli_path: Option<String>,
     app_handle: AppHandle,
     state: State<'_, AppState>,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    session_registry: State<'_, SharedSessionRegistry>,
 ) -> Result<StartSiegeResult, String> {
     // Get task, workspace, and verify PR exists
     let (task, workspace) = {
@@ -288,21 +288,42 @@ pub async fn start_siege(
     // Build prompt from comments
     let prompt = build_comment_prompt(&pr_status);
 
-    // Spawn agent with comment context
-    let session = {
-        let mut runner = agent_runner
-            .lock()
-            .map_err(|e| format!("Agent runner lock error: {}", e))?;
+    // Spawn agent via SessionRegistry with PTY transport
+    let cli = cli_path.unwrap_or_else(|| "claude".to_string());
+    let pid = {
+        let mut registry = session_registry.lock().await;
 
-        runner.start_agent_with_prompt(
-            &task_id,
-            "claude",
-            &workspace.repo_path,
-            env_vars,
-            cli_path,
-            &prompt,
-            app_handle.clone(),
-        )?
+        // Clean up any existing session for this task
+        registry.remove(&task_id);
+
+        let config = SessionConfig {
+            cli_path: cli,
+            model: "sonnet".to_string(),
+            system_prompt: String::new(),
+            working_dir: Some(workspace.repo_path.clone()),
+            effort_level: None,
+        };
+
+        let session = registry
+            .get_or_create(&task_id, config, TransportType::Pty)
+            .map_err(|e| e.to_string())?;
+
+        let event_rx = session.start_pty(120, 40)?;
+
+        // Send the initial prompt
+        let prompt_bytes = format!("{}\n", prompt);
+        session.write_pty(prompt_bytes.as_bytes())?;
+
+        let pid = session.pid();
+
+        // Bridge PTY events to frontend
+        let task_id_for_bridge = task_id.clone();
+        let app_for_bridge = app_handle.clone();
+        tokio::spawn(async move {
+            crate::chat::bridge::bridge_pty_to_tauri(&app_for_bridge, &task_id_for_bridge, event_rx).await;
+        });
+
+        pid
     };
 
     // Increment iteration counter
@@ -325,7 +346,7 @@ pub async fn start_siege(
         message: format!(
             "Siege started. Addressing {} comments. Agent spawned (pid: {:?})",
             comment_count,
-            session.pid
+            pid
         ),
     });
 
@@ -442,11 +463,11 @@ pub async fn stop_siege(
 #[tauri::command(rename_all = "camelCase")]
 pub async fn continue_siege(
     task_id: String,
-    env_vars: Option<HashMap<String, String>>,
+    _env_vars: Option<HashMap<String, String>>,
     cli_path: Option<String>,
     app_handle: AppHandle,
     state: State<'_, AppState>,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    session_registry: State<'_, SharedSessionRegistry>,
 ) -> Result<StartSiegeResult, String> {
     // Check current siege status first
     let check_result = check_siege_status(task_id.clone(), state.clone()).await?;
@@ -486,21 +507,37 @@ pub async fn continue_siege(
     // Build prompt from current comments
     let prompt = build_comment_prompt(&check_result.pr_status);
 
-    // Spawn agent for next iteration
-    let session = {
-        let mut runner = agent_runner
-            .lock()
-            .map_err(|e| format!("Agent runner lock error: {}", e))?;
+    // Spawn agent via SessionRegistry
+    let cli = cli_path.unwrap_or_else(|| "claude".to_string());
+    let pid = {
+        let mut registry = session_registry.lock().await;
 
-        runner.start_agent_with_prompt(
-            &task_id,
-            "claude",
-            &workspace.repo_path,
-            env_vars,
-            cli_path,
-            &prompt,
-            app_handle.clone(),
-        )?
+        let config = SessionConfig {
+            cli_path: cli,
+            model: "sonnet".to_string(),
+            system_prompt: String::new(),
+            working_dir: Some(workspace.repo_path.clone()),
+            effort_level: None,
+        };
+
+        // Kill existing session for this task if any, then create fresh
+        registry.remove(&task_id);
+        let session = registry
+            .get_or_create(&task_id, config, TransportType::Pty)
+            .map_err(|e| e.to_string())?;
+
+        let event_rx = session.start_pty(120, 40)?;
+        let prompt_bytes = format!("{}\n", prompt);
+        session.write_pty(prompt_bytes.as_bytes())?;
+        let pid = session.pid();
+
+        let task_id_for_bridge = task_id.clone();
+        let app_for_bridge = app_handle.clone();
+        tokio::spawn(async move {
+            crate::chat::bridge::bridge_pty_to_tauri(&app_for_bridge, &task_id_for_bridge, event_rx).await;
+        });
+
+        pid
     };
 
     // Increment iteration counter
@@ -521,7 +558,7 @@ pub async fn continue_siege(
         message: format!(
             "Siege iteration {} started. Agent spawned (pid: {:?})",
             iteration,
-            session.pid
+            pid
         ),
     });
 

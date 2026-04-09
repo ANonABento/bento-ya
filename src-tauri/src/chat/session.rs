@@ -128,6 +128,11 @@ impl UnifiedChatSession {
         self.config.system_prompt = prompt;
     }
 
+    /// Switch transport type. Must be called while session is idle or suspended.
+    pub fn set_transport_type(&mut self, transport_type: TransportType) {
+        self.transport_type = transport_type;
+    }
+
     // -- Pipe mode: request-response --
 
     /// Send a message in pipe mode. Spawns a fresh CLI process, reads the full
@@ -207,6 +212,7 @@ impl UnifiedChatSession {
 
     /// Start an interactive PTY session. Returns a receiver for continuous events.
     /// Use `write_pty()` to send input.
+    /// If a resume ID exists, passes `--resume <id>` to preserve conversation context.
     pub fn start_pty(
         &mut self,
         cols: u16,
@@ -216,9 +222,16 @@ impl UnifiedChatSession {
             return Err("Session already running".to_string());
         }
 
+        // Include --resume if we have a saved session ID (e.g. switching from pipe mode)
+        let mut args = Vec::new();
+        if let Some(ref id) = self.resume_id {
+            args.push("--resume".to_string());
+            args.push(id.clone());
+        }
+
         let spawn_config = SpawnConfig {
             command: self.config.cli_path.clone(),
-            args: Vec::new(), // PTY mode: no args, interactive
+            args,
             working_dir: self.config.working_dir.clone(),
             env_vars: None,
             cols,

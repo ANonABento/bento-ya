@@ -32,7 +32,7 @@ pub async fn bridge_pty_to_tauri(
     while let Some(event) = event_rx.recv().await {
         match event {
             TransportEvent::Chat(ChatEvent::RawOutput(data)) => {
-                let _ = app.emit(&format!("pty:{}:output", task_id), data);
+                let _ = app.emit(&format!("pty:{}:output", task_id), &data);
             }
             TransportEvent::Chat(ChatEvent::TextContent(text)) => {
                 accumulated_text.push_str(&text);

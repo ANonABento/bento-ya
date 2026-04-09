@@ -313,7 +313,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         {/* Compact metadata row — hidden when expanded (expanded view has its own) */}
         {!isExpanded && hasMetadata && (
           <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px] text-text-secondary">
-            {isPipelineActive && !hasPipelineError && (
+            {isPipelineActive && !hasPipelineError && task.pipelineState !== 'running' && (
               <span className="inline-flex items-center gap-1 text-running">
                 <span className="relative flex h-1.5 w-1.5">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-running opacity-75" />

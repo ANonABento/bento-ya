@@ -18,7 +18,7 @@ export function ResizeHandle({ direction, position, onMouseDown }: ResizeHandleP
     return (
       <div
         onMouseDown={onMouseDown}
-        className={`absolute ${isLeft ? '-left-1.5' : '-right-1.5'} top-0 bottom-0 w-3 z-50 group`}
+        className={`absolute ${isLeft ? '-left-1.5' : '-right-1.5'} top-0 bottom-0 w-3 z-10 group`}
         style={{ cursor: 'col-resize' }}
       >
         <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-transparent group-hover:bg-accent/60 transition-colors -translate-x-1/2" />
@@ -29,7 +29,7 @@ export function ResizeHandle({ direction, position, onMouseDown }: ResizeHandleP
   return (
     <div
       onMouseDown={onMouseDown}
-      className="absolute -top-1.5 left-0 right-0 h-3 z-50 group"
+      className="absolute -top-1.5 left-0 right-0 h-3 z-10 group"
       style={{ cursor: 'row-resize' }}
     >
       <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-transparent group-hover:bg-accent/60 transition-colors -translate-y-1/2" />

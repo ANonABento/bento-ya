@@ -80,24 +80,28 @@ Tasks can have isolated git worktrees so agents don't conflict on branches.
 
 ### Unified Chat System (`src-tauri/src/chat/`)
 
-Transport abstraction + session layer (Phase 1-2 complete, replacing process layer incrementally):
+Transport abstraction + session layer (all 6 phases complete):
 - `events.rs` — Unified `ChatEvent` type + JSON parsing + `base64_encode` + `spawn_stderr_reader` (single source of truth)
 - `transport.rs` — `ChatTransport` trait + `SpawnConfig` + `TransportEvent` + shared constants
 - `pty_transport.rs` — `PtyTransport` (interactive terminal, xterm.js)
 - `pipe_transport.rs` — `PipeTransport` (structured JSON streaming, chat bubbles)
-- `session.rs` — `UnifiedChatSession` (lifecycle: idle/running/suspended, resume ID tracking, pipe + PTY modes)
-- `registry.rs` — `SessionRegistry` (max concurrent sessions, get-or-create, idle timeout)
-- `bridge.rs` — Tauri event bridge (`bridge_pty_to_tauri`) + background trigger runner (`spawn_cli_trigger_task`)
+- `session.rs` — `UnifiedChatSession` (lifecycle: idle/running/suspended, resume ID tracking, pipe + PTY modes, transport switching)
+- `registry.rs` — `SessionRegistry` (max concurrent sessions, get-or-create, idle timeout, LRU-ready)
+- `bridge.rs` — Tauri event bridge (`bridge_pty_to_tauri`, base64 PTY output) + background trigger runner (`spawn_cli_trigger_task`)
+- `chef.rs` — ChefSession layer (orchestrator capabilities)
 
-See `.tickets/_docs/UNIFIED_CHAT.md` for the full migration plan (6 phases).
+Legacy `process/` module fully removed — `PtyManager`, `AgentRunner` replaced by unified system.
+See `.tickets/_docs/UNIFIED_CHAT.md` for the migration plan, `.tickets/_docs/TERMINAL_VIEW_V2.md` for the terminal-first architecture.
 
-### Process Management (`src-tauri/src/process/`) — legacy, partially replaced
+### Terminal View
 
-`cli_session.rs` removed in Phase 6, Discord integration removed entirely. Remaining files still load-bearing:
-- `agent_cli_session.rs` — Agent CLI sessions (used by agent commands, siege)
-- `cli_shared.rs` — Shared CLI process utilities (imported by agent_cli_session)
-- `pty_manager.rs` — PTY-based terminal sessions (used by terminal view commands)
-- `agent_runner.rs` — Agent queue/lifecycle management
+Each task gets an embedded terminal (xterm.js) backed by a lazy PTY session:
+- `ensure_pty_session` command spawns a bare shell (`$SHELL`) in the task's working directory on first panel open
+- PTY output is base64-encoded via `bridge_pty_to_tauri` → emitted as `pty:{taskId}:output` Tauri events
+- Frontend decodes base64 and writes raw bytes to xterm.js (WebGL renderer, 10k scrollback)
+- User can type commands, approve agent prompts, inspect files — full interactive terminal
+- Session killed + respawned on each panel open (ensures fresh event bridge)
+- Bubble chat view disabled — can be re-enabled later as overlay
 
 ### Database (`src-tauri/src/db/`)
 

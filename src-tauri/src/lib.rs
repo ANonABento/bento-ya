@@ -13,7 +13,6 @@ pub mod events;
 pub mod git;
 pub mod llm;
 pub mod pipeline;
-pub mod process;
 #[cfg(feature = "voice")]
 pub mod whisper;
 
@@ -21,8 +20,6 @@ pub mod whisper;
 use commands::voice::RecorderState;
 use db::AppState;
 use chat::registry::new_shared_session_registry;
-use process::agent_runner::AgentRunner;
-use process::pty_manager::PtyManager;
 #[cfg(feature = "voice")]
 use whisper::AudioRecorder;
 
@@ -61,15 +58,11 @@ pub fn run() {
         db: Mutex::new(conn),
     };
 
-    let pty_manager = Arc::new(Mutex::new(PtyManager::new()));
-    let agent_runner = Arc::new(Mutex::new(AgentRunner::new(Arc::clone(&pty_manager))));
     let session_registry = new_shared_session_registry();
     #[cfg(feature = "voice")]
     let recorder_state = RecorderState(Mutex::new(AudioRecorder::new()));
 
     // Clone for shutdown handler
-    let pty_for_shutdown = Arc::clone(&pty_manager);
-    let agent_runner_for_shutdown = Arc::clone(&agent_runner);
     let session_registry_for_shutdown = Arc::clone(&session_registry);
 
     let mut builder = tauri::Builder::default()
@@ -77,8 +70,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(state)
-        .manage(pty_manager)
-        .manage(agent_runner)
         .manage(session_registry);
 
     #[cfg(feature = "webdriver")]
@@ -94,18 +85,12 @@ pub fn run() {
     builder
         .on_window_event(move |_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
-                // Kill all sessions and processes on window close
-                let pty = Arc::clone(&pty_for_shutdown);
-                let runner = Arc::clone(&agent_runner_for_shutdown);
+                // Kill all sessions on window close
                 let registry = Arc::clone(&session_registry_for_shutdown);
                 tauri::async_runtime::block_on(async {
                     let mut reg = registry.lock().await;
                     reg.kill_all();
                 });
-                // Kill PTY-managed processes (agents, scripts)
-                let _ = pty.lock().map(|mut pty_mgr| pty_mgr.shutdown_all());
-                // Clean up agent runner sessions
-                let _ = runner.lock().map(|mut ar| ar.cleanup_all());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -169,6 +154,8 @@ pub fn run() {
             commands::agent::clear_agent_messages,
             commands::agent::stream_agent_chat,
             commands::agent::cancel_agent_chat,
+            commands::agent::switch_agent_transport,
+            commands::agent::ensure_pty_session,
             commands::agent::queue_agent_tasks,
             commands::agent::update_task_agent_status,
             commands::agent::get_queue_status,

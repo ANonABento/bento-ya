@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 
 type ViewMode = 'board' | 'chat'
+type ChatViewMode = 'bubble' | 'terminal'
 type PanelDock = 'bottom' | 'right'
 type AgentPanelDock = 'right' | 'left'
 
@@ -62,6 +63,7 @@ type UIState = {
   // Agent chat panel state
   agentPanelWidth: number
   agentPanelDock: AgentPanelDock
+  chatViewMode: ChatViewMode
 
   setViewMode: (mode: ViewMode) => void
   expandTask: (taskId: string) => void
@@ -87,6 +89,8 @@ type UIState = {
   // Agent panel actions
   setAgentPanelWidth: (width: number) => void
   setAgentPanelDock: (dock: AgentPanelDock) => void
+  setChatViewMode: (mode: ChatViewMode) => void
+  toggleChatViewMode: () => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -103,6 +107,7 @@ export const useUIStore = create<UIState>()(
         isPanelCollapsed: false,
         agentPanelWidth: DEFAULT_AGENT_PANEL_WIDTH,
         agentPanelDock: 'right' as AgentPanelDock,
+        chatViewMode: 'bubble' as ChatViewMode,
 
         setViewMode: (mode) => {
           set({ viewMode: mode })
@@ -181,6 +186,16 @@ export const useUIStore = create<UIState>()(
         setAgentPanelDock: (dock) => {
           set({ agentPanelDock: dock })
         },
+
+        setChatViewMode: (mode) => {
+          set({ chatViewMode: mode })
+        },
+
+        toggleChatViewMode: () => {
+          set((state) => ({
+            chatViewMode: state.chatViewMode === 'bubble' ? 'terminal' : 'bubble',
+          }))
+        },
       }),
       {
         name: 'bento-ya-ui',
@@ -191,6 +206,7 @@ export const useUIStore = create<UIState>()(
           isPanelCollapsed: state.isPanelCollapsed,
           agentPanelWidth: state.agentPanelWidth,
           agentPanelDock: state.agentPanelDock,
+          chatViewMode: state.chatViewMode,
         }),
       },
     ),
@@ -201,4 +217,4 @@ export const useUIStore = create<UIState>()(
 export { MIN_PANEL_HEIGHT, MAX_PANEL_HEIGHT, DEFAULT_PANEL_HEIGHT, MIN_BOARD_HEIGHT }
 export { MIN_PANEL_WIDTH, MAX_PANEL_WIDTH, DEFAULT_PANEL_WIDTH, MIN_BOARD_WIDTH }
 export { MIN_AGENT_PANEL_WIDTH, MAX_AGENT_PANEL_WIDTH, DEFAULT_AGENT_PANEL_WIDTH }
-export type { PanelDock, AgentPanelDock }
+export type { PanelDock, AgentPanelDock, ChatViewMode }
