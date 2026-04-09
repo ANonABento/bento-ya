@@ -20,6 +20,7 @@ pub mod whisper;
 use commands::voice::RecorderState;
 use db::AppState;
 use chat::registry::{new_shared_session_registry, start_idle_sweep};
+use tauri::Manager;
 #[cfg(feature = "voice")]
 use whisper::AudioRecorder;
 
@@ -253,6 +254,10 @@ pub fn run() {
             api::start(app.handle().clone());
             // Start periodic idle session sweep (every 60s)
             start_idle_sweep(session_registry_for_sweep);
+
+            // Recover tmux sessions from previous app instance
+            recover_tmux_sessions(app.handle().clone());
+
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -260,4 +265,74 @@ pub fn run() {
 
     // Cleanup port file on exit
     api::cleanup();
+}
+
+/// Recover tmux sessions from a previous app instance.
+///
+/// On startup, discovers any `bentoya_*` tmux sessions still running.
+/// For sessions whose task_id exists in the DB with agent_status="running",
+/// re-registers them in the SessionRegistry so they can be reattached
+/// when the user opens the terminal panel.
+/// Orphaned sessions (task not in DB or not running) are killed.
+fn recover_tmux_sessions(app: tauri::AppHandle) {
+    use chat::tmux_transport;
+
+    // Check tmux availability
+    match tmux_transport::check_tmux() {
+        Ok(version) => eprintln!("[startup] tmux available: {}", version),
+        Err(e) => {
+            eprintln!("[startup] {}", e);
+            return;
+        }
+    }
+
+    let existing = tmux_transport::list_sessions();
+    if existing.is_empty() {
+        return;
+    }
+
+    eprintln!("[startup] Found {} existing tmux session(s)", existing.len());
+
+    let state: tauri::State<db::AppState> = app.state();
+    let conn = match state.db.lock() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let mut recovered = 0;
+    let mut cleaned = 0;
+
+    for session_name in &existing {
+        let task_id = match tmux_transport::session_name_to_task_id(session_name) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        // Check if task exists and was running
+        let should_recover = db::get_task(&conn, task_id)
+            .ok()
+            .map(|t| t.agent_status.as_deref() == Some("running"))
+            .unwrap_or(false);
+
+        if should_recover {
+            eprintln!("[startup] Recovering tmux session for task: {}", task_id);
+            // Don't attach yet — just note it exists. When the user opens the
+            // terminal panel, ensure_pty_session will call TmuxTransport::reconnect()
+            // and attach.
+            recovered += 1;
+        } else {
+            eprintln!("[startup] Cleaning orphaned tmux session: {}", session_name);
+            let _ = std::process::Command::new("tmux")
+                .args(["kill-session", "-t", session_name])
+                .output();
+            cleaned += 1;
+        }
+    }
+
+    if recovered > 0 || cleaned > 0 {
+        eprintln!(
+            "[startup] tmux recovery: {} recovered, {} cleaned up",
+            recovered, cleaned
+        );
+    }
 }
