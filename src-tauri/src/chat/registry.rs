@@ -109,6 +109,13 @@ impl SessionRegistry {
         self.sessions.insert(key.to_string(), session);
     }
 
+    /// Take a session out of the registry WITHOUT killing it.
+    /// Used for temporarily borrowing a session (e.g. to send_message without holding the lock).
+    /// The caller is responsible for putting it back via `insert()`.
+    pub fn take(&mut self, key: &str) -> Option<UnifiedChatSession> {
+        self.sessions.remove(key)
+    }
+
     /// Remove a session, caching its scrollback before killing.
     pub fn remove(&mut self, key: &str) -> Option<UnifiedChatSession> {
         if let Some(mut session) = self.sessions.remove(key) {

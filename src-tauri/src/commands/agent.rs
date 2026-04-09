@@ -2,7 +2,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::chat::registry::SharedSessionRegistry;
-use crate::chat::session::{SessionConfig, SessionState, TransportType};
+use crate::chat::session::{SessionConfig, SessionState, TransportType, UnifiedChatSession};
 use crate::chat::events::{ChatEvent, ToolStatus};
 use crate::db::{self, AppState, AgentMessage};
 use crate::error::AppError;
@@ -290,8 +290,8 @@ Be concise and helpful."#,
         )
     };
 
-    // 3. Get or create session from registry
-    let (full_response, captured_cli_session_id) = {
+    // 3. Get or create session, configure it, then release lock before long await
+    let mut session = {
         let mut registry = session_registry.lock().await;
 
         let config = SessionConfig {
@@ -302,27 +302,41 @@ Be concise and helpful."#,
             effort_level: effort_level.clone(),
         };
 
-        let session = registry
-            .get_or_create(&task_id, config.clone(), TransportType::Pipe)
-            .map_err(|e| AppError::InvalidInput(e))?;
+        // Take session out of registry so we can release the lock
+        let mut session = if let Some(s) = registry.take(&task_id) {
+            s
+        } else {
+            // Create new session (check capacity)
+            if registry.is_at_capacity() {
+                return Err(AppError::InvalidInput("Maximum concurrent sessions reached".to_string()));
+            }
+            UnifiedChatSession::new(config.clone(), TransportType::Pipe)
+        };
 
-        // Update session config for existing sessions (get_or_create
-        // ignores config if session exists — we need to refresh the
-        // system prompt, model, etc. on every call)
+        // Update config for existing sessions
         session.set_model(model.clone());
         session.set_system_prompt(config.system_prompt);
 
-        // Send message with event forwarding to frontend
-        let task_id_for_events = task_id.clone();
-        let app_for_events = app.clone();
-
         session
-            .send_message(&message, move |event| {
-                emit_agent_event(&app_for_events, &task_id_for_events, event);
-            })
-            .await
-            .map_err(|e| AppError::InvalidInput(e))?
+        // Lock released here — other tasks can use the registry
     };
+
+    // Send message WITHOUT holding the registry lock
+    let task_id_for_events = task_id.clone();
+    let app_for_events = app.clone();
+
+    let (full_response, captured_cli_session_id) = session
+        .send_message(&message, move |event| {
+            emit_agent_event(&app_for_events, &task_id_for_events, event);
+        })
+        .await
+        .map_err(|e| AppError::InvalidInput(e))?;
+
+    // Put session back into registry
+    {
+        let mut registry = session_registry.lock().await;
+        registry.insert(&task_id, session);
+    }
 
     // 4. Save cli_session_id and assistant message
     {
