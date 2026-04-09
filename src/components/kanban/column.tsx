@@ -15,9 +15,11 @@ import { ColumnConfigDialog } from './column-config-dialog'
 
 type ColumnProps = {
   column: ColumnType
+  columnIndex: number
+  columnCount: number
 }
 
-export const Column = memo(function Column({ column }: ColumnProps) {
+export const Column = memo(function Column({ column, columnIndex, columnCount }: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
@@ -133,6 +135,8 @@ export const Column = memo(function Column({ column }: ColumnProps) {
           <ColumnHeader
             name={column.name}
             icon={column.icon || 'list'}
+            columnIndex={columnIndex}
+            columnCount={columnCount}
             taskCount={tasks.length}
             color={column.color}
             scriptTrigger={scriptTrigger}
