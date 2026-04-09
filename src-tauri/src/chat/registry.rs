@@ -21,6 +21,9 @@ const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300); // 5 min
 /// Registry of active chat sessions.
 pub struct SessionRegistry {
     sessions: HashMap<String, UnifiedChatSession>,
+    /// Cached scrollback buffers from killed/suspended sessions (base64-encoded).
+    /// Keyed by task_id. Cleared when a new session is created for the same key.
+    scrollback_cache: HashMap<String, String>,
     max_sessions: usize,
     idle_timeout: Duration,
 }
@@ -29,6 +32,7 @@ impl SessionRegistry {
     pub fn new() -> Self {
         Self {
             sessions: HashMap::new(),
+            scrollback_cache: HashMap::new(),
             max_sessions: DEFAULT_MAX_SESSIONS,
             idle_timeout: DEFAULT_IDLE_TIMEOUT,
         }
@@ -37,6 +41,7 @@ impl SessionRegistry {
     pub fn with_max_sessions(max_sessions: usize) -> Self {
         Self {
             sessions: HashMap::new(),
+            scrollback_cache: HashMap::new(),
             max_sessions,
             idle_timeout: DEFAULT_IDLE_TIMEOUT,
         }
@@ -96,14 +101,25 @@ impl SessionRegistry {
         self.sessions.insert(key.to_string(), session);
     }
 
-    /// Remove a session, killing it first.
+    /// Remove a session, caching its scrollback before killing.
     pub fn remove(&mut self, key: &str) -> Option<UnifiedChatSession> {
         if let Some(mut session) = self.sessions.remove(key) {
+            // Cache scrollback before killing (so panel reopen can restore it)
+            let scrollback = session.scrollback();
+            if !scrollback.is_empty() {
+                self.scrollback_cache.insert(key.to_string(), scrollback);
+            }
             let _ = session.kill();
             Some(session)
         } else {
             None
         }
+    }
+
+    /// Get cached scrollback for a session (base64-encoded).
+    /// Returns empty string if no cache exists.
+    pub fn take_scrollback(&mut self, key: &str) -> String {
+        self.scrollback_cache.remove(key).unwrap_or_default()
     }
 
     /// Number of active sessions.

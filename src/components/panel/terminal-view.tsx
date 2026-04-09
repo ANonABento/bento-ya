@@ -123,7 +123,20 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
           const cols = Math.max(term.cols, 80)
           const rows = Math.max(term.rows, 24)
           ensurePtySession(taskId, workingDir, cols, rows)
-            .then(() => { resolve() })
+            .then((info) => {
+              // Restore cached scrollback from previous session
+              if (info.scrollback) {
+                try {
+                  const binary = atob(info.scrollback)
+                  const bytes = new Uint8Array(binary.length)
+                  for (let i = 0; i < binary.length; i++) {
+                    bytes[i] = binary.charCodeAt(i)
+                  }
+                  term.write(bytes)
+                } catch { /* ignore decode errors */ }
+              }
+              resolve()
+            })
             .catch((err: unknown) => {
               if (!disposed) {
                 const msg = err instanceof Error ? err.message : String(err)

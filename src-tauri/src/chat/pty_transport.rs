@@ -253,6 +253,10 @@ impl ChatTransport for PtyTransport {
     fn pid(&self) -> Option<u32> {
         self.child_pid
     }
+
+    fn scrollback(&self) -> String {
+        self.get_scrollback()
+    }
 }
 
 impl Default for PtyTransport {

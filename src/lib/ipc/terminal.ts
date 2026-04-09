@@ -19,7 +19,7 @@ export async function ensurePtySession(
   workingDir: string,
   cols: number,
   rows: number,
-): Promise<{ taskId: string; pid: number | null; status: string }> {
+): Promise<{ taskId: string; pid: number | null; status: string; scrollback?: string }> {
   return invoke('ensure_pty_session', { taskId, workingDir, cols, rows })
 }
 

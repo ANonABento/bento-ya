@@ -17,6 +17,9 @@ pub struct AgentInfo {
     pub status: String,
     pub pid: Option<u32>,
     pub working_dir: String,
+    /// Base64-encoded scrollback from previous session (for terminal restore)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scrollback: Option<String>,
 }
 
 /// Agent completion payload for frontend
@@ -110,6 +113,7 @@ pub async fn start_agent(
         status: "Running".to_string(),
         pid,
         working_dir,
+        scrollback: None,
     })
 }
 
@@ -160,6 +164,7 @@ pub async fn get_agent_status(
         status: status.to_string(),
         pid: session.pid(),
         working_dir: String::new(),
+        scrollback: None,
     })
 }
 
@@ -178,6 +183,7 @@ pub async fn list_active_agents(
             status: "Running".to_string(),
             pid: None,
             working_dir: String::new(),
+            scrollback: None,
         })
         .collect())
 }
@@ -458,13 +464,16 @@ pub async fn ensure_pty_session(
     cols: u16,
     rows: u16,
 ) -> Result<AgentInfo, String> {
-    let event_rx = {
+    let (event_rx, cached_scrollback) = {
         let mut registry = session_registry.lock().await;
 
         // Always kill + respawn to ensure a fresh event bridge.
         // The bridge is a one-shot tokio task — if the frontend reloads,
         // old listeners are dead and we need a new bridge.
         registry.remove(&task_id);
+
+        // Retrieve cached scrollback from previous session (if any)
+        let scrollback = registry.take_scrollback(&task_id);
 
         // Use user's default shell
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
@@ -481,7 +490,8 @@ pub async fn ensure_pty_session(
             .get_or_create(&task_id, config, TransportType::Pty)
             .map_err(|e| e.to_string())?;
 
-        session.start_pty(cols, rows)?
+        let rx = session.start_pty(cols, rows)?;
+        (rx, if scrollback.is_empty() { None } else { Some(scrollback) })
     };
 
     // Bridge PTY events to frontend
@@ -501,6 +511,7 @@ pub async fn ensure_pty_session(
         status: "Running".to_string(),
         pid,
         working_dir,
+        scrollback: cached_scrollback,
     })
 }
 

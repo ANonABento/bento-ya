@@ -72,4 +72,9 @@ pub trait ChatTransport: Send {
 
     /// Get the process ID, if available
     fn pid(&self) -> Option<u32>;
+
+    /// Get scrollback buffer as base64-encoded string (PTY only, empty for pipe)
+    fn scrollback(&self) -> String {
+        String::new()
+    }
 }
