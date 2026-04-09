@@ -68,6 +68,30 @@ fn read_api_port() -> Option<u16> {
     port_str.trim().parse().ok()
 }
 
+/// Check if the Bento-ya app is running and its API is reachable.
+fn is_app_running() -> bool {
+    let port = match read_api_port() {
+        Some(p) => p,
+        None => return false,
+    };
+    let url = format!("http://127.0.0.1:{}/api/health", port);
+    ureq::get(&url).call().is_ok()
+}
+
+/// Require the app to be running for mutations. Returns an error Value if not.
+/// Skipped in test mode (tests use direct DB, no app needed).
+fn require_app() -> Result<(), Value> {
+    #[cfg(test)]
+    return Ok(());
+
+    #[cfg(not(test))]
+    if is_app_running() {
+        Ok(())
+    } else {
+        Err(json!({ "error": "Bento-ya app is not running. Start the app to use this tool." }))
+    }
+}
+
 /// Call the Tauri app's HTTP API. Returns the response JSON or None if app isn't running.
 fn api_call(endpoint: &str, body: &Value) -> Option<Value> {
     let port = read_api_port()?;
@@ -690,6 +714,7 @@ fn handle_get_board(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_create_task(conn: &Connection, args: &Value) -> Value {
+    if let Err(e) = require_app() { return e; }
     let title = match args.get("title").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "title is required" }),
@@ -766,6 +791,7 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_move_task(conn: &Connection, args: &Value) -> Value {
+    if let Err(e) = require_app() { return e; }
     let task_q = match args.get("task").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "task is required" }),
@@ -876,6 +902,7 @@ fn handle_update_task(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_delete_task(conn: &Connection, args: &Value) -> Value {
+    if let Err(e) = require_app() { return e; }
     let task_q = match args.get("task").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "task is required" }),
@@ -902,6 +929,7 @@ fn handle_delete_task(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_approve_task(conn: &Connection, args: &Value) -> Value {
+    if let Err(e) = require_app() { return e; }
     let task_q = match args.get("task").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "task is required" }),
@@ -941,6 +969,7 @@ fn handle_approve_task(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_reject_task(conn: &Connection, args: &Value) -> Value {
+    if let Err(e) = require_app() { return e; }
     let task_q = match args.get("task").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "task is required" }),
@@ -1106,6 +1135,7 @@ fn handle_remove_dependency(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_mark_complete(conn: &Connection, args: &Value) -> Value {
+    if let Err(e) = require_app() { return e; }
     let task_q = match args.get("task").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "task is required" }),
@@ -1140,6 +1170,7 @@ fn handle_mark_complete(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_retry_task(conn: &Connection, args: &Value) -> Value {
+    if let Err(e) = require_app() { return e; }
     let task_q = match args.get("task").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "task is required" }),
