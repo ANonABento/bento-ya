@@ -12,7 +12,10 @@ import { DEFAULT_TRIGGERS } from '@/types/column'
 export const isTauri = (): boolean => {
   // In Vitest, we want to use the mocked @tauri-apps/api, not our browser mocks
   // Check for import.meta.env which Vite uses
-  if (typeof import.meta !== 'undefined' && (import.meta as { env?: { MODE?: string } }).env?.MODE === 'test') {
+  if (
+    typeof import.meta !== 'undefined' &&
+    (import.meta as { env?: { MODE?: string } }).env?.MODE === 'test'
+  ) {
     return true // Let Vitest mocks handle it
   }
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -27,6 +30,7 @@ let mockWorkspaces: Workspace[] = [
     repoPath: '/tmp/demo-repo',
     tabOrder: 0,
     isActive: true,
+    activeTaskCount: 0,
     config: '{}',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -34,10 +38,54 @@ let mockWorkspaces: Workspace[] = [
 ]
 
 let mockColumns: Column[] = [
-  { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: 'inbox', position: 0, color: '', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: 'code', position: 1, color: '', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: 'eye', position: 2, color: '', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: 'check', position: 3, color: '#4ADE80', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  {
+    id: 'col-1',
+    workspaceId: 'ws-demo',
+    name: 'Backlog',
+    icon: 'inbox',
+    position: 0,
+    color: '',
+    visible: true,
+    triggers: DEFAULT_TRIGGERS,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'col-2',
+    workspaceId: 'ws-demo',
+    name: 'Working',
+    icon: 'code',
+    position: 1,
+    color: '',
+    visible: true,
+    triggers: DEFAULT_TRIGGERS,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'col-3',
+    workspaceId: 'ws-demo',
+    name: 'Review',
+    icon: 'eye',
+    position: 2,
+    color: '',
+    visible: true,
+    triggers: DEFAULT_TRIGGERS,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'col-4',
+    workspaceId: 'ws-demo',
+    name: 'Done',
+    icon: 'check',
+    position: 3,
+    color: '#4ADE80',
+    visible: true,
+    triggers: DEFAULT_TRIGGERS,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
 ]
 
 let mockTasks: Task[] = [
@@ -92,30 +140,56 @@ let idCounter = 100
 
 const generateId = (prefix: string) => `${prefix}-${String(++idCounter)}`
 
+const getLastColumnId = (workspaceId: string) => {
+  const columns = mockColumns
+    .filter((column) => column.workspaceId === workspaceId)
+    .sort((a, b) => a.position - b.position)
+
+  return columns.length > 0 ? (columns[columns.length - 1]?.id ?? null) : null
+}
+
+const getActiveTaskCount = (workspaceId: string) => {
+  const lastColumnId = getLastColumnId(workspaceId)
+  if (!lastColumnId) return 0
+
+  return mockTasks.filter(
+    (task) => task.workspaceId === workspaceId && task.columnId !== lastColumnId,
+  ).length
+}
+
+const withActiveTaskCount = (workspace: Workspace): Workspace => ({
+  ...workspace,
+  activeTaskCount: getActiveTaskCount(workspace.id),
+})
+
 // ─── Mock Command Handlers ──────────────────────────────────────────────────
 
 type CommandHandler = (args?: Record<string, unknown>) => unknown
 
 const mockCommands: Record<string, CommandHandler> = {
   // Workspace commands
-  list_workspaces: () => mockWorkspaces,
-  get_workspace: (args) => mockWorkspaces.find(w => w.id === args?.id),
+  list_workspaces: () => mockWorkspaces.map(withActiveTaskCount),
+  get_workspace: (args) => {
+    const workspace = mockWorkspaces.find((w) => w.id === args?.id)
+    return workspace ? withActiveTaskCount(workspace) : undefined
+  },
   create_workspace: (args) => {
     const ws: Workspace = {
       id: generateId('ws'),
-      name: args?.name as string || 'New Workspace',
-      repoPath: args?.repoPath as string || '/tmp/repo',
+      name: (args?.name as string) || 'New Workspace',
+      repoPath: (args?.repoPath as string) || '/tmp/repo',
       tabOrder: mockWorkspaces.length,
       isActive: false,
+      activeTaskCount: 0,
       config: '{}',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
     mockWorkspaces.push(ws)
-    return ws
+    return withActiveTaskCount(ws)
   },
   update_workspace: (args) => {
-    const existing = mockWorkspaces.find(w => w.id === args?.id)
+    const existing = mockWorkspaces.find((w) => w.id === args?.id)
     if (existing) {
       existing.name = (args?.name as string) ?? existing.name
       existing.repoPath = (args?.repoPath as string) ?? existing.repoPath
@@ -123,32 +197,32 @@ const mockCommands: Record<string, CommandHandler> = {
       existing.isActive = (args?.isActive as boolean) ?? existing.isActive
       existing.config = (args?.config as string) ?? existing.config
       existing.updatedAt = new Date().toISOString()
-      return existing
+      return withActiveTaskCount(existing)
     }
     throw new Error('Workspace not found')
   },
   delete_workspace: (args) => {
-    mockWorkspaces = mockWorkspaces.filter(w => w.id !== args?.id)
-    mockColumns = mockColumns.filter(c => c.workspaceId !== args?.id)
-    mockTasks = mockTasks.filter(t => t.workspaceId !== args?.id)
+    mockWorkspaces = mockWorkspaces.filter((w) => w.id !== args?.id)
+    mockColumns = mockColumns.filter((c) => c.workspaceId !== args?.id)
+    mockTasks = mockTasks.filter((t) => t.workspaceId !== args?.id)
   },
   reorder_workspaces: (args) => {
     const ids = args?.ids as string[]
     ids.forEach((id, idx) => {
-      const ws = mockWorkspaces.find(w => w.id === id)
+      const ws = mockWorkspaces.find((w) => w.id === id)
       if (ws) ws.tabOrder = idx
     })
   },
 
   // Column commands
-  list_columns: (args) => mockColumns.filter(c => c.workspaceId === args?.workspaceId),
+  list_columns: (args) => mockColumns.filter((c) => c.workspaceId === args?.workspaceId),
   create_column: (args) => {
     const col: Column = {
       id: generateId('col'),
       workspaceId: args?.workspaceId as string,
-      name: args?.name as string || 'New Column',
+      name: (args?.name as string) || 'New Column',
       icon: 'list',
-      position: args?.position as number || mockColumns.length,
+      position: (args?.position as number) || mockColumns.length,
       color: '',
       visible: true,
       triggers: DEFAULT_TRIGGERS,
@@ -159,7 +233,7 @@ const mockCommands: Record<string, CommandHandler> = {
     return col
   },
   update_column: (args) => {
-    const existing = mockColumns.find(c => c.id === args?.id)
+    const existing = mockColumns.find((c) => c.id === args?.id)
     if (existing) {
       existing.name = (args?.name as string) ?? existing.name
       existing.icon = (args?.icon as string) ?? existing.icon
@@ -174,28 +248,28 @@ const mockCommands: Record<string, CommandHandler> = {
     throw new Error('Column not found')
   },
   delete_column: (args) => {
-    mockColumns = mockColumns.filter(c => c.id !== args?.id)
-    mockTasks = mockTasks.filter(t => t.columnId !== args?.id)
+    mockColumns = mockColumns.filter((c) => c.id !== args?.id)
+    mockTasks = mockTasks.filter((t) => t.columnId !== args?.id)
   },
   reorder_columns: (args) => {
     const columnIds = args?.columnIds as string[]
     columnIds.forEach((id, idx) => {
-      const col = mockColumns.find(c => c.id === id)
+      const col = mockColumns.find((c) => c.id === id)
       if (col) col.position = idx
     })
-    return mockColumns.filter(c => c.workspaceId === args?.workspaceId)
+    return mockColumns.filter((c) => c.workspaceId === args?.workspaceId)
   },
 
   // Task commands
-  list_tasks: (args) => mockTasks.filter(t => t.workspaceId === args?.workspaceId),
-  get_task: (args) => mockTasks.find(t => t.id === args?.id),
+  list_tasks: (args) => mockTasks.filter((t) => t.workspaceId === args?.workspaceId),
+  get_task: (args) => mockTasks.find((t) => t.id === args?.id),
   create_task: (args) => {
     const task: Task = {
       id: generateId('task'),
       workspaceId: args?.workspaceId as string,
       columnId: args?.columnId as string,
-      title: args?.title as string || 'New Task',
-      description: args?.description as string || '',
+      title: (args?.title as string) || 'New Task',
+      description: (args?.description as string) || '',
       branch: null,
       agentType: null,
       agentMode: null,
@@ -231,7 +305,7 @@ const mockCommands: Record<string, CommandHandler> = {
       blocked: false,
       worktreePath: null,
       queuedAt: null,
-      position: mockTasks.filter(t => t.columnId === args?.columnId).length,
+      position: mockTasks.filter((t) => t.columnId === args?.columnId).length,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
@@ -239,7 +313,7 @@ const mockCommands: Record<string, CommandHandler> = {
     return task
   },
   update_task: (args) => {
-    const existing = mockTasks.find(t => t.id === args?.id)
+    const existing = mockTasks.find((t) => t.id === args?.id)
     if (existing) {
       existing.title = (args?.title as string) ?? existing.title
       existing.description = (args?.description as string) ?? existing.description
@@ -249,7 +323,8 @@ const mockCommands: Record<string, CommandHandler> = {
       existing.agentMode = (args?.agentMode as AgentMode | null) ?? existing.agentMode
       existing.agentStatus = (args?.agentStatus as AgentStatus | null) ?? existing.agentStatus
       existing.pipelineState = (args?.pipelineState as PipelineState) ?? existing.pipelineState
-      existing.pipelineTriggeredAt = (args?.pipelineTriggeredAt as string | null) ?? existing.pipelineTriggeredAt
+      existing.pipelineTriggeredAt =
+        (args?.pipelineTriggeredAt as string | null) ?? existing.pipelineTriggeredAt
       existing.pipelineError = (args?.pipelineError as string | null) ?? existing.pipelineError
       existing.position = (args?.position as number) ?? existing.position
       existing.updatedAt = new Date().toISOString()
@@ -258,7 +333,7 @@ const mockCommands: Record<string, CommandHandler> = {
     throw new Error('Task not found')
   },
   move_task: (args) => {
-    const task = mockTasks.find(t => t.id === args?.id)
+    const task = mockTasks.find((t) => t.id === args?.id)
     if (task) {
       task.columnId = args?.targetColumnId as string
       task.position = args?.position as number
@@ -268,15 +343,15 @@ const mockCommands: Record<string, CommandHandler> = {
     throw new Error('Task not found')
   },
   delete_task: (args) => {
-    mockTasks = mockTasks.filter(t => t.id !== args?.id)
+    mockTasks = mockTasks.filter((t) => t.id !== args?.id)
   },
   reorder_tasks: (args) => {
     const taskIds = args?.taskIds as string[]
     taskIds.forEach((id, idx) => {
-      const task = mockTasks.find(t => t.id === id)
+      const task = mockTasks.find((t) => t.id === id)
       if (task) task.position = idx
     })
-    return mockTasks.filter(t => t.columnId === args?.columnId)
+    return mockTasks.filter((t) => t.columnId === args?.columnId)
   },
 
   // Settings
@@ -285,7 +360,7 @@ const mockCommands: Record<string, CommandHandler> = {
 
   // PR creation (stub)
   create_pr: (args) => {
-    const task = mockTasks.find(t => t.id === args?.taskId)
+    const task = mockTasks.find((t) => t.id === args?.taskId)
     if (task) {
       task.prNumber = 123
       task.prUrl = 'https://github.com/owner/repo/pull/123'
@@ -297,7 +372,7 @@ const mockCommands: Record<string, CommandHandler> = {
 
   // Notification commands
   update_task_stakeholders: (args) => {
-    const task = mockTasks.find(t => t.id === args?.id)
+    const task = mockTasks.find((t) => t.id === args?.id)
     if (task) {
       task.notifyStakeholders = (args?.stakeholders as string | null) ?? null
       task.updatedAt = new Date().toISOString()
@@ -306,7 +381,7 @@ const mockCommands: Record<string, CommandHandler> = {
     throw new Error('Task not found')
   },
   mark_task_notification_sent: (args) => {
-    const task = mockTasks.find(t => t.id === args?.id)
+    const task = mockTasks.find((t) => t.id === args?.id)
     if (task) {
       task.notificationSentAt = new Date().toISOString()
       task.updatedAt = new Date().toISOString()
@@ -315,7 +390,7 @@ const mockCommands: Record<string, CommandHandler> = {
     throw new Error('Task not found')
   },
   clear_task_notification_sent: (args) => {
-    const task = mockTasks.find(t => t.id === args?.id)
+    const task = mockTasks.find((t) => t.id === args?.id)
     if (task) {
       task.notificationSentAt = null
       task.updatedAt = new Date().toISOString()
@@ -338,7 +413,13 @@ const mockCommands: Record<string, CommandHandler> = {
   // Agent commands (stubs)
   start_agent: () => ({ taskId: '', agentType: '', status: 'idle', pid: null, workingDir: '' }),
   stop_agent: () => undefined,
-  get_agent_status: () => ({ taskId: '', agentType: '', status: 'idle', pid: null, workingDir: '' }),
+  get_agent_status: () => ({
+    taskId: '',
+    agentType: '',
+    status: 'idle',
+    pid: null,
+    workingDir: '',
+  }),
 
   // Agent message commands
   save_agent_message: (args) => ({
@@ -356,24 +437,66 @@ const mockCommands: Record<string, CommandHandler> = {
   clear_agent_messages: () => undefined,
 
   // Pipeline commands (stubs)
-  mark_pipeline_complete: (args) => mockTasks.find(t => t.id === args?.taskId),
+  mark_pipeline_complete: (args) => mockTasks.find((t) => t.id === args?.taskId),
   get_pipeline_state: () => 'idle',
   try_advance_task: () => null,
-  set_pipeline_error: (args) => mockTasks.find(t => t.id === args?.taskId),
+  set_pipeline_error: (args) => mockTasks.find((t) => t.id === args?.taskId),
 
   // Orchestrator commands (stubs)
-  get_orchestrator_context: () => ({ workspaceId: '', workspaceName: '', columns: [], tasks: [], recentMessages: [] }),
-  get_orchestrator_session: () => ({ id: '', workspaceId: '', status: 'idle', lastError: null, createdAt: '', updatedAt: '' }),
-  send_orchestrator_message: () => ({ id: '', workspaceId: '', sessionId: null, role: 'user', content: '', createdAt: '' }),
+  get_orchestrator_context: () => ({
+    workspaceId: '',
+    workspaceName: '',
+    columns: [],
+    tasks: [],
+    recentMessages: [],
+  }),
+  get_orchestrator_session: () => ({
+    id: '',
+    workspaceId: '',
+    status: 'idle',
+    lastError: null,
+    createdAt: '',
+    updatedAt: '',
+  }),
+  send_orchestrator_message: () => ({
+    id: '',
+    workspaceId: '',
+    sessionId: null,
+    role: 'user',
+    content: '',
+    createdAt: '',
+  }),
   list_chat_sessions: () => [],
-  get_active_chat_session: () => ({ id: 'mock-session', workspaceId: '', title: 'New Chat', createdAt: '', updatedAt: '' }),
-  create_chat_session: () => ({ id: 'mock-session', workspaceId: '', title: 'New Chat', createdAt: '', updatedAt: '' }),
+  get_active_chat_session: () => ({
+    id: 'mock-session',
+    workspaceId: '',
+    title: 'New Chat',
+    createdAt: '',
+    updatedAt: '',
+  }),
+  create_chat_session: () => ({
+    id: 'mock-session',
+    workspaceId: '',
+    title: 'New Chat',
+    createdAt: '',
+    updatedAt: '',
+  }),
   delete_chat_session: () => undefined,
   get_chat_history: () => [],
   clear_chat_history: () => undefined,
   process_orchestrator_response: () => ({ message: '', actions: [], tasksCreated: [] }),
-  set_orchestrator_error: () => ({ id: '', workspaceId: '', status: 'error', lastError: '', createdAt: '', updatedAt: '' }),
-  stream_orchestrator_chat: () => { console.warn('[Browser Mock] stream_orchestrator_chat not available in browser mode'); return undefined },
+  set_orchestrator_error: () => ({
+    id: '',
+    workspaceId: '',
+    status: 'error',
+    lastError: '',
+    createdAt: '',
+    updatedAt: '',
+  }),
+  stream_orchestrator_chat: () => {
+    console.warn('[Browser Mock] stream_orchestrator_chat not available in browser mode')
+    return undefined
+  },
 
   // Voice commands (stubs)
   is_voice_available: () => false,
@@ -381,16 +504,59 @@ const mockCommands: Record<string, CommandHandler> = {
   transcribe_audio: () => ({ text: '', durationMs: 0 }),
 
   // Usage tracking (stubs)
-  record_usage: () => ({ id: '', workspaceId: '', taskId: null, sessionId: null, provider: '', model: '', inputTokens: 0, outputTokens: 0, costUsd: 0, createdAt: '' }),
+  record_usage: () => ({
+    id: '',
+    workspaceId: '',
+    taskId: null,
+    sessionId: null,
+    provider: '',
+    model: '',
+    inputTokens: 0,
+    outputTokens: 0,
+    costUsd: 0,
+    createdAt: '',
+  }),
   get_workspace_usage: () => [],
   get_task_usage: () => [],
-  get_workspace_usage_summary: () => ({ totalInputTokens: 0, totalOutputTokens: 0, totalCostUsd: 0, recordCount: 0 }),
-  get_task_usage_summary: () => ({ totalInputTokens: 0, totalOutputTokens: 0, totalCostUsd: 0, recordCount: 0 }),
+  get_workspace_usage_summary: () => ({
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCostUsd: 0,
+    recordCount: 0,
+  }),
+  get_task_usage_summary: () => ({
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCostUsd: 0,
+    recordCount: 0,
+  }),
   clear_workspace_usage: () => undefined,
 
   // Session history (stubs)
-  create_snapshot: () => ({ id: '', sessionId: '', workspaceId: '', taskId: null, snapshotType: 'checkpoint', scrollbackSnapshot: null, commandHistory: '', filesModified: '', durationMs: 0, createdAt: '' }),
-  get_snapshot: () => ({ id: '', sessionId: '', workspaceId: '', taskId: null, snapshotType: 'checkpoint', scrollbackSnapshot: null, commandHistory: '', filesModified: '', durationMs: 0, createdAt: '' }),
+  create_snapshot: () => ({
+    id: '',
+    sessionId: '',
+    workspaceId: '',
+    taskId: null,
+    snapshotType: 'checkpoint',
+    scrollbackSnapshot: null,
+    commandHistory: '',
+    filesModified: '',
+    durationMs: 0,
+    createdAt: '',
+  }),
+  get_snapshot: () => ({
+    id: '',
+    sessionId: '',
+    workspaceId: '',
+    taskId: null,
+    snapshotType: 'checkpoint',
+    scrollbackSnapshot: null,
+    commandHistory: '',
+    filesModified: '',
+    durationMs: 0,
+    createdAt: '',
+  }),
   get_session_history: () => [],
   get_workspace_history: () => [],
   get_task_history: () => [],
@@ -400,23 +566,66 @@ const mockCommands: Record<string, CommandHandler> = {
   get_workspace_checklist: () => ({ checklist: null, categories: [], items: [] }),
   update_checklist_item: () => undefined,
   update_checklist_category: () => undefined,
-  create_workspace_checklist: () => ({ id: 'mock-checklist', workspaceId: '', name: 'Mock Checklist', description: '', createdAt: '', updatedAt: '' }),
+  create_workspace_checklist: () => ({
+    id: 'mock-checklist',
+    workspaceId: '',
+    name: 'Mock Checklist',
+    description: '',
+    createdAt: '',
+    updatedAt: '',
+  }),
   delete_workspace_checklist: () => undefined,
   update_checklist_item_auto_detect: () => undefined,
   link_checklist_item_to_task: () => undefined,
 
   // CLI detection / capabilities (stubs)
   detect_clis: () => [],
-  detect_single_cli: () => ({ id: 'claude', name: 'Claude Code', path: '', version: null, isAvailable: false }),
-  verify_cli_path: () => ({ id: 'custom', name: 'Custom CLI', path: '', version: null, isAvailable: false }),
+  detect_single_cli: () => ({
+    id: 'claude',
+    name: 'Claude Code',
+    path: '',
+    version: null,
+    isAvailable: false,
+  }),
+  verify_cli_path: () => ({
+    id: 'custom',
+    name: 'Custom CLI',
+    path: '',
+    version: null,
+    isAvailable: false,
+  }),
   get_cli_capabilities: () => ({
     cliId: 'claude',
     cliVersion: null,
     detected: false,
     models: [
-      { id: 'opus', name: 'Opus', description: 'Most powerful', supportsExtendedContext: true, contextWindow: '200k', maxEffort: 'high', available: true },
-      { id: 'sonnet', name: 'Sonnet', description: 'Fast & capable', supportsExtendedContext: false, contextWindow: '200k', maxEffort: 'high', available: true },
-      { id: 'haiku', name: 'Haiku', description: 'Quick & light', supportsExtendedContext: false, contextWindow: '200k', maxEffort: 'low', available: true },
+      {
+        id: 'opus',
+        name: 'Opus',
+        description: 'Most powerful',
+        supportsExtendedContext: true,
+        contextWindow: '200k',
+        maxEffort: 'high',
+        available: true,
+      },
+      {
+        id: 'sonnet',
+        name: 'Sonnet',
+        description: 'Fast & capable',
+        supportsExtendedContext: false,
+        contextWindow: '200k',
+        maxEffort: 'high',
+        available: true,
+      },
+      {
+        id: 'haiku',
+        name: 'Haiku',
+        description: 'Quick & light',
+        supportsExtendedContext: false,
+        contextWindow: '200k',
+        maxEffort: 'low',
+        available: true,
+      },
     ],
   }),
 }
@@ -425,7 +634,7 @@ const mockCommands: Record<string, CommandHandler> = {
 
 export async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   // Simulate network delay
-  await new Promise(resolve => setTimeout(resolve, 10))
+  await new Promise((resolve) => setTimeout(resolve, 10))
 
   const handler = mockCommands[cmd]
   if (handler) {
@@ -441,10 +650,7 @@ export async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>)
 type UnlistenFn = () => void
 
 /* eslint-disable @typescript-eslint/no-unnecessary-type-parameters, @typescript-eslint/no-unused-vars -- Mock function signature matches real listen for type compatibility */
-export function mockListen<T>(
-  _event: string,
-  _handler: (payload: T) => void
-): Promise<UnlistenFn> {
+export function mockListen<T>(_event: string, _handler: (payload: T) => void): Promise<UnlistenFn> {
   /* eslint-enable @typescript-eslint/no-unnecessary-type-parameters, @typescript-eslint/no-unused-vars */
   // In browser mode, events are not supported
   return Promise.resolve(() => {})
@@ -460,6 +666,7 @@ export function resetMockData() {
       repoPath: '/tmp/demo-repo',
       tabOrder: 0,
       isActive: true,
+      activeTaskCount: 0,
       config: '{}',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -467,10 +674,54 @@ export function resetMockData() {
   ]
 
   mockColumns = [
-    { id: 'col-1', workspaceId: 'ws-demo', name: 'Backlog', icon: 'inbox', position: 0, color: '', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'col-2', workspaceId: 'ws-demo', name: 'Working', icon: 'code', position: 1, color: '', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'col-3', workspaceId: 'ws-demo', name: 'Review', icon: 'eye', position: 2, color: '', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    { id: 'col-4', workspaceId: 'ws-demo', name: 'Done', icon: 'check', position: 3, color: '#4ADE80', visible: true, triggers: DEFAULT_TRIGGERS, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    {
+      id: 'col-1',
+      workspaceId: 'ws-demo',
+      name: 'Backlog',
+      icon: 'inbox',
+      position: 0,
+      color: '',
+      visible: true,
+      triggers: DEFAULT_TRIGGERS,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: 'col-2',
+      workspaceId: 'ws-demo',
+      name: 'Working',
+      icon: 'code',
+      position: 1,
+      color: '',
+      visible: true,
+      triggers: DEFAULT_TRIGGERS,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: 'col-3',
+      workspaceId: 'ws-demo',
+      name: 'Review',
+      icon: 'eye',
+      position: 2,
+      color: '',
+      visible: true,
+      triggers: DEFAULT_TRIGGERS,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: 'col-4',
+      workspaceId: 'ws-demo',
+      name: 'Done',
+      icon: 'check',
+      position: 3,
+      color: '#4ADE80',
+      visible: true,
+      triggers: DEFAULT_TRIGGERS,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
   ]
 
   mockTasks = [
