@@ -6,10 +6,11 @@
 //! and a background task runner for CLI triggers.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use rusqlite::Connection;
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex as TokioMutex};
 
 use super::events::ChatEvent;
 use super::registry::SharedSessionRegistry;
@@ -19,10 +20,28 @@ use crate::db;
 use crate::pipeline;
 
 /// Sentinel pattern used to detect CLI command completion inside a PTY shell.
-/// The trigger injects: `<command> ; echo "___BENTOYA_DONE_$?___"`
-/// The bridge watches for this pattern to extract the exit code.
-const SENTINEL_PREFIX: &str = "___BENTOYA_DONE_";
+/// Format: `___BENTOYA_{nonce}_{exit_code}___`
+/// The nonce is a random hex string generated per trigger invocation.
+const SENTINEL_PREFIX: &str = "___BENTOYA_";
 const SENTINEL_SUFFIX: &str = "___";
+
+/// Active sentinel nonces per task. When a trigger fires, it registers a nonce.
+/// The bridge checks incoming output against the expected nonce for that task.
+type SentinelMap = Arc<TokioMutex<HashMap<String, String>>>;
+
+/// Global sentinel nonce registry.
+static SENTINEL_NONCES: std::sync::OnceLock<SentinelMap> = std::sync::OnceLock::new();
+
+fn sentinel_nonces() -> &'static SentinelMap {
+    SENTINEL_NONCES.get_or_init(|| Arc::new(TokioMutex::new(HashMap::new())))
+}
+
+/// Generate a random 8-char hex nonce.
+fn gen_nonce() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    format!("{:08x}", t.subsec_nanos() ^ (t.as_secs() as u32))
+}
 
 /// Forward PTY transport events to Tauri events for frontend rendering.
 ///
@@ -45,7 +64,9 @@ pub async fn bridge_pty_to_tauri(
                 // Watch for sentinel in raw PTY output (trigger completion detection)
                 if let Ok(decoded) = base64_decode(data) {
                     sentinel_buffer.push_str(&String::from_utf8_lossy(&decoded));
-                    if let Some(exit_code) = extract_sentinel(&sentinel_buffer) {
+                    if let Some(exit_code) = extract_sentinel_for_task(task_id, &sentinel_buffer).await {
+                        // Clear the nonce — trigger is done
+                        { sentinel_nonces().lock().await.remove(task_id); }
                         let success = exit_code == 0;
                         if let Ok(conn) = Connection::open(db::db_path()) {
                             let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
@@ -159,16 +180,28 @@ fn base64_decode(data: &str) -> Result<Vec<u8>, ()> {
 }
 
 /// Extract exit code from sentinel pattern in output text.
-/// Returns Some(exit_code) if `___BENTOYA_DONE_{code}___` is found.
-fn extract_sentinel(text: &str) -> Option<i32> {
-    if let Some(start) = text.find(SENTINEL_PREFIX) {
-        let after_prefix = &text[start + SENTINEL_PREFIX.len()..];
-        if let Some(end) = after_prefix.find(SENTINEL_SUFFIX) {
-            let code_str = &after_prefix[..end];
+/// Pattern: `___BENTOYA_{nonce}_{exit_code}___`
+/// Returns Some(exit_code) if pattern found with matching nonce.
+fn extract_sentinel(text: &str, expected_nonce: &str) -> Option<i32> {
+    let pattern = format!("{}{}_{}", SENTINEL_PREFIX, expected_nonce, "");
+    if let Some(start) = text.find(&pattern) {
+        let after_nonce = &text[start + pattern.len()..];
+        if let Some(end) = after_nonce.find(SENTINEL_SUFFIX) {
+            let code_str = &after_nonce[..end];
             return code_str.parse().ok();
         }
     }
     None
+}
+
+/// Check sentinel for a specific task by looking up its registered nonce.
+async fn extract_sentinel_for_task(task_id: &str, text: &str) -> Option<i32> {
+    let nonces = sentinel_nonces().lock().await;
+    if let Some(nonce) = nonces.get(task_id) {
+        extract_sentinel(text, nonce)
+    } else {
+        None
+    }
 }
 
 /// Run a CLI trigger by injecting the command into the task's PTY shell.
@@ -230,10 +263,17 @@ pub fn spawn_cli_trigger_task(
             }
             let full_cmd = cmd_parts.join(" ");
 
-            // Wrap with sentinel for exit detection
+            // Generate nonce and register it for this task
+            let nonce = gen_nonce();
+            {
+                let mut nonces = sentinel_nonces().lock().await;
+                nonces.insert(task_id.clone(), nonce.clone());
+            }
+
+            // Wrap with sentinel for exit detection (nonce prevents spoofing)
             let sentinel_cmd = format!(
-                "{} ; echo \"{}$?{}\"\n",
-                full_cmd, SENTINEL_PREFIX, SENTINEL_SUFFIX
+                "{} ; echo \"{}{}_{}{}\"\n",
+                full_cmd, SENTINEL_PREFIX, nonce, "$?", SENTINEL_SUFFIX
             );
 
             // Check if a PTY session already exists for this task
@@ -345,21 +385,27 @@ mod tests {
 
     #[test]
     fn test_extract_sentinel_success() {
-        assert_eq!(extract_sentinel("some output\n___BENTOYA_DONE_0___\n"), Some(0));
-        assert_eq!(extract_sentinel("___BENTOYA_DONE_1___"), Some(1));
-        assert_eq!(extract_sentinel("blah ___BENTOYA_DONE_127___ more"), Some(127));
+        assert_eq!(extract_sentinel("some output\n___BENTOYA_abc12345_0___\n", "abc12345"), Some(0));
+        assert_eq!(extract_sentinel("___BENTOYA_nonce1_1___", "nonce1"), Some(1));
+        assert_eq!(extract_sentinel("blah ___BENTOYA_xyz_127___ more", "xyz"), Some(127));
+    }
+
+    #[test]
+    fn test_extract_sentinel_wrong_nonce() {
+        // Correct pattern but wrong nonce — should not match (anti-spoofing)
+        assert_eq!(extract_sentinel("___BENTOYA_wrong_0___", "expected"), None);
     }
 
     #[test]
     fn test_extract_sentinel_not_found() {
-        assert_eq!(extract_sentinel("no sentinel here"), None);
-        assert_eq!(extract_sentinel("___BENTOYA_DONE_"), None);
-        assert_eq!(extract_sentinel("partial ___BENTOYA_DONE_0"), None);
+        assert_eq!(extract_sentinel("no sentinel here", "abc"), None);
+        assert_eq!(extract_sentinel("___BENTOYA_abc_", "abc"), None);
+        assert_eq!(extract_sentinel("partial ___BENTOYA_abc_0", "abc"), None);
     }
 
     #[test]
     fn test_extract_sentinel_invalid_code() {
-        assert_eq!(extract_sentinel("___BENTOYA_DONE_abc___"), None);
+        assert_eq!(extract_sentinel("___BENTOYA_abc_xyz___", "abc"), None);
     }
 
     #[test]

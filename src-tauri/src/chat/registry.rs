@@ -17,6 +17,7 @@ use super::session::{SessionConfig, SessionState, TransportType, UnifiedChatSess
 
 const DEFAULT_MAX_SESSIONS: usize = 20;
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300); // 5 min
+const MAX_SCROLLBACK_CACHE_ENTRIES: usize = 20;
 
 /// Registry of active chat sessions.
 pub struct SessionRegistry {
@@ -122,6 +123,12 @@ impl SessionRegistry {
             // Cache scrollback before killing (so panel reopen can restore it)
             let scrollback = session.scrollback();
             if !scrollback.is_empty() {
+                // Evict oldest cache entry if at capacity
+                if self.scrollback_cache.len() >= MAX_SCROLLBACK_CACHE_ENTRIES {
+                    if let Some(oldest_key) = self.scrollback_cache.keys().next().cloned() {
+                        self.scrollback_cache.remove(&oldest_key);
+                    }
+                }
                 self.scrollback_cache.insert(key.to_string(), scrollback);
             }
             let _ = session.kill();
