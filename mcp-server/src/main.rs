@@ -69,13 +69,24 @@ fn read_api_port() -> Option<u16> {
 }
 
 /// Check if the Bento-ya app is running and its API is reachable.
+/// Verifies response body contains {"status":"ok"} to avoid false positives
+/// from a different process on a stale port.
 fn is_app_running() -> bool {
     let port = match read_api_port() {
         Some(p) => p,
         None => return false,
     };
     let url = format!("http://127.0.0.1:{}/api/health", port);
-    ureq::get(&url).call().is_ok()
+    match ureq::get(&url).call() {
+        Ok(resp) => {
+            resp.into_body()
+                .read_json::<Value>()
+                .ok()
+                .and_then(|v| v.get("data")?.get("status")?.as_str().map(|s| s == "ok"))
+                .unwrap_or(false)
+        }
+        Err(_) => false,
+    }
 }
 
 /// Require the app to be running for mutations. Returns an error Value if not.
@@ -100,6 +111,13 @@ fn api_call(endpoint: &str, body: &Value) -> Option<Value> {
         .send_json(body)
         .ok()?;
     resp.into_body().read_json().ok()
+}
+
+/// Whether to allow direct DB fallback when API is unreachable.
+/// In production: false (mutations MUST go through the app API for triggers).
+/// In tests: true (no app running, direct DB is fine).
+fn allow_db_fallback() -> bool {
+    cfg!(test)
 }
 
 // ---------------------------------------------------------------------------
@@ -749,7 +767,7 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
 
     let model = args.get("model").and_then(|v| v.as_str());
 
-    // Try API bridge first (triggers pipeline + updates UI)
+    // Route through app API (triggers pipeline + updates UI)
     if let Some(resp) = api_call("/api/create_task", &json!({
         "workspace_id": ws_id,
         "column_id": col_id,
@@ -764,11 +782,14 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
         }
     }
 
-    // Fallback: direct DB write
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
+    }
+
+    // Test-only fallback: direct DB write
     let id = new_id();
     let ts = now();
     let position = max_task_position(conn, &col_id) + 1;
-
     match conn.execute(
         "INSERT INTO tasks (id, workspace_id, column_id, title, description, position, priority, \
          pipeline_state, blocked, dependencies, retry_count, model, created_at, updated_at) \
@@ -776,15 +797,8 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
         params![id, ws_id, col_id, title, description, position, model, ts],
     ) {
         Ok(_) => json!({
-            "task": {
-                "id": id,
-                "workspace_id": ws_id,
-                "column": col_name,
-                "title": title,
-                "description": description,
-                "position": position,
-            },
-            "message": format!("Created task '{}' in column '{}' (direct — app not running)", title, col_name)
+            "task": { "id": id, "title": title, "column": col_name },
+            "message": format!("Created task '{}' in column '{}'", title, col_name)
         }),
         Err(e) => json!({ "error": e.to_string() }),
     }
@@ -816,7 +830,7 @@ fn handle_move_task(conn: &Connection, args: &Value) -> Value {
 
     let position = max_task_position(conn, &col_id) + 1;
 
-    // Try API bridge first (triggers pipeline + updates UI)
+    // Route through app API (triggers pipeline + updates UI)
     if let Some(resp) = api_call("/api/move_task", &json!({
         "id": task_id,
         "target_column_id": col_id,
@@ -832,23 +846,26 @@ fn handle_move_task(conn: &Connection, args: &Value) -> Value {
         }
     }
 
-    // Fallback: direct DB write (no pipeline triggers)
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
+    }
+
+    // Test-only fallback: direct DB write
     let ts = now();
     match conn.execute(
         "UPDATE tasks SET column_id = ?1, position = ?2, updated_at = ?3 WHERE id = ?4",
         params![col_id, position, ts, task_id],
     ) {
         Ok(_) => json!({
-            "task_id": task_id,
-            "title": task["title"],
-            "column": col_name,
-            "message": format!("Moved '{}' to '{}' (direct — app not running)", task["title"].as_str().unwrap_or("?"), col_name)
+            "task_id": task_id, "title": task["title"], "column": col_name,
+            "message": format!("Moved '{}' to '{}'", task["title"].as_str().unwrap_or("?"), col_name)
         }),
         Err(e) => json!({ "error": e.to_string() }),
     }
 }
 
 fn handle_update_task(conn: &Connection, args: &Value) -> Value {
+    if let Err(e) = require_app() { return e; }
     let task_q = match args.get("task").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "task is required" }),
@@ -915,11 +932,15 @@ fn handle_delete_task(conn: &Connection, args: &Value) -> Value {
     let task_id = task["id"].as_str().unwrap();
     let title = task["title"].as_str().unwrap_or("?");
 
-    // Try API bridge first (cleans up worktrees + updates UI)
+    // Route through app API (cleans up worktrees + updates UI)
     if let Some(resp) = api_call("/api/delete_task", &json!({"id": task_id})) {
         if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
             return json!({ "message": format!("Deleted task '{}'", title) });
         }
+    }
+
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
     }
 
     match conn.execute("DELETE FROM tasks WHERE id = ?1", params![task_id]) {
@@ -941,29 +962,24 @@ fn handle_approve_task(conn: &Connection, args: &Value) -> Value {
     };
     let task_id = task["id"].as_str().unwrap();
 
-    // Try API bridge first (triggers auto-advance + updates UI)
+    // Route through app API (triggers auto-advance + updates UI)
     if let Some(resp) = api_call("/api/approve_task", &json!({"id": task_id})) {
         if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
             return json!({
-                "task_id": task_id,
-                "title": task["title"],
-                "review_status": "approved",
+                "task_id": task_id, "title": task["title"], "review_status": "approved",
                 "message": format!("Approved task '{}'", task["title"].as_str().unwrap_or("?"))
             });
         }
     }
 
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
+    }
+
     let ts = now();
-    match conn.execute(
-        "UPDATE tasks SET review_status = 'approved', updated_at = ?1 WHERE id = ?2",
-        params![ts, task_id],
-    ) {
-        Ok(_) => json!({
-            "task_id": task_id,
-            "title": task["title"],
-            "review_status": "approved",
-            "message": format!("Approved task '{}'", task["title"].as_str().unwrap_or("?"))
-        }),
+    match conn.execute("UPDATE tasks SET review_status = 'approved', updated_at = ?1 WHERE id = ?2", params![ts, task_id]) {
+        Ok(_) => json!({ "task_id": task_id, "title": task["title"], "review_status": "approved",
+            "message": format!("Approved task '{}'", task["title"].as_str().unwrap_or("?")) }),
         Err(e) => json!({ "error": e.to_string() }),
     }
 }
@@ -982,32 +998,24 @@ fn handle_reject_task(conn: &Connection, args: &Value) -> Value {
     let task_id = task["id"].as_str().unwrap();
     let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("");
 
-    // Try API bridge first (updates UI)
+    // Route through app API (updates UI)
     if let Some(resp) = api_call("/api/reject_task", &json!({"id": task_id})) {
         if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
             return json!({
-                "task_id": task_id,
-                "title": task["title"],
-                "review_status": "rejected",
-                "reason": reason,
-                "message": format!("Rejected task '{}'", task["title"].as_str().unwrap_or("?"))
+                "task_id": task_id, "title": task["title"], "review_status": "rejected",
+                "reason": reason, "message": format!("Rejected task '{}'", task["title"].as_str().unwrap_or("?"))
             });
         }
     }
 
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
+    }
+
     let ts = now();
-    // Store reason in pipeline_error for visibility
-    match conn.execute(
-        "UPDATE tasks SET review_status = 'rejected', pipeline_error = ?1, updated_at = ?2 WHERE id = ?3",
-        params![reason, ts, task_id],
-    ) {
-        Ok(_) => json!({
-            "task_id": task_id,
-            "title": task["title"],
-            "review_status": "rejected",
-            "reason": reason,
-            "message": format!("Rejected task '{}'", task["title"].as_str().unwrap_or("?"))
-        }),
+    match conn.execute("UPDATE tasks SET review_status = 'rejected', pipeline_error = ?1, updated_at = ?2 WHERE id = ?3", params![reason, ts, task_id]) {
+        Ok(_) => json!({ "task_id": task_id, "title": task["title"], "review_status": "rejected",
+            "reason": reason, "message": format!("Rejected task '{}'", task["title"].as_str().unwrap_or("?")) }),
         Err(e) => json!({ "error": e.to_string() }),
     }
 }
@@ -1182,35 +1190,28 @@ fn handle_retry_task(conn: &Connection, args: &Value) -> Value {
     };
     let task_id = task["id"].as_str().unwrap();
 
-    // Try API bridge first (re-fires pipeline trigger + updates UI)
+    // Route through app API (re-fires pipeline trigger + updates UI)
     if let Some(resp) = api_call("/api/retry_task", &json!({"task_id": task_id})) {
         if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
             return json!({
-                "task_id": task_id,
-                "title": task["title"],
+                "task_id": task_id, "title": task["title"],
                 "message": format!("Retrying '{}'", task["title"].as_str().unwrap_or("?"))
             });
         }
     }
 
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
+    }
+
     let retry_count = task["retry_count"].as_i64().unwrap_or(0) + 1;
     let ts = now();
-
     match conn.execute(
-        "UPDATE tasks SET pipeline_state = 'idle', pipeline_error = NULL, \
-         retry_count = ?1, updated_at = ?2 WHERE id = ?3",
+        "UPDATE tasks SET pipeline_state = 'idle', pipeline_error = NULL, retry_count = ?1, updated_at = ?2 WHERE id = ?3",
         params![retry_count, ts, task_id],
     ) {
-        Ok(_) => json!({
-            "task_id": task_id,
-            "title": task["title"],
-            "retry_count": retry_count,
-            "message": format!(
-                "Reset '{}' for retry (attempt #{})",
-                task["title"].as_str().unwrap_or("?"),
-                retry_count
-            )
-        }),
+        Ok(_) => json!({ "task_id": task_id, "title": task["title"], "retry_count": retry_count,
+            "message": format!("Reset '{}' for retry (attempt #{})", task["title"].as_str().unwrap_or("?"), retry_count) }),
         Err(e) => json!({ "error": e.to_string() }),
     }
 }
