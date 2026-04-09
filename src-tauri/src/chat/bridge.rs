@@ -8,31 +8,58 @@
 use std::collections::HashMap;
 
 use rusqlite::Connection;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 
 use super::events::ChatEvent;
-use super::pipe_transport::PipeTransport;
-use super::transport::{ChatTransport, SpawnConfig, TransportEvent};
+use super::registry::SharedSessionRegistry;
+use super::session::{SessionConfig, TransportType};
+use super::transport::TransportEvent;
 use crate::db;
 use crate::pipeline;
 
+/// Sentinel pattern used to detect CLI command completion inside a PTY shell.
+/// The trigger injects: `<command> ; echo "___BENTOYA_DONE_$?___"`
+/// The bridge watches for this pattern to extract the exit code.
+const SENTINEL_PREFIX: &str = "___BENTOYA_DONE_";
+const SENTINEL_SUFFIX: &str = "___";
+
 /// Forward PTY transport events to Tauri events for frontend rendering.
 ///
-/// Emits both raw PTY events (for terminal view) and parsed agent events
-/// (for chat panel). Also saves assistant messages to DB.
+/// Emits raw PTY events (for terminal view), parsed agent events (for chat panel),
+/// and watches for sentinel patterns to detect trigger command completion.
+/// Also saves assistant messages to DB.
 pub async fn bridge_pty_to_tauri(
     app: &AppHandle,
     task_id: &str,
     mut event_rx: mpsc::Receiver<TransportEvent>,
 ) {
-    // Accumulate text content for saving to DB on complete
     let mut accumulated_text = String::new();
+    let mut sentinel_buffer = String::new();
 
     while let Some(event) = event_rx.recv().await {
         match event {
-            TransportEvent::Chat(ChatEvent::RawOutput(data)) => {
-                let _ = app.emit(&format!("pty:{}:output", task_id), &data);
+            TransportEvent::Chat(ChatEvent::RawOutput(ref data)) => {
+                let _ = app.emit(&format!("pty:{}:output", task_id), data);
+
+                // Watch for sentinel in raw PTY output (trigger completion detection)
+                if let Ok(decoded) = base64_decode(data) {
+                    sentinel_buffer.push_str(&String::from_utf8_lossy(&decoded));
+                    if let Some(exit_code) = extract_sentinel(&sentinel_buffer) {
+                        let success = exit_code == 0;
+                        if let Ok(conn) = Connection::open(db::db_path()) {
+                            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                            let status = if success { "completed" } else { "failed" };
+                            let _ = db::update_task_agent_status(&conn, task_id, Some(status), None);
+                            let _ = pipeline::mark_complete(&conn, app, task_id, success);
+                        }
+                        pipeline::emit_tasks_changed(app, "", "trigger_complete");
+                        sentinel_buffer.clear();
+                    }
+                    if sentinel_buffer.len() > 500 {
+                        sentinel_buffer = sentinel_buffer[sentinel_buffer.len() - 200..].to_string();
+                    }
+                }
             }
             TransportEvent::Chat(ChatEvent::TextContent(text)) => {
                 accumulated_text.push_str(&text);
@@ -58,7 +85,6 @@ pub async fn bridge_pty_to_tauri(
                 }));
             }
             TransportEvent::Chat(ChatEvent::Complete) => {
-                // Save accumulated text as an agent message
                 if !accumulated_text.is_empty() {
                     if let Ok(conn) = Connection::open(db::db_path()) {
                         let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
@@ -75,7 +101,6 @@ pub async fn bridge_pty_to_tauri(
                 }));
             }
             TransportEvent::Exited(_) => {
-                // Save any remaining text
                 if !accumulated_text.is_empty() {
                     if let Ok(conn) = Connection::open(db::db_path()) {
                         let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
@@ -96,13 +121,61 @@ pub async fn bridge_pty_to_tauri(
     }
 }
 
-/// Spawn a background task that runs a CLI trigger via a PTY session.
+/// Decode base64 string to bytes.
+fn base64_decode(data: &str) -> Result<Vec<u8>, ()> {
+    // Simple base64 decoder matching our encoder
+    const DECODE: [u8; 128] = {
+        let mut table = [255u8; 128];
+        let chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut i = 0;
+        while i < 64 {
+            table[chars[i] as usize] = i as u8;
+            i += 1;
+        }
+        table
+    };
+
+    let bytes: Vec<u8> = data.bytes().filter(|&b| b != b'=' && b != b'\n' && b != b'\r').collect();
+    let mut result = Vec::with_capacity(bytes.len() * 3 / 4);
+
+    for chunk in bytes.chunks(4) {
+        let mut buf = [0u8; 4];
+        for (i, &b) in chunk.iter().enumerate() {
+            if b >= 128 || DECODE[b as usize] == 255 {
+                return Err(());
+            }
+            buf[i] = DECODE[b as usize];
+        }
+        result.push((buf[0] << 2) | (buf[1] >> 4));
+        if chunk.len() > 2 {
+            result.push((buf[1] << 4) | (buf[2] >> 2));
+        }
+        if chunk.len() > 3 {
+            result.push((buf[2] << 6) | buf[3]);
+        }
+    }
+
+    Ok(result)
+}
+
+/// Extract exit code from sentinel pattern in output text.
+/// Returns Some(exit_code) if `___BENTOYA_DONE_{code}___` is found.
+fn extract_sentinel(text: &str) -> Option<i32> {
+    if let Some(start) = text.find(SENTINEL_PREFIX) {
+        let after_prefix = &text[start + SENTINEL_PREFIX.len()..];
+        if let Some(end) = after_prefix.find(SENTINEL_SUFFIX) {
+            let code_str = &after_prefix[..end];
+            return code_str.parse().ok();
+        }
+    }
+    None
+}
+
+/// Run a CLI trigger by injecting the command into the task's PTY shell.
 ///
-/// Replaces the old frontend round-trip:
-///   (old: backend emits event → frontend catches → frontend calls IPC → backend spawns)
-///
-/// Now: backend directly spawns PTY, writes prompt, bridges events to frontend,
-/// monitors for exit, and calls `mark_complete` when done.
+/// If a PTY session exists for the task, writes the command into it.
+/// If not, spawns a new PTY shell first, then writes the command.
+/// Uses a sentinel pattern to detect when the command completes.
 pub fn spawn_cli_trigger_task(
     app: AppHandle,
     task_id: String,
@@ -110,7 +183,7 @@ pub fn spawn_cli_trigger_task(
     args: Vec<String>,
     working_dir: String,
     initial_prompt: String,
-    env_vars: Option<HashMap<String, String>>,
+    _env_vars: Option<HashMap<String, String>>,
 ) {
     // Create agent session record so the UI can track this agent
     let session_id = {
@@ -118,7 +191,6 @@ pub fn spawn_cli_trigger_task(
             let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
             match db::insert_agent_session(&conn, &task_id, &cli_command, Some(&working_dir)) {
                 Ok(session) => {
-                    // Link session to task and set running status
                     let _ = db::update_agent_session(
                         &conn, &session.id,
                         None, Some("running"), None, None, None, None,
@@ -144,35 +216,77 @@ pub fn spawn_cli_trigger_task(
 
     tokio::spawn(async move {
         let result: Result<(), String> = async {
-            // Use PipeTransport for structured JSON output (parsed chat events)
-            let mut transport = PipeTransport::new();
+            let registry: SharedSessionRegistry = app.state::<SharedSessionRegistry>().inner().clone();
+            let mut reg = registry.lock().await;
 
-            // Build args: add --output-format stream-json and -p for the prompt
-            let mut full_args = args;
-            full_args.push("--output-format".to_string());
-            full_args.push("stream-json".to_string());
-            full_args.push("--verbose".to_string());
+            // Build the CLI command string to inject into the shell
+            let mut cmd_parts = vec![cli_command.clone()];
+            cmd_parts.extend(args);
             if !initial_prompt.is_empty() {
-                full_args.push("-p".to_string());
-                full_args.push(initial_prompt);
+                cmd_parts.push("-p".to_string());
+                // Escape single quotes in prompt for shell safety
+                let escaped = initial_prompt.replace('\'', "'\\''");
+                cmd_parts.push(format!("'{}'", escaped));
+            }
+            let full_cmd = cmd_parts.join(" ");
+
+            // Wrap with sentinel for exit detection
+            let sentinel_cmd = format!(
+                "{} ; echo \"{}{{}}{}\"\n",
+                full_cmd, SENTINEL_PREFIX, SENTINEL_SUFFIX
+            ).replace("{}", "$?");
+
+            // Check if a PTY session already exists for this task
+            if let Some(session) = reg.get_mut(&task_id) {
+                if session.is_alive() {
+                    // Session exists — inject command into existing shell
+                    session.write_pty(sentinel_cmd.as_bytes())?;
+
+                    // Update PID in agent session record
+                    if let Some(ref sid) = session_id {
+                        if let Some(pid) = session.pid() {
+                            if let Ok(conn) = Connection::open(db::db_path()) {
+                                let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                                let _ = db::update_agent_session(
+                                    &conn, sid,
+                                    Some(Some(pid as i64)), None, None, None, None, None,
+                                );
+                            }
+                        }
+                    }
+
+                    // Note: sentinel detection happens in the existing bridge task
+                    // that was started when the PTY was first opened.
+                    // We don't need a new bridge here.
+                    return Ok(());
+                }
             }
 
-            let spawn_config = SpawnConfig {
-                command: cli_command,
-                args: full_args,
+            // No active PTY — spawn a fresh one
+            reg.remove(&task_id);
+
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+            let config = SessionConfig {
+                cli_path: shell,
+                model: String::new(),
+                system_prompt: String::new(),
                 working_dir: Some(working_dir),
-                env_vars,
-                cols: 120,
-                rows: 40,
+                effort_level: None,
             };
 
-            let event_rx = transport
-                .spawn(spawn_config)
-                .map_err(|e| format!("Failed to spawn CLI trigger: {}", e))?;
+            let session = reg
+                .get_or_create(&task_id, config, TransportType::Pty)
+                .map_err(|e| e.to_string())?;
 
-            // Update session with PID if available
+            let event_rx = session.start_pty(120, 40)?;
+
+            // Write the trigger command after a short delay (let shell initialize)
+            let cmd_bytes = sentinel_cmd.into_bytes();
+            session.write_pty(&cmd_bytes)?;
+
+            // Update PID
             if let Some(ref sid) = session_id {
-                if let Some(pid) = transport.pid() {
+                if let Some(pid) = session.pid() {
                     if let Ok(conn) = Connection::open(db::db_path()) {
                         let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
                         let _ = db::update_agent_session(
@@ -183,23 +297,11 @@ pub fn spawn_cli_trigger_task(
                 }
             }
 
-            // Bridge events to frontend AND wait for exit
+            // Drop registry lock before bridging
+            drop(reg);
+
+            // Bridge events (includes sentinel detection for trigger completion)
             bridge_pty_to_tauri(&app, &task_id, event_rx).await;
-
-            // Process exited — update session + mark pipeline complete
-            let conn = Connection::open(db::db_path())
-                .map_err(|e| format!("Failed to open DB: {}", e))?;
-            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-
-            if let Some(ref sid) = session_id {
-                let _ = db::update_agent_session(
-                    &conn, sid,
-                    None, Some("completed"), Some(Some(0)), None, None, None,
-                );
-                let _ = db::update_task_agent_status(&conn, &task_id, Some("completed"), None);
-            }
-
-            let _ = pipeline::mark_complete(&conn, &app, &task_id, true);
 
             Ok(())
         }
@@ -210,7 +312,6 @@ pub fn spawn_cli_trigger_task(
             if let Ok(conn) = Connection::open(db::db_path()) {
                 let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
 
-                // Mark session as failed
                 if let Some(ref sid) = session_id {
                     let _ = db::update_agent_session(
                         &conn, sid,
@@ -228,4 +329,35 @@ pub fn spawn_cli_trigger_task(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_sentinel_success() {
+        assert_eq!(extract_sentinel("some output\n___BENTOYA_DONE_0___\n"), Some(0));
+        assert_eq!(extract_sentinel("___BENTOYA_DONE_1___"), Some(1));
+        assert_eq!(extract_sentinel("blah ___BENTOYA_DONE_127___ more"), Some(127));
+    }
+
+    #[test]
+    fn test_extract_sentinel_not_found() {
+        assert_eq!(extract_sentinel("no sentinel here"), None);
+        assert_eq!(extract_sentinel("___BENTOYA_DONE_"), None);
+        assert_eq!(extract_sentinel("partial ___BENTOYA_DONE_0"), None);
+    }
+
+    #[test]
+    fn test_extract_sentinel_invalid_code() {
+        assert_eq!(extract_sentinel("___BENTOYA_DONE_abc___"), None);
+    }
+
+    #[test]
+    fn test_base64_decode() {
+        let encoded = super::super::events::base64_encode(b"Hello World");
+        let decoded = base64_decode(&encoded).unwrap();
+        assert_eq!(decoded, b"Hello World");
+    }
 }
