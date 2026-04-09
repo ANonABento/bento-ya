@@ -562,30 +562,11 @@ pub async fn ensure_pty_session(
     // Registry lock released
 
     match action {
-        Action::Reconnect { scrollback, pid, mut rx } => {
-            // Start a new bridge from the broadcast receiver
-            let task_id_clone = task_id.clone();
-            tokio::spawn(async move {
-                // Bridge broadcast events to Tauri (same as mpsc bridge but from broadcast)
-                while let Ok(event) = rx.recv().await {
-                    match event {
-                        crate::chat::transport::TransportEvent::Chat(
-                            crate::chat::events::ChatEvent::RawOutput(ref data)
-                        ) => {
-                            let _ = app.emit(&format!("pty:{}:output", task_id_clone), data);
-                        }
-                        crate::chat::transport::TransportEvent::Exited(_) => {
-                            let _ = app.emit(
-                                &format!("pty:{}:exit", task_id_clone),
-                                serde_json::json!({ "taskId": task_id_clone }),
-                            );
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-            });
-
+        Action::Reconnect { scrollback, pid, rx: _ } => {
+            // No new bridge needed — the original bridge (from spawn_cli_trigger_task
+            // or the first ensure_pty_session) is still forwarding events via mpsc.
+            // Frontend just needs to re-register its Tauri event listeners (which it
+            // does on mount in terminal-view.tsx). Return scrollback for replay.
             Ok(AgentInfo {
                 task_id, agent_type: "shell".to_string(),
                 status: "Running".to_string(), pid, working_dir,
