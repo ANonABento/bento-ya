@@ -104,10 +104,9 @@ impl SessionRegistry {
                     ));
                 }
             }
-            self.sessions.insert(
-                key.to_string(),
-                UnifiedChatSession::new(config, transport_type),
-            );
+            let mut session = UnifiedChatSession::new(config, transport_type);
+            session.set_session_name(key.to_string());
+            self.sessions.insert(key.to_string(), session);
         }
         Ok(self.sessions.get_mut(key).unwrap())
     }

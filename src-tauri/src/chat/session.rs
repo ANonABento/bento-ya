@@ -18,7 +18,7 @@ use tokio::sync::mpsc;
 
 use super::events::ChatEvent;
 use super::pipe_transport::PipeTransport;
-use super::pty_transport::PtyTransport;
+use super::tmux_transport::TmuxTransport;
 use super::transport::{ChatTransport, SpawnConfig, TransportEvent};
 
 /// Which transport type to use for this session.
@@ -65,6 +65,8 @@ pub struct UnifiedChatSession {
     is_busy: bool,
     /// Last activity timestamp for idle timeout
     last_activity: Instant,
+    /// Session name / task_id for tmux session naming
+    session_name: String,
 }
 
 impl UnifiedChatSession {
@@ -77,7 +79,13 @@ impl UnifiedChatSession {
             state: SessionState::Idle,
             is_busy: false,
             last_activity: Instant::now(),
+            session_name: String::new(),
         }
+    }
+
+    /// Set the session name (task_id) for tmux naming.
+    pub fn set_session_name(&mut self, name: String) {
+        self.session_name = name;
     }
 
     // -- Accessors --
@@ -249,7 +257,7 @@ impl UnifiedChatSession {
             rows,
         };
 
-        let mut transport = PtyTransport::new();
+        let mut transport = TmuxTransport::new(&self.session_name);
         let event_rx = transport.spawn(spawn_config)?;
 
         self.transport = Some(Box::new(transport));

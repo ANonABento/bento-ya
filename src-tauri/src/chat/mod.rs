@@ -19,6 +19,7 @@ pub mod pipe_transport;
 pub mod pty_transport;
 pub mod registry;
 pub mod session;
+pub mod tmux_transport;
 pub mod transport;
 
 pub use bridge::ManagedBridge;

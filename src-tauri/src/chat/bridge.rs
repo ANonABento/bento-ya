@@ -6,11 +6,10 @@
 //! and a background task runner for CLI triggers.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use rusqlite::Connection;
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::{broadcast, mpsc, Mutex as TokioMutex};
+use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 
 use super::events::ChatEvent;
@@ -20,27 +19,7 @@ use super::transport::TransportEvent;
 use crate::db;
 use crate::pipeline;
 
-/// Sentinel pattern used to detect CLI command completion inside a PTY shell.
-/// Format: `___BENTOYA_{nonce}_{exit_code}___`
-/// The nonce is a random hex string generated per trigger invocation.
-const SENTINEL_PREFIX: &str = "___BENTOYA_";
-const SENTINEL_SUFFIX: &str = "___";
-
-/// Shell ready detection: max time to wait for a prompt before falling back.
-const SHELL_READY_TIMEOUT_MS: u64 = 5000;
-
-/// Active sentinel nonces per task. When a trigger fires, it registers a nonce.
-/// The bridge checks incoming output against the expected nonce for that task.
-type SentinelMap = Arc<TokioMutex<HashMap<String, String>>>;
-
-/// Global sentinel nonce registry.
-static SENTINEL_NONCES: std::sync::OnceLock<SentinelMap> = std::sync::OnceLock::new();
-
-fn sentinel_nonces() -> &'static SentinelMap {
-    SENTINEL_NONCES.get_or_init(|| Arc::new(TokioMutex::new(HashMap::new())))
-}
-
-/// Generate a random 16-char hex nonce.
+/// Generate a random 16-char hex nonce (used for tmux wait-for channel names).
 fn gen_nonce() -> String {
     use std::collections::hash_map::RandomState;
     use std::hash::{BuildHasher, Hasher};
@@ -103,12 +82,11 @@ async fn bridge_broadcast_to_tauri(
     mut event_rx: broadcast::Receiver<TransportEvent>,
 ) {
     let mut accumulated_text = String::new();
-    let mut sentinel_buffer = String::new();
 
     loop {
         match event_rx.recv().await {
             Ok(event) => {
-                if handle_bridge_event(&app, &task_id, &event, &mut accumulated_text, &mut sentinel_buffer).await {
+                if handle_bridge_event(&app, &task_id, &event, &mut accumulated_text).await {
                     break; // Exited event received
                 }
             }
@@ -123,114 +101,6 @@ async fn bridge_broadcast_to_tauri(
     }
 }
 
-/// Wait for the shell to be ready by watching broadcast output for a prompt pattern.
-/// Returns Ok(()) when a prompt is detected, or after the timeout (5s fallback).
-pub async fn wait_for_shell_ready(
-    mut rx: broadcast::Receiver<TransportEvent>,
-) -> Result<(), String> {
-    let deadline = tokio::time::Instant::now()
-        + std::time::Duration::from_millis(SHELL_READY_TIMEOUT_MS);
-
-    loop {
-        let timeout_result = tokio::time::timeout_at(deadline, rx.recv()).await;
-        match timeout_result {
-            Err(_) => {
-                // Timeout — shell may be slow, proceed anyway
-                eprintln!("[bridge] Shell ready timeout ({}ms), proceeding", SHELL_READY_TIMEOUT_MS);
-                return Ok(());
-            }
-            Ok(Ok(TransportEvent::Chat(ChatEvent::RawOutput(ref data)))) => {
-                if let Ok(decoded) = base64_decode(data) {
-                    let text = String::from_utf8_lossy(&decoded);
-                    // Match common shell prompts: $, %, #, > at end of line
-                    // or user@host patterns
-                    if is_shell_prompt(&text) {
-                        return Ok(());
-                    }
-                }
-            }
-            Ok(Ok(TransportEvent::Exited(_))) => {
-                return Err("Shell exited before becoming ready".to_string());
-            }
-            Ok(Ok(_)) => continue,
-            Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
-            Ok(Err(broadcast::error::RecvError::Closed)) => {
-                return Err("Broadcast channel closed before shell ready".to_string());
-            }
-        }
-    }
-}
-
-/// Strip ANSI escape sequences from text.
-/// Handles CSI sequences (\x1b[...X), OSC sequences (\x1b]...BEL/ST), and simple escapes.
-fn strip_ansi(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            match chars.peek() {
-                Some('[') => {
-                    // CSI sequence: \x1b[ ... (parameter bytes 0x30-0x3F) (intermediate 0x20-0x2F) final (0x40-0x7E)
-                    chars.next(); // consume '['
-                    while let Some(&ch) = chars.peek() {
-                        if ch.is_ascii() && (0x40..=0x7E).contains(&(ch as u8)) {
-                            chars.next(); // consume final byte
-                            break;
-                        }
-                        chars.next(); // consume parameter/intermediate byte
-                    }
-                }
-                Some(']') => {
-                    // OSC sequence: \x1b] ... (terminated by BEL \x07 or ST \x1b\\)
-                    chars.next(); // consume ']'
-                    while let Some(ch) = chars.next() {
-                        if ch == '\x07' {
-                            break;
-                        }
-                        if ch == '\x1b' {
-                            if chars.peek() == Some(&'\\') {
-                                chars.next();
-                            }
-                            break;
-                        }
-                    }
-                }
-                _ => {
-                    // Simple escape: consume next character
-                    chars.next();
-                }
-            }
-        } else {
-            result.push(c);
-        }
-    }
-
-    result
-}
-
-/// Check if text looks like a shell prompt.
-/// Strips ANSI escape codes before checking, so colored prompts are detected.
-fn is_shell_prompt(text: &str) -> bool {
-    let clean = strip_ansi(text);
-    let trimmed = clean.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-    let last_line = trimmed.lines().last().unwrap_or("");
-    let last_line = last_line.trim();
-    if last_line.is_empty() {
-        return false;
-    }
-    // Prompt typically ends with $, %, #, or >
-    let last_char = last_line.chars().last().unwrap_or(' ');
-    let ends_with_prompt = matches!(last_char, '$' | '%' | '#' | '>');
-    // Also detect user@host style prompts (even if not ending with prompt char)
-    let has_at_pattern = last_line.contains('@')
-        && (last_line.contains('$') || last_line.contains('%') || last_line.contains('#'));
-    ends_with_prompt || has_at_pattern
-}
-
 /// Forward PTY transport events to Tauri events for frontend rendering (mpsc version).
 ///
 /// DEPRECATED: Prefer ManagedBridge::start() with broadcast receiver.
@@ -241,10 +111,9 @@ pub async fn bridge_pty_to_tauri(
     mut event_rx: mpsc::Receiver<TransportEvent>,
 ) {
     let mut accumulated_text = String::new();
-    let mut sentinel_buffer = String::new();
 
     while let Some(event) = event_rx.recv().await {
-        if handle_bridge_event(app, task_id, &event, &mut accumulated_text, &mut sentinel_buffer).await {
+        if handle_bridge_event(app, task_id, &event, &mut accumulated_text).await {
             break;
         }
     }
@@ -252,48 +121,18 @@ pub async fn bridge_pty_to_tauri(
 
 /// Shared event handling logic for both mpsc and broadcast bridges.
 /// Returns true if the bridge should stop (Exited event received).
+///
+/// Completion detection is handled by `tmux wait-for` in spawn_cli_trigger_task,
+/// NOT by scanning output. This handler just forwards events to the frontend.
 async fn handle_bridge_event(
     app: &AppHandle,
     task_id: &str,
     event: &TransportEvent,
     accumulated_text: &mut String,
-    sentinel_buffer: &mut String,
 ) -> bool {
     match event {
         TransportEvent::Chat(ChatEvent::RawOutput(ref data)) => {
             let _ = app.emit(&format!("pty:{}:output", task_id), data);
-
-            // Watch for sentinel in raw PTY output (trigger completion detection)
-            if let Ok(decoded) = base64_decode(data) {
-                sentinel_buffer.push_str(&String::from_utf8_lossy(&decoded));
-                if let Some(exit_code) = extract_sentinel_for_task(task_id, sentinel_buffer).await {
-                    // Clear the nonce — trigger is done
-                    eprintln!("[bridge] Sentinel detected for task {}: exit_code={}, buffer_tail={:?}",
-                        task_id, exit_code, &sentinel_buffer[sentinel_buffer.len().saturating_sub(200)..]);
-                    { sentinel_nonces().lock().await.remove(task_id); }
-                    let success = exit_code == 0;
-                    if let Ok(conn) = Connection::open(db::db_path()) {
-                        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-                        let status = if success { "completed" } else { "failed" };
-                        let _ = db::update_task_agent_status(&conn, task_id, Some(status), None);
-                        // Also update the agent_session status (exit criteria checks this)
-                        if let Ok(task) = db::get_task(&conn, task_id) {
-                            if let Some(ref sid) = task.agent_session_id {
-                                let _ = db::update_agent_session(
-                                    &conn, sid,
-                                    None, Some(status), Some(Some(exit_code as i64)), None, None, None,
-                                );
-                            }
-                        }
-                        let _ = pipeline::mark_complete(&conn, app, task_id, success);
-                    }
-                    pipeline::emit_tasks_changed(app, "", "trigger_complete");
-                    sentinel_buffer.clear();
-                }
-                if sentinel_buffer.len() > 500 {
-                    *sentinel_buffer = sentinel_buffer[sentinel_buffer.len() - 200..].to_string();
-                }
-            }
             false
         }
         TransportEvent::Chat(ChatEvent::TextContent(ref text)) => {
@@ -359,75 +198,32 @@ async fn handle_bridge_event(
     }
 }
 
-/// Decode base64 string to bytes.
-fn base64_decode(data: &str) -> Result<Vec<u8>, ()> {
-    // Simple base64 decoder matching our encoder
-    const DECODE: [u8; 128] = {
-        let mut table = [255u8; 128];
-        let chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut i = 0;
-        while i < 64 {
-            table[chars[i] as usize] = i as u8;
-            i += 1;
+/// Build the CLI command string for a trigger, handling CLI-specific prompt flags.
+fn build_trigger_command(cli_command: &str, args: &[String], initial_prompt: &str) -> String {
+    let mut cmd_parts = vec![cli_command.to_string()];
+    cmd_parts.extend(args.iter().cloned());
+    if !initial_prompt.is_empty() {
+        let escaped = initial_prompt.replace('\'', "'\\''");
+        // claude CLI uses -p for prompt; codex/others take prompt as positional arg
+        let cli_name = cli_command.rsplit('/').next().unwrap_or(cli_command);
+        if cli_name == "claude" {
+            cmd_parts.push("-p".to_string());
         }
-        table
-    };
-
-    let bytes: Vec<u8> = data.bytes().filter(|&b| b != b'=' && b != b'\n' && b != b'\r').collect();
-    let mut result = Vec::with_capacity(bytes.len() * 3 / 4);
-
-    for chunk in bytes.chunks(4) {
-        let mut buf = [0u8; 4];
-        for (i, &b) in chunk.iter().enumerate() {
-            if b >= 128 || DECODE[b as usize] == 255 {
-                return Err(());
-            }
-            buf[i] = DECODE[b as usize];
-        }
-        result.push((buf[0] << 2) | (buf[1] >> 4));
-        if chunk.len() > 2 {
-            result.push((buf[1] << 4) | (buf[2] >> 2));
-        }
-        if chunk.len() > 3 {
-            result.push((buf[2] << 6) | buf[3]);
-        }
+        cmd_parts.push(format!("'{}'", escaped));
     }
-
-    Ok(result)
+    cmd_parts.join(" ")
 }
 
-/// Extract exit code from sentinel pattern in output text.
-/// Pattern: `___BENTOYA_{nonce}_{exit_code}___`
-/// Returns Some(exit_code) if pattern found with matching nonce.
-fn extract_sentinel(text: &str, expected_nonce: &str) -> Option<i32> {
-    let pattern = format!("{}{}_{}", SENTINEL_PREFIX, expected_nonce, "");
-    if let Some(start) = text.find(&pattern) {
-        let after_nonce = &text[start + pattern.len()..];
-        if let Some(end) = after_nonce.find(SENTINEL_SUFFIX) {
-            let code_str = &after_nonce[..end];
-            return code_str.parse().ok();
-        }
-    }
-    None
+/// tmux session name for a task.
+fn tmux_session_name(task_id: &str) -> String {
+    format!("bentoya_{}", task_id)
 }
 
-/// Check sentinel for a specific task by looking up its registered nonce.
-async fn extract_sentinel_for_task(task_id: &str, text: &str) -> Option<i32> {
-    let nonces = sentinel_nonces().lock().await;
-    if let Some(nonce) = nonces.get(task_id) {
-        extract_sentinel(text, nonce)
-    } else {
-        None
-    }
-}
-
-/// Run a CLI trigger by injecting the command into the task's PTY shell.
+/// Run a CLI trigger by injecting the command into the task's tmux session.
 ///
-/// Uses a single managed bridge per task. If a PTY session already exists,
-/// reuses it. If not, spawns a fresh shell and waits for it to be ready
-/// (prompt detection) before injecting the command.
-///
-/// Uses a sentinel pattern to detect when the command completes.
+/// Uses `tmux send-keys` for command injection and `tmux wait-for` for
+/// completion detection. No sentinel patterns, no shell ready detection —
+/// tmux handles all of that.
 pub fn spawn_cli_trigger_task(
     app: AppHandle,
     task_id: String,
@@ -467,105 +263,59 @@ pub fn spawn_cli_trigger_task(
     };
 
     tokio::spawn(async move {
+        let full_cmd = build_trigger_command(&cli_command, &args, &initial_prompt);
+        let nonce = gen_nonce();
+        let wait_channel = format!("bentoya_{}", nonce);
+        let exit_file = format!("/tmp/bentoya_exit_{}", nonce);
+        let tmux_name = tmux_session_name(&task_id);
+
         let result: Result<(), String> = async {
             let registry: SharedSessionRegistry = app.state::<SharedSessionRegistry>().inner().clone();
 
-            // Build the CLI command string to inject into the shell
-            let mut cmd_parts = vec![cli_command.clone()];
-            cmd_parts.extend(args);
-            if !initial_prompt.is_empty() {
-                let escaped = initial_prompt.replace('\'', "'\\''");
-                // claude CLI uses -p for prompt; codex takes prompt as positional arg
-                let cli_name = cli_command.rsplit('/').next().unwrap_or(&cli_command);
-                if cli_name == "claude" {
-                    cmd_parts.push("-p".to_string());
-                }
-                cmd_parts.push(format!("'{}'", escaped));
-            }
-            let full_cmd = cmd_parts.join(" ");
-
-            // Generate nonce and register it for this task
-            let nonce = gen_nonce();
-            {
-                let mut nonces = sentinel_nonces().lock().await;
-                nonces.insert(task_id.clone(), nonce.clone());
-            }
-
-            // Wrap with sentinel for exit detection (nonce prevents spoofing)
-            let sentinel_cmd = format!(
-                "{} ; echo \"{}{}_{}{}\"\n",
-                full_cmd, SENTINEL_PREFIX, nonce, "$?", SENTINEL_SUFFIX
-            );
-
-            // Check if a PTY session already exists for this task
+            // Ensure a tmux-backed PTY session exists
             {
                 let mut reg = registry.lock().await;
-
                 let session_alive = reg.get(&task_id).map(|s| s.is_alive()).unwrap_or(false);
-                let needs_bridge = !reg.has_active_bridge(&task_id);
 
-                if session_alive {
-                    // Session exists — inject command into existing shell
-                    let (pid, resubscribe_rx) = {
-                        let session = reg.get_mut(&task_id).unwrap();
-                        session.write_pty(sentinel_cmd.as_bytes())
-                            .map_err(|e| format!("Failed to write to PTY: {}", e))?;
-                        let pid = session.pid();
-                        let rx = if needs_bridge { session.resubscribe() } else { None };
-                        (pid, rx)
-                    }; // session borrow ends here
+                if !session_alive {
+                    // Spawn a fresh tmux session
+                    reg.remove(&task_id);
 
-                    // Start bridge if needed
-                    if let Some(rx) = resubscribe_rx {
+                    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+                    let config = SessionConfig {
+                        cli_path: shell,
+                        model: String::new(),
+                        system_prompt: String::new(),
+                        working_dir: Some(working_dir.clone()),
+                        effort_level: None,
+                    };
+
+                    let session = reg
+                        .get_or_create(&task_id, config, TransportType::Pty)
+                        .map_err(|e| e.to_string())?;
+
+                    let _mpsc_rx = session.start_pty(120, 40)?;
+
+                    // Start managed bridge
+                    if let Some(rx) = session.resubscribe() {
                         let bridge = ManagedBridge::start(app.clone(), task_id.clone(), rx);
                         reg.set_bridge(&task_id, bridge);
                     }
-
-                    // Update PID in agent session record
-                    if let Some(ref sid) = session_id {
-                        if let Some(pid) = pid {
-                            if let Ok(conn) = Connection::open(db::db_path()) {
-                                let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-                                let _ = db::update_agent_session(
-                                    &conn, sid,
-                                    Some(Some(pid as i64)), None, None, None, None, None,
-                                );
-                            }
-                        }
-                    }
-
-                    return Ok(());
                 }
-            }
 
-            // No active PTY — spawn a fresh one
-            let broadcast_rx = {
-                let mut reg = registry.lock().await;
-                reg.remove(&task_id);
-
-                let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-                let config = SessionConfig {
-                    cli_path: shell,
-                    model: String::new(),
-                    system_prompt: String::new(),
-                    working_dir: Some(working_dir),
-                    effort_level: None,
-                };
-
-                let session = reg
-                    .get_or_create(&task_id, config, TransportType::Pty)
-                    .map_err(|e| e.to_string())?;
-
-                // Start PTY then subscribe to broadcast (tiny race window is fine —
-                // shell takes much longer to produce first output than subscribe takes)
-                let _mpsc_rx = session.start_pty(120, 40)?;
-
-                let broadcast_rx = session.resubscribe()
-                    .ok_or_else(|| "Failed to subscribe to PTY broadcast".to_string())?;
+                // Ensure bridge is running for existing sessions too
+                let needs_bridge = !reg.has_active_bridge(&task_id);
+                if needs_bridge {
+                    let rx = reg.get(&task_id).and_then(|s| s.resubscribe());
+                    if let Some(rx) = rx {
+                        let bridge = ManagedBridge::start(app.clone(), task_id.clone(), rx);
+                        reg.set_bridge(&task_id, bridge);
+                    }
+                }
 
                 // Update PID in agent session record
                 if let Some(ref sid) = session_id {
-                    if let Some(pid) = session.pid() {
+                    if let Some(pid) = reg.get(&task_id).and_then(|s| s.pid()) {
                         if let Ok(conn) = Connection::open(db::db_path()) {
                             let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
                             let _ = db::update_agent_session(
@@ -575,59 +325,86 @@ pub fn spawn_cli_trigger_task(
                         }
                     }
                 }
+            }
+            // Registry lock released
 
-                broadcast_rx
-                // Registry lock released
-            };
+            // Inject command via tmux send-keys with wait-for completion
+            // Format: {command}; echo $? > {exit_file}; tmux wait-for -S {channel}
+            let wrapped_cmd = format!(
+                "{}; echo $? > {}; tmux wait-for -S {}",
+                full_cmd, exit_file, wait_channel
+            );
 
-            // Get a second subscription for shell ready detection
-            // (the first subscription goes to the managed bridge)
-            let ready_rx = {
-                let reg = registry.lock().await;
-                reg.get(&task_id)
-                    .and_then(|s| s.resubscribe())
-                    .ok_or_else(|| "Session lost during shell ready wait".to_string())?
-            };
+            eprintln!("[bridge] Injecting via tmux send-keys for task {}: {}", task_id, full_cmd);
 
-            // Start the managed bridge (it will forward events to frontend)
-            {
-                let mut reg = registry.lock().await;
-                let bridge = ManagedBridge::start(app.clone(), task_id.clone(), broadcast_rx);
-                reg.set_bridge(&task_id, bridge);
+            let send_output = tokio::process::Command::new("tmux")
+                .args(["send-keys", "-t", &tmux_name, &wrapped_cmd, "Enter"])
+                .output()
+                .await
+                .map_err(|e| format!("tmux send-keys failed: {}", e))?;
+
+            if !send_output.status.success() {
+                let stderr = String::from_utf8_lossy(&send_output.stderr);
+                return Err(format!("tmux send-keys error: {}", stderr.trim()));
             }
 
-            // Wait for shell to be ready (prompt detection) before injecting command
-            eprintln!("[bridge] Waiting for shell ready for task {}", task_id);
-            if let Err(e) = wait_for_shell_ready(ready_rx).await {
-                return Err(format!("Shell ready detection failed: {}", e));
+            // Wait for command completion via tmux wait-for (blocks until signaled)
+            eprintln!("[bridge] Waiting for completion via tmux wait-for: {}", wait_channel);
+
+            let wait_output = tokio::process::Command::new("tmux")
+                .args(["wait-for", &wait_channel])
+                .output()
+                .await
+                .map_err(|e| format!("tmux wait-for failed: {}", e))?;
+
+            if !wait_output.status.success() {
+                let stderr = String::from_utf8_lossy(&wait_output.stderr);
+                return Err(format!("tmux wait-for error: {}", stderr.trim()));
             }
 
-            // Inject the command
-            eprintln!("[bridge] Shell ready, injecting command for task {}: {}", task_id, full_cmd);
-            {
-                let mut reg = registry.lock().await;
-                if let Some(session) = reg.get_mut(&task_id) {
-                    session.write_pty(sentinel_cmd.as_bytes())
-                        .map_err(|e| format!("Failed to write trigger command to PTY: {}", e))?;
-                } else {
-                    return Err("PTY session disappeared after spawn".to_string());
+            // Read exit code from temp file
+            let exit_code = tokio::fs::read_to_string(&exit_file)
+                .await
+                .ok()
+                .and_then(|s| s.trim().parse::<i32>().ok())
+                .unwrap_or(1); // Default to failure if can't read
+
+            // Clean up temp file
+            let _ = tokio::fs::remove_file(&exit_file).await;
+
+            let success = exit_code == 0;
+            eprintln!("[bridge] Trigger completed for task {}: exit_code={}, success={}", task_id, exit_code, success);
+
+            // Update agent session + task status
+            if let Ok(conn) = Connection::open(db::db_path()) {
+                let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                let status = if success { "completed" } else { "failed" };
+                let _ = db::update_task_agent_status(&conn, &task_id, Some(status), None);
+
+                // Update agent_session status (exit criteria checks this)
+                if let Ok(task) = db::get_task(&conn, &task_id) {
+                    if let Some(ref sid) = task.agent_session_id {
+                        let _ = db::update_agent_session(
+                            &conn, sid,
+                            None, Some(status), Some(Some(exit_code as i64)), None, None, None,
+                        );
+                    }
                 }
+
+                let _ = pipeline::mark_complete(&conn, &app, &task_id, success);
             }
+            pipeline::emit_tasks_changed(&app, "", "trigger_complete");
 
             Ok(())
         }
         .await;
 
         if let Err(e) = result {
-            // Clean up sentinel nonce to prevent leak
-            { sentinel_nonces().lock().await.remove(&task_id); }
-
             let error_detail = format!("CLI trigger '{}' failed for task {}: {}", cli_command, task_id, e);
             eprintln!("[bridge] {}", error_detail);
             if let Ok(conn) = Connection::open(db::db_path()) {
                 let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
 
-                // Store detailed error in pipeline_error field
                 let _ = conn.execute(
                     "UPDATE tasks SET pipeline_error = ?1, updated_at = ?2 WHERE id = ?3",
                     rusqlite::params![error_detail, db::now(), task_id],
@@ -649,6 +426,9 @@ pub fn spawn_cli_trigger_task(
                 }
             }
             pipeline::emit_tasks_changed(&app, "", "trigger_failed");
+
+            // Clean up temp file on error too
+            let _ = tokio::fs::remove_file(&exit_file).await;
         }
     });
 }
@@ -658,73 +438,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_extract_sentinel_success() {
-        assert_eq!(extract_sentinel("some output\n___BENTOYA_abc12345_0___\n", "abc12345"), Some(0));
-        assert_eq!(extract_sentinel("___BENTOYA_nonce1_1___", "nonce1"), Some(1));
-        assert_eq!(extract_sentinel("blah ___BENTOYA_xyz_127___ more", "xyz"), Some(127));
-    }
-
-    #[test]
-    fn test_extract_sentinel_wrong_nonce() {
-        assert_eq!(extract_sentinel("___BENTOYA_wrong_0___", "expected"), None);
-    }
-
-    #[test]
-    fn test_extract_sentinel_not_found() {
-        assert_eq!(extract_sentinel("no sentinel here", "abc"), None);
-        assert_eq!(extract_sentinel("___BENTOYA_abc_", "abc"), None);
-        assert_eq!(extract_sentinel("partial ___BENTOYA_abc_0", "abc"), None);
-    }
-
-    #[test]
-    fn test_extract_sentinel_invalid_code() {
-        assert_eq!(extract_sentinel("___BENTOYA_abc_xyz___", "abc"), None);
-    }
-
-    #[test]
-    fn test_base64_decode() {
-        let encoded = super::super::events::base64_encode(b"Hello World");
-        let decoded = base64_decode(&encoded).unwrap();
-        assert_eq!(decoded, b"Hello World");
-    }
-
-    #[test]
-    fn test_is_shell_prompt() {
-        // Common prompts
-        assert!(is_shell_prompt("user@host ~ $ "));
-        assert!(is_shell_prompt("$ "));
-        assert!(is_shell_prompt("% "));
-        assert!(is_shell_prompt("# "));
-        assert!(is_shell_prompt("> "));
-        assert!(is_shell_prompt("user@macbook:~/code$"));
-        assert!(is_shell_prompt("bash-5.2$"));
-
-        // ANSI colored prompts (the critical case)
-        assert!(is_shell_prompt("\x1b[32muser@host\x1b[0m:\x1b[34m~/code\x1b[0m$ "));
-        assert!(is_shell_prompt("\x1b[1;32m$\x1b[0m "));
-        assert!(is_shell_prompt("\x1b[31m%\x1b[0m"));
-
-        // Not prompts
-        assert!(!is_shell_prompt(""));
-        assert!(!is_shell_prompt("   "));
-        assert!(!is_shell_prompt("Loading plugins..."));
-        assert!(!is_shell_prompt("export PATH=/usr/bin"));
-    }
-
-    #[test]
-    fn test_strip_ansi() {
-        assert_eq!(strip_ansi("\x1b[32mhello\x1b[0m"), "hello");
-        assert_eq!(strip_ansi("\x1b[1;34m$\x1b[0m "), "$ ");
-        assert_eq!(strip_ansi("no escapes"), "no escapes");
-        assert_eq!(strip_ansi("\x1b]0;title\x07prompt$"), "prompt$");
-    }
-
-    #[test]
-    fn test_gen_nonce_unique() {
+    fn test_gen_nonce() {
         let a = gen_nonce();
-        let b = gen_nonce();
-        // Not guaranteed to differ with hash-based impl, but should be 16 hex chars
         assert_eq!(a.len(), 16);
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_build_trigger_command_codex() {
+        let cmd = build_trigger_command("codex exec", &[], "do the thing");
+        assert!(cmd.starts_with("codex exec"));
+        assert!(cmd.contains("do the thing"));
+        assert!(!cmd.contains("-p")); // codex doesn't use -p
+    }
+
+    #[test]
+    fn test_build_trigger_command_claude() {
+        let cmd = build_trigger_command("claude", &[], "do the thing");
+        assert!(cmd.contains("-p")); // claude uses -p for prompt
+        assert!(cmd.contains("do the thing"));
+    }
+
+    #[test]
+    fn test_build_trigger_command_with_args() {
+        let cmd = build_trigger_command("codex", &["--model".to_string(), "gpt-5".to_string()], "hello");
+        assert_eq!(cmd, "codex --model gpt-5 'hello'");
+    }
+
+    #[test]
+    fn test_tmux_session_name() {
+        assert_eq!(tmux_session_name("task-123"), "bentoya_task-123");
     }
 }
