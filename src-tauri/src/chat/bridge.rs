@@ -15,6 +15,7 @@ use tokio::task::JoinHandle;
 use super::events::ChatEvent;
 use super::registry::SharedSessionRegistry;
 use super::session::{SessionConfig, TransportType};
+use super::tmux_transport;
 use super::transport::TransportEvent;
 use crate::db;
 use crate::pipeline;
@@ -43,8 +44,6 @@ pub struct ManagedBridge {
 impl ManagedBridge {
     /// Start a new bridge that subscribes to the PTY broadcast channel and
     /// forwards events to the frontend via Tauri events.
-    ///
-    /// The bridge also watches for sentinel patterns (trigger completion detection).
     pub fn start(
         app: AppHandle,
         task_id: String,
@@ -214,9 +213,9 @@ fn build_trigger_command(cli_command: &str, args: &[String], initial_prompt: &st
     cmd_parts.join(" ")
 }
 
-/// tmux session name for a task.
+/// tmux session name for a task (delegates to tmux_transport for single source of truth).
 fn tmux_session_name(task_id: &str) -> String {
-    format!("bentoya_{}", task_id)
+    tmux_transport::session_name(task_id)
 }
 
 /// Run a CLI trigger by injecting the command into the task's tmux session.
@@ -265,8 +264,11 @@ pub fn spawn_cli_trigger_task(
     tokio::spawn(async move {
         let full_cmd = build_trigger_command(&cli_command, &args, &initial_prompt);
         let nonce = gen_nonce();
-        let wait_channel = format!("bentoya_{}", nonce);
-        let exit_file = format!("/tmp/bentoya_exit_{}", nonce);
+        let wait_channel = format!("bywait_{}", nonce);
+        let exit_file = {
+            let data_dir = crate::db::data_dir();
+            format!("{}/exit_{}", data_dir.display(), nonce)
+        };
         let tmux_name = tmux_session_name(&task_id);
 
         let result: Result<(), String> = async {
@@ -338,7 +340,7 @@ pub fn spawn_cli_trigger_task(
             eprintln!("[bridge] Injecting via tmux send-keys for task {}: {}", task_id, full_cmd);
 
             let send_output = tokio::process::Command::new("tmux")
-                .args(["send-keys", "-t", &tmux_name, &wrapped_cmd, "Enter"])
+                .args(["send-keys", "-t", &tmux_name, "-l", &wrapped_cmd])
                 .output()
                 .await
                 .map_err(|e| format!("tmux send-keys failed: {}", e))?;
@@ -348,14 +350,33 @@ pub fn spawn_cli_trigger_task(
                 return Err(format!("tmux send-keys error: {}", stderr.trim()));
             }
 
-            // Wait for command completion via tmux wait-for (blocks until signaled)
-            eprintln!("[bridge] Waiting for completion via tmux wait-for: {}", wait_channel);
-
-            let wait_output = tokio::process::Command::new("tmux")
-                .args(["wait-for", &wait_channel])
+            // Send Enter separately (not literal)
+            let enter_output = tokio::process::Command::new("tmux")
+                .args(["send-keys", "-t", &tmux_name, "Enter"])
                 .output()
                 .await
-                .map_err(|e| format!("tmux wait-for failed: {}", e))?;
+                .map_err(|e| format!("tmux send-keys failed: {}", e))?;
+
+            if !enter_output.status.success() {
+                let stderr = String::from_utf8_lossy(&enter_output.stderr);
+                return Err(format!("tmux send-keys Enter error: {}", stderr.trim()));
+            }
+
+            // Wait for command completion via tmux wait-for (blocks until signaled)
+            // Timeout after 2 hours to prevent permanently stuck tasks
+            eprintln!("[bridge] Waiting for completion via tmux wait-for: {}", wait_channel);
+
+            let wait_future = tokio::process::Command::new("tmux")
+                .args(["wait-for", &wait_channel])
+                .output();
+
+            let wait_output = tokio::time::timeout(
+                std::time::Duration::from_secs(7200), // 2 hour max
+                wait_future,
+            )
+            .await
+            .map_err(|_| format!("Trigger timed out after 2 hours for task {}", task_id))?
+            .map_err(|e| format!("tmux wait-for failed: {}", e))?;
 
             if !wait_output.status.success() {
                 let stderr = String::from_utf8_lossy(&wait_output.stderr);

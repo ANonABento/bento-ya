@@ -19,7 +19,7 @@ use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::{broadcast, mpsc};
@@ -71,7 +71,7 @@ pub fn session_name_to_task_id(session_name: &str) -> Option<&str> {
 }
 
 /// Build the tmux session name for a task.
-fn session_name(task_id: &str) -> String {
+pub fn session_name(task_id: &str) -> String {
     format!("{}{}", SESSION_PREFIX, task_id)
 }
 
@@ -112,12 +112,12 @@ pub struct TmuxTransport {
     shutdown_tx: Option<mpsc::Sender<()>>,
     /// PID of the `tmux attach` process (not the shell inside tmux)
     attach_pid: Option<u32>,
-    /// Whether the tmux session is alive
+    /// Whether the tmux attach process is alive (fast check, no subprocess)
     alive: Arc<AtomicBool>,
     /// Whether we own the tmux session (created it) vs reconnecting to existing
     owns_session: bool,
-    /// Scrollback cache (populated on demand via capture-pane)
-    scrollback_cache: Arc<Mutex<String>>,
+    /// Cached PID of the shell inside tmux (queried once, then cached)
+    cached_pane_pid: Option<u32>,
 }
 
 impl TmuxTransport {
@@ -130,7 +130,7 @@ impl TmuxTransport {
             attach_pid: None,
             alive: Arc::new(AtomicBool::new(false)),
             owns_session: false,
-            scrollback_cache: Arc::new(Mutex::new(String::new())),
+            cached_pane_pid: None,
         }
     }
 
@@ -241,6 +241,19 @@ impl TmuxTransport {
         self.attach_pid = Some(pid);
         self.alive.store(true, Ordering::SeqCst);
 
+        // Cache the pane PID (shell inside tmux) to avoid subprocess per pid() call
+        self.cached_pane_pid = Command::new("tmux")
+            .args(["display-message", "-t", &name, "-p", "#{pane_pid}"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().ok()
+                } else {
+                    None
+                }
+            });
+
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
         let (data_tx, mut data_rx) = mpsc::channel::<Vec<u8>>(256);
         let (exit_tx, mut exit_rx) = mpsc::channel::<()>(1);
@@ -295,7 +308,6 @@ impl TmuxTransport {
         });
 
         // Async buffer task: batch output and emit events
-        let scrollback_ref = Arc::clone(&self.scrollback_cache);
         tokio::spawn(async move {
             let mut buffer = Vec::new();
             let mut interval =
@@ -362,10 +374,6 @@ impl TmuxTransport {
                 }
             }
 
-            // Cache final scrollback
-            if let Ok(mut cache) = scrollback_ref.lock() {
-                *cache = String::new(); // Will be populated on demand via capture-pane
-            }
         });
 
         Ok(event_rx)
@@ -374,9 +382,12 @@ impl TmuxTransport {
 
 impl ChatTransport for TmuxTransport {
     fn spawn(&mut self, config: SpawnConfig) -> Result<mpsc::Receiver<TransportEvent>, String> {
-        // Kill any existing session with this name (stale from previous run)
         if has_session(&self.task_id) {
-            let _ = kill_session(&self.task_id);
+            // Session already exists — reattach instead of killing.
+            // This preserves running agents across app restarts.
+            eprintln!("[tmux] Reattaching to existing session: {}", session_name(&self.task_id));
+            self.owns_session = true; // Take ownership since we're managing it now
+            return self.attach_in_pty();
         }
 
         // Create detached tmux session
@@ -444,35 +455,20 @@ impl ChatTransport for TmuxTransport {
     }
 
     fn is_alive(&self) -> bool {
-        // Check both the attach process AND the tmux session
-        if self.alive.load(Ordering::SeqCst) {
-            return true;
-        }
-        // Attach might have died but tmux session could still be alive
-        has_session(&self.task_id)
+        // Fast path: if the attach process is running, session is alive
+        self.alive.load(Ordering::SeqCst)
+        // Note: we don't shell out to `tmux has-session` here for performance.
+        // If the attach process dies but tmux session survives (rare edge case),
+        // the session will be detected as dead. On next ensure_pty_session,
+        // spawn() will find the existing tmux session and reattach.
     }
 
     fn pid(&self) -> Option<u32> {
-        // Return the PID of the shell inside tmux, not the attach process
-        Command::new("tmux")
-            .args([
-                "display-message",
-                "-t", &session_name(&self.task_id),
-                "-p", "#{pane_pid}",
-            ])
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    String::from_utf8_lossy(&o.stdout)
-                        .trim()
-                        .parse::<u32>()
-                        .ok()
-                } else {
-                    None
-                }
-            })
-            .or(self.attach_pid)
+        // Return cached PID if available (avoids subprocess per call)
+        if let Some(pid) = self.cached_pane_pid {
+            return Some(pid);
+        }
+        self.attach_pid
     }
 
     fn scrollback(&self) -> String {

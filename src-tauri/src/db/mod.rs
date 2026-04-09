@@ -51,7 +51,7 @@ pub struct AppState {
 }
 
 /// Returns the path to the Bento-ya data directory (~/.bentoya/).
-fn data_dir() -> PathBuf {
+pub fn data_dir() -> PathBuf {
     let home = dirs_home();
     home.join(".bentoya")
 }
