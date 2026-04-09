@@ -4,23 +4,25 @@
 //! - Task agents: keyed by `task_id`
 //! - Orchestrator/chef: keyed by `"chef:{workspace_id}"`
 //!
-//! The registry enforces `max_concurrent_sessions` and provides
-//! get-or-create semantics for trigger integration.
+//! The registry enforces `max_concurrent_sessions` with LRU eviction
+//! and provides get-or-create semantics for trigger integration.
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
 
 use super::session::{SessionConfig, SessionState, TransportType, UnifiedChatSession};
 
-const DEFAULT_MAX_SESSIONS: usize = 5;
+const DEFAULT_MAX_SESSIONS: usize = 20;
+const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300); // 5 min
 
 /// Registry of active chat sessions.
 pub struct SessionRegistry {
     sessions: HashMap<String, UnifiedChatSession>,
     max_sessions: usize,
+    idle_timeout: Duration,
 }
 
 impl SessionRegistry {
@@ -28,6 +30,7 @@ impl SessionRegistry {
         Self {
             sessions: HashMap::new(),
             max_sessions: DEFAULT_MAX_SESSIONS,
+            idle_timeout: DEFAULT_IDLE_TIMEOUT,
         }
     }
 
@@ -35,6 +38,7 @@ impl SessionRegistry {
         Self {
             sessions: HashMap::new(),
             max_sessions,
+            idle_timeout: DEFAULT_IDLE_TIMEOUT,
         }
     }
 
@@ -56,7 +60,8 @@ impl SessionRegistry {
     /// Get or create a session. Returns a mutable reference.
     ///
     /// If the session doesn't exist, creates one with the given config.
-    /// Returns Err if at capacity and the key doesn't already exist.
+    /// If at capacity, evicts the oldest idle session (LRU) to make room.
+    /// Returns Err only if at capacity and ALL sessions are busy (can't evict).
     pub fn get_or_create(
         &mut self,
         key: &str,
@@ -65,10 +70,15 @@ impl SessionRegistry {
     ) -> Result<&mut UnifiedChatSession, String> {
         if !self.sessions.contains_key(key) {
             if self.sessions.len() >= self.max_sessions {
-                return Err(format!(
-                    "Maximum {} concurrent sessions reached",
-                    self.max_sessions
-                ));
+                // LRU eviction: find the oldest idle session and remove it
+                if let Some(evict_key) = self.find_oldest_idle() {
+                    self.sessions.remove(&evict_key);
+                } else {
+                    return Err(format!(
+                        "Maximum {} concurrent sessions reached (all busy)",
+                        self.max_sessions
+                    ));
+                }
             }
             self.sessions.insert(
                 key.to_string(),
@@ -136,7 +146,7 @@ impl SessionRegistry {
 
     /// Find sessions idle longer than the given duration and suspend them.
     /// Returns the keys of suspended sessions.
-    pub fn suspend_idle(&mut self, idle_threshold: std::time::Duration) -> Vec<String> {
+    pub fn suspend_idle(&mut self, idle_threshold: Duration) -> Vec<String> {
         let now = Instant::now();
         let mut suspended = Vec::new();
 
@@ -152,6 +162,37 @@ impl SessionRegistry {
 
         suspended
     }
+
+    /// Run idle timeout sweep using the configured threshold.
+    /// Returns the number of sessions suspended.
+    pub fn sweep_idle(&mut self) -> usize {
+        let threshold = self.idle_timeout;
+        self.suspend_idle(threshold).len()
+    }
+
+    /// Find the oldest idle (not busy) session key for LRU eviction.
+    /// Prefers suspended sessions, then idle, then non-busy running.
+    fn find_oldest_idle(&self) -> Option<String> {
+        let mut oldest: Option<(&str, Instant)> = None;
+
+        for (key, session) in &self.sessions {
+            if session.is_busy() {
+                continue;
+            }
+
+            let activity = session.last_activity();
+            let dominated = match oldest {
+                None => true,
+                Some((_, oldest_time)) => activity < oldest_time,
+            };
+
+            if dominated {
+                oldest = Some((key, activity));
+            }
+        }
+
+        oldest.map(|(k, _)| k.to_string())
+    }
 }
 
 impl Default for SessionRegistry {
@@ -165,6 +206,24 @@ pub type SharedSessionRegistry = Arc<Mutex<SessionRegistry>>;
 
 pub fn new_shared_session_registry() -> SharedSessionRegistry {
     Arc::new(Mutex::new(SessionRegistry::new()))
+}
+
+/// Start a periodic idle sweep task. Runs every 60s.
+/// Suspends sessions that have been idle longer than the registry's idle_timeout.
+pub fn start_idle_sweep(registry: SharedSessionRegistry) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let count = {
+                let mut reg = registry.lock().await;
+                reg.sweep_idle()
+            };
+            if count > 0 {
+                eprintln!("[registry] Suspended {} idle session(s)", count);
+            }
+        }
+    });
 }
 
 #[cfg(test)]
@@ -205,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn test_registry_capacity() {
+    fn test_registry_lru_eviction() {
         let mut registry = SessionRegistry::with_max_sessions(2);
 
         registry
@@ -215,13 +274,51 @@ mod tests {
             .get_or_create("task-2", test_config(), TransportType::Pipe)
             .unwrap();
 
-        // At capacity — new key rejected
+        // At capacity — LRU eviction kicks in, evicts task-1 (oldest)
         let result = registry.get_or_create("task-3", test_config(), TransportType::Pipe);
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        assert_eq!(registry.len(), 2);
 
-        // Existing key still works at capacity
+        // task-1 was evicted, task-2 and task-3 remain
+        assert!(!registry.has("task-1"));
+        assert!(registry.has("task-2"));
+        assert!(registry.has("task-3"));
+    }
+
+    #[test]
+    fn test_registry_capacity_existing_key() {
+        let mut registry = SessionRegistry::with_max_sessions(2);
+
+        registry
+            .get_or_create("task-1", test_config(), TransportType::Pipe)
+            .unwrap();
+        registry
+            .get_or_create("task-2", test_config(), TransportType::Pipe)
+            .unwrap();
+
+        // Existing key still works at capacity (no eviction needed)
         let result = registry.get_or_create("task-1", test_config(), TransportType::Pipe);
         assert!(result.is_ok());
+        assert_eq!(registry.len(), 2);
+    }
+
+    #[test]
+    fn test_find_oldest_idle() {
+        let mut registry = SessionRegistry::new();
+
+        registry
+            .get_or_create("old", test_config(), TransportType::Pipe)
+            .unwrap();
+
+        // Slight delay so "new" has a later timestamp
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        registry
+            .get_or_create("new", test_config(), TransportType::Pipe)
+            .unwrap();
+
+        let oldest = registry.find_oldest_idle();
+        assert_eq!(oldest, Some("old".to_string()));
     }
 
     #[test]

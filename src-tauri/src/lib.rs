@@ -19,7 +19,7 @@ pub mod whisper;
 #[cfg(feature = "voice")]
 use commands::voice::RecorderState;
 use db::AppState;
-use chat::registry::new_shared_session_registry;
+use chat::registry::{new_shared_session_registry, start_idle_sweep};
 #[cfg(feature = "voice")]
 use whisper::AudioRecorder;
 
@@ -62,8 +62,9 @@ pub fn run() {
     #[cfg(feature = "voice")]
     let recorder_state = RecorderState(Mutex::new(AudioRecorder::new()));
 
-    // Clone for shutdown handler
+    // Clone for shutdown handler + idle sweep
     let session_registry_for_shutdown = Arc::clone(&session_registry);
+    let session_registry_for_sweep = Arc::clone(&session_registry);
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -250,6 +251,8 @@ pub fn run() {
         .setup(|app| {
             // Start HTTP API server for external MCP control
             api::start(app.handle().clone());
+            // Start periodic idle session sweep (every 60s)
+            start_idle_sweep(session_registry_for_sweep);
             Ok(())
         })
         .run(tauri::generate_context!())
