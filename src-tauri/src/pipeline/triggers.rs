@@ -572,6 +572,21 @@ fn execute_create_pr(
 
     tokio::spawn(async move {
         let result = tokio::task::spawn_blocking(move || -> Result<(i64, String), String> {
+            // Push branch to remote first (gh pr create requires the branch to exist on remote)
+            let push_output = std::process::Command::new("git")
+                .args(["push", "-u", "origin", &branch_name])
+                .current_dir(&repo_path)
+                .output()
+                .map_err(|e| format!("Failed to push branch: {}", e))?;
+
+            if !push_output.status.success() {
+                let stderr = String::from_utf8_lossy(&push_output.stderr);
+                // "Everything up-to-date" is not an error
+                if !stderr.contains("up-to-date") && !stderr.contains("already exists") {
+                    return Err(format!("git push failed: {}", stderr.trim()));
+                }
+            }
+
             let output = std::process::Command::new("gh")
                 .args([
                     "pr", "create",
