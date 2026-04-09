@@ -275,6 +275,10 @@ impl ChatTransport for PtyTransport {
     fn scrollback(&self) -> String {
         self.get_scrollback()
     }
+
+    fn resubscribe(&self) -> Option<broadcast::Receiver<TransportEvent>> {
+        self.event_broadcast.as_ref().map(|tx| tx.subscribe())
+    }
 }
 
 impl Default for PtyTransport {
