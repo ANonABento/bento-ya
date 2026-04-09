@@ -115,6 +115,12 @@ impl UnifiedChatSession {
         self.transport.as_ref().map(|t| t.scrollback()).unwrap_or_default()
     }
 
+    /// Create a new event receiver for an existing PTY session (for bridge reconnection).
+    /// Returns None if session has no transport or transport doesn't support resubscription.
+    pub fn resubscribe(&self) -> Option<tokio::sync::broadcast::Receiver<super::transport::TransportEvent>> {
+        self.transport.as_ref().and_then(|t| t.resubscribe())
+    }
+
     /// Update the resume ID (e.g. from DB on session restore).
     pub fn set_resume_id(&mut self, id: Option<String>) {
         self.resume_id = id;

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 use super::events::ChatEvent;
 
@@ -41,6 +41,7 @@ pub struct SpawnConfig {
 }
 
 /// Events sent from a transport to the session layer.
+#[derive(Clone, Debug)]
 pub enum TransportEvent {
     /// Chat event (text, thinking, tool use, etc.)
     Chat(ChatEvent),
@@ -76,5 +77,11 @@ pub trait ChatTransport: Send {
     /// Get scrollback buffer as base64-encoded string (PTY only, empty for pipe)
     fn scrollback(&self) -> String {
         String::new()
+    }
+
+    /// Create a new event receiver for an existing session (PTY only).
+    /// Returns None if the transport doesn't support resubscription.
+    fn resubscribe(&self) -> Option<broadcast::Receiver<TransportEvent>> {
+        None
     }
 }

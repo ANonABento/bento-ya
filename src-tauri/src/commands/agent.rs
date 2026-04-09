@@ -466,9 +466,9 @@ pub async fn switch_agent_transport(
 
 /// Ensure a PTY session exists for a task. Spawns a bare shell if none exists.
 ///
-/// Called by the terminal view on mount. Returns immediately if a session
-/// is already running. Handles suspended sessions by resuming them.
-/// The PTY runs the user's default shell in the task's working directory.
+/// Called by the terminal view on mount. If a session is already alive,
+/// resubscribes to its event stream (no kill) and returns scrollback for replay.
+/// If no session exists or process exited, spawns a fresh shell.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn ensure_pty_session(
     app: AppHandle,
@@ -478,57 +478,136 @@ pub async fn ensure_pty_session(
     cols: u16,
     rows: u16,
 ) -> Result<AgentInfo, String> {
-    let (event_rx, cached_scrollback) = {
+    enum Action {
+        /// Session alive — resubscribe to broadcast channel, replay scrollback
+        Reconnect {
+            scrollback: String,
+            pid: Option<u32>,
+            rx: tokio::sync::broadcast::Receiver<crate::chat::transport::TransportEvent>,
+        },
+        /// No session or dead — spawn fresh shell
+        SpawnFresh {
+            event_rx: tokio::sync::mpsc::Receiver<crate::chat::transport::TransportEvent>,
+        },
+    }
+
+    let action = {
         let mut registry = session_registry.lock().await;
 
-        // Always kill + respawn to ensure a fresh event bridge.
-        // The bridge is a one-shot tokio task — if the frontend reloads,
-        // old listeners are dead and we need a new bridge.
-        registry.remove(&task_id);
-
-        // Skip scrollback restore — we always respawn a fresh shell,
-        // so old scrollback would just be stale prompts that duplicate
-        // with the new shell's prompt. Clear the cache instead.
-        registry.take_scrollback(&task_id);
-
-        // Use user's default shell
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-
-        let config = SessionConfig {
-            cli_path: shell,
-            model: String::new(),
-            system_prompt: String::new(),
-            working_dir: Some(working_dir.clone()),
-            effort_level: None,
-        };
-
-        let session = registry
-            .get_or_create(&task_id, config, TransportType::Pty)
-            .map_err(|e| e.to_string())?;
-
-        let rx = session.start_pty(cols, rows)?;
-        (rx, None) // No scrollback restore — fresh shell has its own prompt
+        // Check if an alive session exists
+        if let Some(session) = registry.get(&task_id) {
+            if session.is_alive() {
+                if let Some(rx) = session.resubscribe() {
+                    let scrollback = session.scrollback();
+                    let pid = session.pid();
+                    Action::Reconnect { scrollback, pid, rx }
+                } else {
+                    // Alive but can't resubscribe (shouldn't happen for PTY)
+                    // Fall through to spawn fresh
+                    registry.remove(&task_id);
+                    registry.take_scrollback(&task_id);
+                    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+                    let config = SessionConfig {
+                        cli_path: shell, model: String::new(),
+                        system_prompt: String::new(),
+                        working_dir: Some(working_dir.clone()),
+                        effort_level: None,
+                    };
+                    let session = registry.get_or_create(&task_id, config, TransportType::Pty)
+                        .map_err(|e| e.to_string())?;
+                    Action::SpawnFresh { event_rx: session.start_pty(cols, rows)? }
+                }
+            } else {
+                // Session exists but dead — remove and spawn fresh
+                registry.remove(&task_id);
+                let scrollback = registry.take_scrollback(&task_id);
+                let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+                let config = SessionConfig {
+                    cli_path: shell, model: String::new(),
+                    system_prompt: String::new(),
+                    working_dir: Some(working_dir.clone()),
+                    effort_level: None,
+                };
+                let session = registry.get_or_create(&task_id, config, TransportType::Pty)
+                    .map_err(|e| e.to_string())?;
+                let event_rx = session.start_pty(cols, rows)?;
+                // Return scrollback from dead session so terminal shows history
+                return {
+                    let pid = session.pid();
+                    let task_id_clone = task_id.clone();
+                    tokio::spawn(async move {
+                        crate::chat::bridge::bridge_pty_to_tauri(&app, &task_id_clone, event_rx).await;
+                    });
+                    Ok(AgentInfo {
+                        task_id, agent_type: "shell".to_string(),
+                        status: "Running".to_string(), pid, working_dir,
+                        scrollback: if scrollback.is_empty() { None } else { Some(scrollback) },
+                    })
+                };
+            }
+        } else {
+            // No session at all — spawn fresh
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+            let config = SessionConfig {
+                cli_path: shell, model: String::new(),
+                system_prompt: String::new(),
+                working_dir: Some(working_dir.clone()),
+                effort_level: None,
+            };
+            let session = registry.get_or_create(&task_id, config, TransportType::Pty)
+                .map_err(|e| e.to_string())?;
+            Action::SpawnFresh { event_rx: session.start_pty(cols, rows)? }
+        }
     };
+    // Registry lock released
 
-    // Bridge PTY events to frontend
-    let task_id_clone = task_id.clone();
-    tokio::spawn(async move {
-        crate::chat::bridge::bridge_pty_to_tauri(&app, &task_id_clone, event_rx).await;
-    });
+    match action {
+        Action::Reconnect { scrollback, pid, mut rx } => {
+            // Start a new bridge from the broadcast receiver
+            let task_id_clone = task_id.clone();
+            tokio::spawn(async move {
+                // Bridge broadcast events to Tauri (same as mpsc bridge but from broadcast)
+                while let Ok(event) = rx.recv().await {
+                    match event {
+                        crate::chat::transport::TransportEvent::Chat(
+                            crate::chat::events::ChatEvent::RawOutput(ref data)
+                        ) => {
+                            let _ = app.emit(&format!("pty:{}:output", task_id_clone), data);
+                        }
+                        crate::chat::transport::TransportEvent::Exited(_) => {
+                            let _ = app.emit(
+                                &format!("pty:{}:exit", task_id_clone),
+                                serde_json::json!({ "taskId": task_id_clone }),
+                            );
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            });
 
-    let pid = {
-        let registry = session_registry.lock().await;
-        registry.get(&task_id).and_then(|s| s.pid())
-    };
-
-    Ok(AgentInfo {
-        task_id,
-        agent_type: "shell".to_string(),
-        status: "Running".to_string(),
-        pid,
-        working_dir,
-        scrollback: cached_scrollback,
-    })
+            Ok(AgentInfo {
+                task_id, agent_type: "shell".to_string(),
+                status: "Running".to_string(), pid, working_dir,
+                scrollback: if scrollback.is_empty() { None } else { Some(scrollback) },
+            })
+        }
+        Action::SpawnFresh { event_rx } => {
+            let pid = {
+                let registry = session_registry.lock().await;
+                registry.get(&task_id).and_then(|s| s.pid())
+            };
+            let task_id_clone = task_id.clone();
+            tokio::spawn(async move {
+                crate::chat::bridge::bridge_pty_to_tauri(&app, &task_id_clone, event_rx).await;
+            });
+            Ok(AgentInfo {
+                task_id, agent_type: "shell".to_string(),
+                status: "Running".to_string(), pid, working_dir,
+                scrollback: None,
+            })
+        }
+    }
 }
 
 /// Cancel an ongoing agent chat (kills the session)

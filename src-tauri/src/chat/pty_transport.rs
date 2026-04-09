@@ -6,7 +6,7 @@
 //! Uses `pty-process` crate with blocking I/O, three threads per session:
 //! 1. Reader thread: reads PTY output via duped fd
 //! 2. Exit watcher: `libc::waitpid(WNOHANG)` polling (macOS-safe)
-//! 3. Async task: buffers output, sends events via channel
+//! 3. Async task: buffers output, sends events via broadcast channel
 
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 use super::events::{base64_encode, ChatEvent};
 use super::transport::{
@@ -28,6 +28,8 @@ pub struct PtyTransport {
     pty: Option<pty_process::blocking::Pty>,
     /// Scrollback buffer for reconnection
     scrollback: Arc<Mutex<Vec<u8>>>,
+    /// Broadcast sender for events (supports multiple receivers)
+    event_broadcast: Option<broadcast::Sender<TransportEvent>>,
     /// Shutdown signal
     shutdown_tx: Option<mpsc::Sender<()>>,
     /// Process ID
@@ -41,6 +43,7 @@ impl PtyTransport {
         Self {
             pty: None,
             scrollback: Arc::new(Mutex::new(Vec::new())),
+            event_broadcast: None,
             shutdown_tx: None,
             child_pid: None,
             alive: Arc::new(AtomicBool::new(false)),
@@ -51,6 +54,12 @@ impl PtyTransport {
     pub fn get_scrollback(&self) -> String {
         let sb = self.scrollback.lock().unwrap_or_else(|e| e.into_inner());
         base64_encode(&sb)
+    }
+
+    /// Create a new event receiver for this transport (for bridge reconnection).
+    /// Returns None if no broadcast sender exists (transport not spawned).
+    pub fn resubscribe(&self) -> Option<broadcast::Receiver<TransportEvent>> {
+        self.event_broadcast.as_ref().map(|tx| tx.subscribe())
     }
 }
 
@@ -86,8 +95,7 @@ impl ChatTransport for PtyTransport {
 
         let pid = child.id();
 
-        // Dup the PTY fd for the reader thread — do this before setting
-        // child_pid/alive so we don't leave stale state on failure
+        // Dup the PTY fd for the reader thread
         let pty_fd = pty.as_raw_fd();
         let dup_fd = unsafe { libc::dup(pty_fd) };
         if dup_fd < 0 {
@@ -101,6 +109,12 @@ impl ChatTransport for PtyTransport {
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
         let (data_tx, mut data_rx) = mpsc::channel::<Vec<u8>>(256);
         let (exit_tx, mut exit_rx) = mpsc::channel::<()>(1);
+
+        // Broadcast channel for events (supports multiple bridge receivers)
+        let (broadcast_tx, _) = broadcast::channel::<TransportEvent>(256);
+        self.event_broadcast = Some(broadcast_tx.clone());
+
+        // Also create an mpsc for backward compat (returned to caller)
         let (event_tx, event_rx) = mpsc::channel::<TransportEvent>(256);
 
         // Store PTY handle for write/resize
@@ -123,13 +137,10 @@ impl ChatTransport for PtyTransport {
             }
         });
 
-        // Child exit watcher thread — uses libc::waitpid directly
-        // std::process::Child::wait() blocks on macOS due to PTY process group,
-        // so we poll with WNOHANG instead.
+        // Child exit watcher thread
         let child_pid = pid as libc::pid_t;
         let alive_flag = Arc::clone(&self.alive);
         std::thread::spawn(move || {
-            // Prevent Child destructor from calling wait/kill
             std::mem::forget(child);
 
             loop {
@@ -144,7 +155,7 @@ impl ChatTransport for PtyTransport {
             }
         });
 
-        // Async task: buffer output and emit events
+        // Async task: buffer output and emit events to BOTH mpsc and broadcast
         let scrollback_writer = Arc::clone(&self.scrollback);
         tokio::spawn(async move {
             let mut buffer = Vec::new();
@@ -167,14 +178,16 @@ impl ChatTransport for PtyTransport {
                         }
                         // Flush
                         if !buffer.is_empty() {
-                            let _ = event_tx
-                                .send(TransportEvent::Chat(ChatEvent::RawOutput(
-                                    base64_encode(&buffer),
-                                )))
-                                .await;
+                            let event = TransportEvent::Chat(ChatEvent::RawOutput(
+                                base64_encode(&buffer),
+                            ));
+                            let _ = event_tx.send(event.clone()).await;
+                            let _ = broadcast_tx.send(event);
                             buffer.clear();
                         }
-                        let _ = event_tx.send(TransportEvent::Exited(None)).await;
+                        let exit_event = TransportEvent::Exited(None);
+                        let _ = event_tx.send(exit_event.clone()).await;
+                        let _ = broadcast_tx.send(exit_event);
                         break;
                     }
                     data = data_rx.recv() => {
@@ -192,25 +205,27 @@ impl ChatTransport for PtyTransport {
                             None => {
                                 // Reader thread exited (EOF)
                                 if !buffer.is_empty() {
-                                    let _ = event_tx
-                                        .send(TransportEvent::Chat(ChatEvent::RawOutput(
-                                            base64_encode(&buffer),
-                                        )))
-                                        .await;
+                                    let event = TransportEvent::Chat(ChatEvent::RawOutput(
+                                        base64_encode(&buffer),
+                                    ));
+                                    let _ = event_tx.send(event.clone()).await;
+                                    let _ = broadcast_tx.send(event);
                                     buffer.clear();
                                 }
-                                let _ = event_tx.send(TransportEvent::Exited(None)).await;
+                                let exit_event = TransportEvent::Exited(None);
+                                let _ = event_tx.send(exit_event.clone()).await;
+                                let _ = broadcast_tx.send(exit_event);
                                 break;
                             }
                         }
                     }
                     _ = interval.tick() => {
                         if !buffer.is_empty() {
-                            let _ = event_tx
-                                .send(TransportEvent::Chat(ChatEvent::RawOutput(
-                                    base64_encode(&buffer),
-                                )))
-                                .await;
+                            let event = TransportEvent::Chat(ChatEvent::RawOutput(
+                                base64_encode(&buffer),
+                            ));
+                            let _ = event_tx.send(event.clone()).await;
+                            let _ = broadcast_tx.send(event);
                             buffer.clear();
                         }
                     }
@@ -233,13 +248,16 @@ impl ChatTransport for PtyTransport {
     fn resize(&mut self, cols: u16, rows: u16) -> Result<(), String> {
         let pty = self.pty.as_ref().ok_or("PTY not spawned")?;
         pty.resize(pty_process::Size::new(rows, cols))
-            .map_err(|e| format!("Failed to resize PTY: {}", e))?;
-        Ok(())
+            .map_err(|e| format!("Failed to resize PTY: {}", e))
     }
 
     fn kill(&mut self) -> Result<(), String> {
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.try_send(());
+        }
+        // Explicitly terminate the child process
+        if let Some(pid) = self.child_pid {
+            unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM); }
         }
         self.pty = None;
         self.alive.store(false, Ordering::SeqCst);
@@ -274,5 +292,7 @@ mod tests {
         let transport = PtyTransport::new();
         assert!(!transport.is_alive());
         assert!(transport.pid().is_none());
+        assert!(transport.get_scrollback().is_empty());
+        assert!(transport.resubscribe().is_none());
     }
 }

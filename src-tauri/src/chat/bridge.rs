@@ -36,11 +36,17 @@ fn sentinel_nonces() -> &'static SentinelMap {
     SENTINEL_NONCES.get_or_init(|| Arc::new(TokioMutex::new(HashMap::new())))
 }
 
-/// Generate a random 8-char hex nonce.
+/// Generate a random 16-char hex nonce.
 fn gen_nonce() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-    format!("{:08x}", t.subsec_nanos() ^ (t.as_secs() as u32))
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    let s = RandomState::new();
+    let mut h = s.build_hasher();
+    h.write_u64(std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64);
+    format!("{:016x}", h.finish())
 }
 
 /// Forward PTY transport events to Tauri events for frontend rendering.
@@ -121,7 +127,7 @@ pub async fn bridge_pty_to_tauri(
                     "success": true,
                 }));
             }
-            TransportEvent::Exited(_) => {
+            TransportEvent::Exited(exit_code) => {
                 if !accumulated_text.is_empty() {
                     if let Ok(conn) = Connection::open(db::db_path()) {
                         let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
@@ -133,7 +139,7 @@ pub async fn bridge_pty_to_tauri(
                 }
                 let _ = app.emit(
                     &format!("pty:{}:exit", task_id),
-                    serde_json::json!({ "taskId": task_id }),
+                    serde_json::json!({ "task_id": task_id, "exit_code": exit_code }),
                 );
                 break;
             }

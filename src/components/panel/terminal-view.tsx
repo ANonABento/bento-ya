@@ -154,7 +154,9 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
         if (disposed) return
         try {
           fitAddon.fit()
-          void resizePty(taskId, term.cols, term.rows)
+          if (term.cols > 0 && term.rows > 0) {
+            void resizePty(taskId, term.cols, term.rows)
+          }
         } catch {
           // fit() can throw if container has zero dimensions
         }

@@ -189,6 +189,11 @@ impl SessionRegistry {
         let mut suspended = Vec::new();
 
         for (key, session) in self.sessions.iter_mut() {
+            // Skip PTY sessions — interactive terminals should stay alive
+            // (only sweep pipe-mode sessions that are idle between messages)
+            if session.transport_type() == TransportType::Pty {
+                continue;
+            }
             if session.state() == SessionState::Running
                 && !session.is_busy()
                 && now.duration_since(session.last_activity()) >= idle_threshold
