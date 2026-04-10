@@ -409,7 +409,14 @@ fn execute_spawn_cli(
         format!("{}\n\n{}", task.title, task.description.as_deref().unwrap_or(""))
     };
 
-    let cli_type = cli.unwrap_or("claude").to_string();
+    // Resolve CLI: trigger config > workspace config > global settings
+    let cli_type = cli.map(|c| c.to_string()).unwrap_or_else(|| {
+        let settings = crate::config::AppSettings::load();
+        settings.resolve_with_workspace(
+            Some(&workspace.config),
+            "default_agent_cli",
+        ).unwrap_or_else(|| settings.default_agent_cli.clone())
+    });
 
     // Prepend slash command if provided
     let initial_prompt = match command {
@@ -444,8 +451,13 @@ fn execute_spawn_cli(
 
     emit_pipeline(app, EVT_RUNNING, &task.id, &column.id, PipelineState::Running, Some(format!("CLI trigger: {}", cli_type)));
 
-    // Resolve model: task override > trigger config > none
-    let resolved_model = task.model.as_deref().or(model).map(|m| m.to_string());
+    // Resolve model: task override > trigger config > workspace config > global settings
+    let resolved_model = task.model.as_deref().or(model).map(|m| m.to_string()).or_else(|| {
+        let settings = crate::config::AppSettings::load();
+        let m = settings.resolve_with_workspace(Some(&workspace.config), "default_model")
+            .unwrap_or_else(|| settings.default_model.clone());
+        if m.is_empty() { None } else { Some(m) }
+    });
     let mut cli_args = Vec::new();
     if let Some(ref m) = resolved_model {
         cli_args.push("--model".to_string());
