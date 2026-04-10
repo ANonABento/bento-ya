@@ -219,9 +219,64 @@ TOKEN-OPTIMIZED FLOW:
 - Per-task model selection with fallback chain
 - Chef-to-agent optimized handoff
 
+## Research: How Other Tools Handle This
+
+Based on research into Cursor, Windsurf, Devin, Superset, and Claude Code internals.
+
+### Token Optimization Patterns (from production tools)
+
+| Tool | Pattern | Result |
+|------|---------|--------|
+| **Claude Code** | Proactive compaction at 60% context, not 90% | 5x reduction |
+| **Windsurf** | SWE-grep: parallel grep + RL instead of embeddings | 20x faster retrieval, 61% fewer tokens |
+| **Devin 2.0** | Filesystem-based memory across context boundaries | Survives context resets |
+| **Cursor** | Isolated VMs per agent, summarized context handoff | No cross-agent bleed |
+| **Superset** | Worktree-per-agent, independent operation | 10+ parallel agents on single machine |
+
+### Key Insights for Our Design
+
+1. **File-based context > prompt-based context.** Devin and Claude Code both use filesystem persistence (`CLAUDE.md`, `.task.md`) to survive context resets. Our pointer pattern (`.task.md` in worktree) aligns with this.
+
+2. **MCP servers cost 18K tokens/message each.** Keep tool surface minimal per session. Don't load all MCP servers for every agent — scope to what the task needs.
+
+3. **Proactive compaction > reactive.** Claude Code recommends compacting at 60% context usage. For long-running tasks, inject `/compact` hints or use `--resume` to start fresh sessions with saved state.
+
+4. **Session handoff protocol.** Before killing/cycling an agent session, persist state to a handoff file:
+   - Current commit hash
+   - Decision log (why choices were made)
+   - Next steps
+   - Critical constraints
+   New session loads this on startup.
+
+5. **Idle agents are expensive.** Agent teams use 7x more tokens than solo sessions. Kill idle agents aggressively. Our sleeping → dead GC at 30min/4h is aligned with industry patterns.
+
+6. **Parallel grep beats embeddings.** For codebase search within agent context, deterministic grep-based tools are faster and cheaper than semantic search. Don't over-engineer context retrieval.
+
+### Handoff File Format (`.task-handoff.md`)
+
+Written automatically when an agent session ends or is cycled:
+```markdown
+# Handoff: {task.title}
+## State
+- Commit: {last_commit_hash}
+- Branch: {branch_name}
+- Files modified: {list}
+
+## What Was Done
+{agent's summary of work completed}
+
+## What's Left
+{remaining work or review notes}
+
+## Constraints
+{any discovered constraints or decisions}
+```
+
+Used by `fresh` session strategy — new agent reads handoff + `.task.md` instead of getting full history in prompt.
+
 ## Open Questions
 
 1. Should sleeping sessions auto-wake when a webhook/event targets that task?
-2. Max concurrent active sessions? (Currently 20 via LRU — keep or adjust?)
+2. Max concurrent active sessions? (Currently 20 via LRU — keep or adjust for 5-10 active recommendation?)
 3. Should the garbage collector also clean old worktree branches from git?
-4. How to handle agent CLI that doesn't support `--resume`? (fresh only?)
+4. How to handle agent CLI that doesn't support `--resume`? (fresh only, with handoff file)
