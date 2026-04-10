@@ -232,16 +232,23 @@ pub async fn move_task(
 
     // Fire column trigger if task moved to a new column
     if column_changed {
-        // Cancel running agent if task is leaving its column
-        if task_before.agent_status.as_deref() == Some("running") {
-            crate::chat::tmux_transport::cancel_task_agent(
-                &conn, &id, task_before.agent_session_id.as_deref(),
-            );
-        }
-
         // Fire on_exit trigger on the old column (V2 triggers)
         let old_column = db::get_column(&conn, &old_column_id)?;
         let target_column = db::get_column(&conn, &target_column_id)?;
+
+        // Cancel running agent if target column has no spawn_cli trigger.
+        // If target also has a trigger, it replaces the old agent — no cancel needed.
+        if task_before.agent_status.as_deref() == Some("running") {
+            let target_has_trigger = target_column.triggers.as_deref()
+                .map(|t| t.contains("spawn_cli"))
+                .unwrap_or(false);
+
+            if !target_has_trigger {
+                crate::chat::tmux_transport::cancel_task_agent(
+                    &conn, &id, task_before.agent_session_id.as_deref(),
+                );
+            }
+        }
         let _ = pipeline::triggers::fire_on_exit(&conn, &app, &task_before, &old_column, Some(&target_column));
 
         // Notify frontend to refresh task store

@@ -66,6 +66,8 @@ impl Default for AppSettings {
 
 impl AppSettings {
     /// Path to the global settings file (static, no db dependency).
+    /// Note: duplicates db::data_dir() logic intentionally to avoid circular init
+    /// dependency (OnceLock init can't rely on db module being initialized first).
     fn file_path_static() -> PathBuf {
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))

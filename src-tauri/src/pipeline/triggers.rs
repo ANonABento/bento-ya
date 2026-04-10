@@ -408,15 +408,15 @@ fn execute_spawn_cli(
         prev_column: other_column, next_column: Option::None, dep_tasks: HashMap::new(),
     };
 
-    // Resolve prompt: direct prompt wins over template
+    // Resolve prompt: direct prompt > template > .task.md pointer (token-optimized default)
     let resolved_prompt = if let Some(p) = prompt {
         if !p.is_empty() { template::interpolate(p, &ctx) }
         else if let Some(tmpl) = prompt_template { template::interpolate(tmpl, &ctx) }
-        else { format!("{}\n\n{}", task.title, task.description.as_deref().unwrap_or("")) }
+        else { format!("{}\n\nSee .task.md for full spec.", task.title) }
     } else if let Some(tmpl) = prompt_template {
         template::interpolate(tmpl, &ctx)
     } else {
-        format!("{}\n\n{}", task.title, task.description.as_deref().unwrap_or(""))
+        format!("{}\n\nSee .task.md for full spec.", task.title)
     };
 
     // Resolve CLI: trigger config > workspace config > global settings

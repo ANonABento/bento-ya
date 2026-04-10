@@ -96,20 +96,27 @@ async fn move_task(
         (task, task_before, old_column_id, column_changed)
     }; // DB lock released
 
-    // Phase 1.5: Cancel running agent if task is leaving its column
-    if column_changed && task_before.agent_status.as_deref() == Some("running") {
-        eprintln!("[api] Task {} leaving column with running agent — cancelling", req.id);
-        let conn = get_db!(api);
-        crate::chat::tmux_transport::cancel_task_agent(
-            &conn, &req.id, task_before.agent_session_id.as_deref(),
-        );
-    }
-
     // Phase 2: Pipeline triggers (may spawn async tasks)
     if column_changed {
         let conn = get_db!(api);
         let old_column = db::get_column(&conn, &old_column_id).ok();
         let target_column = db::get_column(&conn, &req.target_column_id).ok();
+
+        // Cancel running agent if task is leaving its column AND target has no spawn_cli trigger.
+        // If target also has a trigger, the new trigger replaces the old agent — no need to cancel.
+        if task_before.agent_status.as_deref() == Some("running") {
+            let target_has_trigger = target_column.as_ref()
+                .and_then(|c| c.triggers.as_deref())
+                .map(|t| t.contains("spawn_cli"))
+                .unwrap_or(false);
+
+            if !target_has_trigger {
+                eprintln!("[api] Task {} leaving to non-trigger column — cancelling agent", req.id);
+                crate::chat::tmux_transport::cancel_task_agent(
+                    &conn, &req.id, task_before.agent_session_id.as_deref(),
+                );
+            }
+        }
 
         if let (Some(ref old_col), Some(ref tgt_col)) = (&old_column, &target_column) {
             let _ = pipeline::triggers::fire_on_exit(&conn, &api.app, &task_before, old_col, Some(tgt_col));

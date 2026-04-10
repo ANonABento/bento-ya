@@ -261,6 +261,15 @@ pub fn spawn_cli_trigger_task(
         }
     };
 
+    // Capture the column_id at trigger time — used to verify task hasn't moved before mark_complete
+    let trigger_column_id = {
+        if let Ok(conn) = Connection::open(db::db_path()) {
+            db::get_task(&conn, &task_id).ok().map(|t| t.column_id)
+        } else {
+            None
+        }
+    };
+
     tokio::spawn(async move {
         let full_cmd = build_trigger_command(&cli_command, &args, &initial_prompt);
         let nonce = gen_nonce();
@@ -396,23 +405,34 @@ pub fn spawn_cli_trigger_task(
             let success = exit_code == 0;
             eprintln!("[bridge] Trigger completed for task {}: exit_code={}, success={}", task_id, exit_code, success);
 
-            // Update agent session + task status
+            // Update agent session + task status — but only if task hasn't moved columns
             if let Ok(conn) = Connection::open(db::db_path()) {
                 let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-                let status = if success { "completed" } else { "failed" };
-                let _ = db::update_task_agent_status(&conn, &task_id, Some(status), None);
 
-                // Update agent_session status (exit criteria checks this)
-                if let Ok(task) = db::get_task(&conn, &task_id) {
-                    if let Some(ref sid) = task.agent_session_id {
-                        let _ = db::update_agent_session(
-                            &conn, sid,
-                            None, Some(status), Some(Some(exit_code as i64)), None, None, None,
-                        );
+                // Guard: check task is still in the same column as when trigger fired
+                let task_still_here = db::get_task(&conn, &task_id)
+                    .ok()
+                    .map(|t| trigger_column_id.as_deref() == Some(&t.column_id))
+                    .unwrap_or(false);
+
+                if !task_still_here {
+                    eprintln!("[bridge] Task {} moved columns during trigger — skipping mark_complete", task_id);
+                } else {
+                    let status = if success { "completed" } else { "failed" };
+                    let _ = db::update_task_agent_status(&conn, &task_id, Some(status), None);
+
+                    // Update agent_session status (exit criteria checks this)
+                    if let Ok(task) = db::get_task(&conn, &task_id) {
+                        if let Some(ref sid) = task.agent_session_id {
+                            let _ = db::update_agent_session(
+                                &conn, sid,
+                                None, Some(status), Some(Some(exit_code as i64)), None, None, None,
+                            );
+                        }
                     }
-                }
 
-                let _ = pipeline::mark_complete(&conn, &app, &task_id, success);
+                    let _ = pipeline::mark_complete(&conn, &app, &task_id, success);
+                }
             }
             pipeline::emit_tasks_changed(&app, "", "trigger_complete");
 

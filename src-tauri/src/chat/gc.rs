@@ -122,6 +122,7 @@ pub fn collect(conn: &Connection) {
 
 /// Start the periodic garbage collector.
 /// Runs every `gc_interval_minutes` from settings (default 5).
+/// Note: interval changes via API take effect on the next cycle, not immediately.
 pub fn start_gc() {
     tauri::async_runtime::spawn(async move {
         loop {
