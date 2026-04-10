@@ -203,21 +203,27 @@ TOKEN-OPTIMIZED FLOW:
 
 ### 9. Migration Plan
 
-**Phase 1: Interactive mode + cleanup (this session)**
-- Switch triggers to interactive agent CLI
-- Add agent cancellation on column exit
-- Add garbage collector for tmux sessions
-- Write .task.md on trigger fire
+**Phase 1: Interactive mode + cleanup + settings**
+1. Switch triggers to interactive agent CLI (codex, not codex exec)
+2. Agent cancellation when task leaves trigger column
+3. Garbage collector: tmux sessions, archive stage 1
+4. Write `.task.md` to worktree on trigger fire
+5. Settings system (`~/.bentoya/settings.json` + workspace config)
+6. `max_agent_sessions` configurable
 
 **Phase 2: Session strategy + manual check**
-- Implement `reuse` vs `fresh` session strategy
-- Add manual_check mode with kanban indicators
-- Edge case: user-is-chatting detection
+1. Implement `reuse` vs `fresh` session strategy in triggers
+2. `--resume` detection + handoff file fallback
+3. Manual check mode with kanban indicators
+4. Edge case: user-is-chatting detection → auto-switch to manual
+5. Auto-wake sleeping sessions on events
 
-**Phase 3: Token optimization + multi-model**
-- Full pointer pattern (file-based context passing)
-- Per-task model selection with fallback chain
-- Chef-to-agent optimized handoff
+**Phase 3: Token optimization + multi-model + archive purge**
+1. Handoff stripping (remove tool/bash noise, keep decisions)
+2. Per-task model selection with fallback chain (task > trigger > workspace > global)
+3. Chef-to-agent optimized handoff via `.task.md` pointer
+4. Stage 2 cleanup: permanent purge after 30 days (worktree, branch, DB rows)
+5. Settings UI panel
 
 ## Research: How Other Tools Handle This
 
@@ -274,9 +280,58 @@ Written automatically when an agent session ends or is cycled:
 
 Used by `fresh` session strategy — new agent reads handoff + `.task.md` instead of getting full history in prompt.
 
-## Open Questions
+## Resolved Questions
 
-1. Should sleeping sessions auto-wake when a webhook/event targets that task?
-2. Max concurrent active sessions? (Currently 20 via LRU — keep or adjust for 5-10 active recommendation?)
-3. Should the garbage collector also clean old worktree branches from git?
-4. How to handle agent CLI that doesn't support `--resume`? (fresh only, with handoff file)
+### 1. Auto-wake sleeping sessions — YES
+Events that wake a sleeping session:
+- User opens terminal panel for that task
+- Task receives a trigger (moved to trigger column)
+- Chef/MCP sends a message targeting that task
+- PR webhook fires for that task's branch (CI, review, comments)
+- Dependency completes (blocked task unblocks)
+
+### 2. Max concurrent sessions — 20 default, configurable
+`max_agent_sessions` in settings. Global default 20, per-workspace override possible.
+
+### 3. Cleanup — Two-stage: archive then permanent delete
+**Stage 1 (archive):** Task deleted → tmux session killed, agent cancelled, task moved to archive state. Worktree and branch preserved. Agent sessions preserved for reference.
+
+**Stage 2 (permanent delete):** After 30 days in archive (or user explicitly purges):
+- `git worktree remove --force {path}`
+- Delete local branch if not pushed to remote (leave pushed branches — PR may reference)
+- Delete agent_sessions rows
+- Clear all task metadata
+
+### 4. CLI resume support — detect first, handoff file as fallback
+**Primary:** Check if CLI supports `--resume` (e.g., `codex --help | grep resume`). If yes, use native session continuity.
+
+**Fallback:** Inject message to current agent: "Summarize what you've done to .task-handoff.md then exit". New agent reads handoff on start. Universal, works with any CLI.
+
+**Handoff stripping:** When writing handoff, strip tool call details and bash output — keep just decisions, file changes, and remaining work. Research handoff optimization patterns from other tools.
+
+## Settings Architecture
+
+### Global Settings (`~/.bentoya/settings.json`)
+```json
+{
+  "max_agent_sessions": 20,
+  "gc_interval_minutes": 5,
+  "idle_sleep_minutes": 30,
+  "idle_kill_hours": 4,
+  "archive_purge_days": 30,
+  "default_agent_cli": "codex",
+  "default_model": "gpt-5.4",
+  "default_session_strategy": "fresh",
+  "default_advance_mode": "auto"
+}
+```
+
+### Per-Workspace Config (workspace.config JSON column)
+Overrides global settings. Same keys, workspace-scoped.
+
+### Mutability
+- Readable/writable via HTTP API (`GET/POST /api/settings`)
+- MCP server can read/write settings
+- Chef can adjust per-task/per-workspace settings
+- Changes take effect immediately (no restart needed)
+- UI settings panel planned for later
