@@ -258,6 +258,9 @@ pub fn run() {
             // Recover tmux sessions from previous app instance
             recover_tmux_sessions(app.handle().clone());
 
+            // Start garbage collector for tmux sessions + agent resources
+            chat::gc::start_gc();
+
             Ok(())
         })
         .run(tauri::generate_context!())
