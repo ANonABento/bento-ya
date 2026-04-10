@@ -8,6 +8,21 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+
+/// Global cached settings instance. Reloaded on save.
+static CACHED_SETTINGS: OnceLock<Mutex<AppSettings>> = OnceLock::new();
+
+fn cached() -> &'static Mutex<AppSettings> {
+    CACHED_SETTINGS.get_or_init(|| {
+        let path = AppSettings::file_path_static();
+        let settings = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        Mutex::new(settings)
+    })
+}
 
 /// Global application settings with defaults.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,27 +65,37 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    /// Path to the global settings file (static, no db dependency).
+    fn file_path_static() -> PathBuf {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(home).join(".bentoya").join("settings.json")
+    }
+
     /// Path to the global settings file.
     pub fn file_path() -> PathBuf {
-        crate::db::data_dir().join("settings.json")
+        Self::file_path_static()
     }
 
-    /// Load settings from disk. Returns defaults if file doesn't exist or is invalid.
+    /// Load settings from cache (fast, no disk I/O).
     pub fn load() -> Self {
-        let path = Self::file_path();
-        match std::fs::read_to_string(&path) {
-            Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
-            Err(_) => Self::default(),
-        }
+        cached().lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// Save settings to disk.
+    /// Save settings to disk and update cache.
     pub fn save(&self) -> Result<(), String> {
         let path = Self::file_path();
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize settings: {}", e))?;
         std::fs::write(&path, json)
             .map_err(|e| format!("Failed to write settings: {}", e))?;
+
+        // Update cache
+        if let Ok(mut cache) = cached().lock() {
+            *cache = self.clone();
+        }
+
         Ok(())
     }
 

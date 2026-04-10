@@ -45,18 +45,31 @@ pub fn collect(conn: &Connection) {
             }
         };
 
-        // Check if task is in Done and agent completed — candidate for cleanup
-        // Don't kill immediately — the idle_kill_hours setting handles timing
-        // For now, just check if the agent has been idle too long
-        if task.agent_status.as_deref() == Some("completed")
-            || task.agent_status.as_deref() == Some("failed")
-            || task.agent_status.as_deref() == Some("cancelled")
-        {
+        // Check for finished agents — candidate for session cleanup
+        let agent_finished = matches!(
+            task.agent_status.as_deref(),
+            Some("completed") | Some("failed") | Some("cancelled") | Some("idle")
+        );
+
+        if agent_finished {
             // Check if the agent session has been idle long enough to kill
             if let Some(ref sid) = task.agent_session_id {
                 if let Ok(session) = db::get_agent_session(conn, sid) {
-                    if let Ok(updated) = chrono::DateTime::parse_from_rfc3339(&session.updated_at) {
-                        let updated_utc = updated.with_timezone(&chrono::Utc);
+                    // Try RFC3339 first, then space-separated format
+                    let parsed = chrono::DateTime::parse_from_rfc3339(&session.updated_at)
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                        .or_else(|_| {
+                            chrono::NaiveDateTime::parse_from_str(
+                                &session.updated_at, "%Y-%m-%d %H:%M:%S%.f%:z"
+                            ).map(|ndt| ndt.and_utc())
+                            .or_else(|_| {
+                                chrono::NaiveDateTime::parse_from_str(
+                                    &session.updated_at, "%Y-%m-%d %H:%M:%S"
+                                ).map(|ndt| ndt.and_utc())
+                            })
+                        });
+
+                    if let Ok(updated_utc) = parsed {
                         let idle_hours = (chrono::Utc::now() - updated_utc).num_hours();
                         if idle_hours >= settings.idle_kill_hours as i64 {
                             eprintln!(
@@ -79,6 +92,31 @@ pub fn collect(conn: &Connection) {
 
     if killed > 0 {
         eprintln!("[gc] Cleaned up {} tmux session(s)", killed);
+    }
+
+    // Also check for tasks marked "running" whose tmux session has died
+    // (e.g., OOM kill, manual tmux kill-session)
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT id, agent_session_id FROM tasks WHERE agent_status = 'running'"
+    ) {
+        let stale: Vec<(String, Option<String>)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .ok()
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default();
+
+        for (task_id, session_id) in stale {
+            let session_name = tmux_transport::session_name(&task_id);
+            // Check if tmux session actually exists
+            let session_exists = sessions.iter().any(|s| *s == session_name);
+            if !session_exists {
+                eprintln!("[gc] Task {} marked running but tmux session gone — marking failed", task_id);
+                let _ = db::update_task_agent_status(conn, &task_id, Some("failed"), None);
+                if let Some(ref sid) = session_id {
+                    let _ = db::update_agent_session(conn, sid, None, Some("failed"), None, None, None, None);
+                }
+            }
+        }
     }
 }
 

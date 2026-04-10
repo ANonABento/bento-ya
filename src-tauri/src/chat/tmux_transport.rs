@@ -486,6 +486,24 @@ impl Default for TmuxTransport {
     }
 }
 
+/// Send Ctrl+C to the agent process in a tmux session (cancel without killing session).
+pub fn cancel_agent(task_id: &str) {
+    let name = session_name(task_id);
+    let _ = Command::new("tmux")
+        .args(["send-keys", "-t", &name, "C-c"])
+        .output();
+}
+
+/// Cancel a running agent and update DB status.
+/// Sends Ctrl+C to tmux, sets agent_status=cancelled, updates agent_session.
+pub fn cancel_task_agent(conn: &rusqlite::Connection, task_id: &str, agent_session_id: Option<&str>) {
+    cancel_agent(task_id);
+    let _ = crate::db::update_task_agent_status(conn, task_id, Some("cancelled"), None);
+    if let Some(sid) = agent_session_id {
+        let _ = crate::db::update_agent_session(conn, sid, None, Some("cancelled"), None, None, None, None);
+    }
+}
+
 /// Kill all bentoya tmux sessions (cleanup).
 pub fn kill_all_sessions() {
     for session in list_sessions() {

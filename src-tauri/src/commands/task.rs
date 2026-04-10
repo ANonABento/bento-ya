@@ -234,14 +234,9 @@ pub async fn move_task(
     if column_changed {
         // Cancel running agent if task is leaving its column
         if task_before.agent_status.as_deref() == Some("running") {
-            let tmux_name = crate::chat::tmux_transport::session_name(&id);
-            let _ = std::process::Command::new("tmux")
-                .args(["send-keys", "-t", &tmux_name, "C-c", ""])
-                .output();
-            let _ = db::update_task_agent_status(&conn, &id, Some("cancelled"), None);
-            if let Some(ref sid) = task_before.agent_session_id {
-                let _ = db::update_agent_session(&conn, sid, None, Some("cancelled"), None, None, None, None);
-            }
+            crate::chat::tmux_transport::cancel_task_agent(
+                &conn, &id, task_before.agent_session_id.as_deref(),
+            );
         }
 
         // Fire on_exit trigger on the old column (V2 triggers)

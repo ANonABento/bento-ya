@@ -391,6 +391,16 @@ fn execute_spawn_cli(
         if let Err(e) = std::fs::write(&task_md_path, &task_md) {
             log::warn!("Failed to write .task.md for task {}: {}", task.id, e);
         }
+
+        // Exclude .task.md from git (avoid agent committing it)
+        let exclude_path = std::path::Path::new(&working_dir).join(".git").join("info").join("exclude");
+        if exclude_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&exclude_path) {
+                if !content.contains(".task.md") {
+                    let _ = std::fs::write(&exclude_path, format!("{}\n.task.md\n.task-handoff.md\n", content.trim_end()));
+                }
+            }
+        }
     }
 
     let ctx = TemplateContext {
