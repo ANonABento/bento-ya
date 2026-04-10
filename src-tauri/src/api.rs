@@ -262,6 +262,20 @@ async fn health() -> impl IntoResponse {
     Json(ApiResponse { success: true, data: Some(serde_json::json!({"status": "ok"})), error: None })
 }
 
+async fn get_settings() -> impl IntoResponse {
+    let settings = crate::config::AppSettings::load();
+    ok_response(serde_json::to_value(&settings).unwrap_or_default()).into_response()
+}
+
+async fn update_settings(Json(updates): Json<serde_json::Value>) -> impl IntoResponse {
+    let mut settings = crate::config::AppSettings::load();
+    settings.merge_update(&updates);
+    match settings.save() {
+        Ok(_) => ok_response(serde_json::to_value(&settings).unwrap_or_default()).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
+}
+
 // ─── Server lifecycle ───────────────────────────────────────────────────────
 
 fn port_file_path() -> std::path::PathBuf {
@@ -292,6 +306,8 @@ pub fn start(app: AppHandle) {
             .route("/api/approve_task", post(approve_task))
             .route("/api/reject_task", post(reject_task))
             .route("/api/retry_task", post(retry_task))
+            .route("/api/settings", get(get_settings))
+            .route("/api/settings", post(update_settings))
             .with_state(api_state);
 
         // Bind to random available port
