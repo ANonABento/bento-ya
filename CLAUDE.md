@@ -13,7 +13,7 @@ src/                                   src-tauri/src/
 │   ├── panel/       Chat interface    │   ├── models.rs    ← All DB model structs
 │   ├── settings/    Config tabs       │   └── mod.rs       ← CRUD functions
 │   ├── shared/      Reusable atoms    ├── pipeline/        ← Trigger engine
-│   ├── layout/      App shell         ├── process/         ← CLI/PTY management
+│   ├── layout/      App shell         ├── chat/            ← tmux transport + bridge
 │   └── ...          Feature panels    ├── llm/             ← LLM integration
 ├── hooks/                             ├── discord/         ← Discord bridge
 │   ├── chat-session/  Unified chat    ├── whisper/         ← Voice transcription
@@ -80,36 +80,40 @@ Tasks can have isolated git worktrees so agents don't conflict on branches.
 
 ### Unified Chat System (`src-tauri/src/chat/`)
 
-Transport abstraction + session layer (all 6 phases complete):
-- `events.rs` — Unified `ChatEvent` type + JSON parsing + `base64_encode` + `spawn_stderr_reader` (single source of truth)
+Transport abstraction + session layer with tmux-managed terminal sessions:
+- `events.rs` — Unified `ChatEvent` type + JSON parsing + `base64_encode` + `spawn_stderr_reader`
 - `transport.rs` — `ChatTransport` trait + `SpawnConfig` + `TransportEvent` + shared constants
-- `pty_transport.rs` — `PtyTransport` (interactive terminal, xterm.js)
+- `tmux_transport.rs` — `TmuxTransport` (tmux-managed sessions, proper resize, session persistence)
+- `pty_transport.rs` — `PtyTransport` (legacy, kept as fallback)
 - `pipe_transport.rs` — `PipeTransport` (structured JSON streaming, chat bubbles)
-- `session.rs` — `UnifiedChatSession` (lifecycle: idle/running/suspended, resume ID tracking, pipe + PTY modes, transport switching)
-- `registry.rs` — `SessionRegistry` (max 20 sessions, LRU eviction, idle timeout sweep, scrollback cache)
-- `bridge.rs` — Tauri event bridge (`bridge_pty_to_tauri` with sentinel detection) + trigger runner (`spawn_cli_trigger_task` injects into PTY)
+- `session.rs` — `UnifiedChatSession` (lifecycle: idle/running/suspended, resume ID tracking, pipe + PTY modes)
+- `registry.rs` — `SessionRegistry` (max 20 sessions configurable, LRU eviction, idle sweep, bridge tracking)
+- `bridge.rs` — `ManagedBridge` (single bridge per task, broadcast-based) + trigger runner (`spawn_cli_trigger_task` via tmux send-keys + wait-for)
+- `gc.rs` — Garbage collector (periodic tmux session cleanup, orphan detection, idle kill)
 - `chef.rs` — ChefSession layer (orchestrator capabilities)
 
-Legacy `process/` module fully removed — `PtyManager`, `AgentRunner` replaced by unified system.
-See `.tickets/_docs/UNIFIED_CHAT.md` for the migration plan, `.tickets/_docs/TERMINAL_VIEW_V2.md` for the terminal-first architecture.
+### Terminal View (tmux-backed)
 
-### Terminal View
+Each task gets a tmux session (`bentoya_{task_id}`) with an embedded terminal panel:
+- `TmuxTransport` creates a detached tmux session, then spawns `tmux attach` in a PTY for xterm.js output
+- Resize via `tmux resize-window` propagates SIGWINCH — TUI apps (codex, vim, claude) redraw correctly
+- `ensure_pty_session` reconnect path resizes PTY to panel dimensions on open
+- Sessions persist across app restarts — tmux keeps running, app rediscovers on startup
+- `ManagedBridge` forwards broadcast events to frontend (one bridge per task, auto-cancelled on remove)
 
-Each task gets an embedded terminal (xterm.js) backed by a lazy PTY session:
-- `ensure_pty_session` command spawns a bare shell (`$SHELL`) in the task's working directory on first panel open
-- PTY output is base64-encoded via `bridge_pty_to_tauri` → emitted as `pty:{taskId}:output` Tauri events
-- Frontend decodes base64 and writes raw bytes to xterm.js (WebGL renderer, 10k scrollback)
-- User can type commands, approve agent prompts, inspect files — full interactive terminal
-- Session killed + respawned on each panel open (ensures fresh event bridge)
-- Bubble chat view disconnected — components intact, can be re-enabled as overlay
+**Trigger integration:** `spawn_cli_trigger_task` uses `tmux send-keys -l` for command injection + `tmux wait-for` for completion detection. Exit code read from temp file in app data dir. No sentinel patterns, no shell ready detection — tmux handles session readiness. `.task.md` written to worktree before trigger fires (token optimization — agent reads file instead of getting full spec in prompt).
 
-**Trigger integration:** `spawn_cli_trigger_task` injects CLI commands into the task's existing PTY shell (or spawns one if none exists). Commands are wrapped with a sentinel (`___BENTOYA_DONE_$?___`) for exit detection — `bridge_pty_to_tauri` watches raw output for the sentinel, extracts exit code, calls `mark_complete` for pipeline auto-advance. Shell stays alive after.
+**Completion detection:** `tmux wait-for {channel}` blocks until the injected command signals completion. 2-hour timeout prevents stuck tasks. Column guard prevents stale triggers from corrupting pipeline state if task moved during execution.
 
-**LRU eviction:** `SessionRegistry` max 20 concurrent PTYs (configurable). When at capacity, `get_or_create` evicts the oldest idle session. Periodic sweep (every 60s) suspends sessions idle > 5 minutes.
+**Agent cancellation:** Moving a task out of a trigger column to a non-trigger column sends Ctrl+C to the tmux session (kills agent process, keeps session alive). Skipped if target column also has a trigger (new agent replaces old).
 
-**Scrollback persistence:** When a PTY is killed (panel close, LRU eviction, idle timeout), its scrollback buffer is cached in the registry. On next panel open, `ensure_pty_session` returns cached scrollback, frontend writes it to xterm before live output starts.
+**Garbage collector** (`gc.rs`): Runs every 5 minutes (configurable). Kills orphaned tmux sessions (task not in DB), kills idle sessions past threshold (default 4h), detects running agents with dead tmux sessions (marks failed).
 
-Key files: `src/components/panel/terminal-view.tsx`, `src/components/panel/agent-panel.tsx`, `src/lib/ipc/terminal.ts`, `.tickets/_docs/TERMINAL_VIEW_V2.md`
+**Session recovery:** On startup, `recover_tmux_sessions()` discovers existing `bentoya_*` tmux sessions, logs recovery for tasks still running, kills orphans.
+
+**Settings:** `~/.bentoya/settings.json` with `max_agent_sessions`, `gc_interval_minutes`, `idle_kill_hours`, `default_agent_cli`, `default_model`, etc. Cached in memory (OnceLock), workspace config column overrides. API: `GET/POST /api/settings`.
+
+Key files: `src/components/panel/terminal-view.tsx`, `src/lib/ipc/terminal.ts`, `.tickets/_docs/INTERACTIVE_AGENT_TERMINAL.md`
 
 ### Database (`src-tauri/src/db/`)
 
@@ -138,7 +142,7 @@ Zustand stores, each focused on a single domain:
 | Directory | Purpose | Key files |
 |-----------|---------|-----------|
 | `kanban/` | Board, columns, task cards | `task-card.tsx`, `task-card-expanded.tsx`, `column-config-dialog.tsx` |
-| `panel/` | Chat interfaces | `orchestrator-panel.tsx`, `agent-panel.tsx`, `chat-input.tsx` |
+| `panel/` | Terminal + chat | `terminal-view.tsx`, `agent-panel.tsx`, `chat-input.tsx` |
 | `command-palette/` | Cmd+K command palette | `command-palette.tsx` |
 | `settings/` | 7-tab settings panel | `settings-panel.tsx`, `tabs/*.tsx` (`scripts-tab.tsx` has quick-attach dropdown on ScriptCard for attaching scripts to columns) |
 | `onboarding/` | First-launch wizard | `onboarding-wizard.tsx` |
@@ -177,6 +181,8 @@ mcp-server/
 **Tools:** get_workspaces, get_board, get_task, create_task, update_task, move_task, delete_task, approve_task, reject_task, add_dependency, remove_dependency, mark_complete, retry_task, create_workspace, create_column, configure_triggers, list_scripts, create_script, run_script
 
 **Config:** `{ "command": "bento-mcp" }` — auto-detects DB at `~/.bentoya/data.db`
+
+**App requirement:** All mutation tools (create, move, delete, approve, reject, retry, mark_complete, update) require the Bento-ya app to be running. Read-only tools (get_board, get_task, etc.) work without the app. Health check verifies response body to prevent false positives from stale port files.
 
 ## Type System
 
