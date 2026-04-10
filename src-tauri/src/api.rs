@@ -96,6 +96,24 @@ async fn move_task(
         (task, task_before, old_column_id, column_changed)
     }; // DB lock released
 
+    // Phase 1.5: Cancel running agent if task is leaving its column
+    if column_changed && task_before.agent_status.as_deref() == Some("running") {
+        eprintln!("[api] Task {} leaving column with running agent — cancelling", req.id);
+
+        // Kill the agent process in tmux (Ctrl+C), but keep the session alive
+        let tmux_name = crate::chat::tmux_transport::session_name(&req.id);
+        let _ = std::process::Command::new("tmux")
+            .args(["send-keys", "-t", &tmux_name, "C-c", ""])
+            .output();
+
+        // Reset agent status
+        let conn = get_db!(api);
+        let _ = db::update_task_agent_status(&conn, &req.id, Some("cancelled"), None);
+        if let Some(ref sid) = task_before.agent_session_id {
+            let _ = db::update_agent_session(&conn, sid, None, Some("cancelled"), None, None, None, None);
+        }
+    }
+
     // Phase 2: Pipeline triggers (may spawn async tasks)
     if column_changed {
         let conn = get_db!(api);
