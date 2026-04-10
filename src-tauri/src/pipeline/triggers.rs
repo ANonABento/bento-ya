@@ -370,6 +370,29 @@ fn execute_spawn_cli(
         log::warn!("Working dir '{}' does not exist, agent may fail", working_dir);
     }
 
+    // Write .task.md to worktree — agent reads this instead of getting full spec in prompt
+    if !working_dir.is_empty() {
+        let task_md_path = std::path::Path::new(&working_dir).join(".task.md");
+        let checklist_section = task.checklist.as_deref()
+            .filter(|c| !c.is_empty() && *c != "[]")
+            .map(|c| format!("\n## Checklist\n{}\n", c))
+            .unwrap_or_default();
+
+        let task_md = format!(
+            "# {}\n\n{}\n{}\n## Context\n- Workspace: {}\n- Branch: {}\n- Working dir: {}\n",
+            task.title,
+            task.description.as_deref().unwrap_or(""),
+            checklist_section,
+            workspace.name,
+            task.branch_name.as_deref().unwrap_or("(none)"),
+            working_dir,
+        );
+
+        if let Err(e) = std::fs::write(&task_md_path, &task_md) {
+            log::warn!("Failed to write .task.md for task {}: {}", task.id, e);
+        }
+    }
+
     let ctx = TemplateContext {
         task: &task, column, workspace: &workspace,
         prev_column: other_column, next_column: Option::None, dep_tasks: HashMap::new(),
