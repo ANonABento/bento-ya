@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useMemo, useRef, useEffect } from 'react'
+import { memo, useState, useCallback, useMemo, useRef, useEffect, type ChangeEvent } from 'react'
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
@@ -15,9 +15,11 @@ import { ColumnConfigDialog } from './column-config-dialog'
 
 type ColumnProps = {
   column: ColumnType
+  autoOpenConfig?: boolean
+  onConfigOpened?: () => void
 }
 
-export const Column = memo(function Column({ column }: ColumnProps) {
+export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpened }: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
@@ -79,12 +81,25 @@ export const Column = memo(function Column({ column }: ColumnProps) {
     data: { type: 'column', columnId: column.id },
   })
 
-  // Focus input when add task is shown
+  // Focus input when add task is shown + listen for native input events (WebDriver compat)
   useEffect(() => {
     if (showAddTask) {
       addTaskInputRef.current?.focus()
+      const el = addTaskInputRef.current
+      if (!el) return
+      const handler = () => { setNewTaskTitle(el.value) }
+      el.addEventListener('input', handler)
+      return () => { el.removeEventListener('input', handler) }
     }
   }, [showAddTask])
+
+  // Auto-open config dialog for newly created columns
+  useEffect(() => {
+    if (autoOpenConfig) {
+      setShowConfigDialog(true)
+      onConfigOpened?.()
+    }
+  }, [autoOpenConfig, onConfigOpened])
 
   const handleConfigure = useCallback(() => {
     setShowConfigDialog(true)
@@ -164,7 +179,8 @@ export const Column = memo(function Column({ column }: ColumnProps) {
                       ref={addTaskInputRef}
                       type="text"
                       value={newTaskTitle}
-                      onChange={(e) => { setNewTaskTitle(e.target.value); }}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => { setNewTaskTitle(e.target.value); }}
+                      data-testid="add-task-input"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') void handleSubmitTask()
                         if (e.key === 'Escape') handleCancelAddTask()

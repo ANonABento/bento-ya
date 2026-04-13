@@ -36,10 +36,14 @@ export function Board() {
   const tasks = useTaskStore((s) => s.tasks)
   const loadScripts = useScriptStore((s) => s.load)
 
+  const [newColumnId, setNewColumnId] = useState<string | null>(null)
+
   const handleAddColumn = useCallback(() => {
     if (!activeWorkspaceId) return
     const name = `Column ${String(columns.length + 1)}`
-    void addColumn(activeWorkspaceId, name)
+    void addColumn(activeWorkspaceId, name).then((col) => {
+      setNewColumnId(col.id)
+    })
   }, [activeWorkspaceId, columns.length, addColumn])
 
   const { registerCard, positions } = useCardPositionProvider()
@@ -108,7 +112,12 @@ export function Board() {
             <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
               <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
                 {sortedColumns.map((col) => (
-                  <Column key={col.id} column={col} />
+                  <Column
+                    key={col.id}
+                    column={col}
+                    autoOpenConfig={col.id === newColumnId}
+                    onConfigOpened={col.id === newColumnId ? () => { setNewColumnId(null) } : undefined}
+                  />
                 ))}
               </SortableContext>
 

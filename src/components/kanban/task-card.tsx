@@ -49,6 +49,13 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const isQualityGate = columnTriggers?.type === 'manual_approval'
   const reviewStatus = task.reviewStatus
 
+  // Check if task is in the last column (Done) for visual dimming
+  const isInDoneColumn = useMemo(() => {
+    const sorted = columns.filter(c => c.visible).sort((a, b) => a.position - b.position)
+    const lastCol = sorted[sorted.length - 1]
+    return lastCol != null && lastCol.id === task.columnId
+  }, [columns, task.columnId])
+
   // Live agent streaming data
   const agentStream = useAgentStreamingStore((s) => s.streams.get(task.id))
 
@@ -210,7 +217,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       style={{
         ...style,
         cursor: 'pointer',
-        opacity: isDragging ? 0.4 : isDimmed ? 0.3 : task.blocked ? 0.7 : 1,
+        opacity: isDragging ? 0.4 : isDimmed ? 0.3 : task.blocked ? 0.7 : isInDoneColumn ? 0.6 : 1,
         transition: 'transform 200ms ease, opacity 200ms ease',
       }}
       onClick={handleClick}
