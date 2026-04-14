@@ -61,6 +61,11 @@ struct JsonRpcResponse {
 // API bridge — proxies mutations through the Tauri app's HTTP API
 // ---------------------------------------------------------------------------
 
+/// Flush WAL to main DB after direct writes so other connections (e.g. Tauri app) see changes.
+fn checkpoint_wal(conn: &Connection) {
+    let _ = conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
+}
+
 /// Read the API port from ~/.bentoya/api.port
 fn read_api_port() -> Option<u16> {
     let home = dirs::home_dir()?;
@@ -1245,6 +1250,7 @@ fn handle_create_workspace(conn: &Connection, args: &Value) -> Value {
                     params![col_id, id, col_name, i as i64, ts, ts],
                 ).ok();
             }
+            checkpoint_wal(conn);
             json!({
                 "message": format!("Created workspace '{}' with 4 columns", name),
                 "workspace": {
@@ -1295,10 +1301,13 @@ fn handle_create_column(conn: &Connection, args: &Value) -> Value {
          VALUES (?1, ?2, ?3, 'list', ?4, 1, ?5, ?6)",
         params![id, workspace_id, name, position, ts, ts],
     ) {
-        Ok(_) => json!({
-            "message": format!("Created column '{}' at position {}", name, position),
-            "column": { "id": id, "name": name, "position": position }
-        }),
+        Ok(_) => {
+            checkpoint_wal(conn);
+            json!({
+                "message": format!("Created column '{}' at position {}", name, position),
+                "column": { "id": id, "name": name, "position": position }
+            })
+        }
         Err(e) => json!({ "error": e.to_string() }),
     }
 }
@@ -1358,11 +1367,14 @@ fn handle_configure_triggers(conn: &Connection, args: &Value) -> Value {
         "UPDATE columns SET triggers = ?1, updated_at = ?2 WHERE id = ?3",
         params![triggers, ts, col_id],
     ) {
-        Ok(_) => json!({
-            "message": format!("Configured triggers for column '{}'", col_name),
-            "column": col_name,
-            "triggers": serde_json::from_str::<Value>(triggers).unwrap_or(Value::Null)
-        }),
+        Ok(_) => {
+            checkpoint_wal(conn);
+            json!({
+                "message": format!("Configured triggers for column '{}'", col_name),
+                "column": col_name,
+                "triggers": serde_json::from_str::<Value>(triggers).unwrap_or(Value::Null)
+            })
+        }
         Err(e) => json!({ "error": e.to_string() }),
     }
 }
