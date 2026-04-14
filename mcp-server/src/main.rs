@@ -1313,9 +1313,25 @@ fn handle_configure_triggers(conn: &Connection, args: &Value) -> Value {
         None => return json!({ "error": "triggers JSON is required" }),
     };
 
-    // Validate JSON
-    if serde_json::from_str::<Value>(triggers).is_err() {
-        return json!({ "error": "Invalid triggers JSON" });
+    // Validate JSON structure
+    let parsed: Value = match serde_json::from_str(triggers) {
+        Ok(v) => v,
+        Err(e) => return json!({ "error": format!("Invalid triggers JSON: {}", e) }),
+    };
+
+    // Validate trigger action types if present
+    let valid_types = ["spawn_cli", "move_column", "trigger_task", "run_script", "create_pr", "none"];
+    for key in &["on_entry", "on_exit"] {
+        if let Some(action) = parsed.get(key) {
+            if let Some(action_type) = action.get("type").and_then(|t| t.as_str()) {
+                if !valid_types.contains(&action_type) {
+                    return json!({ "error": format!("Invalid trigger type '{}' in {}. Valid types: {:?}", action_type, key, valid_types) });
+                }
+                if action_type == "run_script" && action.get("script_id").is_none() {
+                    return json!({ "error": format!("{} has type 'run_script' but missing required 'script_id'. Use 'steps' format in Scripts, not inline triggers.", key) });
+                }
+            }
+        }
     }
 
     // Find workspace for column resolution

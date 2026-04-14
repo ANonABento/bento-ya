@@ -477,6 +477,17 @@ pub fn mark_complete(
     task_id: &str,
     success: bool,
 ) -> Result<Task, AppError> {
+    mark_complete_with_error(conn, app, task_id, success, None)
+}
+
+/// Mark a pipeline execution as complete with optional error details
+pub fn mark_complete_with_error(
+    conn: &Connection,
+    app: &AppHandle,
+    task_id: &str,
+    success: bool,
+    error_detail: Option<&str>,
+) -> Result<Task, AppError> {
     let task = db::get_task(conn, task_id)?;
     let column = db::get_column(conn, &task.column_id)?;
 
@@ -523,16 +534,21 @@ pub fn mark_complete(
         }
         CompletionAction::Retry { attempt, max } => {
             increment_retry_count(conn, task_id)?;
-            log::info!("[pipeline] Auto-retrying task {} (attempt {}/{})", task_id, attempt, max);
+            let retry_msg = match error_detail {
+                Some(detail) => format!("Retrying ({}/{}) — {}", attempt, max, detail),
+                None => format!("Retrying ({}/{})", attempt, max),
+            };
+            log::info!("[pipeline] {}: {}", task_id, retry_msg);
 
-            emit_pipeline(app, "pipeline:error", task_id, &column.id, PipelineState::Idle, Some(format!("Retrying ({}/{})", attempt, max)));
+            emit_pipeline(app, "pipeline:error", task_id, &column.id, PipelineState::Idle, Some(retry_msg));
 
             let updated_task = db::get_task(conn, task_id)?;
             fire_trigger(conn, app, &updated_task, &column)
         }
         CompletionAction::Failed => {
+            let error_msg = error_detail.unwrap_or("Execution failed");
             let updated_task = db::update_task_pipeline_state(
-                conn, task_id, PipelineState::Idle.as_str(), None, Some("Execution failed"),
+                conn, task_id, PipelineState::Idle.as_str(), None, Some(error_msg),
             )?;
             emit_completion_event(app, task_id, &column.id, &task.workspace_id, false);
             Ok(updated_task)

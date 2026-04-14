@@ -431,7 +431,12 @@ pub fn spawn_cli_trigger_task(
                         }
                     }
 
-                    let _ = pipeline::mark_complete(&conn, &app, &task_id, success);
+                    if success {
+                        let _ = pipeline::mark_complete(&conn, &app, &task_id, true);
+                    } else {
+                        let detail = format!("Agent exited with code {}", exit_code);
+                        let _ = pipeline::mark_complete_with_error(&conn, &app, &task_id, false, Some(&detail));
+                    }
                 }
             }
             pipeline::emit_tasks_changed(&app, "", "trigger_complete");
