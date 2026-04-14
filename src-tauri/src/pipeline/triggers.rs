@@ -628,7 +628,17 @@ fn execute_create_pr(
                 let stderr = String::from_utf8_lossy(&push_output.stderr);
                 // "Everything up-to-date" is not an error
                 if !stderr.contains("up-to-date") && !stderr.contains("already exists") {
-                    return Err(format!("git push failed: {}", stderr.trim()));
+                    // Fallback: force-push if regular push fails (e.g. stale remote branch)
+                    log::warn!("[pipeline] Regular push failed, trying force-push: {}", stderr.trim());
+                    let force_output = std::process::Command::new("git")
+                        .args(["push", "-u", "origin", &branch_name, "--force"])
+                        .current_dir(&repo_path)
+                        .output()
+                        .map_err(|e| format!("Failed to force-push branch: {}", e))?;
+                    if !force_output.status.success() {
+                        let force_stderr = String::from_utf8_lossy(&force_output.stderr);
+                        return Err(format!("git push --force failed: {}", force_stderr.trim()));
+                    }
                 }
             }
 
