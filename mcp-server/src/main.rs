@@ -62,8 +62,9 @@ struct JsonRpcResponse {
 // ---------------------------------------------------------------------------
 
 /// Flush WAL to main DB after direct writes so other connections (e.g. Tauri app) see changes.
+/// Uses FULL mode to ensure all WAL pages are checkpointed before returning.
 fn checkpoint_wal(conn: &Connection) {
-    let _ = conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
+    let _ = conn.execute_batch("PRAGMA wal_checkpoint(FULL);");
 }
 
 /// Read the API port from ~/.bentoya/api.port
