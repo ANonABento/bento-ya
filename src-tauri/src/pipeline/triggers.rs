@@ -534,11 +534,7 @@ fn build_pr_body(
         }
     }
 
-    if sections.is_empty() {
-        task.description.clone().unwrap_or_default()
-    } else {
-        sections.join("\n\n")
-    }
+    sections.join("\n\n")
 }
 
 fn execute_create_pr(
@@ -560,8 +556,8 @@ fn execute_create_pr(
         }
     };
 
-    if task.pr_number.is_some() {
-        log::info!("[create_pr] Task {} already has PR #{}, skipping", task.id, task.pr_number.unwrap());
+    if let Some(pr_num) = task.pr_number {
+        log::info!("[create_pr] Task {} already has PR #{}, skipping", task.id, pr_num);
         let updated = db::update_task_pipeline_state(
             conn, &task.id, PipelineState::Idle.as_str(), None, None,
         )?;
