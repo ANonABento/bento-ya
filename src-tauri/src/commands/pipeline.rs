@@ -80,7 +80,7 @@ pub fn get_pipeline_timing(
     task_id: String,
 ) -> Result<Vec<PipelineTiming>, AppError> {
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    db::get_pipeline_timing(&conn, &task_id).map_err(|e| AppError::DatabaseError(e.to_string()))
+    Ok(db::get_pipeline_timing(&conn, &task_id)?)
 }
 
 /// Get average pipeline timing per column for a workspace
@@ -90,5 +90,5 @@ pub fn get_average_pipeline_timing(
     workspace_id: String,
 ) -> Result<Vec<ColumnTimingAverage>, AppError> {
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    db::get_average_timing(&conn, &workspace_id).map_err(|e| AppError::DatabaseError(e.to_string()))
+    Ok(db::get_average_pipeline_timing(&conn, &workspace_id)?)
 }

@@ -14,7 +14,7 @@ fn map_timing_row(row: &rusqlite::Row) -> rusqlite::Result<PipelineTiming> {
         exited_at: row.get(5)?,
         duration_seconds: row.get(6)?,
         success: row.get::<_, Option<i64>>(7)?.map(|v| v != 0),
-        retry_count: row.get::<_, Option<i64>>(8)?.unwrap_or(0),
+        retry_count: row.get(8)?,
     })
 }
 
@@ -102,7 +102,7 @@ pub fn get_pipeline_timing(
 }
 
 /// Get average timing per column for a workspace.
-pub fn get_average_timing(
+pub fn get_average_pipeline_timing(
     conn: &Connection,
     workspace_id: &str,
 ) -> SqlResult<Vec<ColumnTimingAverage>> {
