@@ -16,6 +16,7 @@ pub mod checklist;
 pub mod column;
 pub mod history;
 pub mod orchestrator_session;
+pub mod pipeline_timing;
 pub mod script;
 pub mod task;
 pub mod usage;
@@ -33,6 +34,7 @@ pub use checklist::*;
 pub use column::*;
 pub use history::*;
 pub use orchestrator_session::*;
+pub use pipeline_timing::*;
 pub use script::*;
 pub use task::*;
 pub use usage::*;
@@ -134,6 +136,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("027_task_model", include_str!("migrations/027_task_model.sql")),
         ("028_scripts", include_str!("migrations/028_scripts.sql")),
         ("029_task_worktree", include_str!("migrations/029_task_worktree.sql")),
+        ("030_pipeline_timing", include_str!("migrations/030_pipeline_timing.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -196,8 +199,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 29 migrations: 001-029
-        assert_eq!(count, 29);
+        // We have 30 migrations: 001-030
+        assert_eq!(count, 30);
     }
 
     #[test]
