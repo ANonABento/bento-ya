@@ -4,7 +4,7 @@
 //! supporting spawn_cli, move_column, trigger_task actions.
 
 use crate::chat::bridge;
-use crate::db::{self, Column, Task};
+use crate::db::{self, Column, Task, Workspace};
 use crate::error::AppError;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -469,6 +469,78 @@ fn execute_trigger_task(
     Ok(task.clone())
 }
 
+/// Build a PR body from git diff/log and task context. Template-based, no LLM.
+fn build_pr_body(
+    task: &Task,
+    column: &Column,
+    workspace: &Workspace,
+    repo_path: &str,
+    base: &str,
+    head: &str,
+) -> String {
+    let mut sections: Vec<String> = Vec::new();
+
+    // Description section
+    if let Some(ref desc) = task.description {
+        if !desc.is_empty() {
+            sections.push(format!("## Description\n\n{}", desc));
+        }
+    }
+
+    // Pipeline context
+    sections.push(format!(
+        "## Pipeline Context\n\n- **Workspace:** {}\n- **Column:** {}\n- **Branch:** `{}` → `{}`",
+        workspace.name, column.name, head, base,
+    ));
+
+    // Git log (commits on this branch not in base)
+    let merge_base = std::process::Command::new("git")
+        .args(["merge-base", base, head])
+        .current_dir(repo_path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+    let range = match &merge_base {
+        Some(mb) => format!("{}..{}", mb, head),
+        None => format!("{}..{}", base, head),
+    };
+
+    if let Ok(output) = std::process::Command::new("git")
+        .args(["log", "--oneline", "--no-decorate", &range])
+        .current_dir(repo_path)
+        .output()
+    {
+        if output.status.success() {
+            let log = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !log.is_empty() {
+                sections.push(format!("## Commits\n\n```\n{}\n```", log));
+            }
+        }
+    }
+
+    // Git diff --stat
+    if let Ok(output) = std::process::Command::new("git")
+        .args(["diff", "--stat", &range])
+        .current_dir(repo_path)
+        .output()
+    {
+        if output.status.success() {
+            let stat = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !stat.is_empty() {
+                sections.push(format!("## Changes\n\n```\n{}\n```", stat));
+            }
+        }
+    }
+
+    if sections.is_empty() {
+        task.description.clone().unwrap_or_default()
+    } else {
+        sections.join("\n\n")
+    }
+}
+
 fn execute_create_pr(
     conn: &Connection,
     app: &AppHandle,
@@ -498,8 +570,8 @@ fn execute_create_pr(
 
     let base = base_branch.unwrap_or("main").to_string();
     let pr_title = task.title.clone();
-    let pr_body = task.description.clone().unwrap_or_default();
     let repo_path = resolve_working_dir(task, &workspace.repo_path);
+    let pr_body = build_pr_body(task, column, &workspace, &repo_path, &base, &branch_name);
     let task_id = task.id.clone();
     let column_id = column.id.clone();
 
