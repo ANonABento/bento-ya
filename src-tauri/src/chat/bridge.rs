@@ -271,6 +271,7 @@ pub fn spawn_cli_trigger_task(
     };
 
     tokio::spawn(async move {
+        let start_time = std::time::Instant::now();
         let full_cmd = build_trigger_command(&cli_command, &args, &initial_prompt);
         let nonce = gen_nonce();
         let wait_channel = format!("bywait_{}", nonce);
@@ -429,6 +430,22 @@ pub fn spawn_cli_trigger_task(
                                 None, Some(status), Some(Some(exit_code as i64)), None, None, None,
                             );
                         }
+                    }
+
+                    // Record duration-based usage (token counts require CLI output parsing — future work)
+                    let duration_secs = start_time.elapsed().as_secs() as i64;
+                    if let Ok(task) = db::get_task(&conn, &task_id) {
+                        let model_name = task.model.as_deref().unwrap_or("unknown");
+                        let column_name = db::get_column(&conn, &task.column_id)
+                            .map(|c| c.name).unwrap_or_default();
+                        // Insert usage record with duration (tokens TBD — requires parsing CLI output)
+                        let _ = db::insert_usage_record(
+                            &conn, &task.workspace_id,
+                            Some(&task_id), session_id.as_deref(),
+                            "anthropic", model_name, 0, 0, 0.0,
+                        );
+                        eprintln!("[bridge] Usage recorded: task={} column={} model={} duration={}s",
+                            &task_id[..8], column_name, model_name, duration_secs);
                     }
 
                     if success {
