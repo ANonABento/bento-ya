@@ -220,35 +220,38 @@ pub fn check_exit_met(task: &Task, exit_type: &str) -> Option<bool> {
     }
 }
 
-/// Parse the exit_criteria type from a column's triggers JSON.
-pub fn parse_exit_type(triggers_json: Option<&str>) -> String {
+/// Extract a single field from the `exit_criteria` object in a triggers JSON blob.
+fn get_exit_criteria_field(triggers_json: Option<&str>, field: &str) -> Option<serde_json::Value> {
     triggers_json
         .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
-        .and_then(|v| v.get("exit_criteria")?.get("type")?.as_str().map(|s| s.to_string()))
+        .and_then(|v| v.get("exit_criteria")?.get(field).cloned())
+}
+
+/// Parse the exit_criteria type from a column's triggers JSON.
+pub fn parse_exit_type(triggers_json: Option<&str>) -> String {
+    get_exit_criteria_field(triggers_json, "type")
+        .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_else(|| "manual".to_string())
 }
 
 /// Parse a boolean field from exit_criteria in triggers JSON.
 fn parse_trigger_field_bool(triggers_json: Option<&str>, field: &str) -> bool {
-    triggers_json
-        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
-        .and_then(|v| v.get("exit_criteria")?.get(field)?.as_bool())
+    get_exit_criteria_field(triggers_json, field)
+        .and_then(|v| v.as_bool())
         .unwrap_or(false)
 }
 
 /// Parse a u64 field from exit_criteria in triggers JSON.
 fn parse_trigger_field_u64(triggers_json: Option<&str>, field: &str) -> u64 {
-    triggers_json
-        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
-        .and_then(|v| v.get("exit_criteria")?.get(field)?.as_u64())
+    get_exit_criteria_field(triggers_json, field)
+        .and_then(|v| v.as_u64())
         .unwrap_or(0)
 }
 
 /// Parse an i64 field from exit_criteria in triggers JSON.
 fn parse_trigger_field_i64(triggers_json: Option<&str>, field: &str) -> Option<i64> {
-    triggers_json
-        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
-        .and_then(|v| v.get("exit_criteria")?.get(field)?.as_i64())
+    get_exit_criteria_field(triggers_json, field)
+        .and_then(|v| v.as_i64())
 }
 
 /// Check if a siege retry has exceeded the time cap.
@@ -261,8 +264,7 @@ fn is_siege_timed_out(triggered_at: Option<&str>) -> bool {
     let Ok(started) = chrono::DateTime::parse_from_rfc3339(ts) else {
         return false;
     };
-    let elapsed = chrono::Utc::now().signed_duration_since(started);
-    elapsed.num_seconds() >= SIEGE_TIMEOUT_SECS
+    chrono::Utc::now().signed_duration_since(started) >= chrono::Duration::seconds(SIEGE_TIMEOUT_SECS)
 }
 
 // ─── Pipeline Engine ────────────────────────────────────────────────────────
