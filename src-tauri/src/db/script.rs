@@ -111,6 +111,18 @@ pub fn seed_built_in_scripts(conn: &Connection) -> SqlResult<()> {
             "Type-check, test, lint, then create PR",
             r#"[{"type":"bash","name":"Type check","command":"npm run type-check"},{"type":"bash","name":"Tests","command":"npm test"},{"type":"check","name":"Lint clean","command":"npm run lint","failMessage":"Lint errors found"},{"type":"bash","name":"Create PR","command":"gh pr create --title '{task.title}' --fill"}]"#,
         ),
+        (
+            "discord-notify-success",
+            "Discord Notify (Success)",
+            "Send a success notification to Discord via webhook",
+            r#"[{"type":"bash","name":"Notify Discord","command":"if [ -n \"$BENTOYA_DISCORD_WEBHOOK\" ]; then curl -s -X POST \"$BENTOYA_DISCORD_WEBHOOK\" -H 'Content-Type: application/json' -d '{\"content\": \"✅ **{task.title}** completed in {column.name}\"}'; fi"}]"#,
+        ),
+        (
+            "discord-notify-failure",
+            "Discord Notify (Failure)",
+            "Send a failure notification to Discord via webhook",
+            r#"[{"type":"bash","name":"Notify Discord","command":"if [ -n \"$BENTOYA_DISCORD_WEBHOOK\" ]; then curl -s -X POST \"$BENTOYA_DISCORD_WEBHOOK\" -H 'Content-Type: application/json' -d '{\"content\": \"❌ **{task.title}** failed in {column.name}\"}'; fi"}]"#,
+        ),
     ];
 
     for (id, name, description, steps) in built_ins {
