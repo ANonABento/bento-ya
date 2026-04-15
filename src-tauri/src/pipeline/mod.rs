@@ -284,6 +284,11 @@ pub fn fire_trigger(
         return Ok(task.clone());
     }
 
+    // Record timing: task entering this column
+    if let Err(e) = db::insert_pipeline_timing(conn, &task.id, &column.id, &column.name) {
+        log::warn!("Failed to insert pipeline timing for task {}: {}", task.id, e);
+    }
+
     // Check for V2 triggers
     if let Some(ref triggers_json) = column.triggers {
         if triggers_json != "{}" && !triggers_json.is_empty() {
@@ -528,6 +533,11 @@ pub fn mark_complete_with_error(
 ) -> Result<Task, AppError> {
     let task = db::get_task(conn, task_id)?;
     let column = db::get_column(conn, &task.column_id)?;
+
+    // Record timing: task exiting this column
+    if let Err(e) = db::complete_pipeline_timing(conn, task_id, &column.id, success, task.retry_count) {
+        log::warn!("Failed to complete pipeline timing for task {}: {}", task_id, e);
+    }
 
     let action = decide_completion(&task, column.triggers.as_deref(), success);
 
