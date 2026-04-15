@@ -677,6 +677,59 @@ pub async fn retry_pipeline(
     Ok(task)
 }
 
+/// Retry a task from the start of the pipeline
+/// Resets pipeline state, moves task to the first column, and fires its trigger.
+/// Cancels any running agent session first. Preserves existing worktree.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn retry_from_start(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    task_id: String,
+    agent_runner: State<'_, std::sync::Arc<std::sync::Mutex<crate::process::agent_runner::AgentRunner>>>,
+) -> Result<Task, AppError> {
+    // Cancel any running agent for this task
+    {
+        let mut runner = agent_runner.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let _ = runner.force_stop_agent(&task_id);
+    }
+
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let task = db::get_task(&conn, &task_id)?;
+    let old_column_id = task.column_id.clone();
+
+    // Find the first column in this workspace
+    let columns = db::list_columns(&conn, &task.workspace_id)?;
+    let first_column = columns.into_iter().next()
+        .ok_or_else(|| AppError::InvalidInput("No columns found in workspace".into()))?;
+
+    let column_changed = old_column_id != first_column.id;
+
+    // Reset pipeline state and move to first column
+    let ts = db::now();
+    conn.execute(
+        "UPDATE tasks SET column_id = ?1, position = 0, pipeline_state = 'idle', \
+         pipeline_triggered_at = NULL, pipeline_error = NULL, retry_count = 0, \
+         review_status = NULL, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![first_column.id, ts, task_id],
+    ).map_err(AppError::from)?;
+
+    // Fire on_exit for old column if changed
+    if column_changed {
+        let old_column = db::get_column(&conn, &old_column_id)?;
+        let _ = pipeline::triggers::fire_on_exit(&conn, &app, &task, &old_column, Some(&first_column));
+    }
+
+    // Notify frontend
+    pipeline::emit_tasks_changed(&app, &task.workspace_id, "retry_from_start");
+
+    // Fire the first column's entry trigger
+    let task = db::get_task(&conn, &task_id)?;
+    let task = pipeline::fire_trigger(&conn, &app, &task, &first_column)?;
+
+    Ok(task)
+}
+
 // ─── Worktree Commands ────────────────────────────────────────────────────
 
 /// Create a git worktree for a task. Auto-creates the branch if needed.

@@ -37,6 +37,10 @@ export async function retryPipeline(taskId: string): Promise<Task> {
   return invoke<Task>('retry_pipeline', { taskId })
 }
 
+export async function retryFromStart(taskId: string): Promise<Task> {
+  return invoke<Task>('retry_from_start', { taskId })
+}
+
 // ─── Pipeline event listeners ───────────────────────────────────────────────
 
 export const onPipelineTriggered = (cb: EventCallback<PipelineEvent>): Promise<UnlistenFn> =>

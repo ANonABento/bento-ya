@@ -142,6 +142,7 @@ pub fn run() {
             commands::task::clear_task_notification_sent,
             commands::task::generate_test_checklist,
             commands::task::retry_pipeline,
+            commands::task::retry_from_start,
             commands::task::validate_task_dependencies,
             commands::task::create_task_worktree,
             commands::task::remove_task_worktree,

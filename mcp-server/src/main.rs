@@ -278,6 +278,17 @@ fn get_tools() -> Vec<Value> {
             }),
         ),
         tool(
+            "retry_from_start",
+            "Retry a task from the start of the pipeline (move to first column, reset state, fire trigger)",
+            json!({
+                "type": "object",
+                "properties": {
+                    "task": { "type": "string", "description": "Task title or ID" }
+                },
+                "required": ["task"]
+            }),
+        ),
+        tool(
             "create_workspace",
             "Create a new workspace pointing to a git repository",
             json!({
@@ -556,6 +567,7 @@ fn handle_tool_call(conn: &Connection, name: &str, args: &Value) -> Value {
         "remove_dependency" => handle_remove_dependency(conn, args),
         "mark_complete" => handle_mark_complete(conn, args),
         "retry_task" => handle_retry_task(conn, args),
+        "retry_from_start" => handle_retry_from_start(conn, args),
         "create_workspace" => handle_create_workspace(conn, args),
         "create_column" => handle_create_column(conn, args),
         "configure_triggers" => handle_configure_triggers(conn, args),
@@ -1178,6 +1190,57 @@ fn handle_retry_task(conn: &Connection, args: &Value) -> Value {
                 "Reset '{}' for retry (attempt #{})",
                 task["title"].as_str().unwrap_or("?"),
                 retry_count
+            )
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_retry_from_start(conn: &Connection, args: &Value) -> Value {
+    let task_q = match args.get("task").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return json!({ "error": "task is required" }),
+    };
+
+    let task = match find_task(conn, task_q, None) {
+        Ok(t) => t,
+        Err(e) => return json!({ "error": e }),
+    };
+    let task_id = task["id"].as_str().unwrap();
+    let workspace_id = task["workspace_id"].as_str().unwrap_or("");
+
+    // Try API bridge first (handles agent cancellation + trigger firing + UI updates)
+    if let Some(resp) = api_call("/api/retry_from_start", &json!({"task_id": task_id})) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "task_id": task_id,
+                "title": task["title"],
+                "message": format!("Restarting '{}' from first column", task["title"].as_str().unwrap_or("?"))
+            });
+        }
+    }
+
+    // Fallback: direct DB update (no trigger firing without the app)
+    let (first_col_id, first_col_name) = match first_column(conn, workspace_id) {
+        Ok(c) => c,
+        Err(e) => return json!({ "error": e }),
+    };
+
+    let ts = now();
+    match conn.execute(
+        "UPDATE tasks SET column_id = ?1, position = 0, pipeline_state = 'idle', \
+         pipeline_triggered_at = NULL, pipeline_error = NULL, retry_count = 0, \
+         review_status = NULL, updated_at = ?2 WHERE id = ?3",
+        params![first_col_id, ts, task_id],
+    ) {
+        Ok(_) => json!({
+            "task_id": task_id,
+            "title": task["title"],
+            "moved_to": first_col_name,
+            "message": format!(
+                "Reset '{}' to column '{}' for restart (note: trigger not fired without app running)",
+                task["title"].as_str().unwrap_or("?"),
+                first_col_name
             )
         }),
         Err(e) => json!({ "error": e.to_string() }),

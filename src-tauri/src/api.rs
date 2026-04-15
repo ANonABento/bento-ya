@@ -258,6 +258,56 @@ async fn retry_task(
     }
 }
 
+async fn retry_from_start(
+    AxumState(api): AxumState<Arc<ApiState>>,
+    Json(req): Json<RetryReq>,
+) -> impl IntoResponse {
+    let conn = get_db!(api);
+
+    let task = match db::get_task(&conn, &req.task_id) {
+        Ok(t) => t, Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
+    };
+
+    let old_column_id = task.column_id.clone();
+
+    // Find first column
+    let columns = match db::list_columns(&conn, &task.workspace_id) {
+        Ok(c) => c, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+    let first_column = match columns.into_iter().next() {
+        Some(c) => c, None => return err_response(StatusCode::INTERNAL_SERVER_ERROR, "No columns found".to_string()).into_response(),
+    };
+
+    let column_changed = old_column_id != first_column.id;
+
+    // Reset pipeline state and move to first column
+    let ts = db::now();
+    let _ = conn.execute(
+        "UPDATE tasks SET column_id = ?1, position = 0, pipeline_state = 'idle', \
+         pipeline_triggered_at = NULL, pipeline_error = NULL, retry_count = 0, \
+         review_status = NULL, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![first_column.id, ts, req.task_id],
+    );
+
+    // Fire on_exit for old column
+    if column_changed {
+        if let Ok(old_col) = db::get_column(&conn, &old_column_id) {
+            let _ = pipeline::triggers::fire_on_exit(&conn, &api.app, &task, &old_col, Some(&first_column));
+        }
+    }
+
+    pipeline::emit_tasks_changed(&api.app, &task.workspace_id, "api_retry_from_start");
+
+    let task = match db::get_task(&conn, &req.task_id) {
+        Ok(t) => t, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+
+    match pipeline::fire_trigger(&conn, &api.app, &task, &first_column) {
+        Ok(t) => ok_response(serde_json::to_value(&t).unwrap_or_default()).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
 async fn health() -> impl IntoResponse {
     Json(ApiResponse { success: true, data: Some(serde_json::json!({"status": "ok"})), error: None })
 }
@@ -292,6 +342,7 @@ pub fn start(app: AppHandle) {
             .route("/api/approve_task", post(approve_task))
             .route("/api/reject_task", post(reject_task))
             .route("/api/retry_task", post(retry_task))
+            .route("/api/retry_from_start", post(retry_from_start))
             .with_state(api_state);
 
         // Bind to random available port
