@@ -638,6 +638,78 @@ Return ONLY the JSON array, no other text."#,
     })
 }
 
+/// Queue N tasks from Backlog for sequential batch processing.
+/// Sets queued_at on the first N tasks, then moves the first one to Plan.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn queue_backlog(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    workspace_id: String,
+    count: i64,
+) -> Result<Vec<Task>, AppError> {
+    if count <= 0 {
+        return Err(AppError::InvalidInput("Count must be positive".to_string()));
+    }
+
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    // Find the Backlog column
+    let columns = db::list_columns(&conn, &workspace_id)?;
+    let backlog_column = columns.iter().find(|c| c.name == "Backlog")
+        .ok_or_else(|| AppError::InvalidInput("No 'Backlog' column found".to_string()))?;
+
+    // Get first N tasks from Backlog ordered by position
+    let backlog_tasks = db::list_tasks_by_column(&conn, &backlog_column.id)?;
+    let to_queue: Vec<&Task> = backlog_tasks.iter().take(count as usize).collect();
+
+    if to_queue.is_empty() {
+        return Err(AppError::InvalidInput("No tasks in Backlog to queue".to_string()));
+    }
+
+    // Set queued_at on each task
+    let ts = db::now();
+    let mut queued_tasks = Vec::new();
+    for task in &to_queue {
+        conn.execute(
+            "UPDATE tasks SET queued_at = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![ts, ts, task.id],
+        ).map_err(AppError::from)?;
+        queued_tasks.push(db::get_task(&conn, &task.id)?);
+    }
+
+    // Move the first task to Plan and fire trigger
+    let first_task = &queued_tasks[0];
+    let plan_column = columns.iter().find(|c| c.name == "Plan")
+        .ok_or_else(|| AppError::InvalidInput("No 'Plan' column found".to_string()))?;
+
+    let max_pos: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
+            rusqlite::params![plan_column.id],
+            |row| row.get(0),
+        )
+        .unwrap_or(-1);
+
+    conn.execute(
+        "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = NULL, updated_at = ?3 WHERE id = ?4",
+        rusqlite::params![plan_column.id, max_pos + 1, ts, first_task.id],
+    ).map_err(AppError::from)?;
+
+    let moved_task = db::get_task(&conn, &first_task.id)?;
+
+    pipeline::emit_tasks_changed(&app, &workspace_id, "batch_queue_started");
+
+    // Fire the Plan trigger on the first task
+    let _ = pipeline::fire_trigger(&conn, &app, &moved_task, plan_column)?;
+
+    // Return all queued tasks (refreshed)
+    let result: Vec<Task> = queued_tasks.iter()
+        .map(|t| db::get_task(&conn, &t.id))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(result)
+}
+
 /// Validate that task dependencies won't create a cycle
 #[tauri::command]
 pub fn validate_task_dependencies(

@@ -143,6 +143,7 @@ pub fn run() {
             commands::task::generate_test_checklist,
             commands::task::retry_pipeline,
             commands::task::validate_task_dependencies,
+            commands::task::queue_backlog,
             commands::task::create_task_worktree,
             commands::task::remove_task_worktree,
             // Git commands

@@ -381,6 +381,23 @@ pub fn mark_task_notification_sent(conn: &Connection, id: &str) -> SqlResult<Tas
     get_task(conn, id)
 }
 
+/// Get the next queued task in a workspace (oldest queued_at, idle, in Backlog column)
+pub fn get_next_queued_task(conn: &Connection, workspace_id: &str) -> SqlResult<Option<Task>> {
+    let result = conn.query_row(
+        &format!(
+            "SELECT {} FROM tasks WHERE workspace_id = ?1 AND queued_at IS NOT NULL AND pipeline_state = 'idle' AND column_id IN (SELECT id FROM columns WHERE name = 'Backlog' AND workspace_id = ?1) ORDER BY position LIMIT 1",
+            TASK_COLUMNS
+        ),
+        params![workspace_id],
+        map_task_row,
+    );
+    match result {
+        Ok(task) => Ok(Some(task)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// Clear the notification sent timestamp
 pub fn clear_task_notification_sent(conn: &Connection, id: &str) -> SqlResult<Task> {
     let ts = now();
