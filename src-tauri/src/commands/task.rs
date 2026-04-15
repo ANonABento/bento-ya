@@ -678,35 +678,20 @@ pub async fn queue_backlog(
     }
 
     // Move the first task to Plan and fire trigger
-    let first_task = &queued_tasks[0];
     let plan_column = columns.iter().find(|c| c.name == "Plan")
         .ok_or_else(|| AppError::InvalidInput("No 'Plan' column found".to_string()))?;
 
-    let max_pos: i64 = conn
-        .query_row(
-            "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
-            rusqlite::params![plan_column.id],
-            |row| row.get(0),
-        )
-        .unwrap_or(-1);
-
-    conn.execute(
-        "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = NULL, updated_at = ?3 WHERE id = ?4",
-        rusqlite::params![plan_column.id, max_pos + 1, ts, first_task.id],
-    ).map_err(AppError::from)?;
-
-    let moved_task = db::get_task(&conn, &first_task.id)?;
+    let moved_task = db::append_task_to_column(&conn, &queued_tasks[0].id, &plan_column.id)
+        .map_err(AppError::from)?;
 
     pipeline::emit_tasks_changed(&app, &workspace_id, "batch_queue_started");
 
     // Fire the Plan trigger on the first task
-    let _ = pipeline::fire_trigger(&conn, &app, &moved_task, plan_column)?;
+    pipeline::fire_trigger(&conn, &app, &moved_task, plan_column)?;
 
-    // Return all queued tasks (refreshed)
-    let result: Vec<Task> = queued_tasks.iter()
-        .map(|t| db::get_task(&conn, &t.id))
-        .collect::<Result<Vec<_>, _>>()?;
-
+    // Return all queued tasks: first task with its new column, rest unchanged
+    let mut result = queued_tasks;
+    result[0] = moved_task;
     Ok(result)
 }
 

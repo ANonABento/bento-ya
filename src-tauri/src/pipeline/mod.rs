@@ -590,23 +590,8 @@ pub fn start_next_queued_task(
         }
     };
 
-    // Get next position in the Plan column
-    let max_pos: i64 = conn
-        .query_row(
-            "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
-            rusqlite::params![plan_column.id],
-            |row| row.get(0),
-        )
-        .unwrap_or(-1);
-
-    // Move task to Plan column
-    let ts = db::now();
-    conn.execute(
-        "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = NULL, updated_at = ?3 WHERE id = ?4",
-        rusqlite::params![plan_column.id, max_pos + 1, ts, next_task.id],
-    ).map_err(AppError::from)?;
-
-    let moved_task = db::get_task(conn, &next_task.id)?;
+    // Move task to end of Plan column
+    let moved_task = db::append_task_to_column(conn, &next_task.id, &plan_column.id)?;
 
     log::info!("[pipeline] Auto-starting queued task '{}' ({})", moved_task.title, moved_task.id);
 
