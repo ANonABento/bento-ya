@@ -495,9 +495,16 @@ pub fn mark_complete(
 
             // Try to auto-advance
             if let Some(advanced_task) = try_auto_advance(conn, app, &task, &column)? {
-                // Task advanced — check if we should start next queued task
-                if advanced_task.queued_at.is_some() {
-                    let _ = start_next_queued_task(conn, app, &task.workspace_id);
+                // Task advanced — start next queued task only when task reaches the PR
+                // column (or the final non-advancing column), not on every intermediate hop.
+                if task.queued_at.is_some() {
+                    if let Ok(new_col) = db::get_column(conn, &advanced_task.column_id) {
+                        let new_col_auto_advance = parse_trigger_field_bool(new_col.triggers.as_deref(), "auto_advance");
+                        if !new_col_auto_advance {
+                            // Task has reached a resting column (e.g. PR waiting for review)
+                            let _ = start_next_queued_task(conn, app, &task.workspace_id);
+                        }
+                    }
                 }
                 return Ok(advanced_task);
             }
@@ -527,6 +534,9 @@ pub fn mark_complete(
                 conn, task_id, PipelineState::Idle.as_str(), None, None,
             )?;
             emit_completion_event(app, task_id, &column.id, &task.workspace_id, true);
+            if task.queued_at.is_some() {
+                let _ = start_next_queued_task(conn, app, &task.workspace_id);
+            }
             Ok(updated_task)
         }
         CompletionAction::Retry { attempt, max } => {
