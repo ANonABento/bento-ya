@@ -282,12 +282,14 @@ async fn retry_from_start(
 
     // Reset pipeline state and move to first column
     let ts = db::now();
-    let _ = conn.execute(
+    if let Err(e) = conn.execute(
         "UPDATE tasks SET column_id = ?1, position = 0, pipeline_state = 'idle', \
          pipeline_triggered_at = NULL, pipeline_error = NULL, retry_count = 0, \
          review_status = NULL, updated_at = ?2 WHERE id = ?3",
         rusqlite::params![first_column.id, ts, req.task_id],
-    );
+    ) {
+        return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+    }
 
     // Fire on_exit for old column
     if column_changed {

@@ -1,8 +1,10 @@
 use crate::db::{self, AppState, Task};
 use crate::error::AppError;
 use crate::pipeline;
+use crate::process::agent_runner::AgentRunner;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, State};
 
 #[tauri::command(rename_all = "camelCase")]
@@ -685,7 +687,7 @@ pub async fn retry_from_start(
     app: AppHandle,
     state: State<'_, AppState>,
     task_id: String,
-    agent_runner: State<'_, std::sync::Arc<std::sync::Mutex<crate::process::agent_runner::AgentRunner>>>,
+    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
 ) -> Result<Task, AppError> {
     // Cancel any running agent for this task
     {

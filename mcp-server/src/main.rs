@@ -1207,7 +1207,10 @@ fn handle_retry_from_start(conn: &Connection, args: &Value) -> Value {
         Err(e) => return json!({ "error": e }),
     };
     let task_id = task["id"].as_str().unwrap();
-    let workspace_id = task["workspace_id"].as_str().unwrap_or("");
+    let workspace_id = match task["workspace_id"].as_str() {
+        Some(w) => w,
+        None => return json!({ "error": "task has no workspace_id" }),
+    };
 
     // Try API bridge first (handles agent cancellation + trigger firing + UI updates)
     if let Some(resp) = api_call("/api/retry_from_start", &json!({"task_id": task_id})) {
