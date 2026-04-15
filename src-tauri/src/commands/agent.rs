@@ -491,6 +491,6 @@ fn emit_agent_event(app: &AppHandle, task_id: &str, event: ChatEvent) {
                 },
             );
         }
-        ChatEvent::Complete | ChatEvent::SessionId(_) | ChatEvent::RawOutput(_) | ChatEvent::Unknown => {}
+        ChatEvent::Complete | ChatEvent::Result(_) | ChatEvent::SessionId(_) | ChatEvent::RawOutput(_) | ChatEvent::Unknown => {}
     }
 }

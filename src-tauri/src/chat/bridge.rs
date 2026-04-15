@@ -11,7 +11,7 @@ use rusqlite::Connection;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
-use super::events::ChatEvent;
+use super::events::{ChatEvent, TokenUsage};
 use super::pipe_transport::PipeTransport;
 use super::transport::{ChatTransport, SpawnConfig, TransportEvent};
 use crate::db;
@@ -21,13 +21,16 @@ use crate::pipeline;
 ///
 /// Emits both raw PTY events (for terminal view) and parsed agent events
 /// (for chat panel). Also saves assistant messages to DB.
+/// Returns accumulated token usage from all result events.
 pub async fn bridge_pty_to_tauri(
     app: &AppHandle,
     task_id: &str,
     mut event_rx: mpsc::Receiver<TransportEvent>,
-) {
+) -> TokenUsage {
     // Accumulate text content for saving to DB on complete
     let mut accumulated_text = String::new();
+    // Accumulate token usage across all result events in the session
+    let mut total_usage = TokenUsage::default();
 
     while let Some(event) = event_rx.recv().await {
         match event {
@@ -55,6 +58,29 @@ pub async fn bridge_pty_to_tauri(
                     "toolName": name,
                     "toolInput": input.unwrap_or_default(),
                     "status": format!("{:?}", status).to_lowercase(),
+                }));
+            }
+            TransportEvent::Chat(ChatEvent::Result(usage)) => {
+                total_usage.input_tokens += usage.input_tokens;
+                total_usage.output_tokens += usage.output_tokens;
+                // Keep the last model seen
+                if usage.model.is_some() {
+                    total_usage.model = usage.model;
+                }
+                // Save accumulated text as an agent message
+                if !accumulated_text.is_empty() {
+                    if let Ok(conn) = Connection::open(db::db_path()) {
+                        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                        let _ = db::insert_agent_message(
+                            &conn, task_id, "assistant", &accumulated_text,
+                            None, None, None, None,
+                        );
+                    }
+                    accumulated_text.clear();
+                }
+                let _ = app.emit("agent:complete", &serde_json::json!({
+                    "taskId": task_id,
+                    "success": true,
                 }));
             }
             TransportEvent::Chat(ChatEvent::Complete) => {
@@ -94,6 +120,8 @@ pub async fn bridge_pty_to_tauri(
             _ => {}
         }
     }
+
+    total_usage
 }
 
 /// Spawn a background task that runs a CLI trigger via a PTY session.
@@ -143,6 +171,8 @@ pub fn spawn_cli_trigger_task(
     };
 
     tokio::spawn(async move {
+        let start_time = std::time::Instant::now();
+
         let result: Result<(), String> = async {
             // Use PipeTransport for structured JSON output (parsed chat events)
             let mut transport = PipeTransport::new();
@@ -183,13 +213,39 @@ pub fn spawn_cli_trigger_task(
                 }
             }
 
-            // Bridge events to frontend AND wait for exit
-            bridge_pty_to_tauri(&app, &task_id, event_rx).await;
+            // Bridge events to frontend AND wait for exit — returns accumulated usage
+            let usage = bridge_pty_to_tauri(&app, &task_id, event_rx).await;
+
+            let duration_secs = start_time.elapsed().as_secs() as i64;
 
             // Process exited — update session + mark pipeline complete
             let conn = Connection::open(db::db_path())
                 .map_err(|e| format!("Failed to open DB: {}", e))?;
             let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+
+            // Record usage if we captured any tokens
+            if usage.input_tokens > 0 || usage.output_tokens > 0 {
+                if let Ok(task) = db::get_task(&conn, &task_id) {
+                    let model_name = usage.model.as_deref().unwrap_or("unknown");
+                    let cost = db::estimate_cost(model_name, usage.input_tokens, usage.output_tokens);
+                    let column_name = db::get_column(&conn, &task.column_id)
+                        .map(|c| c.name)
+                        .ok();
+                    let _ = db::insert_usage_record(
+                        &conn,
+                        &task.workspace_id,
+                        Some(&task_id),
+                        session_id.as_deref(),
+                        "anthropic",
+                        model_name,
+                        usage.input_tokens,
+                        usage.output_tokens,
+                        cost,
+                        column_name.as_deref(),
+                        duration_secs,
+                    );
+                }
+            }
 
             if let Some(ref sid) = session_id {
                 let _ = db::update_agent_session(

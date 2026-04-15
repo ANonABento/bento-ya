@@ -7,6 +7,14 @@
 
 use serde::Serialize;
 
+/// Token usage data extracted from CLI result events.
+#[derive(Debug, Clone, Default)]
+pub struct TokenUsage {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub model: Option<String>,
+}
+
 /// Unified event emitted by both transports.
 #[derive(Debug, Clone)]
 pub enum ChatEvent {
@@ -23,8 +31,10 @@ pub enum ChatEvent {
         input: Option<String>,
         status: ToolStatus,
     },
-    /// Response is complete
+    /// Response is complete, with optional token usage data
     Complete,
+    /// Result event with token usage data
+    Result(TokenUsage),
     /// Raw terminal output (PTY transport only, base64-encoded)
     RawOutput(String),
     /// Unknown or unhandled event
@@ -76,8 +86,34 @@ pub fn parse_json_event(line: &str) -> ChatEvent {
             content: String::new(),
             is_complete: true,
         },
-        "result" => ChatEvent::Complete,
+        "result" => parse_result_event(&json),
         _ => ChatEvent::Unknown,
+    }
+}
+
+fn parse_result_event(json: &serde_json::Value) -> ChatEvent {
+    let mut usage = TokenUsage::default();
+
+    if let Some(usage_obj) = json.get("usage") {
+        usage.input_tokens = usage_obj
+            .get("input_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        usage.output_tokens = usage_obj
+            .get("output_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+    }
+
+    usage.model = json
+        .get("model")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    if usage.input_tokens > 0 || usage.output_tokens > 0 {
+        ChatEvent::Result(usage)
+    } else {
+        ChatEvent::Complete
     }
 }
 
@@ -435,7 +471,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_result_event() {
+    fn test_parse_result_event_no_usage() {
         let json = r#"{"type": "result"}"#;
         match parse_json_event(json) {
             ChatEvent::Complete => {}
@@ -444,11 +480,24 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_result_event_with_text() {
-        let json = r#"{"type": "result", "result": "Final answer"}"#;
+    fn test_parse_result_event_with_usage() {
+        let json = r#"{"type": "result", "model": "claude-sonnet-4-20250514", "usage": {"input_tokens": 1500, "output_tokens": 300}}"#;
+        match parse_json_event(json) {
+            ChatEvent::Result(usage) => {
+                assert_eq!(usage.input_tokens, 1500);
+                assert_eq!(usage.output_tokens, 300);
+                assert_eq!(usage.model.as_deref(), Some("claude-sonnet-4-20250514"));
+            }
+            _ => panic!("Expected Result event with usage"),
+        }
+    }
+
+    #[test]
+    fn test_parse_result_event_with_zero_usage() {
+        let json = r#"{"type": "result", "usage": {"input_tokens": 0, "output_tokens": 0}}"#;
         match parse_json_event(json) {
             ChatEvent::Complete => {}
-            _ => panic!("Expected Complete event"),
+            _ => panic!("Expected Complete event for zero usage"),
         }
     }
 

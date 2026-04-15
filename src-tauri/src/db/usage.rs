@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use super::models::{UsageRecord, UsageSummary};
 use super::{new_id, now};
 
-/// Inline row mapping for UsageRecord (10 fields).
+/// Inline row mapping for UsageRecord (12 fields).
 fn map_usage_record_row(row: &rusqlite::Row) -> rusqlite::Result<UsageRecord> {
     Ok(UsageRecord {
         id: row.get(0)?,
@@ -15,11 +15,13 @@ fn map_usage_record_row(row: &rusqlite::Row) -> rusqlite::Result<UsageRecord> {
         input_tokens: row.get(6)?,
         output_tokens: row.get(7)?,
         cost_usd: row.get(8)?,
-        created_at: row.get(9)?,
+        column_name: row.get(9)?,
+        duration_seconds: row.get(10)?,
+        created_at: row.get(11)?,
     })
 }
 
-const USAGE_RECORD_COLUMNS: &str = "id, workspace_id, task_id, session_id, provider, model, input_tokens, output_tokens, cost_usd, created_at";
+const USAGE_RECORD_COLUMNS: &str = "id, workspace_id, task_id, session_id, provider, model, input_tokens, output_tokens, cost_usd, column_name, duration_seconds, created_at";
 
 pub fn insert_usage_record(
     conn: &Connection,
@@ -31,14 +33,37 @@ pub fn insert_usage_record(
     input_tokens: i64,
     output_tokens: i64,
     cost_usd: f64,
+    column_name: Option<&str>,
+    duration_seconds: i64,
 ) -> SqlResult<UsageRecord> {
     let id = new_id();
     let ts = now();
     conn.execute(
-        &format!("INSERT INTO usage_records ({}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)", USAGE_RECORD_COLUMNS),
-        params![id, workspace_id, task_id, session_id, provider, model, input_tokens, output_tokens, cost_usd, ts],
+        &format!("INSERT INTO usage_records ({}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)", USAGE_RECORD_COLUMNS),
+        params![id, workspace_id, task_id, session_id, provider, model, input_tokens, output_tokens, cost_usd, column_name, duration_seconds, ts],
     )?;
     get_usage_record(conn, &id)
+}
+
+/// Estimate cost in USD based on model name and token counts.
+///
+/// Pricing (per million tokens):
+/// - Opus: $15 input, $75 output
+/// - Sonnet: $3 input, $15 output
+/// - Haiku: $0.25 input, $1.25 output
+pub fn estimate_cost(model: &str, input_tokens: i64, output_tokens: i64) -> f64 {
+    let model_lower = model.to_lowercase();
+    let (input_rate, output_rate) = if model_lower.contains("opus") {
+        (15.0, 75.0)
+    } else if model_lower.contains("sonnet") {
+        (3.0, 15.0)
+    } else if model_lower.contains("haiku") {
+        (0.25, 1.25)
+    } else {
+        // Default to sonnet pricing for unknown models
+        (3.0, 15.0)
+    };
+    (input_tokens as f64 * input_rate + output_tokens as f64 * output_rate) / 1_000_000.0
 }
 
 pub fn get_usage_record(conn: &Connection, id: &str) -> SqlResult<UsageRecord> {
@@ -95,4 +120,39 @@ pub fn get_task_usage_summary(conn: &Connection, task_id: &str) -> SqlResult<Usa
 pub fn delete_workspace_usage(conn: &Connection, workspace_id: &str) -> SqlResult<()> {
     conn.execute("DELETE FROM usage_records WHERE workspace_id = ?1", params![workspace_id])?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_estimate_cost_opus() {
+        let cost = estimate_cost("claude-opus-4-20250514", 1_000_000, 1_000_000);
+        assert!((cost - 90.0).abs() < 0.001); // $15 + $75
+    }
+
+    #[test]
+    fn test_estimate_cost_sonnet() {
+        let cost = estimate_cost("claude-sonnet-4-20250514", 1_000_000, 1_000_000);
+        assert!((cost - 18.0).abs() < 0.001); // $3 + $15
+    }
+
+    #[test]
+    fn test_estimate_cost_haiku() {
+        let cost = estimate_cost("claude-haiku-3-5-20241022", 1_000_000, 1_000_000);
+        assert!((cost - 1.5).abs() < 0.001); // $0.25 + $1.25
+    }
+
+    #[test]
+    fn test_estimate_cost_unknown_defaults_sonnet() {
+        let cost = estimate_cost("gpt-4", 1_000_000, 1_000_000);
+        assert!((cost - 18.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_estimate_cost_zero_tokens() {
+        let cost = estimate_cost("claude-opus-4-20250514", 0, 0);
+        assert!((cost - 0.0).abs() < 0.001);
+    }
 }
