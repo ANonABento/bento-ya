@@ -126,19 +126,11 @@ pub fn seed_built_in_scripts(conn: &Connection) -> SqlResult<()> {
     ];
 
     for (id, name, description, steps) in built_ins {
-        // Only insert if not already present (idempotent)
-        let exists: bool = conn
-            .prepare("SELECT COUNT(*) FROM scripts WHERE id = ?1")?
-            .query_row(params![id], |row| row.get::<_, i64>(0))
-            .map(|count| count > 0)?;
-
-        if !exists {
-            let ts = now();
-            conn.execute(
-                "INSERT INTO scripts (id, name, description, steps, is_built_in, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)",
-                params![id, name, description, steps, ts, ts],
-            )?;
-        }
+        let ts = now();
+        conn.execute(
+            "INSERT OR IGNORE INTO scripts (id, name, description, steps, is_built_in, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)",
+            params![id, name, description, steps, ts, ts],
+        )?;
     }
 
     Ok(())
