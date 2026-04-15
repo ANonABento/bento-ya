@@ -17,6 +17,21 @@ use super::transport::{ChatTransport, SpawnConfig, TransportEvent};
 use crate::db;
 use crate::pipeline;
 
+/// Save accumulated text to the DB as an assistant agent message, then clear the buffer.
+fn flush_accumulated_text(task_id: &str, text: &mut String) {
+    if text.is_empty() {
+        return;
+    }
+    if let Ok(conn) = Connection::open(db::db_path()) {
+        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+        let _ = db::insert_agent_message(
+            &conn, task_id, "assistant", text,
+            None, None, None, None,
+        );
+    }
+    text.clear();
+}
+
 /// Forward PTY transport events to Tauri events for frontend rendering.
 ///
 /// Emits both raw PTY events (for terminal view) and parsed agent events
@@ -67,50 +82,21 @@ pub async fn bridge_pty_to_tauri(
                 if usage.model.is_some() {
                     total_usage.model = usage.model;
                 }
-                // Save accumulated text as an agent message
-                if !accumulated_text.is_empty() {
-                    if let Ok(conn) = Connection::open(db::db_path()) {
-                        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-                        let _ = db::insert_agent_message(
-                            &conn, task_id, "assistant", &accumulated_text,
-                            None, None, None, None,
-                        );
-                    }
-                    accumulated_text.clear();
-                }
+                flush_accumulated_text(task_id, &mut accumulated_text);
                 let _ = app.emit("agent:complete", &serde_json::json!({
                     "taskId": task_id,
                     "success": true,
                 }));
             }
             TransportEvent::Chat(ChatEvent::Complete) => {
-                // Save accumulated text as an agent message
-                if !accumulated_text.is_empty() {
-                    if let Ok(conn) = Connection::open(db::db_path()) {
-                        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-                        let _ = db::insert_agent_message(
-                            &conn, task_id, "assistant", &accumulated_text,
-                            None, None, None, None,
-                        );
-                    }
-                    accumulated_text.clear();
-                }
+                flush_accumulated_text(task_id, &mut accumulated_text);
                 let _ = app.emit("agent:complete", &serde_json::json!({
                     "taskId": task_id,
                     "success": true,
                 }));
             }
             TransportEvent::Exited(_) => {
-                // Save any remaining text
-                if !accumulated_text.is_empty() {
-                    if let Ok(conn) = Connection::open(db::db_path()) {
-                        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-                        let _ = db::insert_agent_message(
-                            &conn, task_id, "assistant", &accumulated_text,
-                            None, None, None, None,
-                        );
-                    }
-                }
+                flush_accumulated_text(task_id, &mut accumulated_text);
                 let _ = app.emit(
                     &format!("pty:{}:exit", task_id),
                     serde_json::json!({ "taskId": task_id }),
@@ -236,7 +222,7 @@ pub fn spawn_cli_trigger_task(
                         &task.workspace_id,
                         Some(&task_id),
                         session_id.as_deref(),
-                        "anthropic",
+                        db::PROVIDER_ANTHROPIC,
                         model_name,
                         usage.input_tokens,
                         usage.output_tokens,

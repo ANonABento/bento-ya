@@ -661,7 +661,7 @@ async fn stream_via_api(
             workspace_id,
             None, // task_id
             Some(orch_session_id),
-            "anthropic",
+            db::PROVIDER_ANTHROPIC,
             &response.model,
             response.usage.input_tokens,
             response.usage.output_tokens,

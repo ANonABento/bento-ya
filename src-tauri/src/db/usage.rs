@@ -3,6 +3,8 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use super::models::{UsageRecord, UsageSummary};
 use super::{new_id, now};
 
+pub const PROVIDER_ANTHROPIC: &str = "anthropic";
+
 /// Inline row mapping for UsageRecord (12 fields).
 fn map_usage_record_row(row: &rusqlite::Row) -> rusqlite::Result<UsageRecord> {
     Ok(UsageRecord {
