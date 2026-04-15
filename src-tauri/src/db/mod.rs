@@ -407,13 +407,13 @@ mod tests {
         // Seed
         seed_built_in_scripts(&conn).unwrap();
         let scripts = list_scripts(&conn).unwrap();
-        assert_eq!(scripts.len(), 5);
+        assert_eq!(scripts.len(), 7);
         assert!(scripts.iter().all(|s| s.is_built_in));
 
         // Idempotent — running again doesn't duplicate
         seed_built_in_scripts(&conn).unwrap();
         let scripts = list_scripts(&conn).unwrap();
-        assert_eq!(scripts.len(), 5);
+        assert_eq!(scripts.len(), 7);
     }
 
     #[test]
@@ -456,7 +456,7 @@ mod tests {
 
         let scripts = list_scripts(&conn).unwrap();
         // Built-in scripts come first (is_built_in DESC), then by name
-        assert_eq!(scripts.len(), 7);
+        assert_eq!(scripts.len(), 9);
         assert!(scripts[0].is_built_in, "Built-ins should come first");
         // Custom scripts should be last, sorted by name
         let custom: Vec<&str> = scripts.iter().filter(|s| !s.is_built_in).map(|s| s.name.as_str()).collect();
