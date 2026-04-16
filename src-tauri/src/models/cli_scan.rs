@@ -117,36 +117,14 @@ fn parse_anthropic_models(raw: &str) -> Vec<ModelEntry> {
 }
 
 /// Parse OpenAI/Codex model IDs from strings output.
+/// Model IDs are often embedded in JSON-like strings (e.g. `"slug": "gpt-5.3-codex"`),
+/// so we scan for patterns anywhere in the text, not just line starts.
 fn parse_openai_models(raw: &str) -> Vec<ModelEntry> {
     let mut seen = HashSet::new();
     let mut models = Vec::new();
 
-    for line in raw.lines() {
-        let trimmed = line.trim().trim_matches('"');
-
-        // Match model IDs — strict filtering to avoid noise
-        let is_gpt = trimmed.starts_with("gpt-") && trimmed.len() > 4;
-        let is_o_model = (trimmed == "o3" || trimmed == "o1"
-            || trimmed.starts_with("o3-") || trimmed.starts_with("o1-"))
-            && trimmed.len() <= 10;
-
-        let is_model = (is_gpt || is_o_model)
-            && !trimmed.contains('/')       // not a path
-            && !trimmed.contains(' ')       // not a sentence
-            && !trimmed.contains("event")   // not an event name
-            && !trimmed.contains("http")    // not a URL
-            && !trimmed.contains("transcribe") // not whisper
-            && !trimmed.contains("oss")     // not open source models
-            && !trimmed.contains("codexgpt")// concatenated garbage
-            && trimmed.len() < 25           // reasonable length
-            && trimmed.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.'); // clean chars only
-
-        if !is_model {
-            continue;
-        }
-
-        // Normalize: gpt-5.3-codex → codex-5.3, gpt-5.2-codex → codex-5.2
-        let normalized = normalize_openai_id(trimmed);
+    for candidate in extract_openai_ids(raw) {
+        let normalized = normalize_openai_id(&candidate);
 
         if seen.contains(&normalized) {
             continue;
@@ -246,4 +224,51 @@ fn capitalize(s: &str) -> String {
         None => String::new(),
         Some(f) => f.to_uppercase().to_string() + c.as_str(),
     }
+}
+
+/// Extract OpenAI model IDs from raw strings output.
+/// Scans for `gpt-*` and `o3`/`o1` patterns anywhere in the text,
+/// since they may be embedded in JSON (e.g. `"slug": "gpt-5.3-codex"`).
+fn extract_openai_ids(raw: &str) -> Vec<String> {
+    let mut ids = Vec::new();
+
+    // Find all gpt-* patterns
+    for (i, _) in raw.match_indices("gpt-") {
+        let rest = &raw[i..];
+        let end = rest
+            .find(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '.')
+            .unwrap_or(rest.len());
+        let candidate = &rest[..end];
+
+        // Validate
+        if candidate.len() > 4
+            && candidate.len() < 25
+            && !candidate.contains("oss")
+            && !candidate.ends_with('-')
+            && !candidate.ends_with('.')
+            && !candidate.contains("transcribe")
+        {
+            ids.push(candidate.to_string());
+        }
+    }
+
+    // Find o3/o1 patterns — look for quoted versions to avoid false positives
+    for pattern in &["\"o3\"", "\"o1\"", "\"o3-", "\"o1-"] {
+        for (i, _) in raw.match_indices(pattern) {
+            let start = i + 1; // skip opening quote
+            let rest = &raw[start..];
+            let end = rest.find('"').unwrap_or(rest.len());
+            let candidate = &rest[..end];
+            if candidate.len() <= 10
+                && !candidate.is_empty()
+                && candidate
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-')
+            {
+                ids.push(candidate.to_string());
+            }
+        }
+    }
+
+    ids
 }
