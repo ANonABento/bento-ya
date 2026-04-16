@@ -1,5 +1,4 @@
-import { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react'
-import { AnimatePresence } from 'motion/react'
+import { memo, useMemo, useState, useCallback, useEffect } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { Task } from '@/types'
@@ -11,7 +10,6 @@ import { useTaskStore } from '@/stores/task-store'
 import { TaskContextMenu } from './task-context-menu'
 import { TaskSettingsModal } from './task-settings-modal'
 import { TaskQuickActions } from './task-quick-actions'
-import { TaskCardExpanded } from './task-card-expanded'
 import { useAgentStreamingStore } from '@/stores/agent-streaming-store'
 import { getColumnTriggers } from '@/types/column'
 import { useCardPosition } from '@/hooks/use-card-positions'
@@ -22,13 +20,9 @@ import { PrStatusIndicator, SiegeBadge } from './task-card-badges'
 import { useTaskCardActions } from './use-task-card-actions'
 import { AttentionBanner, BlockedBanner, QualityGateBanner, PipelineErrorBanner } from './task-card-status'
 import { AgentActivityPreview } from './task-card-activity'
-import { getColumnShortcutIndex, getVisibleColumnsForShortcuts } from './column-shortcuts'
 
 export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
-  const expandTask = useUIStore((s) => s.expandTask)
-  const focusTask = useUIStore((s) => s.focusTask)
-  const expandedTaskId = useUIStore((s) => s.expandedTaskId)
-  const isExpanded = expandedTaskId === task.id
+  const openTask = useUIStore((s) => s.openTask)
   const hasAttention = useAttentionStore((s) => s.hasAttention(task.id))
   const attention = useAttentionStore((s) => s.getAttention(task.id))
   const markViewed = useAttentionStore((s) => s.markViewed)
@@ -39,7 +33,6 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const [showSettings, setShowSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState<'triggers' | 'dependencies'>('triggers')
   const columns = useColumnStore((s) => s.columns)
-  const visibleColumns = useMemo(() => getVisibleColumnsForShortcuts(columns), [columns])
 
   // Get exit criteria type for this task's column
   const columnTriggers = useMemo(() => {
@@ -51,13 +44,6 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
 
   const isQualityGate = columnTriggers?.type === 'manual_approval'
   const reviewStatus = task.reviewStatus
-
-  // Check if task is in the last column (Done) for visual dimming
-  const isInDoneColumn = useMemo(() => {
-    const sorted = columns.filter(c => c.visible).sort((a, b) => a.position - b.position)
-    const lastCol = sorted[sorted.length - 1]
-    return lastCol != null && lastCol.id === task.columnId
-  }, [columns, task.columnId])
 
   // Live agent streaming data
   const agentStream = useAgentStreamingStore((s) => s.streams.get(task.id))
@@ -80,9 +66,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     data: { type: 'task' },
   })
 
-  const cardElRef = useRef<HTMLElement | null>(null)
   const cardRef = useCallback((element: HTMLElement | null) => {
-    cardElRef.current = element
     setNodeRef(element)
     registerCard(task.id, element)
   }, [setNodeRef, registerCard, task.id])
@@ -106,48 +90,11 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     }
   }, [task.prLabels])
 
-  const openChat = useUIStore((s) => s.openChat)
-  const closeChat = useUIStore((s) => s.closeChat)
-  const collapseTask = useUIStore((s) => s.collapseTask)
-  const setPanelView = useUIStore((s) => s.setPanelView)
-
   function handleClick() {
     if (hasAttention) {
       markViewed(task.id)
     }
-
-    if (isExpanded) {
-      // Re-click: close everything
-      collapseTask()
-      closeChat()
-    } else {
-      // Open: expand card + open chat + scroll column to center of board
-      expandTask(task.id)
-      openChat(task.id)
-
-      // Center the column in the visible board area.
-      // rAF loop locks the column at center every frame — handles both
-      // panel opening (board shrinks) and card switching (layout shifts).
-      const scrollContainer = document.querySelector('[data-board-scroll]')
-      const column = cardElRef.current?.closest('[data-column-id]') as HTMLElement | null
-      if (scrollContainer && column) {
-        const colCenter = column.offsetLeft + column.offsetWidth / 2
-        let lastWidth = scrollContainer.clientWidth
-        let stableFrames = 0
-        const lockScroll = () => {
-          scrollContainer.scrollLeft = colCenter - scrollContainer.clientWidth / 2
-          if (scrollContainer.clientWidth === lastWidth) {
-            stableFrames++
-            if (stableFrames > 10) return
-          } else {
-            stableFrames = 0
-            lastWidth = scrollContainer.clientWidth
-          }
-          requestAnimationFrame(lockScroll)
-        }
-        requestAnimationFrame(lockScroll)
-      }
-    }
+    openTask(task.id)
   }
 
   function handlePrClick(e: React.MouseEvent) {
@@ -183,10 +130,12 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
 
   // Find next column for "move right" action
   const nextColumnId = useMemo(() => {
+    const currentCol = columns.find(c => c.id === task.columnId)
+    if (!currentCol) return null
     const sorted = [...columns].sort((a, b) => a.position - b.position)
     const idx = sorted.findIndex(c => c.id === task.columnId)
-    if (idx === -1) return null
-    return idx < sorted.length - 1 ? (sorted[idx + 1]?.id ?? null) : null
+    const next = sorted[idx + 1]
+    return idx < sorted.length - 1 && next ? next.id : null
   }, [columns, task.columnId])
 
   const handleMoveNext = useCallback(() => {
@@ -195,36 +144,15 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     }
   }, [nextColumnId, actions])
 
-  const handleRetry = useCallback(() => { void actions.handleRetryPipeline() }, [actions])
-
   const [deleteConfirmPending, setDeleteConfirmPending] = useState(false)
-  const deleteConfirmTimeoutRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (deleteConfirmTimeoutRef.current !== null) {
-        window.clearTimeout(deleteConfirmTimeoutRef.current)
-      }
-    }
-  }, [])
 
   const handleDeleteWithConfirm = useCallback(() => {
     if (deleteConfirmPending) {
-      if (deleteConfirmTimeoutRef.current !== null) {
-        window.clearTimeout(deleteConfirmTimeoutRef.current)
-        deleteConfirmTimeoutRef.current = null
-      }
       actions.handleDeleteTask()
       setDeleteConfirmPending(false)
     } else {
       setDeleteConfirmPending(true)
-      if (deleteConfirmTimeoutRef.current !== null) {
-        window.clearTimeout(deleteConfirmTimeoutRef.current)
-      }
-      deleteConfirmTimeoutRef.current = window.setTimeout(() => {
-        deleteConfirmTimeoutRef.current = null
-        setDeleteConfirmPending(false)
-      }, 2000)
+      setTimeout(() => { setDeleteConfirmPending(false) }, 2000)
     }
   }, [deleteConfirmPending, actions])
 
@@ -268,24 +196,13 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       style={{
         ...style,
         cursor: 'pointer',
-        opacity: isDragging ? 0.4 : isDimmed ? 0.3 : task.blocked ? 0.7 : isInDoneColumn ? 0.6 : 1,
+        opacity: isDragging ? 0.4 : isDimmed ? 0.3 : task.blocked ? 0.7 : 1,
         transition: 'transform 200ms ease, opacity 200ms ease',
       }}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
       onKeyDown={(e) => {
         if (e.metaKey || e.ctrlKey || e.altKey) return
-
-        const shortcutIndex = getColumnShortcutIndex(e.key, visibleColumns.length)
-        if (shortcutIndex !== null) {
-          e.preventDefault()
-          const targetColumn = visibleColumns[shortcutIndex]
-          if (targetColumn && targetColumn.id !== task.columnId) {
-            actions.handleMoveToColumn(targetColumn.id)
-          }
-          return
-        }
-
         switch (e.key) {
           case 'Enter':
             e.preventDefault()
@@ -329,13 +246,6 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
             setSettingsTab('dependencies')
             setShowSettings(true)
             break
-          case 'i':
-          case 'I':
-            e.preventDefault()
-            focusTask(task.id)
-            openChat(task.id)
-            setPanelView('detail')
-            break
         }
       }}
       tabIndex={0}
@@ -361,7 +271,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           hasNextColumn={!!nextColumnId}
           onOpen={handleClick}
           onToggleAgent={actions.handleToggleAgent}
-          onRetry={handleRetry}
+          onRetry={() => { void actions.handleRetryPipeline() }}
           onMoveNext={handleMoveNext}
           onDelete={actions.handleDeleteTask}
           onShowMenu={handleShowMenu}
@@ -381,8 +291,8 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           </h4>
         </div>
 
-        {/* Description — hidden when expanded (expanded view shows full description) */}
-        {!isExpanded && cardSettings.showDescription && task.description && (
+        {/* Description */}
+        {cardSettings.showDescription && task.description && (
           <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed">
             {task.description}
           </p>
@@ -394,15 +304,15 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         {isQualityGate && !hasPipelineError && <QualityGateBanner reviewStatus={reviewStatus} />}
         {hasPipelineError && <PipelineErrorBanner task={task} onRetry={() => { void actions.handleRetryPipeline() }} />}
 
-        {/* Agent activity preview — hidden when expanded */}
-        {!isExpanded && !needsAttention && !hasPipelineError && (
+        {/* Agent activity preview */}
+        {!needsAttention && !hasPipelineError && (
           <AgentActivityPreview task={task} agentStream={agentStream} />
         )}
 
-        {/* Compact metadata row — hidden when expanded (expanded view has its own) */}
-        {!isExpanded && hasMetadata && (
+        {/* Compact metadata row */}
+        {hasMetadata && (
           <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px] text-text-secondary">
-            {isPipelineActive && !hasPipelineError && task.pipelineState !== 'running' && (
+            {isPipelineActive && !hasPipelineError && (
               <span className="inline-flex items-center gap-1 text-running">
                 <span className="relative flex h-1.5 w-1.5">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-running opacity-75" />
@@ -458,8 +368,8 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           </div>
         )}
 
-        {/* Labels — hidden when expanded */}
-        {!isExpanded && cardSettings.showLabels && labels.length > 0 && (
+        {/* Labels */}
+        {cardSettings.showLabels && labels.length > 0 && (
           <div className="flex items-center gap-1 flex-wrap">
             {labels.slice(0, 3).map((label) => (
               <span key={label} className="rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary">
@@ -472,11 +382,6 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           </div>
         )}
       </div>
-
-      {/* Expanded card detail */}
-      <AnimatePresence>
-        {isExpanded && <TaskCardExpanded task={task} />}
-      </AnimatePresence>
     </div>
 
     {/* Context Menu */}
