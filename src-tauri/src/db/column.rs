@@ -28,11 +28,22 @@ pub fn insert_column(
     name: &str,
     position: i64,
 ) -> SqlResult<Column> {
+    insert_column_with_style(conn, workspace_id, name, position, "list", None)
+}
+
+pub fn insert_column_with_style(
+    conn: &Connection,
+    workspace_id: &str,
+    name: &str,
+    position: i64,
+    icon: &str,
+    color: Option<&str>,
+) -> SqlResult<Column> {
     let id = new_id();
     let ts = now();
     conn.execute(
-        "INSERT INTO columns (id, workspace_id, name, icon, position, visible, created_at, updated_at) VALUES (?1, ?2, ?3, 'list', ?4, 1, ?5, ?6)",
-        params![id, workspace_id, name, position, ts, ts],
+        "INSERT INTO columns (id, workspace_id, name, icon, position, color, visible, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8)",
+        params![id, workspace_id, name, icon, position, color, ts, ts],
     )?;
     get_column(conn, &id)
 }

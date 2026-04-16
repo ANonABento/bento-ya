@@ -9,6 +9,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { listen } from '@tauri-apps/api/event'
 import { useUIStore } from '@/stores/ui-store'
+import { useResizablePanel } from '@/hooks/use-resizable-panel'
+import { ResizeHandle } from '@/components/shared/resize-handle'
 import { useTaskStore } from '@/stores/task-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useOrchestratorSessions } from '@/hooks/use-orchestrator-sessions'
@@ -18,6 +20,7 @@ import { buildPromptWithAttachments } from '@/types'
 import { useCliPath } from '@/hooks/use-cli-path'
 import { ChatHistory } from './chat-history'
 import { PanelSidebar } from './panel-sidebar'
+import { PipelineDashboard } from './pipeline-dashboard'
 import { ChatErrorBoundary } from './chat-error-boundary'
 import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls } from './shared'
 
@@ -82,9 +85,18 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     },
   })
 
+  // Shared resize hook
+  const { handleMouseDown: handleResizeMouseDown, isDragging } = useResizablePanel({
+    direction: isRightDock ? 'horizontal' : 'vertical',
+    size: isRightDock ? panelWidth : panelHeight,
+    onResize: isRightDock ? setPanelWidth : setPanelHeight,
+    disabled: isPanelCollapsed,
+  })
+
   // Local UI state
-  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | null>(null)
+  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | 'dashboard' | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | null>(null)
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -96,8 +108,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   }, [chat.error])
 
   const panelRef = useRef<HTMLDivElement>(null)
-  const dragStartY = useRef(0)
-  const dragStartHeight = useRef(0)
 
   // Load messages when active session changes
   useEffect(() => {
@@ -179,58 +189,11 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     return () => { window.removeEventListener('keydown', handleKeyDown) }
   }, [togglePanel])
 
-  // Resize handle drag handler
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
-    if (isPanelCollapsed) return
-    e.preventDefault()
-    e.stopPropagation()
-    dragStartY.current = isRightDock ? e.clientX : e.clientY
-    dragStartHeight.current = isRightDock ? panelWidth : panelHeight
-    setIsDragging(true)
-  }, [panelHeight, panelWidth, isPanelCollapsed, isRightDock])
-
   // Header click handler (toggle panel)
   const handleHeaderClick = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('button')) return
     togglePanel()
   }, [togglePanel])
-
-  useEffect(() => {
-    if (!isDragging) return
-
-    document.body.style.cursor = isRightDock ? 'ew-resize' : 'ns-resize'
-    document.body.style.userSelect = 'none'
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isRightDock) {
-        // Handle at left edge of right panel: drag LEFT → panel grows, drag RIGHT → panel shrinks
-        const deltaX = dragStartY.current - e.clientX
-        const newWidth = dragStartHeight.current + deltaX
-        setPanelWidth(newWidth)
-      } else {
-        // Handle at top edge of bottom panel: drag UP → panel grows, drag DOWN → panel shrinks
-        const deltaY = dragStartY.current - e.clientY
-        const newHeight = dragStartHeight.current + deltaY
-        setPanelHeight(newHeight)
-      }
-    }
-
-    const handleMouseUp = () => {
-      setIsDragging(false)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-  }, [isDragging, setPanelHeight, setPanelWidth, isRightDock])
 
   // Re-clamp panel height on mount and window resize (prevent board from being squished)
   useEffect(() => {
@@ -306,23 +269,11 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     <div className={`relative ${isRightDock ? 'flex h-full' : ''}`}>
       {/* Resize handle */}
       {!isPanelCollapsed && (
-        isRightDock ? (
-          <div
-            onMouseDown={handleResizeMouseDown}
-            className="absolute -left-1.5 top-0 bottom-0 w-3 z-50 group"
-            style={{ cursor: 'col-resize' }}
-          >
-            <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-transparent group-hover:bg-accent/60 transition-colors -translate-x-1/2" />
-          </div>
-        ) : (
-          <div
-            onMouseDown={handleResizeMouseDown}
-            className="absolute -top-1.5 left-0 right-0 h-3 z-50 group"
-            style={{ cursor: 'row-resize' }}
-          >
-            <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-transparent group-hover:bg-accent/60 transition-colors -translate-y-1/2" />
-          </div>
-        )
+        <ResizeHandle
+          direction={isRightDock ? 'horizontal' : 'vertical'}
+          position={isRightDock ? 'left' : 'top'}
+          onMouseDown={handleResizeMouseDown}
+        />
       )}
 
       <motion.div
@@ -376,6 +327,20 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                   <path d="M3.75 3A1.75 1.75 0 0 0 2 4.75v3.26a3.235 3.235 0 0 1 1.75-.51h12.5c.644 0 1.245.188 1.75.51V6.75A1.75 1.75 0 0 0 16.25 5h-4.836a.25.25 0 0 1-.177-.073L9.823 3.513A1.75 1.75 0 0 0 8.586 3H3.75Z" />
                   <path fillRule="evenodd" d="M2 9.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 .75.75v5a1.75 1.75 0 0 1-1.75 1.75H3.75A1.75 1.75 0 0 1 2 14.25v-5Z" clipRule="evenodd" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setSidebarMode(sidebarMode === 'dashboard' ? null : 'dashboard') }}
+                className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                  sidebarMode === 'dashboard'
+                    ? 'bg-surface-hover text-text-primary'
+                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                }`}
+                title="Pipeline dashboard"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM10 7a1.5 1.5 0 0 0-1.5 1.5v8a1.5 1.5 0 0 0 3 0v-8A1.5 1.5 0 0 0 10 7ZM4.5 12A1.5 1.5 0 0 0 3 13.5v3a1.5 1.5 0 0 0 3 0v-3A1.5 1.5 0 0 0 4.5 12Z" />
                 </svg>
               </button>
             </>
@@ -472,16 +437,20 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             className="flex flex-1 overflow-hidden"
           >
             {/* Sidebar */}
-            <PanelSidebar
-              mode={sidebarMode}
-              sessions={sessions}
-              activeSessionId={activeSession?.id}
-              workspaceId={workspaceId}
-              isCurrentChatEmpty={localMessages.length === 0}
-              onNewChat={() => { void handleNewChat() }}
-              onSelectSession={(session) => { handleSelectSession(session) }}
-              onDeleteSession={(sessionId) => { void handleDeleteSession(sessionId) }}
-            />
+            {sidebarMode === 'dashboard' ? (
+              <PipelineDashboard workspaceId={workspaceId} />
+            ) : (
+              <PanelSidebar
+                mode={sidebarMode}
+                sessions={sessions}
+                activeSessionId={activeSession?.id}
+                workspaceId={workspaceId}
+                isCurrentChatEmpty={localMessages.length === 0}
+                onNewChat={() => { void handleNewChat() }}
+                onSelectSession={(session) => { handleSelectSession(session) }}
+                onDeleteSession={(sessionId) => { void handleDeleteSession(sessionId) }}
+              />
+            )}
 
             {/* Main chat area */}
             <ChatErrorBoundary panelName="Orchestrator Chat">

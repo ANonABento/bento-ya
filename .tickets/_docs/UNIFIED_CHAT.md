@@ -242,13 +242,18 @@ User can override per-task from the task card UI (toggle button).
 - Fixed: resize handle positioning + viewport-relative max height clamping
 - Bubble/terminal toggle deferred — requires transport switching UI which is Phase 6+ scope
 
-### Phase 6: Cleanup
-- Remove `CliSessionManager`, `AgentCliSessionManager`, `AgentRunner` (replaced by unified system)
-- Remove `PtyManager` (replaced by `PtyTransport`)
-- Remove `cli_shared.rs` (replaced by `chat::events`)
-- Track trigger sessions in `SessionRegistry` (currently created directly in bridge.rs)
-- Add `agent_session` DB records for unified trigger sessions
-- Update CLAUDE.md, SESSION.md
+### Phase 6: Cleanup — DONE
+- Deleted `src-tauri/src/process/` module entirely (`pty_manager.rs`, `agent_runner.rs`, `mod.rs` — 525 LOC)
+- Rewired `commands/terminal.rs`, `commands/agent.rs`, `commands/siege.rs` to use `SessionRegistry`
+- Removed `PtyManager` and `AgentRunner` from `lib.rs` managed state + shutdown handler
+- `bridge.rs` `spawn_cli_trigger_task` now injects commands into task's PTY shell (sentinel-based exit detection)
+- `SessionRegistry` upgraded: LRU eviction (max 20), periodic idle sweep (60s interval, 5min timeout), scrollback cache
+- New `ensure_pty_session` command for lazy PTY spawn on terminal panel open
+- Scrollback persistence: cached on session kill, restored on panel reopen
+- Terminal-first UI: `agent-panel.tsx` renders only `TerminalView` (bubble view disconnected, components intact)
+- Fixed: resize handle z-index bleeding through modals, duplicate agent status on task cards
+- E2E tests self-seed demo data, 17 tests passing. 162 backend tests passing.
+- Updated CLAUDE.md, README.md, TERMINAL_VIEW_V2.md
 
 *Note: `fire_*_trigger` IPC commands and `use-pipeline-events.ts` already removed in Phase 3c.*
 

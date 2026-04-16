@@ -64,7 +64,10 @@ Sets automation for a column. Action types for on_entry/on_exit:
 - `{{"type": "none"}}`
 Exit criteria: `{{"type": "agent_complete", "auto_advance": true}}`
 
-Use task IDs from the board state. Column names are case-insensitive. Briefly confirm actions taken."#,
+Use task IDs from the board state. Column names are case-insensitive.
+Use `"__LAST__"` as task_id to reference the last created task (e.g. create_task then move_task in the same block).
+Put all actions in a SINGLE action block — do not output multiple blocks.
+Briefly confirm actions taken."#,
         workspace_name = workspace.name,
         columns = columns_str
     )

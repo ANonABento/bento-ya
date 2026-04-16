@@ -1,6 +1,6 @@
 # UI Restructure: Expanded Cards + Chat Panel
 
-> Spec: 2026-04-06. Status: Ready to build.
+> Spec: 2026-04-06. Status: **Done** (implemented 2026-04-06).
 
 ## Current State
 
