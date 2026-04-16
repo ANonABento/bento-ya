@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import type {
   Column,
@@ -8,9 +8,46 @@ import type {
 } from '@/types'
 import { useColumnStore } from '@/stores/column-store'
 import { getColumnTriggers } from '@/types/column'
-import { COLORS, ICONS } from './column-config-constants'
+import { COLORS, ICONS, COLUMN_COLORS } from './column-config-constants'
 import { TriggersTab } from './column-trigger-editor'
 import { ExitTab } from './column-exit-editor'
+
+/** Auto-suggest an icon based on column name keywords */
+function suggestIcon(name: string): string | null {
+  const lower = name.toLowerCase()
+  const map: Array<[string[], string]> = [
+    [['backlog', 'todo', 'inbox', 'queue', 'triage', 'icebox', 'ideas'], 'inbox'],
+    [['working', 'progress', 'doing', 'active', 'build', 'develop', 'coding', 'implement', 'fixing'], 'play'],
+    [['review', 'verify', 'qa', 'inspect', 'staging', 'approval'], 'eye'],
+    [['done', 'complete', 'finish', 'ship', 'merge', 'closed', 'resolved'], 'check'],
+    [['deploy', 'release', 'launch', 'publish', 'production'], 'rocket'],
+    [['spec', 'plan', 'design', 'research', 'spike', 'discover'], 'code'],
+    [['archive', 'stale', 'cancelled', 'deprecated'], 'archive'],
+    [['test', 'testing', 'validation'], 'eye'],
+  ]
+  for (const [keywords, icon] of map) {
+    if (keywords.some((k) => lower.includes(k))) return icon
+  }
+  return null
+}
+
+/** Auto-suggest a color based on column name keywords */
+function suggestColor(name: string): string | null {
+  const lower = name.toLowerCase()
+  const map: Array<[string[], string]> = [
+    [['backlog', 'todo', 'inbox', 'queue', 'triage', 'icebox', 'ideas'], COLUMN_COLORS.gray],
+    [['working', 'progress', 'doing', 'active', 'build', 'develop', 'coding', 'implement', 'fixing'], COLUMN_COLORS.blue],
+    [['review', 'verify', 'qa', 'inspect', 'staging', 'approval'], COLUMN_COLORS.amber],
+    [['done', 'complete', 'finish', 'ship', 'merge', 'closed', 'resolved'], COLUMN_COLORS.green],
+    [['deploy', 'release', 'launch', 'publish', 'production'], COLUMN_COLORS.purple],
+    [['test', 'testing', 'validation', 'spec', 'plan', 'research', 'spike', 'discover'], COLUMN_COLORS.teal],
+    [['archive', 'stale', 'cancelled', 'deprecated'], COLUMN_COLORS.slate],
+  ]
+  for (const [keywords, color] of map) {
+    if (keywords.some((k) => lower.includes(k))) return color
+  }
+  return null
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -30,6 +67,27 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
   const [name, setName] = useState(column.name)
   const [icon, setIcon] = useState(column.icon || 'list')
   const [color, setColor] = useState(column.color || '#E8A87C')
+  const [userPickedIcon, setUserPickedIcon] = useState(false)
+  const [userPickedColor, setUserPickedColor] = useState(false)
+
+  // Reset manual override flags when dialog opens for a different column
+  useEffect(() => {
+    setUserPickedIcon(false)
+    setUserPickedColor(false)
+  }, [column.id])
+
+  const handleNameChange = useCallback((newName: string) => {
+    setName(newName)
+    // Auto-suggest icon/color only if user hasn't manually picked them
+    if (!userPickedIcon) {
+      const suggested = suggestIcon(newName)
+      if (suggested) setIcon(suggested)
+    }
+    if (!userPickedColor) {
+      const suggested = suggestColor(newName)
+      if (suggested) setColor(suggested)
+    }
+  }, [userPickedIcon, userPickedColor])
 
   const initialTriggers = useMemo((): ColumnTriggers => {
     return getColumnTriggers(column)
@@ -132,11 +190,11 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
               {tab === 'general' && (
                 <GeneralTab
                   name={name}
-                  setName={setName}
+                  setName={handleNameChange}
                   icon={icon}
-                  setIcon={setIcon}
+                  setIcon={(v) => { setUserPickedIcon(true); setIcon(v) }}
                   color={color}
-                  setColor={setColor}
+                  setColor={(v) => { setUserPickedColor(true); setColor(v) }}
                 />
               )}
               {tab === 'triggers' && (

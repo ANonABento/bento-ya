@@ -9,6 +9,7 @@ import type {
 } from '@/types/checklist'
 import { BUILT_IN_CHECKLIST_TEMPLATES } from '@/types/checklist'
 import * as ipc from '@/lib/ipc'
+import { registerChecklistClose, closeOtherPanels } from '@/lib/panel-coordination'
 
 // Debounce timers for notes updates
 const notesDebounceTimers: Record<string, ReturnType<typeof setTimeout> | undefined> = {}
@@ -53,7 +54,10 @@ export const useChecklistStore = create<ChecklistState>()(
       isLoading: false,
       currentWorkspaceId: null,
 
-      openChecklist: () => { set({ isOpen: true }); },
+      openChecklist: () => {
+        closeOtherPanels('checklist')
+        set({ isOpen: true })
+      },
       closeChecklist: () => { set({ isOpen: false }); },
 
       setChecklist: (checklist) => { set({ checklist }); },
@@ -339,3 +343,6 @@ export const useChecklistStore = create<ChecklistState>()(
     { name: 'checklist-store' },
   ),
 )
+
+// Register with panel coordination (no circular import)
+registerChecklistClose(() => { useChecklistStore.getState().closeChecklist() })

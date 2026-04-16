@@ -22,14 +22,19 @@ export function useCardPositionProvider() {
     rafRef.current = requestAnimationFrame(() => {
       const boardEl = document.querySelector('[data-board-scroll]')
       const boardRect = boardEl?.getBoundingClientRect()
-      if (!boardRect) return
+      if (!boardEl || !boardRect) return
+
+      // Use scroll-content-relative coordinates so SVG lines
+      // stay correct regardless of scroll position (no frame lag)
+      const scrollLeft = boardEl.scrollLeft
+      const scrollTop = boardEl.scrollTop
 
       const next = new Map<string, CardRect>()
       refs.current.forEach((el, taskId) => {
         const rect = el.getBoundingClientRect()
         next.set(taskId, {
-          x: rect.x - boardRect.x,
-          y: rect.y - boardRect.y,
+          x: rect.x - boardRect.x + scrollLeft,
+          y: rect.y - boardRect.y + scrollTop,
           width: rect.width,
           height: rect.height,
         })

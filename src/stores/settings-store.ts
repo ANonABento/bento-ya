@@ -3,6 +3,7 @@ import { devtools, persist } from 'zustand/middleware'
 import type { Settings, WorkspaceSettings } from '@/types/settings'
 import { DEFAULT_SETTINGS } from '@/types/settings'
 import { applyAppearance } from '@/lib/appearance'
+import { registerSettingsClose, closeOtherPanels } from '@/lib/panel-coordination'
 
 type SettingsState = {
   global: Settings
@@ -30,7 +31,10 @@ export const useSettingsStore = create<SettingsState>()(
         isOpen: false,
         activeTab: 'workspace',
 
-        openSettings: () => set({ isOpen: true }),
+        openSettings: () => {
+          closeOtherPanels('settings')
+          set({ isOpen: true })
+        },
         closeSettings: () => set({ isOpen: false }),
         setActiveTab: (tab) => set({ activeTab: tab }),
 
@@ -101,3 +105,6 @@ export const useSettingsStore = create<SettingsState>()(
     { name: 'settings-store' },
   ),
 )
+
+// Register with panel coordination (no circular import)
+registerSettingsClose(() => { useSettingsStore.getState().closeSettings() })

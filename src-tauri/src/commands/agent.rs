@@ -1,16 +1,11 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::chat::registry::SharedSessionRegistry;
-use crate::chat::session::SessionConfig;
+use crate::chat::session::{SessionConfig, SessionState, TransportType, UnifiedChatSession};
 use crate::chat::events::{ChatEvent, ToolStatus};
-use crate::chat::session::TransportType;
 use crate::db::{self, AppState, AgentMessage};
 use crate::error::AppError;
-use crate::process::agent_runner::{AgentRunner, AgentSession};
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -22,30 +17,9 @@ pub struct AgentInfo {
     pub status: String,
     pub pid: Option<u32>,
     pub working_dir: String,
-}
-
-impl From<&AgentSession> for AgentInfo {
-    fn from(s: &AgentSession) -> Self {
-        Self {
-            task_id: s.task_id.clone(),
-            agent_type: s.agent_type.clone(),
-            status: format!("{:?}", s.status),
-            pid: s.pid,
-            working_dir: s.working_dir.clone(),
-        }
-    }
-}
-
-impl From<AgentSession> for AgentInfo {
-    fn from(s: AgentSession) -> Self {
-        Self {
-            task_id: s.task_id.clone(),
-            agent_type: s.agent_type.clone(),
-            status: format!("{:?}", s.status),
-            pid: s.pid,
-            working_dir: s.working_dir.clone(),
-        }
-    }
+    /// Base64-encoded scrollback from previous session (for terminal restore)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scrollback: Option<String>,
 }
 
 /// Agent completion payload for frontend
@@ -85,80 +59,128 @@ struct AgentToolCallPayload {
     status: String,
 }
 
-// ─── PTY Agent Commands (unchanged — used by terminal view) ───────────────
+// ─── PTY Agent Commands (via SessionRegistry) ──────────────────────────────
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn start_agent(
     task_id: String,
-    agent_type: String,
+    _agent_type: String,
     working_dir: String,
-    env_vars: Option<HashMap<String, String>>,
+    _env_vars: Option<std::collections::HashMap<String, String>>,
     cli_path: Option<String>,
     app_handle: AppHandle,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    session_registry: State<'_, SharedSessionRegistry>,
 ) -> Result<AgentInfo, String> {
-    let mut runner = agent_runner
-        .lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
+    let cli = cli_path.unwrap_or_else(|| "claude".to_string());
 
-    let session = runner.start_agent(
-        &task_id,
-        &agent_type,
-        &working_dir,
-        env_vars,
-        cli_path,
-        app_handle,
-    )?;
+    let mut registry = session_registry.lock().await;
 
-    Ok(AgentInfo::from(session))
+    // Clean up any existing session (handles React strict mode double-mount
+    // and stale sessions from previous app instances)
+    registry.remove(&task_id);
+
+    let config = SessionConfig {
+        cli_path: cli.clone(),
+        model: "sonnet".to_string(),
+        system_prompt: String::new(),
+        working_dir: Some(working_dir.clone()),
+        effort_level: None,
+    };
+
+    let session = registry
+        .get_or_create(&task_id, config, TransportType::Pty)
+        .map_err(|e| e.to_string())?;
+
+    let _mpsc_rx = session.start_pty(120, 40)?;
+    let pid = session.pid();
+
+    // Start managed bridge via broadcast
+    if let Some(rx) = session.resubscribe() {
+        let bridge = crate::chat::bridge::ManagedBridge::start(
+            app_handle, task_id.clone(), rx,
+        );
+        registry.set_bridge(&task_id, bridge);
+    }
+
+    Ok(AgentInfo {
+        task_id,
+        agent_type: "claude".to_string(),
+        status: "Running".to_string(),
+        pid,
+        working_dir,
+        scrollback: None,
+    })
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn stop_agent(
+pub async fn stop_agent(
     task_id: String,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    session_registry: State<'_, SharedSessionRegistry>,
 ) -> Result<(), String> {
-    let mut runner = agent_runner
-        .lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
-    runner.stop_agent(&task_id)
+    let mut registry = session_registry.lock().await;
+    if let Some(session) = registry.get_mut(&task_id) {
+        // Send Ctrl+C via PTY write
+        session.write_pty(&[0x03]).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn force_stop_agent(
+pub async fn force_stop_agent(
     task_id: String,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    session_registry: State<'_, SharedSessionRegistry>,
 ) -> Result<(), String> {
-    let mut runner = agent_runner
-        .lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
-    runner.force_stop_agent(&task_id)
+    let mut registry = session_registry.lock().await;
+    if let Some(session) = registry.get_mut(&task_id) {
+        session.kill().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn get_agent_status(
+pub async fn get_agent_status(
     task_id: String,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+    session_registry: State<'_, SharedSessionRegistry>,
 ) -> Result<AgentInfo, String> {
-    let runner = agent_runner
-        .lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
+    let registry = session_registry.lock().await;
+    let session = registry
+        .get(&task_id)
+        .ok_or_else(|| format!("No agent session for task: {}", task_id))?;
 
-    runner
-        .get_status(&task_id)
-        .map(AgentInfo::from)
-        .ok_or_else(|| format!("No agent session for task: {}", task_id))
+    let status = match session.state() {
+        SessionState::Running => "Running",
+        SessionState::Idle => "Idle",
+        SessionState::Suspended => "Suspended",
+    };
+
+    Ok(AgentInfo {
+        task_id: task_id.clone(),
+        agent_type: "claude".to_string(),
+        status: status.to_string(),
+        pid: session.pid(),
+        working_dir: String::new(),
+        scrollback: None,
+    })
 }
 
-#[tauri::command]
-pub fn list_active_agents(
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
+#[tauri::command(rename_all = "camelCase")]
+pub async fn list_active_agents(
+    session_registry: State<'_, SharedSessionRegistry>,
 ) -> Result<Vec<AgentInfo>, String> {
-    let runner = agent_runner
-        .lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
-
-    Ok(runner.list_active().into_iter().map(AgentInfo::from).collect())
+    let registry = session_registry.lock().await;
+    Ok(registry
+        .list()
+        .into_iter()
+        .filter(|(_, state)| *state == SessionState::Running)
+        .map(|(key, _)| AgentInfo {
+            task_id: key,
+            agent_type: "claude".to_string(),
+            status: "Running".to_string(),
+            pid: None,
+            working_dir: String::new(),
+            scrollback: None,
+        })
+        .collect())
 }
 
 // ─── Agent Message Commands ────────────────────────────────────────────────
@@ -263,8 +285,8 @@ Be concise and helpful."#,
         )
     };
 
-    // 3. Get or create session from registry
-    let (full_response, captured_cli_session_id) = {
+    // 3. Get or create session, configure it, then release lock before long await
+    let mut session = {
         let mut registry = session_registry.lock().await;
 
         let config = SessionConfig {
@@ -275,27 +297,41 @@ Be concise and helpful."#,
             effort_level: effort_level.clone(),
         };
 
-        let session = registry
-            .get_or_create(&task_id, config.clone(), TransportType::Pipe)
-            .map_err(|e| AppError::InvalidInput(e))?;
+        // Take session out of registry so we can release the lock
+        let mut session = if let Some(s) = registry.take(&task_id) {
+            s
+        } else {
+            // Create new session (check capacity)
+            if registry.is_at_capacity() {
+                return Err(AppError::InvalidInput("Maximum concurrent sessions reached".to_string()));
+            }
+            UnifiedChatSession::new(config.clone(), TransportType::Pipe)
+        };
 
-        // Update session config for existing sessions (get_or_create
-        // ignores config if session exists — we need to refresh the
-        // system prompt, model, etc. on every call)
+        // Update config for existing sessions
         session.set_model(model.clone());
         session.set_system_prompt(config.system_prompt);
 
-        // Send message with event forwarding to frontend
-        let task_id_for_events = task_id.clone();
-        let app_for_events = app.clone();
-
         session
-            .send_message(&message, move |event| {
-                emit_agent_event(&app_for_events, &task_id_for_events, event);
-            })
-            .await
-            .map_err(|e| AppError::InvalidInput(e))?
+        // Lock released here — other tasks can use the registry
     };
+
+    // Send message WITHOUT holding the registry lock
+    let task_id_for_events = task_id.clone();
+    let app_for_events = app.clone();
+
+    let (full_response, captured_cli_session_id) = session
+        .send_message(&message, move |event| {
+            emit_agent_event(&app_for_events, &task_id_for_events, event);
+        })
+        .await
+        .map_err(|e| AppError::InvalidInput(e))?;
+
+    // Put session back into registry
+    {
+        let mut registry = session_registry.lock().await;
+        registry.insert(&task_id, session);
+    }
 
     // 4. Save cli_session_id and assistant message
     {
@@ -339,6 +375,176 @@ Be concise and helpful."#,
     );
 
     Ok(())
+}
+
+/// Switch transport type for an agent session (pipe ↔ pty).
+///
+/// If a session exists: suspends it (preserving resume ID), switches transport.
+/// If no session exists and switching to PTY: creates a new PTY session.
+/// Uses managed bridge for PTY event forwarding.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn switch_agent_transport(
+    app: AppHandle,
+    session_registry: State<'_, SharedSessionRegistry>,
+    task_id: String,
+    transport_type: String,
+    cli_path: Option<String>,
+    working_dir: Option<String>,
+    cols: Option<u16>,
+    rows: Option<u16>,
+) -> Result<(), AppError> {
+    let target_type = match transport_type.as_str() {
+        "pipe" => TransportType::Pipe,
+        "pty" => TransportType::Pty,
+        _ => return Err(AppError::InvalidInput(format!("Invalid transport type: {}", transport_type))),
+    };
+
+    let c = cols.unwrap_or(120);
+    let r = rows.unwrap_or(40);
+
+    let mut registry = session_registry.lock().await;
+
+    let has_session = registry.has(&task_id);
+    let current_type = registry.get(&task_id).map(|s| s.transport_type());
+
+    if has_session {
+        // Already using this transport — no-op
+        if current_type == Some(target_type) {
+            return Ok(());
+        }
+
+        // Cancel existing bridge when switching transport
+        registry.cancel_bridge(&task_id);
+
+        let session = registry.get_mut(&task_id).unwrap();
+        session.suspend().map_err(|e| AppError::InvalidInput(e))?;
+        session.set_transport_type(target_type);
+
+        if target_type == TransportType::Pty {
+            let _mpsc_rx = session.start_pty(c, r).map_err(|e| AppError::InvalidInput(e))?;
+            let rx = session.resubscribe();
+
+            if let Some(rx) = rx {
+                let bridge = crate::chat::bridge::ManagedBridge::start(
+                    app, task_id.clone(), rx,
+                );
+                registry.set_bridge(&task_id, bridge);
+            }
+        }
+    } else if target_type == TransportType::Pty {
+        let cli = cli_path.unwrap_or_else(|| "claude".to_string());
+        let config = SessionConfig {
+            cli_path: cli,
+            model: "sonnet".to_string(),
+            system_prompt: String::new(),
+            working_dir,
+            effort_level: None,
+        };
+
+        let session = registry
+            .get_or_create(&task_id, config, TransportType::Pty)
+            .map_err(|e| AppError::InvalidInput(e))?;
+
+        let _mpsc_rx = session.start_pty(c, r).map_err(|e| AppError::InvalidInput(e))?;
+
+        if let Some(rx) = session.resubscribe() {
+            let bridge = crate::chat::bridge::ManagedBridge::start(
+                app, task_id.clone(), rx,
+            );
+            registry.set_bridge(&task_id, bridge);
+        }
+    }
+
+    Ok(())
+}
+
+/// Ensure a PTY session exists for a task. Spawns a bare shell if none exists.
+///
+/// Called by the terminal view on mount. Uses a single managed bridge per task:
+/// - Session alive + bridge alive → return scrollback (no new bridge)
+/// - Session alive + bridge dead → start new managed bridge
+/// - Session dead or missing → spawn fresh shell + managed bridge
+#[tauri::command(rename_all = "camelCase")]
+pub async fn ensure_pty_session(
+    app: AppHandle,
+    session_registry: State<'_, SharedSessionRegistry>,
+    task_id: String,
+    working_dir: String,
+    cols: u16,
+    rows: u16,
+) -> Result<AgentInfo, String> {
+    let mut registry = session_registry.lock().await;
+
+    // Case 1: Session is alive
+    let session_alive = registry.get(&task_id).map(|s| s.is_alive()).unwrap_or(false);
+    if session_alive {
+        let needs_bridge = !registry.has_active_bridge(&task_id);
+
+        let (scrollback, pid, resubscribe_rx) = {
+            let session = registry.get_mut(&task_id).unwrap();
+            // Resize PTY to match panel dimensions (sends SIGWINCH to running process)
+            // This fixes TUI apps (codex, vim) that were spawned at a different size
+            let _ = session.resize_pty(cols, rows);
+            let scrollback = session.scrollback();
+            let pid = session.pid();
+            let rx = if needs_bridge { session.resubscribe() } else { None };
+            (scrollback, pid, rx)
+        }; // session borrow ends
+
+        if let Some(rx) = resubscribe_rx {
+            let bridge = crate::chat::bridge::ManagedBridge::start(
+                app.clone(), task_id.clone(), rx,
+            );
+            registry.set_bridge(&task_id, bridge);
+        }
+
+        return Ok(AgentInfo {
+            task_id,
+            agent_type: "shell".to_string(),
+            status: "Running".to_string(),
+            pid,
+            working_dir,
+            scrollback: if scrollback.is_empty() { None } else { Some(scrollback) },
+        });
+    }
+
+    // Case 2: Session dead or missing — spawn fresh
+    // Remove dead session (caches scrollback + cancels old bridge)
+    registry.remove(&task_id);
+    let cached_scrollback = registry.take_scrollback(&task_id);
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let config = SessionConfig {
+        cli_path: shell,
+        model: String::new(),
+        system_prompt: String::new(),
+        working_dir: Some(working_dir.clone()),
+        effort_level: None,
+    };
+
+    let session = registry
+        .get_or_create(&task_id, config, TransportType::Pty)
+        .map_err(|e| e.to_string())?;
+
+    let _mpsc_rx = session.start_pty(cols, rows)?;
+    let pid = session.pid();
+
+    // Start managed bridge via broadcast
+    if let Some(rx) = session.resubscribe() {
+        let bridge = crate::chat::bridge::ManagedBridge::start(
+            app.clone(), task_id.clone(), rx,
+        );
+        registry.set_bridge(&task_id, bridge);
+    }
+
+    Ok(AgentInfo {
+        task_id,
+        agent_type: "shell".to_string(),
+        status: "Running".to_string(),
+        pid,
+        working_dir,
+        scrollback: if cached_scrollback.is_empty() { None } else { Some(cached_scrollback) },
+    })
 }
 
 /// Cancel an ongoing agent chat (kills the session)

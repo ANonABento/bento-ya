@@ -9,6 +9,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { listen } from '@tauri-apps/api/event'
 import { useUIStore } from '@/stores/ui-store'
+import { useResizablePanel } from '@/hooks/use-resizable-panel'
+import { ResizeHandle } from '@/components/shared/resize-handle'
 import { useTaskStore } from '@/stores/task-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useOrchestratorSessions } from '@/hooks/use-orchestrator-sessions'
@@ -83,9 +85,18 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     },
   })
 
+  // Shared resize hook
+  const { handleMouseDown: handleResizeMouseDown, isDragging } = useResizablePanel({
+    direction: isRightDock ? 'horizontal' : 'vertical',
+    size: isRightDock ? panelWidth : panelHeight,
+    onResize: isRightDock ? setPanelWidth : setPanelHeight,
+    disabled: isPanelCollapsed,
+  })
+
   // Local UI state
   const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | 'dashboard' | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | null>(null)
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -97,8 +108,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   }, [chat.error])
 
   const panelRef = useRef<HTMLDivElement>(null)
-  const dragStartY = useRef(0)
-  const dragStartHeight = useRef(0)
 
   // Load messages when active session changes
   useEffect(() => {
@@ -180,58 +189,11 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     return () => { window.removeEventListener('keydown', handleKeyDown) }
   }, [togglePanel])
 
-  // Resize handle drag handler
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
-    if (isPanelCollapsed) return
-    e.preventDefault()
-    e.stopPropagation()
-    dragStartY.current = isRightDock ? e.clientX : e.clientY
-    dragStartHeight.current = isRightDock ? panelWidth : panelHeight
-    setIsDragging(true)
-  }, [panelHeight, panelWidth, isPanelCollapsed, isRightDock])
-
   // Header click handler (toggle panel)
   const handleHeaderClick = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('button')) return
     togglePanel()
   }, [togglePanel])
-
-  useEffect(() => {
-    if (!isDragging) return
-
-    document.body.style.cursor = isRightDock ? 'ew-resize' : 'ns-resize'
-    document.body.style.userSelect = 'none'
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isRightDock) {
-        // Handle at left edge of right panel: drag LEFT → panel grows, drag RIGHT → panel shrinks
-        const deltaX = dragStartY.current - e.clientX
-        const newWidth = dragStartHeight.current + deltaX
-        setPanelWidth(newWidth)
-      } else {
-        // Handle at top edge of bottom panel: drag UP → panel grows, drag DOWN → panel shrinks
-        const deltaY = dragStartY.current - e.clientY
-        const newHeight = dragStartHeight.current + deltaY
-        setPanelHeight(newHeight)
-      }
-    }
-
-    const handleMouseUp = () => {
-      setIsDragging(false)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-  }, [isDragging, setPanelHeight, setPanelWidth, isRightDock])
 
   // Re-clamp panel height on mount and window resize (prevent board from being squished)
   useEffect(() => {
@@ -307,23 +269,11 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     <div className={`relative ${isRightDock ? 'flex h-full' : ''}`}>
       {/* Resize handle */}
       {!isPanelCollapsed && (
-        isRightDock ? (
-          <div
-            onMouseDown={handleResizeMouseDown}
-            className="absolute -left-1.5 top-0 bottom-0 w-3 z-50 group"
-            style={{ cursor: 'col-resize' }}
-          >
-            <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-transparent group-hover:bg-accent/60 transition-colors -translate-x-1/2" />
-          </div>
-        ) : (
-          <div
-            onMouseDown={handleResizeMouseDown}
-            className="absolute -top-1.5 left-0 right-0 h-3 z-50 group"
-            style={{ cursor: 'row-resize' }}
-          >
-            <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-transparent group-hover:bg-accent/60 transition-colors -translate-y-1/2" />
-          </div>
-        )
+        <ResizeHandle
+          direction={isRightDock ? 'horizontal' : 'vertical'}
+          position={isRightDock ? 'left' : 'top'}
+          onMouseDown={handleResizeMouseDown}
+        />
       )}
 
       <motion.div
