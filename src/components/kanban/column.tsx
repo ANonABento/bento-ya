@@ -9,15 +9,17 @@ import { useTaskStore } from '@/stores/task-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useScriptStore } from '@/stores/script-store'
+import { queueBacklog, cancelBacklogQueue } from '@/lib/ipc/pipeline'
 import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
 
 type ColumnProps = {
   column: ColumnType
+  isBacklog?: boolean
 }
 
-export const Column = memo(function Column({ column }: ColumnProps) {
+export const Column = memo(function Column({ column, isBacklog }: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
@@ -55,6 +57,55 @@ export const Column = memo(function Column({ column }: ColumnProps) {
   const [showAddTask, setShowAddTask] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const addTaskInputRef = useRef<HTMLInputElement>(null)
+
+  // Batch queue state
+  const [batchQueueState, setBatchQueueState] = useState<{
+    isQueuing: boolean
+    total: number
+    completed: number
+    queuedTaskIds: string[]
+  }>({ isQueuing: false, total: 0, completed: 0, queuedTaskIds: [] })
+
+  // Track completed tasks when batch queue is active
+  useEffect(() => {
+    if (!batchQueueState.isQueuing || batchQueueState.queuedTaskIds.length === 0) return
+    const completedCount = batchQueueState.queuedTaskIds.filter(
+      (id) => {
+        const task = allTasks.find((t) => t.id === id)
+        return task && task.agentStatus !== 'queued'
+      }
+    ).length
+    if (completedCount !== batchQueueState.completed) {
+      setBatchQueueState((prev) => ({ ...prev, completed: completedCount }))
+    }
+    if (completedCount === batchQueueState.total) {
+      setBatchQueueState({ isQueuing: false, total: 0, completed: 0, queuedTaskIds: [] })
+    }
+  }, [allTasks, batchQueueState.isQueuing, batchQueueState.queuedTaskIds, batchQueueState.total, batchQueueState.completed])
+
+  const handleRunAll = useCallback(async () => {
+    const ids = tasks.map((t) => t.id)
+    if (ids.length === 0) return
+    try {
+      await queueBacklog(ids)
+      setBatchQueueState({ isQueuing: true, total: ids.length, completed: 0, queuedTaskIds: ids })
+    } catch (err) {
+      console.error('[Column] Failed to queue backlog:', err)
+    }
+  }, [tasks])
+
+  const handleCancelQueue = useCallback(async () => {
+    const remainingIds = batchQueueState.queuedTaskIds.filter((id) => {
+      const task = allTasks.find((t) => t.id === id)
+      return task && task.agentStatus === 'queued'
+    })
+    try {
+      await cancelBacklogQueue(remainingIds)
+    } catch (err) {
+      console.error('[Column] Failed to cancel queue:', err)
+    }
+    setBatchQueueState({ isQueuing: false, total: 0, completed: 0, queuedTaskIds: [] })
+  }, [batchQueueState.queuedTaskIds, allTasks])
 
   const {
     attributes,
@@ -136,9 +187,13 @@ export const Column = memo(function Column({ column }: ColumnProps) {
             taskCount={tasks.length}
             color={column.color}
             scriptTrigger={scriptTrigger}
+            isBacklog={isBacklog}
+            batchQueue={batchQueueState.isQueuing ? batchQueueState : undefined}
             onConfigure={handleConfigure}
             onDelete={handleDelete}
             onAddTask={handleAddTask}
+            onRunAll={() => { void handleRunAll(); }}
+            onCancelQueue={() => { void handleCancelQueue(); }}
           />
         </div>
 
