@@ -146,9 +146,9 @@ export function AgentTab() {
         <div className="mb-3 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs text-text-secondary">
-              {allModels.length} models \u00b7{' '}
+              {allModels.length} models ·{' '}
               {modelSource === 'api'
-                ? `From API \u00b7 ${new Date(lastFetched!).toLocaleDateString()}`
+                ? `From API · ${new Date(lastFetched!).toLocaleDateString()}`
                 : modelSource === 'cli'
                   ? 'From CLI'
                   : 'Built-in list'}
@@ -363,7 +363,7 @@ export function AgentTab() {
                                   <span className="font-mono text-text-secondary">v{update.currentVersion}</span>
                                   {update.hasUpdate ? (
                                     <>
-                                      <span className="text-text-secondary">\u2192</span>
+                                      <span className="text-text-secondary">→</span>
                                       <span className="font-mono text-yellow-400">v{update.latestVersion}</span>
                                       {update.updateCommand && (
                                         <button
@@ -371,12 +371,12 @@ export function AgentTab() {
                                           className="ml-0.5 rounded border border-yellow-500/30 px-1 py-0.5 text-[10px] text-yellow-400 transition-colors hover:bg-yellow-500/10"
                                           title={update.updateCommand}
                                         >
-                                          \u2191 update
+                                          ↑ update
                                         </button>
                                       )}
                                     </>
                                   ) : (
-                                    <span className="text-green-400">\u2713 latest</span>
+                                    <span className="text-green-400">✓ latest</span>
                                   )}
                                 </span>
                               ) : null}
