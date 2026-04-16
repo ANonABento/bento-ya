@@ -29,6 +29,7 @@ import type {
 } from './types'
 import { INITIAL_STREAMING_STATE } from './types'
 import { getErrorMessage, toUnifiedMessage, buildContextPreamble } from './helpers'
+import { useAgentStreamingStore } from '@/stores/agent-streaming-store'
 
 // ─── Hook Implementation ───────────────────────────────────────────────────
 
@@ -77,6 +78,31 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
     onToolResultRef.current = onToolResult
     onCompleteRef.current = onComplete
   })
+
+  // ─── Catchup: Seed streaming state from global store for active agents ──
+
+  useEffect(() => {
+    if (mode !== 'agent' || !taskId) return
+    const liveStream = useAgentStreamingStore.getState().getStream(taskId)
+    if (!liveStream) return
+
+    // Agent is actively streaming — seed with accumulated content
+    setStreaming({
+      isStreaming: true,
+      content: liveStream.fullContent,
+      thinkingContent: liveStream.thinkingContent,
+      toolCalls: liveStream.allToolCalls.map((t) => ({
+        id: t.id,
+        name: t.name,
+        input: '',
+        status: t.status,
+      })),
+      startTime: liveStream.startTime,
+    })
+    isProcessingRef.current = true
+  // Only run on mount (taskId change = new panel)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId])
 
   // ─── Load Messages ─────────────────────────────────────────────────────
 

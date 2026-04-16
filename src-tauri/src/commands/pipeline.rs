@@ -1,6 +1,6 @@
 //! Pipeline commands for Tauri IPC
 
-use crate::db::{self, AppState, Task};
+use crate::db::{self, AppState, ColumnTimingAverage, PipelineTiming, Task};
 use crate::error::AppError;
 use crate::pipeline;
 use tauri::{AppHandle, State};
@@ -71,4 +71,24 @@ pub fn update_script_exit_code(
     // Mark pipeline as complete with success based on exit code
     let success = exit_code == 0;
     pipeline::mark_complete(&conn, &app, &task_id, success)
+}
+
+/// Get pipeline timing breakdown for a task
+#[tauri::command(rename_all = "camelCase")]
+pub fn get_pipeline_timing(
+    state: State<AppState>,
+    task_id: String,
+) -> Result<Vec<PipelineTiming>, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::get_pipeline_timing(&conn, &task_id)?)
+}
+
+/// Get average pipeline timing per column for a workspace
+#[tauri::command(rename_all = "camelCase")]
+pub fn get_average_pipeline_timing(
+    state: State<AppState>,
+    workspace_id: String,
+) -> Result<Vec<ColumnTimingAverage>, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::get_average_pipeline_timing(&conn, &workspace_id)?)
 }

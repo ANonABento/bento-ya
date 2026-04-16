@@ -1,8 +1,9 @@
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 
-type ViewMode = 'board' | 'split'
+type ViewMode = 'board' | 'chat'
 type PanelDock = 'bottom' | 'right'
+type AgentPanelDock = 'right' | 'left'
 
 type ModalState = {
   type: string
@@ -21,6 +22,17 @@ const MIN_PANEL_WIDTH = 300
 const MAX_PANEL_WIDTH = 800
 const MIN_BOARD_WIDTH = 400
 
+// Agent panel constants
+const DEFAULT_AGENT_PANEL_WIDTH = 500
+const MIN_AGENT_PANEL_WIDTH = 300
+const MAX_AGENT_PANEL_WIDTH = 900
+
+function getMaxAgentPanelWidth(): number {
+  if (typeof window === 'undefined') return MAX_AGENT_PANEL_WIDTH
+  const viewportMax = Math.floor(window.innerWidth - MIN_BOARD_WIDTH)
+  return Math.min(MAX_AGENT_PANEL_WIDTH, viewportMax)
+}
+
 /** Get the effective max panel height based on current viewport */
 function getMaxPanelHeight(): number {
   if (typeof window === 'undefined') return MAX_PANEL_HEIGHT
@@ -37,7 +49,8 @@ function getMaxPanelWidth(): number {
 
 type UIState = {
   viewMode: ViewMode
-  activeTaskId: string | null
+  activeTaskId: string | null // task whose chat panel is open
+  expandedTaskId: string | null // task card expanded inline
   modal: ModalState
 
   // Orchestrator panel state
@@ -46,19 +59,33 @@ type UIState = {
   panelDock: PanelDock
   isPanelCollapsed: boolean
 
+  // Agent chat panel state
+  agentPanelWidth: number
+  agentPanelDock: AgentPanelDock
   setViewMode: (mode: ViewMode) => void
+  expandTask: (taskId: string) => void
+  focusTask: (taskId: string) => void
+  collapseTask: () => void
+  openChat: (taskId: string) => void
+  closeChat: () => void
+  /** @deprecated Use openChat — kept for backward compat */
   openTask: (taskId: string) => void
+  /** @deprecated Use closeChat — kept for backward compat */
   closeTask: () => void
   openModal: (type: string, props?: Record<string, unknown>) => void
   closeModal: () => void
 
-  // Panel actions
+  // Orchestrator panel actions
   setPanelHeight: (height: number) => void
   setPanelWidth: (width: number) => void
   setPanelDock: (dock: PanelDock) => void
   togglePanel: () => void
   collapsePanel: () => void
   expandPanel: () => void
+
+  // Agent panel actions
+  setAgentPanelWidth: (width: number) => void
+  setAgentPanelDock: (dock: AgentPanelDock) => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -67,23 +94,46 @@ export const useUIStore = create<UIState>()(
       (set) => ({
         viewMode: 'board',
         activeTaskId: null,
+        expandedTaskId: null,
         modal: null,
         panelHeight: DEFAULT_PANEL_HEIGHT,
         panelWidth: DEFAULT_PANEL_WIDTH,
         panelDock: 'bottom' as PanelDock,
         isPanelCollapsed: false,
+        agentPanelWidth: DEFAULT_AGENT_PANEL_WIDTH,
+        agentPanelDock: 'right' as AgentPanelDock,
 
         setViewMode: (mode) => {
           set({ viewMode: mode })
         },
 
-        openTask: (taskId) => {
-          set({ viewMode: 'split', activeTaskId: taskId })
+        // Card expansion (inline detail)
+        expandTask: (taskId) => {
+          set((state) => ({
+            expandedTaskId: state.expandedTaskId === taskId ? null : taskId,
+          }))
         },
 
-        closeTask: () => {
+        focusTask: (taskId) => {
+          set({ expandedTaskId: taskId })
+        },
+
+        collapseTask: () => {
+          set({ expandedTaskId: null })
+        },
+
+        // Chat panel (right slide-in)
+        openChat: (taskId) => {
+          set({ viewMode: 'chat', activeTaskId: taskId })
+        },
+
+        closeChat: () => {
           set({ viewMode: 'board', activeTaskId: null })
         },
+
+        // Deprecated aliases
+        openTask: (taskId) => { set({ viewMode: 'chat', activeTaskId: taskId }) },
+        closeTask: () => { set({ viewMode: 'board', activeTaskId: null }) },
 
         openModal: (type, props) => {
           set({ modal: { type, props } })
@@ -120,6 +170,16 @@ export const useUIStore = create<UIState>()(
         expandPanel: () => {
           set({ isPanelCollapsed: false })
         },
+
+        setAgentPanelWidth: (width) => {
+          const max = getMaxAgentPanelWidth()
+          const clamped = Math.min(Math.max(width, MIN_AGENT_PANEL_WIDTH), max)
+          set({ agentPanelWidth: clamped })
+        },
+
+        setAgentPanelDock: (dock) => {
+          set({ agentPanelDock: dock })
+        },
       }),
       {
         name: 'bento-ya-ui',
@@ -128,6 +188,8 @@ export const useUIStore = create<UIState>()(
           panelWidth: state.panelWidth,
           panelDock: state.panelDock,
           isPanelCollapsed: state.isPanelCollapsed,
+          agentPanelWidth: state.agentPanelWidth,
+          agentPanelDock: state.agentPanelDock,
         }),
       },
     ),
@@ -137,4 +199,5 @@ export const useUIStore = create<UIState>()(
 
 export { MIN_PANEL_HEIGHT, MAX_PANEL_HEIGHT, DEFAULT_PANEL_HEIGHT, MIN_BOARD_HEIGHT }
 export { MIN_PANEL_WIDTH, MAX_PANEL_WIDTH, DEFAULT_PANEL_WIDTH, MIN_BOARD_WIDTH }
-export type { PanelDock }
+export { MIN_AGENT_PANEL_WIDTH, MAX_AGENT_PANEL_WIDTH, DEFAULT_AGENT_PANEL_WIDTH }
+export type { PanelDock, AgentPanelDock }
