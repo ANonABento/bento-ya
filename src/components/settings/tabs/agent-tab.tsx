@@ -371,7 +371,7 @@ export function AgentTab() {
                                           className="ml-0.5 rounded border border-yellow-500/30 px-1 py-0.5 text-[10px] text-yellow-400 transition-colors hover:bg-yellow-500/10"
                                           title={update.updateCommand}
                                         >
-                                          ↑ update
+                                          ⧉ upgrade cmd
                                         </button>
                                       )}
                                     </>
