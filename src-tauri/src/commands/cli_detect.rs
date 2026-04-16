@@ -305,38 +305,55 @@ pub struct CliUpdateInfo {
 /// Runs the CLI's update check command and parses the output.
 #[tauri::command]
 pub async fn check_cli_update(cli_id: String) -> Result<CliUpdateInfo, String> {
-    let (binary, update_args) = match cli_id.as_str() {
-        "claude" => ("claude", vec!["update"]),
-        "codex" => ("codex", vec!["upgrade"]),
+    let binary = match cli_id.as_str() {
+        "claude" | "codex" => cli_id.as_str(),
         _ => return Err(format!("Unknown CLI: {}", cli_id)),
     };
 
     // Find the CLI
     let path = find_cli(binary).ok_or_else(|| format!("{} CLI not found", binary))?;
 
-    // Get current version
+    // Get current version — strip CLI name prefix (e.g. "codex-cli 0.107.0" → "0.107.0")
     let current_version = get_cli_version(&path, &["--version"])
+        .map(|v| {
+            // Extract just the version number
+            v.split_whitespace()
+                .find(|part| part.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))
+                .unwrap_or(&v)
+                .to_string()
+        })
         .unwrap_or_else(|| "unknown".to_string());
 
-    // Run update check with timeout
-    let output = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        tokio::process::Command::new(&path)
-            .args(&update_args)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-    )
-    .await
-    .map_err(|_| "Update check timed out".to_string())?
-    .map_err(|e| format!("Failed to run update check: {}", e))?;
+    // Check for updates — different strategy per CLI
+    let (latest_version, update_command) = match cli_id.as_str() {
+        "claude" => {
+            // Claude: `claude update` works non-interactively
+            let output = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                tokio::process::Command::new(&path)
+                    .args(["update"])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .output()
+            )
+            .await
+            .map_err(|_| "Update check timed out".to_string())?
+            .map_err(|e| format!("Failed to run update check: {}", e))?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let combined = format!("{}\n{}", stdout, stderr);
-
-    // Parse the output for version info
-    let (latest_version, update_command) = parse_update_output(&cli_id, &combined);
+            let combined = format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            parse_update_output(&cli_id, &combined)
+        }
+        "codex" => {
+            // Codex: `upgrade` requires TTY, so check GitHub releases API instead
+            check_github_latest("openai", "codex").await
+        }
+        _ => (None, None),
+    };
 
     let has_update = latest_version.as_ref()
         .map(|latest| latest != &current_version)
@@ -349,6 +366,44 @@ pub async fn check_cli_update(cli_id: String) -> Result<CliUpdateInfo, String> {
         has_update,
         update_command,
     })
+}
+
+/// Check GitHub releases API for latest version of a repo.
+async fn check_github_latest(owner: &str, repo: &str) -> (Option<String>, Option<String>) {
+    let url = format!("https://api.github.com/repos/{}/{}/releases/latest", owner, repo);
+
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return (None, None),
+    };
+
+    let resp = match client
+        .get(&url)
+        .header("User-Agent", "bento-ya")
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => r,
+        _ => return (None, None),
+    };
+
+    let body: serde_json::Value = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => return (None, None),
+    };
+
+    let tag = body["tag_name"].as_str().unwrap_or("");
+    let version = tag.trim_start_matches('v').to_string();
+
+    if version.is_empty() {
+        return (None, None);
+    }
+
+    let update_cmd = format!("{} upgrade", repo);
+    (Some(version), Some(update_cmd))
 }
 
 /// Parse update command output for version and update instructions.
