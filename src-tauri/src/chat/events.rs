@@ -216,7 +216,7 @@ pub fn spawn_stderr_reader(stderr: tokio::process::ChildStderr, context_id: Stri
 
 /// Encode bytes as base64 string.
 ///
-/// Used by PtyTransport and legacy PtyManager for terminal output encoding.
+/// Used by PtyTransport for terminal output encoding.
 pub fn base64_encode(data: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::with_capacity((data.len() + 2) / 3 * 4);

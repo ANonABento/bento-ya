@@ -9,6 +9,7 @@ import { useAgentStreamingStore } from '@/stores/agent-streaming-store'
 
 export function useAgentStreamingSync() {
   const appendContent = useAgentStreamingStore((s) => s.appendContent)
+  const appendThinking = useAgentStreamingStore((s) => s.appendThinking)
   const updateTool = useAgentStreamingStore((s) => s.updateTool)
   const complete = useAgentStreamingStore((s) => s.complete)
 
@@ -23,6 +24,13 @@ export function useAgentStreamingSync() {
         appendContent(payload.taskId, payload.content)
       })
 
+      const unlistenThinking = await ipc.onAgentThinking((payload) => {
+        if (cancelled) return
+        if (!payload.isComplete) {
+          appendThinking(payload.taskId, payload.content)
+        }
+      })
+
       const unlistenToolCall = await ipc.onAgentToolCall((payload) => {
         if (cancelled) return
         updateTool(payload.taskId, payload.toolId, payload.toolName, payload.status)
@@ -35,10 +43,11 @@ export function useAgentStreamingSync() {
 
       if (cancelled) {
         unlistenStream()
+        unlistenThinking()
         unlistenToolCall()
         unlistenComplete()
       } else {
-        unlistenRefs.current = [unlistenStream, unlistenToolCall, unlistenComplete]
+        unlistenRefs.current = [unlistenStream, unlistenThinking, unlistenToolCall, unlistenComplete]
       }
     }
 
@@ -49,5 +58,5 @@ export function useAgentStreamingSync() {
       unlistenRefs.current.forEach((fn) => { fn() })
       unlistenRefs.current = []
     }
-  }, [appendContent, updateTool, complete])
+  }, [appendContent, appendThinking, updateTool, complete])
 }

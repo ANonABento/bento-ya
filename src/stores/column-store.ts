@@ -22,7 +22,7 @@ type ColumnState = {
   loaded: boolean
 
   load: (workspaceId: string) => Promise<void>
-  add: (workspaceId: string, name: string) => Promise<void>
+  add: (workspaceId: string, name: string) => Promise<Column>
   remove: (id: string) => Promise<void>
   reorder: (workspaceId: string, ids: string[]) => Promise<void>
   updateColumn: (id: string, updates: Partial<Column>) => void
@@ -44,6 +44,7 @@ export const useColumnStore = create<ColumnState>()(
         const position = get().columns.length
         const column = await ipc.createColumn(workspaceId, name, position)
         set((s) => ({ columns: [...s.columns, column] }))
+        return column
       },
 
       remove: async (id) => {

@@ -16,6 +16,7 @@ pub mod checklist;
 pub mod column;
 pub mod history;
 pub mod orchestrator_session;
+pub mod pipeline_timing;
 pub mod script;
 pub mod task;
 pub mod usage;
@@ -33,6 +34,7 @@ pub use checklist::*;
 pub use column::*;
 pub use history::*;
 pub use orchestrator_session::*;
+pub use pipeline_timing::*;
 pub use script::*;
 pub use task::*;
 pub use usage::*;
@@ -51,7 +53,7 @@ pub struct AppState {
 }
 
 /// Returns the path to the Bento-ya data directory (~/.bentoya/).
-fn data_dir() -> PathBuf {
+pub fn data_dir() -> PathBuf {
     let home = dirs_home();
     home.join(".bentoya")
 }
@@ -134,6 +136,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("027_task_model", include_str!("migrations/027_task_model.sql")),
         ("028_scripts", include_str!("migrations/028_scripts.sql")),
         ("029_task_worktree", include_str!("migrations/029_task_worktree.sql")),
+        ("030_pipeline_timing", include_str!("migrations/030_pipeline_timing.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -196,8 +199,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 29 migrations: 001-029
-        assert_eq!(count, 29);
+        // We have 30 migrations: 001-030
+        assert_eq!(count, 30);
     }
 
     #[test]
@@ -407,13 +410,13 @@ mod tests {
         // Seed
         seed_built_in_scripts(&conn).unwrap();
         let scripts = list_scripts(&conn).unwrap();
-        assert_eq!(scripts.len(), 5);
+        assert_eq!(scripts.len(), 7);
         assert!(scripts.iter().all(|s| s.is_built_in));
 
         // Idempotent — running again doesn't duplicate
         seed_built_in_scripts(&conn).unwrap();
         let scripts = list_scripts(&conn).unwrap();
-        assert_eq!(scripts.len(), 5);
+        assert_eq!(scripts.len(), 7);
     }
 
     #[test]
@@ -456,7 +459,7 @@ mod tests {
 
         let scripts = list_scripts(&conn).unwrap();
         // Built-in scripts come first (is_built_in DESC), then by name
-        assert_eq!(scripts.len(), 7);
+        assert_eq!(scripts.len(), 9);
         assert!(scripts[0].is_built_in, "Built-ins should come first");
         // Custom scripts should be last, sorted by name
         let custom: Vec<&str> = scripts.iter().filter(|s| !s.is_built_in).map(|s| s.name.as_str()).collect();

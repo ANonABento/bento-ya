@@ -2,16 +2,21 @@ import type { ActionType, CliType, ExitCriteriaType } from '@/types'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-export const COLORS = [
-  '#E8A87C', // accent
-  '#4ADE80', // success
-  '#60A5FA', // running/blue
-  '#F59E0B', // attention/amber
-  '#F87171', // error/red
-  '#A78BFA', // purple
-  '#EC4899', // pink
-  '#6EE7B7', // teal
-]
+/** Semantic column colors — used in picker, auto-suggestion, and Rust defaults */
+export const COLUMN_COLORS = {
+  accent: '#E8A87C',
+  gray: '#6B7280',
+  blue: '#3B82F6',
+  amber: '#F59E0B',
+  green: '#4ADE80',
+  red: '#F87171',
+  purple: '#8B5CF6',
+  pink: '#EC4899',
+  teal: '#06B6D4',
+  slate: '#9CA3AF',
+} as const
+
+export const COLORS = Object.values(COLUMN_COLORS)
 
 export const ICONS = [
   { value: 'list', label: 'List' },

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 use super::events::ChatEvent;
 
@@ -16,11 +16,11 @@ use super::events::ChatEvent;
 pub const MESSAGE_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Interval for flushing buffered PTY output to the event channel.
-/// Used by PtyTransport and legacy PtyManager.
+/// Used by PtyTransport.
 pub const OUTPUT_BUFFER_INTERVAL_MS: u64 = 16;
 
 /// Maximum scrollback buffer size (5000 lines * 200 bytes estimated).
-/// Used by PtyTransport and legacy PtyManager.
+/// Used by PtyTransport.
 pub const DEFAULT_SCROLLBACK_BYTES: usize = 5000 * 200;
 
 /// Configuration for spawning a transport process.
@@ -41,6 +41,7 @@ pub struct SpawnConfig {
 }
 
 /// Events sent from a transport to the session layer.
+#[derive(Clone, Debug)]
 pub enum TransportEvent {
     /// Chat event (text, thinking, tool use, etc.)
     Chat(ChatEvent),
@@ -72,4 +73,15 @@ pub trait ChatTransport: Send {
 
     /// Get the process ID, if available
     fn pid(&self) -> Option<u32>;
+
+    /// Get scrollback buffer as base64-encoded string (PTY only, empty for pipe)
+    fn scrollback(&self) -> String {
+        String::new()
+    }
+
+    /// Create a new event receiver for an existing session (PTY only).
+    /// Returns None if the transport doesn't support resubscription.
+    fn resubscribe(&self) -> Option<broadcast::Receiver<TransportEvent>> {
+        None
+    }
 }
