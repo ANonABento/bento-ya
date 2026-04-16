@@ -313,14 +313,28 @@ pub async fn check_cli_update(cli_id: String) -> Result<CliUpdateInfo, String> {
     // Find the CLI
     let path = find_cli(binary).ok_or_else(|| format!("{} CLI not found", binary))?;
 
-    // Get current version — strip CLI name prefix (e.g. "codex-cli 0.107.0" → "0.107.0")
-    let current_version = get_cli_version(&path, &["--version"])
-        .map(|v| {
-            // Extract just the version number
-            v.split_whitespace()
+    // Get current version — run async to handle paths with spaces
+    let version_output = tokio::process::Command::new(&path)
+        .arg("--version")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await
+        .ok();
+
+    let current_version = version_output
+        .and_then(|o| {
+            let out = if o.status.success() {
+                String::from_utf8_lossy(&o.stdout).to_string()
+            } else {
+                String::from_utf8_lossy(&o.stderr).to_string()
+            };
+            let line = out.lines().next()?.trim().to_string();
+            // Extract just the version number (e.g. "codex-cli 0.107.0" → "0.107.0")
+            line.split_whitespace()
                 .find(|part| part.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))
-                .unwrap_or(&v)
-                .to_string()
+                .map(|s| s.to_string())
+                .or(Some(line))
         })
         .unwrap_or_else(|| "unknown".to_string());
 
@@ -395,8 +409,15 @@ async fn check_github_latest(owner: &str, repo: &str) -> (Option<String>, Option
         Err(_) => return (None, None),
     };
 
-    let tag = body["tag_name"].as_str().unwrap_or("");
-    let version = tag.trim_start_matches('v').to_string();
+    // Prefer "name" (clean version like "0.121.0") over "tag_name" (may have prefix like "rust-v0.121.0")
+    let version_str = body["name"].as_str()
+        .filter(|s| s.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))
+        .or_else(|| body["tag_name"].as_str())
+        .unwrap_or("");
+    let version = version_str
+        .trim_start_matches("rust-")
+        .trim_start_matches('v')
+        .to_string();
 
     if version.is_empty() {
         return (None, None);

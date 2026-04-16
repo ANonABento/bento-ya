@@ -361,11 +361,11 @@ export function AgentTab() {
                                 </span>
                               ) : update ? (
                                 <span className="flex items-center gap-1.5">
-                                  <span className="font-mono text-text-secondary">v{update.currentVersion}</span>
+                                  <span className="font-mono text-text-secondary">{update.currentVersion}</span>
                                   {update.hasUpdate ? (
                                     <>
                                       <span className="text-text-secondary">→</span>
-                                      <span className="font-mono text-yellow-400">v{update.latestVersion}</span>
+                                      <span className="font-mono text-yellow-400">{update.latestVersion}</span>
                                       {update.updateCommand && (
                                         <button
                                           onClick={() => {
