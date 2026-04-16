@@ -148,9 +148,43 @@ static KNOWN_METADATA: LazyLock<HashMap<&'static str, ModelMetadata>> = LazyLock
     m
 });
 
-/// Look up known metadata for a model ID
+/// Look up known metadata for a model ID.
+/// Tries exact match first, then strips date suffixes for fuzzy match.
+/// e.g. "claude-opus-4-20250514" matches "claude-opus-4-6-20260217" won't,
+/// but "claude-opus-4-5-20251101" will match "claude-opus-4-5" entry if one existed.
 pub fn get_known_metadata(model_id: &str) -> Option<&'static ModelMetadata> {
-    KNOWN_METADATA.get(model_id)
+    // Exact match
+    if let Some(m) = KNOWN_METADATA.get(model_id) {
+        return Some(m);
+    }
+    // Try fuzzy: strip date suffix (8-digit number at end)
+    if let Some(base) = strip_date_suffix(model_id) {
+        if let Some(m) = KNOWN_METADATA.get(base.as_str()) {
+            return Some(m);
+        }
+    }
+    // Reverse fuzzy: find a metadata entry whose base matches this ID
+    // e.g. scan finds "claude-opus-4-6", metadata has "claude-opus-4-6-20260217"
+    for (known_id, meta) in KNOWN_METADATA.iter() {
+        if let Some(known_base) = strip_date_suffix(known_id) {
+            if known_base == model_id {
+                return Some(meta);
+            }
+        }
+    }
+    None
+}
+
+/// Strip a trailing date suffix like "-20250514" from a model ID
+fn strip_date_suffix(id: &str) -> Option<String> {
+    // Match pattern: ends with -YYYYMMDD (8 digits)
+    if let Some(pos) = id.rfind('-') {
+        let suffix = &id[pos + 1..];
+        if suffix.len() == 8 && suffix.chars().all(|c| c.is_ascii_digit()) {
+            return Some(id[..pos].to_string());
+        }
+    }
+    None
 }
 
 /// Infer model tier from the model ID string when no metadata is known

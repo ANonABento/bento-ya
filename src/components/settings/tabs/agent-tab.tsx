@@ -72,10 +72,11 @@ export function AgentTab() {
     updateGlobal('model', { ...model, providers })
   }
 
-  // Get all available models from enabled providers (dynamic from registry)
+  // Get all available models from enabled providers, excluding disabled ones
   const enabledProviderIds = new Set(model.providers.filter((p) => p.enabled).map((p) => p.id))
+  const disabledModelIds = new Set(model.disabledModels ?? [])
   const availableModels = allModels
-    .filter((m) => enabledProviderIds.has(m.provider))
+    .filter((m) => enabledProviderIds.has(m.provider) && !disabledModelIds.has(m.id))
     .map((m) => m.id)
 
   // Toggle provider enabled state
@@ -343,47 +344,41 @@ export function AgentTab() {
                           </p>
                         )}
 
-                        {/* Version + Update Check */}
+                        {/* Version + Update — single row */}
                         {provider.cliPath && (() => {
                           const update = cliUpdates[provider.id]
                           const isChecking = checkingUpdate[provider.id]
                           return (
-                            <div className="mt-2 flex items-center gap-2 text-xs">
+                            <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
                               {isChecking ? (
-                                <span className="flex items-center gap-1.5 text-text-secondary">
-                                  <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                                <span className="flex items-center gap-1 text-text-secondary">
+                                  <svg className="h-2.5 w-2.5 animate-spin" viewBox="0 0 24 24" fill="none">
                                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                                   </svg>
-                                  Checking for updates...
+                                  checking...
                                 </span>
                               ) : update ? (
-                                <>
+                                <span className="flex items-center gap-1.5">
                                   <span className="font-mono text-text-secondary">v{update.currentVersion}</span>
                                   {update.hasUpdate ? (
-                                    <span className="flex items-center gap-1.5">
-                                      <span className="rounded bg-yellow-500/15 px-1.5 py-0.5 text-yellow-400">
-                                        Update available: v{update.latestVersion}
-                                      </span>
+                                    <>
+                                      <span className="text-text-secondary">\u2192</span>
+                                      <span className="font-mono text-yellow-400">v{update.latestVersion}</span>
                                       {update.updateCommand && (
                                         <button
                                           onClick={() => { void navigator.clipboard.writeText(update.updateCommand!) }}
-                                          className="rounded border border-border-default px-1.5 py-0.5 text-text-secondary transition-colors hover:border-accent hover:text-text-primary"
-                                          title={`Copy: ${update.updateCommand}`}
+                                          className="ml-0.5 rounded border border-yellow-500/30 px-1 py-0.5 text-[10px] text-yellow-400 transition-colors hover:bg-yellow-500/10"
+                                          title={update.updateCommand}
                                         >
-                                          Copy update cmd
+                                          \u2191 update
                                         </button>
                                       )}
-                                    </span>
+                                    </>
                                   ) : (
-                                    <span className="flex items-center gap-1 text-green-400">
-                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-                                        <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
-                                      </svg>
-                                      Up to date
-                                    </span>
+                                    <span className="text-green-400">\u2713 latest</span>
                                   )}
-                                </>
+                                </span>
                               ) : null}
                             </div>
                           )
@@ -410,48 +405,100 @@ export function AgentTab() {
                       </div>
                     )}
 
-                    {/* Available Models */}
-                    {providerModels.length > 0 && (
-                      <div>
-                        <label className="mb-2 block text-xs font-medium text-text-secondary">
-                          Available Models
-                        </label>
-                        <div className="space-y-1">
-                          {providerModels.map((m) => (
-                            <div
-                              key={m.id}
-                              className="flex items-center justify-between rounded-md bg-surface-hover/50 px-2.5 py-1.5"
+                    {/* Available Models with toggles */}
+                    {providerModels.length > 0 && (() => {
+                      const disabledSet = new Set(model.disabledModels ?? [])
+                      const enabledCount = providerModels.filter((m) => !disabledSet.has(m.id)).length
+                      const allEnabled = enabledCount === providerModels.length
+                      const noneEnabled = enabledCount === 0
+
+                      const toggleModel = (modelId: string) => {
+                        const current = new Set(model.disabledModels ?? [])
+                        if (current.has(modelId)) {
+                          current.delete(modelId)
+                        } else {
+                          current.add(modelId)
+                        }
+                        updateGlobal('model', { ...model, disabledModels: [...current] })
+                      }
+
+                      const toggleAll = (enable: boolean) => {
+                        if (enable) {
+                          // Remove all this provider's models from disabled
+                          const current = new Set(model.disabledModels ?? [])
+                          for (const m of providerModels) current.delete(m.id)
+                          updateGlobal('model', { ...model, disabledModels: [...current] })
+                        } else {
+                          // Add all this provider's models to disabled
+                          const current = new Set(model.disabledModels ?? [])
+                          for (const m of providerModels) current.add(m.id)
+                          updateGlobal('model', { ...model, disabledModels: [...current] })
+                        }
+                      }
+
+                      return (
+                        <div>
+                          <div className="mb-2 flex items-center justify-between">
+                            <label className="text-xs font-medium text-text-secondary">
+                              Models ({enabledCount}/{providerModels.length})
+                            </label>
+                            <button
+                              onClick={() => { toggleAll(noneEnabled || !allEnabled ? true : false) }}
+                              className="text-[10px] text-text-secondary transition-colors hover:text-text-primary"
                             >
-                              <div className="flex items-center gap-2">
-                                <span className={`h-1.5 w-1.5 rounded-full ${
-                                  m.tier === 'flagship' ? 'bg-purple-400' :
-                                  m.tier === 'fast' ? 'bg-green-400' : 'bg-blue-400'
-                                }`} />
-                                <span className="text-xs font-medium text-text-primary">
-                                  {m.displayName}
-                                </span>
-                                {m.alias && (
-                                  <span className="rounded bg-surface-hover px-1 py-0.5 text-[10px] font-mono text-text-secondary">
-                                    {m.alias}
+                              {allEnabled ? 'Deselect all' : 'Select all'}
+                            </button>
+                          </div>
+                          <div className="space-y-0.5">
+                            {providerModels.map((m) => {
+                              const enabled = !disabledSet.has(m.id)
+                              return (
+                                <div
+                                  key={m.id}
+                                  className={`flex items-center justify-between rounded-md px-2.5 py-1.5 transition-opacity ${
+                                    enabled ? 'bg-surface-hover/50' : 'bg-surface-hover/20 opacity-50'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    {/* Toggle */}
+                                    <button
+                                      onClick={() => { toggleModel(m.id) }}
+                                      className={`relative h-4 w-7 rounded-full transition-colors ${
+                                        enabled ? 'bg-accent' : 'bg-surface-hover'
+                                      }`}
+                                    >
+                                      <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${
+                                        enabled ? 'left-3.5' : 'left-0.5'
+                                      }`} />
+                                    </button>
+                                    <span className={`h-1.5 w-1.5 rounded-full ${
+                                      m.tier === 'flagship' ? 'bg-purple-400' :
+                                      m.tier === 'fast' ? 'bg-green-400' : 'bg-blue-400'
+                                    }`} />
+                                    <span className="text-xs font-medium text-text-primary">
+                                      {m.displayName}
+                                    </span>
+                                    {m.alias && (
+                                      <span className="rounded bg-surface-hover px-1 py-0.5 text-[10px] font-mono text-text-secondary">
+                                        {m.alias}
+                                      </span>
+                                    )}
+                                    {m.isNew && (
+                                      <span className="rounded bg-accent/20 px-1 py-0.5 text-[10px] font-medium text-accent">
+                                        New
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-[10px] text-text-secondary">
+                                    {Math.round(m.contextWindow / 1000)}k
                                   </span>
-                                )}
-                                {m.isNew && (
-                                  <span className="rounded bg-accent/20 px-1 py-0.5 text-[10px] font-medium text-accent">
-                                    New
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2 text-[10px] text-text-secondary">
-                                {m.inputCostPerM != null && (
-                                  <span>${m.inputCostPerM}/{m.outputCostPerM} per M</span>
-                                )}
-                                <span>{Math.round(m.contextWindow / 1000)}k ctx</span>
-                              </div>
-                            </div>
-                          ))}
+                                </div>
+                              )
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )
+                    })()}
                   </div>
                 )}
               </div>
