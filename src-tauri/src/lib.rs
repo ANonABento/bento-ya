@@ -12,6 +12,7 @@ pub mod error;
 pub mod events;
 pub mod git;
 pub mod llm;
+pub mod models;
 pub mod pipeline;
 #[cfg(feature = "voice")]
 pub mod whisper;
@@ -227,6 +228,7 @@ pub fn run() {
             commands::cli_detect::detect_single_cli,
             commands::cli_detect::verify_cli_path,
             commands::cli_detect::get_cli_capabilities,
+            commands::cli_detect::check_cli_update,
             // Checklist commands
             commands::checklist::get_workspace_checklist,
             commands::checklist::update_checklist_item,
@@ -250,6 +252,9 @@ pub fn run() {
             commands::github::fetch_pr_status,
             commands::github::fetch_pr_status_batch,
             commands::github::should_refresh_pr_status,
+            // Dynamic model discovery
+            models::get_available_models,
+            models::refresh_models,
         ])
         .setup(|app| {
             // Start HTTP API server for external MCP control

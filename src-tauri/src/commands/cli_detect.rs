@@ -155,41 +155,78 @@ pub fn detect_single_cli(cli_id: String) -> DetectedCli {
     }
 }
 
-/// Build model capabilities for the Claude CLI based on detected version.
-fn build_claude_capabilities(version: &Option<String>) -> Vec<ModelCapability> {
-    let _ver = version.as_deref().unwrap_or("");
+/// Build model capabilities for the Claude CLI from the dynamic model registry.
+fn build_claude_capabilities(_version: &Option<String>) -> Vec<ModelCapability> {
+    use crate::models::{cache, metadata};
+    use crate::models::types::ModelTier;
 
-    // Claude CLI models — capabilities based on known model specs.
-    // Opus supports 1M extended context, Haiku is limited to low effort.
-    vec![
-        ModelCapability {
-            id: "opus".to_string(),
-            name: "Opus".to_string(),
-            description: "Most powerful".to_string(),
-            supports_extended_context: true,
-            context_window: "200k".to_string(),
-            max_effort: "high".to_string(),
-            available: true,
-        },
-        ModelCapability {
-            id: "sonnet".to_string(),
-            name: "Sonnet".to_string(),
-            description: "Fast & capable".to_string(),
-            supports_extended_context: false,
-            context_window: "200k".to_string(),
-            max_effort: "high".to_string(),
-            available: true,
-        },
-        ModelCapability {
-            id: "haiku".to_string(),
-            name: "Haiku".to_string(),
-            description: "Quick & light".to_string(),
-            supports_extended_context: false,
-            context_window: "200k".to_string(),
-            max_effort: "low".to_string(),
-            available: true,
-        },
-    ]
+    // Try cached models first, fall back to metadata-only
+    let cached = cache::load_cache();
+    let anthropic_models: Vec<_> = cached
+        .models
+        .iter()
+        .filter(|m| m.provider == "anthropic")
+        .collect();
+
+    if !anthropic_models.is_empty() {
+        return anthropic_models
+            .iter()
+            .map(|m| {
+                let effort = match m.tier {
+                    ModelTier::Flagship => "high",
+                    ModelTier::Standard => "high",
+                    ModelTier::Fast => "low",
+                };
+                let description = match m.tier {
+                    ModelTier::Flagship => "Most powerful",
+                    ModelTier::Standard => "Fast & capable",
+                    ModelTier::Fast => "Quick & light",
+                };
+                ModelCapability {
+                    id: m.alias.clone().unwrap_or_else(|| m.id.clone()),
+                    name: m.display_name.clone(),
+                    description: description.to_string(),
+                    supports_extended_context: m.supports_extended_context,
+                    context_window: format!("{}k", m.context_window / 1000),
+                    max_effort: effort.to_string(),
+                    available: true,
+                }
+            })
+            .collect();
+    }
+
+    // No cache — build from known metadata
+    let known = [
+        ("claude-opus-4-6-20260217", "opus", "Opus"),
+        ("claude-sonnet-4-6-20260217", "sonnet", "Sonnet"),
+        ("claude-haiku-4-5-20251001", "haiku", "Haiku"),
+    ];
+
+    known
+        .iter()
+        .filter_map(|(id, alias, short_name)| {
+            let meta = metadata::get_known_metadata(id)?;
+            let effort = match meta.tier {
+                ModelTier::Flagship => "high",
+                ModelTier::Standard => "high",
+                ModelTier::Fast => "low",
+            };
+            let description = match meta.tier {
+                ModelTier::Flagship => "Most powerful",
+                ModelTier::Standard => "Fast & capable",
+                ModelTier::Fast => "Quick & light",
+            };
+            Some(ModelCapability {
+                id: alias.to_string(),
+                name: short_name.to_string(),
+                description: description.to_string(),
+                supports_extended_context: meta.supports_extended_context,
+                context_window: format!("{}k", meta.context_window / 1000),
+                max_effort: effort.to_string(),
+                available: true,
+            })
+        })
+        .collect()
 }
 
 /// Get model capabilities for a CLI provider.
@@ -251,4 +288,117 @@ pub fn verify_cli_path(path: String) -> DetectedCli {
         version,
         is_available: true,
     }
+}
+
+/// Update check result for a CLI tool
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliUpdateInfo {
+    pub cli_id: String,
+    pub current_version: String,
+    pub latest_version: Option<String>,
+    pub has_update: bool,
+    pub update_command: Option<String>,
+}
+
+/// Check if a CLI tool has an available update.
+/// Runs the CLI's update check command and parses the output.
+#[tauri::command]
+pub async fn check_cli_update(cli_id: String) -> Result<CliUpdateInfo, String> {
+    let (binary, update_args) = match cli_id.as_str() {
+        "claude" => ("claude", vec!["update"]),
+        "codex" => ("codex", vec!["upgrade"]),
+        _ => return Err(format!("Unknown CLI: {}", cli_id)),
+    };
+
+    // Find the CLI
+    let path = find_cli(binary).ok_or_else(|| format!("{} CLI not found", binary))?;
+
+    // Get current version
+    let current_version = get_cli_version(&path, &["--version"])
+        .unwrap_or_else(|| "unknown".to_string());
+
+    // Run update check with timeout
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        tokio::process::Command::new(&path)
+            .args(&update_args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+    )
+    .await
+    .map_err(|_| "Update check timed out".to_string())?
+    .map_err(|e| format!("Failed to run update check: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let combined = format!("{}\n{}", stdout, stderr);
+
+    // Parse the output for version info
+    let (latest_version, update_command) = parse_update_output(&cli_id, &combined);
+
+    let has_update = latest_version.as_ref()
+        .map(|latest| latest != &current_version)
+        .unwrap_or(false);
+
+    Ok(CliUpdateInfo {
+        cli_id,
+        current_version,
+        latest_version,
+        has_update,
+        update_command,
+    })
+}
+
+/// Parse update command output for version and update instructions.
+fn parse_update_output(cli_id: &str, output: &str) -> (Option<String>, Option<String>) {
+    let mut latest_version = None;
+    let mut update_command = None;
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+
+        match cli_id {
+            "claude" => {
+                // "Update available: 2.1.92 → 2.1.97"
+                if trimmed.contains("Update available:") || trimmed.contains("→") || trimmed.contains("->") {
+                    let parts: Vec<&str> = trimmed.split(|c| c == '→' || c == '>').collect();
+                    if let Some(last) = parts.last() {
+                        let ver = last.trim().trim_start_matches('-').trim();
+                        if !ver.is_empty() && ver.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                            latest_version = Some(ver.to_string());
+                        }
+                    }
+                }
+                // "To update, run:\n  brew upgrade claude-code"
+                if trimmed.starts_with("brew ") || trimmed.starts_with("npm ") || trimmed.starts_with("pip") {
+                    update_command = Some(trimmed.to_string());
+                }
+                // "already up to date" / "is up to date"
+                if trimmed.contains("up to date") || trimmed.contains("up-to-date") {
+                    latest_version = None; // signal no update
+                }
+            }
+            "codex" => {
+                // "Update available! 0.107.0 -> 0.118.0"
+                if trimmed.contains("->") || trimmed.contains("→") {
+                    let parts: Vec<&str> = trimmed.split(|c| c == '→' || c == '>').collect();
+                    if let Some(last) = parts.last() {
+                        let ver = last.trim().trim_start_matches('-').trim();
+                        if !ver.is_empty() && ver.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                            latest_version = Some(ver.to_string());
+                        }
+                    }
+                }
+                // "See https://github.com/openai/codex for installation options."
+                if trimmed.contains("github.com/openai/codex") {
+                    update_command = Some("codex upgrade".to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    (latest_version, update_command)
 }

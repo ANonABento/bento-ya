@@ -1,21 +1,20 @@
 import { useState, useEffect } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
 import type { AgentConfig, ProviderConfig } from '@/types/settings'
-import { detectSingleCli, type DetectedCli } from '@/lib/ipc'
+import { detectSingleCli, checkCliUpdate, type DetectedCli, type CliUpdateInfo } from '@/lib/ipc'
+import { useModels } from '@/hooks/use-models'
 import { SettingSection, SettingRow, SettingInput, SettingSlider } from '@/components/shared/setting-components'
 import { Dropdown } from '@/components/shared/dropdown'
 
-const PROVIDER_INFO: Record<string, { name: string; description: string; models: string[]; cliId: string }> = {
+const PROVIDER_INFO: Record<string, { name: string; description: string; cliId: string }> = {
   anthropic: {
     name: 'Anthropic',
     description: 'Claude models via CLI or API',
-    models: ['claude-haiku-4-5-20251115', 'claude-sonnet-4-6-20260217', 'claude-opus-4-6-20260217'],
     cliId: 'claude',
   },
   openai: {
     name: 'OpenAI',
     description: 'Codex models via CLI or API',
-    models: ['codex-5.2', 'codex-5.3', 'codex-5.3-spark'],
     cliId: 'codex',
   },
 }
@@ -32,9 +31,18 @@ export function AgentTab() {
   const agent = global.agent
   const model = global.model
 
+  // Dynamic model registry
+  const { models: allModels, lastFetched, source: modelSource, refresh: refreshModels } = useModels()
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshStatus, setRefreshStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+
   // CLI detection state per provider
   const [detectedClis, setDetectedClis] = useState<Record<string, DetectedCli>>({})
   const [detecting, setDetecting] = useState<Record<string, boolean>>({})
+
+  // CLI update check state
+  const [cliUpdates, setCliUpdates] = useState<Record<string, CliUpdateInfo>>({})
+  const [checkingUpdate, setCheckingUpdate] = useState<Record<string, boolean>>({})
 
   // Track expanded state (separate from enabled)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
@@ -64,10 +72,11 @@ export function AgentTab() {
     updateGlobal('model', { ...model, providers })
   }
 
-  // Get all available models from enabled providers
-  const availableModels = model.providers
-    .filter((p) => p.enabled)
-    .flatMap((p) => PROVIDER_INFO[p.id]?.models ?? [])
+  // Get all available models from enabled providers (dynamic from registry)
+  const enabledProviderIds = new Set(model.providers.filter((p) => p.enabled).map((p) => p.id))
+  const availableModels = allModels
+    .filter((m) => enabledProviderIds.has(m.provider))
+    .map((m) => m.id)
 
   // Toggle provider enabled state
   const handleToggleProvider = (providerId: string, enabled: boolean) => {
@@ -80,7 +89,20 @@ export function AgentTab() {
   const handleToggleExpanded = (providerId: string) => {
     const provider = model.providers.find((p) => p.id === providerId)
     if (!provider?.enabled) return
-    setExpanded((prev) => ({ ...prev, [providerId]: !prev[providerId] }))
+    const willExpand = !expanded[providerId]
+    setExpanded((prev) => ({ ...prev, [providerId]: willExpand }))
+
+    // Check for CLI updates when expanding in CLI mode (once per session)
+    if (willExpand && provider.connectionMode === 'cli' && !cliUpdates[providerId] && !checkingUpdate[providerId]) {
+      const cliId = PROVIDER_INFO[providerId]?.cliId
+      if (cliId) {
+        setCheckingUpdate((prev) => ({ ...prev, [providerId]: true }))
+        void checkCliUpdate(cliId)
+          .then((info) => { setCliUpdates((prev) => ({ ...prev, [providerId]: info })) })
+          .catch(() => {})
+          .finally(() => { setCheckingUpdate((prev) => ({ ...prev, [providerId]: false })) })
+      }
+    }
   }
 
   // Auto-detect CLI when switching to CLI mode
@@ -120,11 +142,72 @@ export function AgentTab() {
     <div className="space-y-6">
       {/* Providers */}
       <SettingSection title="Providers">
+        <div className="mb-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-secondary">
+              {allModels.length} models \u00b7{' '}
+              {modelSource === 'api'
+                ? `From API \u00b7 ${new Date(lastFetched!).toLocaleDateString()}`
+                : modelSource === 'cli'
+                  ? 'From CLI'
+                  : 'Built-in list'}
+            </span>
+            <button
+              onClick={() => {
+                setRefreshing(true)
+                setRefreshStatus(null)
+                void refreshModels().then((result) => {
+                  if (result.success) {
+                    const msg = result.newModels.length > 0
+                      ? `Found ${result.newModels.length} new: ${result.newModels.join(', ')}`
+                      : `${result.modelCount} models up to date`
+                    setRefreshStatus({ message: msg, type: 'success' })
+                  } else {
+                    setRefreshStatus({
+                      message: result.error ?? 'Set API keys to discover new models automatically',
+                      type: 'error',
+                    })
+                  }
+                  setRefreshing(false)
+                  // Auto-dismiss after 5s
+                  setTimeout(() => { setRefreshStatus(null) }, 5000)
+                })
+              }}
+              disabled={refreshing}
+              className="flex items-center gap-1.5 rounded-md border border-border-default px-2 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-text-primary disabled:opacity-50"
+            >
+              {refreshing ? (
+                <>
+                  <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Checking...
+                </>
+              ) : (
+                'Check for new models'
+              )}
+            </button>
+          </div>
+          {refreshStatus && (
+            <div
+              className={`rounded-md px-3 py-1.5 text-xs transition-all ${
+                refreshStatus.type === 'success'
+                  ? 'bg-green-500/10 text-green-400'
+                  : 'bg-yellow-500/10 text-yellow-400'
+              }`}
+            >
+              {refreshStatus.message}
+            </div>
+          )}
+        </div>
         <div className="space-y-3">
           {model.providers.map((provider) => {
             const info = PROVIDER_INFO[provider.id]
             if (!info) return null
             const isExpanded = expanded[provider.id] && provider.enabled
+            const providerModels = allModels.filter((m) => m.provider === provider.id)
+            const providerModelCount = providerModels.length
 
             return (
               <div
@@ -163,6 +246,11 @@ export function AgentTab() {
                     <div className="text-left">
                       <span className={`text-sm font-medium ${provider.enabled ? 'text-text-primary' : 'text-text-secondary'}`}>
                         {info.name}
+                        {providerModelCount > 0 && (
+                          <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/20 px-1 text-[10px] font-medium text-accent">
+                            {providerModelCount}
+                          </span>
+                        )}
                       </span>
                       <p className="text-xs text-text-secondary">{info.description}</p>
                     </div>
@@ -254,6 +342,52 @@ export function AgentTab() {
                             CLI not found. Install or enter path manually.
                           </p>
                         )}
+
+                        {/* Version + Update Check */}
+                        {provider.cliPath && (() => {
+                          const update = cliUpdates[provider.id]
+                          const isChecking = checkingUpdate[provider.id]
+                          return (
+                            <div className="mt-2 flex items-center gap-2 text-xs">
+                              {isChecking ? (
+                                <span className="flex items-center gap-1.5 text-text-secondary">
+                                  <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                  </svg>
+                                  Checking for updates...
+                                </span>
+                              ) : update ? (
+                                <>
+                                  <span className="font-mono text-text-secondary">v{update.currentVersion}</span>
+                                  {update.hasUpdate ? (
+                                    <span className="flex items-center gap-1.5">
+                                      <span className="rounded bg-yellow-500/15 px-1.5 py-0.5 text-yellow-400">
+                                        Update available: v{update.latestVersion}
+                                      </span>
+                                      {update.updateCommand && (
+                                        <button
+                                          onClick={() => { void navigator.clipboard.writeText(update.updateCommand!) }}
+                                          className="rounded border border-border-default px-1.5 py-0.5 text-text-secondary transition-colors hover:border-accent hover:text-text-primary"
+                                          title={`Copy: ${update.updateCommand}`}
+                                        >
+                                          Copy update cmd
+                                        </button>
+                                      )}
+                                    </span>
+                                  ) : (
+                                    <span className="flex items-center gap-1 text-green-400">
+                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                                        <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
+                                      </svg>
+                                      Up to date
+                                    </span>
+                                  )}
+                                </>
+                              ) : null}
+                            </div>
+                          )
+                        })()}
                       </div>
                     )}
 
@@ -273,6 +407,49 @@ export function AgentTab() {
                           placeholder="sk-..."
                           type="password"
                         />
+                      </div>
+                    )}
+
+                    {/* Available Models */}
+                    {providerModels.length > 0 && (
+                      <div>
+                        <label className="mb-2 block text-xs font-medium text-text-secondary">
+                          Available Models
+                        </label>
+                        <div className="space-y-1">
+                          {providerModels.map((m) => (
+                            <div
+                              key={m.id}
+                              className="flex items-center justify-between rounded-md bg-surface-hover/50 px-2.5 py-1.5"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className={`h-1.5 w-1.5 rounded-full ${
+                                  m.tier === 'flagship' ? 'bg-purple-400' :
+                                  m.tier === 'fast' ? 'bg-green-400' : 'bg-blue-400'
+                                }`} />
+                                <span className="text-xs font-medium text-text-primary">
+                                  {m.displayName}
+                                </span>
+                                {m.alias && (
+                                  <span className="rounded bg-surface-hover px-1 py-0.5 text-[10px] font-mono text-text-secondary">
+                                    {m.alias}
+                                  </span>
+                                )}
+                                {m.isNew && (
+                                  <span className="rounded bg-accent/20 px-1 py-0.5 text-[10px] font-medium text-accent">
+                                    New
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] text-text-secondary">
+                                {m.inputCostPerM != null && (
+                                  <span>${m.inputCostPerM}/{m.outputCostPerM} per M</span>
+                                )}
+                                <span>{Math.round(m.contextWindow / 1000)}k ctx</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
