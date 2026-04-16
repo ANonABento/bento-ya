@@ -59,7 +59,7 @@ function stripAnsi(text: string): string {
 }
 
 /** Parse raw terminal output into structured blocks */
-export function parseAgentOutput(raw: string): OutputBlock[] {
+function parseAgentOutput(raw: string): OutputBlock[] {
   const clean = stripAnsi(raw)
   const lines = clean.split('\n')
   const blocks: OutputBlock[] = []
@@ -78,7 +78,7 @@ export function parseAgentOutput(raw: string): OutputBlock[] {
   }
 
   while (i < lines.length) {
-    const line = lines[i]!
+    const line = lines[i] ?? ''
     const trimmed = line.trim()
 
     // Tool calls: "⚙ tool_name" or "⏺ tool_name"
@@ -104,7 +104,7 @@ export function parseAgentOutput(raw: string): OutputBlock[] {
       const codeLines: string[] = []
       i++
       while (i < lines.length) {
-        const codeLine = lines[i]!
+        const codeLine = lines[i] ?? ''
         if (codeLine.trim().startsWith('```')) {
           i++
           break
@@ -126,8 +126,10 @@ export function parseAgentOutput(raw: string): OutputBlock[] {
       const thinkingLines: string[] = [trimmed]
       i++
       // Consume indented lines that follow
-      while (i < lines.length && (lines[i]!.startsWith('  ') || lines[i]!.trim() === '')) {
-        if (lines[i]!.trim()) thinkingLines.push(lines[i]!.trim())
+      while (i < lines.length) {
+        const thinkLine = lines[i] ?? ''
+        if (!thinkLine.startsWith('  ') && thinkLine.trim() !== '') break
+        if (thinkLine.trim()) thinkingLines.push(thinkLine.trim())
         i++
       }
       blocks.push({
@@ -143,8 +145,10 @@ export function parseAgentOutput(raw: string): OutputBlock[] {
       const errorLines: string[] = [trimmed]
       i++
       // Consume continuation lines (indented or non-empty following lines)
-      while (i < lines.length && lines[i]!.startsWith('  ')) {
-        errorLines.push(lines[i]!.trim())
+      while (i < lines.length) {
+        const errorLine = lines[i] ?? ''
+        if (!errorLine.startsWith('  ')) break
+        errorLines.push(errorLine.trim())
         i++
       }
       blocks.push({

@@ -72,6 +72,13 @@ export function TerminalView({ taskId }: TerminalViewProps) {
     }
   }, [taskId, handlePtyData])
 
+  // Update cursor blink without recreating the terminal when the process exits
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.options.cursorBlink = isAlive
+    }
+  }, [isAlive])
+
   // Initialize xterm when switching to raw mode
   useEffect(() => {
     if (viewMode !== 'raw' || !termRef.current) return
@@ -80,7 +87,7 @@ export function TerminalView({ taskId }: TerminalViewProps) {
       fontSize: 13,
       fontFamily: 'ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Mono", monospace',
       theme: getXtermTheme(theme),
-      cursorBlink: isAlive,
+      cursorBlink: true,
       scrollback: 5000,
       convertEol: true,
     })
@@ -109,9 +116,10 @@ export function TerminalView({ taskId }: TerminalViewProps) {
       terminalRef.current = null
       fitAddonRef.current = null
     }
-  // rawText intentionally excluded — we write incrementally via the listener
+  // rawText and isAlive intentionally excluded — written incrementally via listener,
+  // and cursor blink updated via separate effect above.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, theme, isAlive])
+  }, [viewMode, theme])
 
   return (
     <div className="flex h-full flex-col">
@@ -125,7 +133,7 @@ export function TerminalView({ taskId }: TerminalViewProps) {
                 ? 'bg-green-500/10 text-green-400'
                 : 'bg-red-500/10 text-red-400'
             }`}>
-              {exitCode === 0 ? 'Done' : `Exit ${exitCode ?? '?'}`}
+              {exitCode === 0 ? 'Done' : `Exit ${String(exitCode ?? '?')}`}
             </span>
           )}
         </div>
