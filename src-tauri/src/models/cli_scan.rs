@@ -227,45 +227,34 @@ fn capitalize(s: &str) -> String {
 }
 
 /// Extract OpenAI model IDs from raw strings output.
-/// Scans for `gpt-*` and `o3`/`o1` patterns anywhere in the text,
-/// since they may be embedded in JSON (e.g. `"slug": "gpt-5.3-codex"`).
+/// Looks for quoted model IDs in JSON-like structures (e.g. `"slug": "gpt-5.3-codex"`).
 fn extract_openai_ids(raw: &str) -> Vec<String> {
     let mut ids = Vec::new();
 
-    // Find all gpt-* patterns
-    for (i, _) in raw.match_indices("gpt-") {
-        let rest = &raw[i..];
-        let end = rest
-            .find(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '.')
-            .unwrap_or(rest.len());
-        let candidate = &rest[..end];
+    // Extract quoted strings containing model-like patterns
+    // This is much more precise than scanning raw text
+    for (i, _) in raw.match_indices('"') {
+        let rest = &raw[i + 1..];
+        if let Some(end) = rest.find('"') {
+            let quoted = &rest[..end];
 
-        // Validate
-        if candidate.len() > 4
-            && candidate.len() < 25
-            && !candidate.contains("oss")
-            && !candidate.ends_with('-')
-            && !candidate.ends_with('.')
-            && !candidate.contains("transcribe")
-        {
-            ids.push(candidate.to_string());
-        }
-    }
+            // Check if this quoted string is a model ID
+            let is_model = (quoted.starts_with("gpt-") || quoted == "o3" || quoted == "o1"
+                || quoted.starts_with("o3-") || quoted.starts_with("o1-"))
+                && quoted.len() >= 2
+                && quoted.len() < 25
+                && !quoted.contains(' ')
+                && !quoted.contains("account")
+                && !quoted.contains("oss")
+                && !quoted.contains("event")
+                && !quoted.contains("transcribe")
+                && !quoted.contains("http")
+                && !quoted.contains('/')
+                // Must have a version number after the prefix
+                && (quoted.starts_with("o") || quoted.chars().nth(4).map(|c| c.is_ascii_digit()).unwrap_or(false));
 
-    // Find o3/o1 patterns — look for quoted versions to avoid false positives
-    for pattern in &["\"o3\"", "\"o1\"", "\"o3-", "\"o1-"] {
-        for (i, _) in raw.match_indices(pattern) {
-            let start = i + 1; // skip opening quote
-            let rest = &raw[start..];
-            let end = rest.find('"').unwrap_or(rest.len());
-            let candidate = &rest[..end];
-            if candidate.len() <= 10
-                && !candidate.is_empty()
-                && candidate
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '-')
-            {
-                ids.push(candidate.to_string());
+            if is_model {
+                ids.push(quoted.to_string());
             }
         }
     }
