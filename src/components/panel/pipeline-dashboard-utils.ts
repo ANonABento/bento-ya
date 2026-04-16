@@ -1,5 +1,4 @@
-import type { Task } from '@/types'
-import type { Column } from '@/types'
+import type { Task, Column } from '@/types'
 
 export function computeProgress(columnId: string, sortedColumns: Column[]): number {
   if (sortedColumns.length === 0) return 0
@@ -47,7 +46,7 @@ export function formatElapsed(startDateStr: string): string {
   const now = Date.now()
   const diffSec = Math.max(0, Math.floor((now - start) / 1000))
 
-  if (diffSec < 60) return `${String(diffSec)}s`
-  if (diffSec < 3600) return `${String(Math.floor(diffSec / 60))}m`
-  return `${String(Math.floor(diffSec / 3600))}h`
+  if (diffSec < 60) return `${diffSec}s`
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m`
+  return `${Math.floor(diffSec / 3600)}h`
 }

@@ -10,8 +10,7 @@ import {
   onPipelineError,
   onPipelineAdvanced,
 } from '@/lib/ipc/pipeline'
-import { PIPELINE_LABELS } from '@/components/kanban/task-card-utils'
-import { formatRelativeTime } from '@/components/kanban/task-card-utils'
+import { PIPELINE_LABELS, formatRelativeTime } from '@/components/kanban/task-card-utils'
 import {
   computeProgress,
   filterActiveTasks,
@@ -131,7 +130,8 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
                   onClick={() => { openTask(task.id) }}
-                  className="w-full cursor-pointer rounded-md bg-surface p-2 text-left transition-colors hover:bg-surface-hover"
+                  className="w-full rounded-md bg-surface p-2 text-left transition-colors hover:bg-surface-hover"
+                  style={{ cursor: 'pointer' }}
                 >
                   <div className="flex items-center justify-between gap-1">
                     <span className="truncate text-xs font-medium text-text-primary">{task.title}</span>
@@ -145,7 +145,7 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
                   <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-hover">
                     <div
                       className="h-full rounded-full bg-accent transition-all duration-500"
-                      style={{ width: `${String(progress)}%` }}
+                      style={{ width: `${progress}%` }}
                     />
                   </div>
                 </motion.button>
@@ -165,7 +165,8 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
                 key={task.id}
                 type="button"
                 onClick={() => { openTask(task.id) }}
-                className="w-full cursor-pointer rounded-md bg-surface p-2 text-left transition-colors hover:bg-surface-hover"
+                className="w-full rounded-md bg-surface p-2 text-left transition-colors hover:bg-surface-hover"
+                style={{ cursor: 'pointer' }}
               >
                 <div className="flex items-center justify-between gap-1">
                   <span className="truncate text-xs font-medium text-text-primary">{task.title}</span>
@@ -196,10 +197,11 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
               {task.prUrl && (
                 <button
                   type="button"
-                  onClick={() => { window.open(task.prUrl!, '_blank') }}
-                  className="mt-0.5 cursor-pointer text-[10px] text-accent hover:underline"
+                  onClick={() => { window.open(task.prUrl ?? undefined, '_blank') }}
+                  className="mt-0.5 text-[10px] text-accent hover:underline"
+                  style={{ cursor: 'pointer' }}
                 >
-                  {task.prNumber ? `PR #${String(task.prNumber)}` : 'View PR'}
+                  {task.prNumber ? `PR #${task.prNumber}` : 'View PR'}
                 </button>
               )}
             </div>
