@@ -1,6 +1,8 @@
 import { memo, useState, useCallback } from 'react'
 import type { Task } from '@/types'
 
+const CONFIRM_TIMEOUT_MS = 2000
+
 type TaskQuickActionsProps = {
   task: Task
   hasNextColumn: boolean
@@ -35,7 +37,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
     } else {
       setConfirmDelete(true)
       // Auto-dismiss after 2s
-      setTimeout(() => { setConfirmDelete(false) }, 2000)
+      setTimeout(() => { setConfirmDelete(false) }, CONFIRM_TIMEOUT_MS)
     }
   }, [confirmDelete, onDelete])
 
@@ -95,7 +97,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
         <button
           onClick={(e) => { e.stopPropagation(); onMoveNext(); }}
           className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-accent transition-colors"
-          title="Move to next column (&rarr;)"
+          title="Move to next column (→)"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M3 10a.75.75 0 0 1 .75-.75h10.638l-3.96-4.158a.75.75 0 1 1 1.085-1.034l5.25 5.5a.75.75 0 0 1 0 1.034l-5.25 5.5a.75.75 0 1 1-1.085-1.034l3.96-4.158H3.75A.75.75 0 0 1 3 10Z" clipRule="evenodd" />

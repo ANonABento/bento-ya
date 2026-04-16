@@ -130,12 +130,10 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
 
   // Find next column for "move right" action
   const nextColumnId = useMemo(() => {
-    const currentCol = columns.find(c => c.id === task.columnId)
-    if (!currentCol) return null
     const sorted = [...columns].sort((a, b) => a.position - b.position)
     const idx = sorted.findIndex(c => c.id === task.columnId)
-    const next = sorted[idx + 1]
-    return idx < sorted.length - 1 && next ? next.id : null
+    if (idx === -1) return null
+    return idx < sorted.length - 1 ? (sorted[idx + 1]?.id ?? null) : null
   }, [columns, task.columnId])
 
   const handleMoveNext = useCallback(() => {
@@ -143,6 +141,8 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       actions.handleMoveToColumn(nextColumnId)
     }
   }, [nextColumnId, actions])
+
+  const handleRetry = useCallback(() => { void actions.handleRetryPipeline() }, [actions])
 
   const [deleteConfirmPending, setDeleteConfirmPending] = useState(false)
 
@@ -271,7 +271,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           hasNextColumn={!!nextColumnId}
           onOpen={handleClick}
           onToggleAgent={actions.handleToggleAgent}
-          onRetry={() => { void actions.handleRetryPipeline() }}
+          onRetry={handleRetry}
           onMoveNext={handleMoveNext}
           onDelete={actions.handleDeleteTask}
           onShowMenu={handleShowMenu}
