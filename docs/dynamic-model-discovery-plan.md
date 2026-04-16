@@ -1,6 +1,6 @@
 # Dynamic Model Discovery — Implementation Plan
 
-> **Status:** Planned
+> **Status:** Phase 1 + 1.5 Complete
 > **Existing ticket:** `.tickets/dynamic-model-discovery.md`
 > **Priority:** High (blocks accurate cost tracking, UX quality)
 
@@ -274,19 +274,26 @@ Before running a task:
 ## Implementation Order
 
 ```
-Phase 1 (Core)           ~1-2 days
-├── 1.1 Model registry    Rust module + cache
-├── 1.2 Metadata overlay   Local enrichment
-├── 1.3 Tauri commands     IPC bridge
-├── 1.4 Hook refactor      useModels()
-├── 1.5 Update consumers   Remove hardcoded lists
-└── 1.6 Cleanup            Delete stale constants
+Phase 1 (Core)           ✅ DONE
+├── 1.1 Model registry    Rust models/ module + cache
+├── 1.2 Metadata overlay   Local enrichment (13 models)
+├── 1.3 Tauri commands     get_available_models, refresh_models
+├── 1.4 Hook refactor      useModels() + useModelCapabilities() wrapper
+├── 1.5 Update consumers   agent-tab, model-selector, chat-input
+└── 1.6 Cleanup            Removed ANTHROPIC_MODELS, ModelInfo struct
+
+Phase 1.5 (CLI Scan)     ✅ DONE
+├── Binary scanner         cli_scan.rs — strings + regex on CLI binaries
+├── Priority chain         API → CLI scan → Built-in
+├── Source indicator        "From API" / "From CLI" / "Built-in list"
+└── CLI update check       Version + update badge in provider card
 
 Phase 2 (Polish)         ~0.5 day
-├── 2.1 Tier detection     Smart defaults
-├── 2.2 New model badge    Notification
-├── 2.3 Comparison view    Settings UI
-└── 2.4 Refresh controls   Settings UI
+├── 2.1 Tier detection     ✅ DONE (infer_tier from model name)
+├── 2.2 New model badge    ✅ DONE (isNew flag + "New" badge in UI)
+├── 2.3 Comparison view    TODO — side-by-side model comparison
+├── 2.4 Refresh controls   ✅ DONE (button + status + auto-dismiss)
+└── 2.5 Model list in card ✅ DONE (expanded provider shows all models)
 
 Phase 3 (Extensibility)  ~1-2 days (future)
 ├── 3.1 Provider trait     Plugin interface
@@ -302,29 +309,30 @@ Phase 4 (Cost)           ~1 day (future)
 
 ---
 
-## Files Changed (Phase 1)
+## Files Changed
 
 ### New
-- `src-tauri/src/models/mod.rs`
-- `src-tauri/src/models/cache.rs`
-- `src-tauri/src/models/fetcher.rs`
-- `src-tauri/src/models/metadata.rs`
-- `src-tauri/src/models/types.rs`
-- `src/hooks/use-models.ts`
-- `src/lib/ipc/models.ts`
+- `src-tauri/src/models/mod.rs` — registry with get_available_models + refresh_models
+- `src-tauri/src/models/cache.rs` — file cache at ~/.bentoya/models-cache.json
+- `src-tauri/src/models/fetcher.rs` — Anthropic + OpenAI API fetchers
+- `src-tauri/src/models/metadata.rs` — local metadata (13 models, pricing, capabilities)
+- `src-tauri/src/models/types.rs` — ModelEntry, ModelsCache, ModelSource, ModelTier
+- `src-tauri/src/models/cli_scan.rs` — CLI binary scanner (strings + regex)
+- `src/hooks/use-models.ts` — useModels() hook with refresh + source
+- `src/lib/ipc/models.ts` — IPC bindings + models:updated event listener
 
 ### Modified
-- `src-tauri/src/main.rs` — register new commands
-- `src-tauri/src/llm/types.rs` — remove hardcoded `ANTHROPIC_MODELS`, refactor `resolve_model_id()`
-- `src-tauri/src/commands/cli_detect.rs` — refactor `build_claude_capabilities()`
-- `src/components/settings/tabs/agent-tab.tsx` — remove `PROVIDER_INFO`, use `useModels()`
-- `src/components/shared/model-selector.tsx` — remove `FALLBACK_MODELS`, use hook
-- `src/hooks/use-model-capabilities.ts` — rewrite to use new backend
-- `src/components/panel/shared/chat-input.tsx` — use hook for capabilities
-- `src/components/panel/panel-input.tsx` — use hook for model list
-
-### Deleted (cleanup)
-- Nothing deleted, but large sections of hardcoded model data removed from existing files
+- `src-tauri/src/lib.rs` — register models module + commands
+- `src-tauri/src/commands/mod.rs` — re-export models
+- `src-tauri/src/commands/cli_detect.rs` — dynamic capabilities + check_cli_update command
+- `src-tauri/src/llm/types.rs` — removed ANTHROPIC_MODELS, resolve via metadata registry
+- `src-tauri/src/llm/mod.rs` — updated exports
+- `src-tauri/src/llm/anthropic.rs` — calculate_cost uses metadata registry
+- `src/components/settings/tabs/agent-tab.tsx` — dynamic models, refresh, update check, model list
+- `src/components/shared/model-selector.tsx` — uses useModelCapabilities() dynamically
+- `src/hooks/use-model-capabilities.ts` — wraps useModels() with legacy interface
+- `src/lib/ipc/cli.ts` — added checkCliUpdate + CliUpdateInfo
+- `src/lib/ipc/index.ts` — export models module
 
 ---
 
@@ -332,7 +340,9 @@ Phase 4 (Cost)           ~1 day (future)
 
 | Risk | Mitigation |
 |------|-----------|
-| API key not configured → can't fetch | Cache works offline; fallback to metadata-only mode (known models still work) |
+| API key not configured → can't fetch | CLI binary scan as fallback; built-in metadata as last resort |
+| CLI binary scan finds noise | Strict regex + blocklist filtering (no -v1, no concatenated strings, clean chars only) |
+| CLI binary outdated → missing new models | CLI update check warns user; API fetch gets server-side truth |
 | API rate limit / downtime | 24h cache TTL means one successful fetch per day is enough |
 | New model with breaking API changes | Conservative defaults for unknown models; `is_new` flag for UI warning |
 | Pricing data stale | Show "last updated" in UI; manual refresh available; Phase 4 automates this |
