@@ -50,7 +50,6 @@ export function WorkspaceTab() {
     if (!merged.defaultAgentCli) delete merged.defaultAgentCli
     try {
       const updated = await ipc.updateWorkspaceConfig(workspace.id, JSON.stringify(merged))
-      // Update store optimistically with returned workspace
       updateWorkspace(workspace.id, { config: updated.config })
       setMessage({ type: 'success', text: 'Workspace settings updated' })
     } catch {
