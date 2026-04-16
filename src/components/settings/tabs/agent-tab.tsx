@@ -43,6 +43,7 @@ export function AgentTab() {
   // CLI update check state
   const [cliUpdates, setCliUpdates] = useState<Record<string, CliUpdateInfo>>({})
   const [checkingUpdate, setCheckingUpdate] = useState<Record<string, boolean>>({})
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null)
 
   // Track expanded state (separate from enabled)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
@@ -367,11 +368,15 @@ export function AgentTab() {
                                       <span className="font-mono text-yellow-400">v{update.latestVersion}</span>
                                       {update.updateCommand && (
                                         <button
-                                          onClick={() => { void navigator.clipboard.writeText(update.updateCommand!) }}
+                                          onClick={() => {
+                                            void navigator.clipboard.writeText(update.updateCommand!)
+                                            setCopiedCmd(provider.id)
+                                            setTimeout(() => { setCopiedCmd(null) }, 2000)
+                                          }}
                                           className="ml-0.5 rounded border border-yellow-500/30 px-1 py-0.5 text-[10px] text-yellow-400 transition-colors hover:bg-yellow-500/10"
                                           title={update.updateCommand}
                                         >
-                                          ⧉ upgrade cmd
+                                          {copiedCmd === provider.id ? '✓ copied' : '⧉ upgrade cmd'}
                                         </button>
                                       )}
                                     </>
