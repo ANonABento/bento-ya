@@ -8,7 +8,6 @@ type ScriptTriggerInfo = {
 }
 
 type BatchQueueState = {
-  isQueuing: boolean
   total: number
   completed: number
 }
@@ -150,7 +149,7 @@ export const ColumnHeader = memo(function ColumnHeader({
         )}
 
         {/* Batch queue progress badge */}
-        {batchQueue?.isQueuing && (
+        {batchQueue && (
           <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">
             Queued: {batchQueue.completed}/{batchQueue.total}
           </span>
@@ -158,7 +157,7 @@ export const ColumnHeader = memo(function ColumnHeader({
 
         <div className="ml-auto flex items-center gap-0.5">
           {/* Run All button (backlog only, when tasks exist and not already queuing) */}
-          {isBacklog && taskCount > 0 && !batchQueue?.isQueuing && (
+          {isBacklog && taskCount > 0 && !batchQueue && (
             <IconButton
               icon={
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
@@ -172,7 +171,7 @@ export const ColumnHeader = memo(function ColumnHeader({
           )}
 
           {/* Cancel queue button */}
-          {batchQueue?.isQueuing && (
+          {batchQueue && (
             <IconButton
               icon={
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">

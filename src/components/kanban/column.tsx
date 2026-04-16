@@ -14,6 +14,13 @@ import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
 
+type BatchQueueLocalState = {
+  isQueuing: boolean
+  total: number
+  completed: number
+  queuedTaskIds: string[]
+}
+
 type ColumnProps = {
   column: ColumnType
   isBacklog?: boolean
@@ -59,12 +66,9 @@ export const Column = memo(function Column({ column, isBacklog }: ColumnProps) {
   const addTaskInputRef = useRef<HTMLInputElement>(null)
 
   // Batch queue state
-  const [batchQueueState, setBatchQueueState] = useState<{
-    isQueuing: boolean
-    total: number
-    completed: number
-    queuedTaskIds: string[]
-  }>({ isQueuing: false, total: 0, completed: 0, queuedTaskIds: [] })
+  const [batchQueueState, setBatchQueueState] = useState<BatchQueueLocalState>(
+    { isQueuing: false, total: 0, completed: 0, queuedTaskIds: [] }
+  )
 
   // Track completed tasks when batch queue is active
   useEffect(() => {
@@ -188,7 +192,7 @@ export const Column = memo(function Column({ column, isBacklog }: ColumnProps) {
             color={column.color}
             scriptTrigger={scriptTrigger}
             isBacklog={isBacklog}
-            batchQueue={batchQueueState.isQueuing ? batchQueueState : undefined}
+            batchQueue={batchQueueState.isQueuing ? { total: batchQueueState.total, completed: batchQueueState.completed } : undefined}
             onConfigure={handleConfigure}
             onDelete={handleDelete}
             onAddTask={handleAddTask}

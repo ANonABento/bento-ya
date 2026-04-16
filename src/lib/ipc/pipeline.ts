@@ -44,13 +44,11 @@ export async function queueBacklog(taskIds: string[]): Promise<Task[]> {
 }
 
 export async function cancelBacklogQueue(taskIds: string[]): Promise<void> {
-  for (const taskId of taskIds) {
-    await invoke('update_task_agent_status', {
-      taskId,
-      agentStatus: null,
-      queuedAt: null,
-    })
-  }
+  await Promise.all(
+    taskIds.map((taskId) =>
+      invoke('update_task_agent_status', { taskId, agentStatus: null, queuedAt: null })
+    )
+  )
 }
 
 // ─── Pipeline event listeners ───────────────────────────────────────────────
