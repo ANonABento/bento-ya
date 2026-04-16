@@ -328,7 +328,13 @@ fn execute_spawn_cli(
         format!("{}\n\n{}", task.title, task.description.as_deref().unwrap_or(""))
     };
 
-    let cli_type = cli.unwrap_or("claude").to_string();
+    // Resolve CLI: trigger config > workspace default > "claude"
+    let workspace_config: serde_json::Value = serde_json::from_str(&workspace.config).unwrap_or_default();
+    let ws_default_cli = workspace_config.get("defaultAgentCli").and_then(|v| v.as_str()).unwrap_or("");
+    let cli_type = cli
+        .or_else(|| if ws_default_cli.is_empty() { None } else { Some(ws_default_cli) })
+        .unwrap_or("claude")
+        .to_string();
 
     // Prepend slash command if provided
     let initial_prompt = match command {
@@ -363,8 +369,12 @@ fn execute_spawn_cli(
 
     emit_pipeline(app, EVT_RUNNING, &task.id, &column.id, PipelineState::Running, Some(format!("CLI trigger: {}", cli_type)));
 
-    // Resolve model: task override > trigger config > none
-    let resolved_model = task.model.as_deref().or(model).map(|m| m.to_string());
+    // Resolve model: task override > trigger config > workspace default > none
+    let ws_default_model = workspace_config.get("defaultModel").and_then(|v| v.as_str()).unwrap_or("");
+    let resolved_model = task.model.as_deref()
+        .or(model)
+        .or_else(|| if ws_default_model.is_empty() { None } else { Some(ws_default_model) })
+        .map(|m| m.to_string());
     let mut cli_args = Vec::new();
     if let Some(ref m) = resolved_model {
         cli_args.push("--model".to_string());

@@ -369,7 +369,16 @@ pub async fn cancel_agent_chat(
 
 // ─── Queue Management Commands ────────────────────────────────────────────
 
-const MAX_CONCURRENT_AGENTS: i64 = 5;
+const DEFAULT_MAX_CONCURRENT_AGENTS: i64 = 5;
+
+/// Read maxConcurrentAgents from workspace config JSON, falling back to default.
+fn get_max_concurrent(conn: &rusqlite::Connection, workspace_id: &str) -> i64 {
+    db::get_workspace(conn, workspace_id)
+        .ok()
+        .and_then(|ws| serde_json::from_str::<serde_json::Value>(&ws.config).ok())
+        .and_then(|cfg| cfg.get("maxConcurrentAgents")?.as_i64())
+        .unwrap_or(DEFAULT_MAX_CONCURRENT_AGENTS)
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -425,7 +434,7 @@ pub fn get_queue_status(
     Ok(QueueStatus {
         queued_count: queued_tasks.len(),
         running_count,
-        max_concurrent: MAX_CONCURRENT_AGENTS,
+        max_concurrent: get_max_concurrent(&conn, &workspace_id),
         queued_tasks,
     })
 }
@@ -438,7 +447,7 @@ pub fn get_next_queued_task(
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     let running_count = db::get_running_agent_count(&conn, &workspace_id)?;
 
-    if running_count >= MAX_CONCURRENT_AGENTS {
+    if running_count >= get_max_concurrent(&conn, &workspace_id) {
         return Ok(None);
     }
 
