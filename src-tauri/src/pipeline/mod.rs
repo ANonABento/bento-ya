@@ -412,6 +412,15 @@ pub fn try_auto_advance(
     task: &Task,
     current_column: &Column,
 ) -> Result<Option<Task>, AppError> {
+    // Check workspace-level auto-advance toggle (defaults to true)
+    if let Ok(workspace) = db::get_workspace(conn, &task.workspace_id) {
+        if let Ok(cfg) = serde_json::from_str::<serde_json::Value>(&workspace.config) {
+            if let Some(false) = cfg.get("autoAdvance").and_then(|v| v.as_bool()) {
+                return Ok(None);
+            }
+        }
+    }
+
     // Check if auto-advance is enabled via V2 triggers
     let auto_advance = parse_trigger_field_bool(current_column.triggers.as_deref(), "auto_advance");
 
