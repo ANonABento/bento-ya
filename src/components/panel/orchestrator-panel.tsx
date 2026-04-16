@@ -18,6 +18,7 @@ import { buildPromptWithAttachments } from '@/types'
 import { useCliPath } from '@/hooks/use-cli-path'
 import { ChatHistory } from './chat-history'
 import { PanelSidebar } from './panel-sidebar'
+import { PipelineDashboard } from './pipeline-dashboard'
 import { ChatErrorBoundary } from './chat-error-boundary'
 import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls } from './shared'
 
@@ -83,7 +84,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   })
 
   // Local UI state
-  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | null>(null)
+  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | 'dashboard' | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
@@ -378,6 +379,20 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   <path fillRule="evenodd" d="M2 9.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 .75.75v5a1.75 1.75 0 0 1-1.75 1.75H3.75A1.75 1.75 0 0 1 2 14.25v-5Z" clipRule="evenodd" />
                 </svg>
               </button>
+              <button
+                type="button"
+                onClick={() => { setSidebarMode(sidebarMode === 'dashboard' ? null : 'dashboard') }}
+                className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                  sidebarMode === 'dashboard'
+                    ? 'bg-surface-hover text-text-primary'
+                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                }`}
+                title="Pipeline dashboard"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM10 7a1.5 1.5 0 0 0-1.5 1.5v8a1.5 1.5 0 0 0 3 0v-8A1.5 1.5 0 0 0 10 7ZM4.5 12A1.5 1.5 0 0 0 3 13.5v3a1.5 1.5 0 0 0 3 0v-3A1.5 1.5 0 0 0 4.5 12Z" />
+                </svg>
+              </button>
             </>
           )}
         </div>
@@ -472,16 +487,20 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             className="flex flex-1 overflow-hidden"
           >
             {/* Sidebar */}
-            <PanelSidebar
-              mode={sidebarMode}
-              sessions={sessions}
-              activeSessionId={activeSession?.id}
-              workspaceId={workspaceId}
-              isCurrentChatEmpty={localMessages.length === 0}
-              onNewChat={() => { void handleNewChat() }}
-              onSelectSession={(session) => { handleSelectSession(session) }}
-              onDeleteSession={(sessionId) => { void handleDeleteSession(sessionId) }}
-            />
+            {sidebarMode === 'dashboard' ? (
+              <PipelineDashboard workspaceId={workspaceId} />
+            ) : (
+              <PanelSidebar
+                mode={sidebarMode}
+                sessions={sessions}
+                activeSessionId={activeSession?.id}
+                workspaceId={workspaceId}
+                isCurrentChatEmpty={localMessages.length === 0}
+                onNewChat={() => { void handleNewChat() }}
+                onSelectSession={(session) => { handleSelectSession(session) }}
+                onDeleteSession={(sessionId) => { void handleDeleteSession(sessionId) }}
+              />
+            )}
 
             {/* Main chat area */}
             <ChatErrorBoundary panelName="Orchestrator Chat">
