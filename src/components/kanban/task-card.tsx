@@ -177,6 +177,34 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     return names.length > 0 ? names.join(', ') : null
   }, [task.blocked, task.dependencies])
 
+  // Find next column for "move right" action
+  const nextColumnId = useMemo(() => {
+    const sorted = [...columns].sort((a, b) => a.position - b.position)
+    const idx = sorted.findIndex(c => c.id === task.columnId)
+    if (idx === -1) return null
+    return idx < sorted.length - 1 ? (sorted[idx + 1]?.id ?? null) : null
+  }, [columns, task.columnId])
+
+  const handleMoveNext = useCallback(() => {
+    if (nextColumnId) {
+      actions.handleMoveToColumn(nextColumnId)
+    }
+  }, [nextColumnId, actions])
+
+  const handleRetry = useCallback(() => { void actions.handleRetryPipeline() }, [actions])
+
+  const [deleteConfirmPending, setDeleteConfirmPending] = useState(false)
+
+  const handleDeleteWithConfirm = useCallback(() => {
+    if (deleteConfirmPending) {
+      actions.handleDeleteTask()
+      setDeleteConfirmPending(false)
+    } else {
+      setDeleteConfirmPending(true)
+      setTimeout(() => { setDeleteConfirmPending(false) }, 2000)
+    }
+  }, [deleteConfirmPending, actions])
+
   const needsAttention = hasAttention || task.agentStatus === 'needs_attention'
   const isPipelineActive = task.pipelineState !== 'idle'
   const hasPipelineError = !!task.pipelineError
@@ -229,22 +257,34 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return
         switch (e.key) {
           case 'Enter':
-          case ' ':
             e.preventDefault()
             handleClick()
+            break
+          case ' ':
+            e.preventDefault()
+            actions.handleToggleAgent()
+            break
+          case 'r':
+          case 'R':
+            e.preventDefault()
+            if (task.pipelineError) {
+              void actions.handleRetryPipeline()
+            }
+            break
+          case 'ArrowRight':
+            e.preventDefault()
+            handleMoveNext()
+            break
+          case 'Delete':
+          case 'Backspace':
+            e.preventDefault()
+            handleDeleteWithConfirm()
             break
           case 'd':
           case 'D':
             e.preventDefault()
             actions.handleDuplicateTask()
             break
-          case 'Delete':
-          case 'Backspace': {
-            e.preventDefault()
-            const rect = e.currentTarget.getBoundingClientRect()
-            setContextMenu({ x: rect.right - 180, y: rect.top })
-            break
-          }
           case 'm':
           case 'M': {
             e.preventDefault()
@@ -280,8 +320,12 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       {!isDragging && (
         <TaskQuickActions
           task={task}
+          hasNextColumn={!!nextColumnId}
           onOpen={handleClick}
           onToggleAgent={actions.handleToggleAgent}
+          onRetry={handleRetry}
+          onMoveNext={handleMoveNext}
+          onDelete={actions.handleDeleteTask}
           onShowMenu={handleShowMenu}
         />
       )}
