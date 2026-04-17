@@ -1,6 +1,6 @@
 # Dynamic Model Discovery — Implementation Plan
 
-> **Status:** Phase 1 + 1.5 Complete
+> **Status:** Phase 1 + 1.5 + 2 (partial) Complete — Code reviewed
 > **Existing ticket:** `.tickets/dynamic-model-discovery.md`
 > **Priority:** High (blocks accurate cost tracking, UX quality)
 
