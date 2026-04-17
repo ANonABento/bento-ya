@@ -154,24 +154,19 @@ fn scan_cli_binaries() -> Vec<ModelEntry> {
     use crate::commands::cli_detect;
 
     let mut models = Vec::new();
+    let clis = cli_detect::detect_clis();
 
-    // Scan Claude CLI
-    let claude = cli_detect::detect_clis()
-        .into_iter()
-        .find(|c| c.id == "claude" && c.is_available);
-    if let Some(cli) = claude {
-        let found = cli_scan::scan_cli_models(&cli.path, "anthropic");
-        log::info!("Claude CLI scan: {} models from {}", found.len(), cli.path);
-        models.extend(found);
-    }
-
-    // Scan Codex CLI
-    let codex = cli_detect::detect_clis()
-        .into_iter()
-        .find(|c| c.id == "codex" && c.is_available);
-    if let Some(cli) = codex {
-        let found = cli_scan::scan_cli_models(&cli.path, "openai");
-        log::info!("Codex CLI scan: {} models from {}", found.len(), cli.path);
+    for cli in &clis {
+        if !cli.is_available {
+            continue;
+        }
+        let provider = match cli.id.as_str() {
+            "claude" => "anthropic",
+            "codex" => "openai",
+            _ => continue,
+        };
+        let found = cli_scan::scan_cli_models(&cli.path, provider);
+        log::info!("{} CLI scan: {} models from {}", cli.name, found.len(), cli.path);
         models.extend(found);
     }
 

@@ -438,13 +438,9 @@ fn parse_update_output(cli_id: &str, output: &str) -> (Option<String>, Option<St
         match cli_id {
             "claude" => {
                 // "Update available: 2.1.92 → 2.1.97"
-                if trimmed.contains("Update available:") || trimmed.contains("→") || trimmed.contains("->") {
-                    let parts: Vec<&str> = trimmed.split(|c| c == '→' || c == '>').collect();
-                    if let Some(last) = parts.last() {
-                        let ver = last.trim().trim_start_matches('-').trim();
-                        if !ver.is_empty() && ver.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
-                            latest_version = Some(ver.to_string());
-                        }
+                if trimmed.contains("→") || trimmed.contains("->") {
+                    if let Some(ver) = extract_version_after_arrow(trimmed) {
+                        latest_version = Some(ver);
                     }
                 }
                 // "To update, run:\n  brew upgrade claude-code"
@@ -459,12 +455,8 @@ fn parse_update_output(cli_id: &str, output: &str) -> (Option<String>, Option<St
             "codex" => {
                 // "Update available! 0.107.0 -> 0.118.0"
                 if trimmed.contains("->") || trimmed.contains("→") {
-                    let parts: Vec<&str> = trimmed.split(|c| c == '→' || c == '>').collect();
-                    if let Some(last) = parts.last() {
-                        let ver = last.trim().trim_start_matches('-').trim();
-                        if !ver.is_empty() && ver.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
-                            latest_version = Some(ver.to_string());
-                        }
+                    if let Some(ver) = extract_version_after_arrow(trimmed) {
+                        latest_version = Some(ver);
                     }
                 }
                 // "See https://github.com/openai/codex for installation options."
@@ -477,4 +469,27 @@ fn parse_update_output(cli_id: &str, output: &str) -> (Option<String>, Option<St
     }
 
     (latest_version, update_command)
+}
+
+/// Extract a version number after an arrow (→ or ->) in a string.
+/// "2.1.92 → 2.1.97" → Some("2.1.97")
+/// "Update available! 0.107.0 -> 0.118.0" → Some("0.118.0")
+fn extract_version_after_arrow(s: &str) -> Option<String> {
+    // Split on → or -> and take everything after the last arrow
+    let after = s.split("→")
+        .last()
+        .or_else(|| s.split("->").last())?
+        .trim();
+
+    // Extract the first version-like token (digits and dots)
+    let version: String = after
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+
+    if version.is_empty() || !version.contains('.') {
+        return None;
+    }
+
+    Some(version)
 }

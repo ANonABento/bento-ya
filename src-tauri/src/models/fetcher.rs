@@ -110,7 +110,8 @@ pub async fn fetch_openai_models(api_key: &str) -> Result<Vec<ApiModel>, String>
         .into_iter()
         .filter(|m| {
             let id = m.id.to_lowercase();
-            id.starts_with("codex") || id.starts_with("gpt") || id.starts_with("o1") || id.starts_with("o3")
+            id.starts_with("codex") || id.starts_with("gpt")
+                || (id.starts_with('o') && id.chars().nth(1).map(|c| c.is_ascii_digit()).unwrap_or(false))
         })
         .map(|m| {
             let display_name = humanize_model_id(&m.id);
@@ -130,6 +131,10 @@ pub async fn fetch_openai_models(api_key: &str) -> Result<Vec<ApiModel>, String>
 
 /// Convert a model ID like "codex-5.3" into a display name like "Codex 5.3"
 fn humanize_model_id(id: &str) -> String {
+    // Keep o-series lowercase (o3, o1-mini)
+    if id.starts_with('o') && id.chars().nth(1).map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        return id.to_string();
+    }
     id.split('-')
         .enumerate()
         .map(|(i, part)| {

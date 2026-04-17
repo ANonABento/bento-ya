@@ -61,9 +61,10 @@ const FALLBACK: ModelCapability = {
 }
 
 export function useModelCapabilities(
-  _cliId: string = 'claude',
+  cliId: string = 'claude',
 ): UseModelCapabilitiesResult {
-  const { models: entries, isLoading, lastFetched, refresh } = useModels('anthropic')
+  const provider = cliId === 'codex' ? 'openai' : 'anthropic'
+  const { models: entries, isLoading, lastFetched, refresh } = useModels(provider)
 
   const models = useMemo(() => entries.map(toCapability), [entries])
 

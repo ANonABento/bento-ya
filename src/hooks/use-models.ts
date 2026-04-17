@@ -58,11 +58,14 @@ export function useModels(provider?: string): UseModelsResult {
     [provider],
   )
 
-  // Initial load
+  // Initial load + re-fetch when provider changes
+  const lastProvider = useRef(provider)
   useEffect(() => {
-    if (hasRun.current) return
+    if (hasRun.current && lastProvider.current === provider) return
     hasRun.current = true
+    lastProvider.current = provider
 
+    setIsLoading(true)
     void (async () => {
       try {
         const cache = await getAvailableModels(provider)
@@ -88,8 +91,11 @@ export function useModels(provider?: string): UseModelsResult {
     return () => unlisten?.()
   }, [applyCache])
 
+  const modelsRef = useRef(models)
+  modelsRef.current = models
+
   const refresh = useCallback(async (): Promise<RefreshResult> => {
-    const previousIds = new Set(models.map((m) => m.id))
+    const previousIds = new Set(modelsRef.current.map((m) => m.id))
     setIsLoading(true)
     try {
       const cache = await refreshModels()
@@ -106,14 +112,14 @@ export function useModels(provider?: string): UseModelsResult {
       console.error('Failed to refresh models:', err)
       return {
         success: false,
-        modelCount: models.length,
+        modelCount: modelsRef.current.length,
         newModels: [],
         error: err instanceof Error ? err.message : 'Unknown error',
       }
     } finally {
       setIsLoading(false)
     }
-  }, [applyCache, models])
+  }, [applyCache])
 
   const getModel = useCallback(
     (aliasOrId: string) =>
