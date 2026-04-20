@@ -132,6 +132,7 @@ pub fn run() {
             commands::task::retry_pipeline,
             commands::task::retry_from_start,
             commands::task::validate_task_dependencies,
+            commands::task::queue_backlog,
             commands::task::create_task_worktree,
             commands::task::remove_task_worktree,
             // Git commands
