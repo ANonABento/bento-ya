@@ -12,6 +12,8 @@ export type UsageRecord = {
   inputTokens: number
   outputTokens: number
   costUsd: number
+  columnName: string | null
+  durationSeconds: number
   createdAt: string
 }
 
@@ -31,6 +33,8 @@ export async function recordUsage(
   costUsd: number,
   taskId?: string,
   sessionId?: string,
+  columnName?: string,
+  durationSeconds?: number,
 ): Promise<UsageRecord> {
   return invoke<UsageRecord>('record_usage', {
     workspaceId,
@@ -41,6 +45,8 @@ export async function recordUsage(
     inputTokens,
     outputTokens,
     costUsd,
+    columnName,
+    durationSeconds,
   })
 }
 

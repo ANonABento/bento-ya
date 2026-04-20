@@ -110,12 +110,16 @@ pub async fn bridge_pty_to_tauri(
     mut event_rx: mpsc::Receiver<TransportEvent>,
 ) {
     let mut accumulated_text = String::new();
+    // Accumulate token usage across all result events in the session
+    let mut total_usage = TokenUsage::default();
 
     while let Some(event) = event_rx.recv().await {
         if handle_bridge_event(app, task_id, &event, &mut accumulated_text).await {
             break;
         }
     }
+
+    total_usage
 }
 
 /// Shared event handling logic for both mpsc and broadcast bridges.

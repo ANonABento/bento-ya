@@ -631,11 +631,13 @@ async fn stream_via_api(
             workspace_id,
             None, // task_id
             Some(orch_session_id),
-            "anthropic",
+            db::PROVIDER_ANTHROPIC,
             &response.model,
             response.usage.input_tokens,
             response.usage.output_tokens,
             cost,
+            None, // column_name
+            0,    // duration_seconds
         );
 
         // Update orchestrator session to idle
@@ -884,6 +886,6 @@ fn emit_orchestrator_cli_event(app: &AppHandle, workspace_id: &str, event: ChatE
                 },
             );
         }
-        ChatEvent::Complete | ChatEvent::SessionId(_) | ChatEvent::RawOutput(_) | ChatEvent::Unknown => {}
+        ChatEvent::Complete | ChatEvent::Result(_) | ChatEvent::SessionId(_) | ChatEvent::RawOutput(_) | ChatEvent::Unknown => {}
     }
 }
