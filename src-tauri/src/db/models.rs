@@ -286,6 +286,8 @@ pub struct UsageRecord {
     pub input_tokens: i64,
     pub output_tokens: i64,
     pub cost_usd: f64,
+    pub column_name: Option<String>,
+    pub duration_seconds: i64,
     pub created_at: String,
 }
 
