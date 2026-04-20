@@ -16,6 +16,7 @@ pub struct Workspace {
     pub repo_path: String,
     pub tab_order: i64,
     pub is_active: bool,
+    pub active_task_count: i64,
     pub config: String,
     pub created_at: String,
     pub updated_at: String,
@@ -287,4 +288,3 @@ pub struct SessionSnapshot {
     pub duration_ms: i64,
     pub created_at: String,
 }
-

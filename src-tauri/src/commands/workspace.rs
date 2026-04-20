@@ -11,14 +11,23 @@ pub fn create_workspace(
     repo_path: String,
 ) -> Result<Workspace, AppError> {
     if name.trim().is_empty() {
-        return Err(AppError::InvalidInput("Workspace name cannot be empty".to_string()));
+        return Err(AppError::InvalidInput(
+            "Workspace name cannot be empty".to_string(),
+        ));
     }
     if repo_path.trim().is_empty() {
-        return Err(AppError::InvalidInput("Repository path cannot be empty".to_string()));
+        return Err(AppError::InvalidInput(
+            "Repository path cannot be empty".to_string(),
+        ));
     }
 
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    let tx = conn.unchecked_transaction().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     let ws = db::insert_workspace(&conn, name.trim(), repo_path.trim())?;
 
@@ -27,19 +36,26 @@ pub fn create_workspace(
         db::insert_column(&conn, &ws.id, col_name, i as i64)?;
     }
 
-    tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    tx.commit()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(ws)
 }
 
 #[tauri::command]
 pub fn get_workspace(state: State<AppState>, id: String) -> Result<Workspace, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::get_workspace(&conn, &id)?)
 }
 
 #[tauri::command]
 pub fn list_workspaces(state: State<AppState>) -> Result<Vec<Workspace>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::list_workspaces(&conn)?)
 }
 
@@ -55,11 +71,16 @@ pub fn update_workspace(
 ) -> Result<Workspace, AppError> {
     if let Some(ref n) = name {
         if n.trim().is_empty() {
-            return Err(AppError::InvalidInput("Workspace name cannot be empty".to_string()));
+            return Err(AppError::InvalidInput(
+                "Workspace name cannot be empty".to_string(),
+            ));
         }
     }
 
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::update_workspace(
         &conn,
         &id,
@@ -73,7 +94,10 @@ pub fn update_workspace(
 
 #[tauri::command]
 pub fn delete_workspace(state: State<AppState>, id: String) -> Result<(), AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     // CASCADE handles associated columns/tasks
     db::delete_workspace(&conn, &id)?;
     Ok(())
@@ -84,7 +108,10 @@ pub fn get_default_columns(
     state: &State<AppState>,
     workspace_id: &str,
 ) -> Result<Vec<Column>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::list_columns(&conn, workspace_id)?)
 }
 
@@ -96,11 +123,18 @@ pub fn clone_workspace(
     new_name: String,
 ) -> Result<Workspace, AppError> {
     if new_name.trim().is_empty() {
-        return Err(AppError::InvalidInput("New workspace name cannot be empty".to_string()));
+        return Err(AppError::InvalidInput(
+            "New workspace name cannot be empty".to_string(),
+        ));
     }
 
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    let tx = conn.unchecked_transaction().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     // Get source workspace
     let source = db::get_workspace(&conn, &source_id)?;
@@ -155,29 +189,41 @@ pub fn clone_workspace(
         }
     }
 
-    tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    Ok(new_ws)
+    tx.commit()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::get_workspace(&conn, &new_ws.id)?)
 }
 
 /// Reorder workspaces by updating their tab_order
 #[tauri::command]
 pub fn reorder_workspaces(state: State<AppState>, ids: Vec<String>) -> Result<(), AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    let tx = conn.unchecked_transaction().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     for (i, id) in ids.iter().enumerate() {
         db::update_workspace(&conn, id, None, None, Some(i as i64), None, None)?;
     }
 
-    tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    tx.commit()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(())
 }
 
 /// Seed demo workspace with sample tasks for testing
 #[tauri::command]
 pub fn seed_demo_data(state: State<AppState>, repo_path: String) -> Result<Workspace, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    let tx = conn.unchecked_transaction().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     // Create demo workspace
     let ws = db::insert_workspace(&conn, "Demo Workspace", &repo_path)?;
@@ -191,41 +237,150 @@ pub fn seed_demo_data(state: State<AppState>, repo_path: String) -> Result<Works
 
     // Sample tasks for Backlog
     let backlog_id = &columns[0].id;
-    db::insert_task(&conn, &ws.id, backlog_id, "Add dark mode toggle", Some("Implement theme switching in settings"))?;
-    db::insert_task(&conn, &ws.id, backlog_id, "Refactor auth flow", Some("Simplify the authentication logic"))?;
+    db::insert_task(
+        &conn,
+        &ws.id,
+        backlog_id,
+        "Add dark mode toggle",
+        Some("Implement theme switching in settings"),
+    )?;
+    db::insert_task(
+        &conn,
+        &ws.id,
+        backlog_id,
+        "Refactor auth flow",
+        Some("Simplify the authentication logic"),
+    )?;
 
     // Task with draft PR
-    let draft_task = db::insert_task(&conn, &ws.id, backlog_id, "Write unit tests", Some("Add tests for core utilities - WIP draft PR"))?;
+    let draft_task = db::insert_task(
+        &conn,
+        &ws.id,
+        backlog_id,
+        "Write unit tests",
+        Some("Add tests for core utilities - WIP draft PR"),
+    )?;
     db::update_task_branch(&conn, &draft_task.id, Some("feat/unit-tests"))?;
-    db::update_task_pr_info(&conn, &draft_task.id, Some(101), Some("https://github.com/demo/repo/pull/101"))?;
-    db::update_task_pr_status(&conn, &draft_task.id, Some("unknown"), Some("pending"), None, Some(0), Some(true), Some("[]"), Some("abc123"))?;
+    db::update_task_pr_info(
+        &conn,
+        &draft_task.id,
+        Some(101),
+        Some("https://github.com/demo/repo/pull/101"),
+    )?;
+    db::update_task_pr_status(
+        &conn,
+        &draft_task.id,
+        Some("unknown"),
+        Some("pending"),
+        None,
+        Some(0),
+        Some(true),
+        Some("[]"),
+        Some("abc123"),
+    )?;
 
     // Sample tasks for Working - with CI failure and merge conflict
     let working_id = &columns[1].id;
-    let ci_fail_task = db::insert_task(&conn, &ws.id, working_id, "Implement CLI agent spawning", Some("Wire up settings to spawn correct CLI - CI failing"))?;
+    let ci_fail_task = db::insert_task(
+        &conn,
+        &ws.id,
+        working_id,
+        "Implement CLI agent spawning",
+        Some("Wire up settings to spawn correct CLI - CI failing"),
+    )?;
     db::update_task_branch(&conn, &ci_fail_task.id, Some("feat/cli-agent"))?;
-    db::update_task_pr_info(&conn, &ci_fail_task.id, Some(102), Some("https://github.com/demo/repo/pull/102"))?;
-    db::update_task_pr_status(&conn, &ci_fail_task.id, Some("conflicted"), Some("failure"), Some("changes_requested"), Some(5), Some(false), Some("[\"bug\",\"needs-work\"]"), Some("def456"))?;
+    db::update_task_pr_info(
+        &conn,
+        &ci_fail_task.id,
+        Some(102),
+        Some("https://github.com/demo/repo/pull/102"),
+    )?;
+    db::update_task_pr_status(
+        &conn,
+        &ci_fail_task.id,
+        Some("conflicted"),
+        Some("failure"),
+        Some("changes_requested"),
+        Some(5),
+        Some(false),
+        Some("[\"bug\",\"needs-work\"]"),
+        Some("def456"),
+    )?;
 
-    let working_task = db::insert_task(&conn, &ws.id, working_id, "Fix terminal scrolling", Some("Terminal output should auto-scroll"))?;
+    let working_task = db::insert_task(
+        &conn,
+        &ws.id,
+        working_id,
+        "Fix terminal scrolling",
+        Some("Terminal output should auto-scroll"),
+    )?;
     db::update_task_branch(&conn, &working_task.id, Some("fix/terminal-scroll"))?;
 
     // Sample tasks for Review - with approved PR
     let review_id = &columns[2].id;
-    let approved_task = db::insert_task(&conn, &ws.id, review_id, "PR: Add keyboard shortcuts", Some("Review PR #12 for hotkey support - ready to merge!"))?;
+    let approved_task = db::insert_task(
+        &conn,
+        &ws.id,
+        review_id,
+        "PR: Add keyboard shortcuts",
+        Some("Review PR #12 for hotkey support - ready to merge!"),
+    )?;
     db::update_task_branch(&conn, &approved_task.id, Some("feat/keyboard-shortcuts"))?;
-    db::update_task_pr_info(&conn, &approved_task.id, Some(103), Some("https://github.com/demo/repo/pull/103"))?;
-    db::update_task_pr_status(&conn, &approved_task.id, Some("mergeable"), Some("success"), Some("approved"), Some(3), Some(false), Some("[\"enhancement\",\"ready\"]"), Some("ghi789"))?;
+    db::update_task_pr_info(
+        &conn,
+        &approved_task.id,
+        Some(103),
+        Some("https://github.com/demo/repo/pull/103"),
+    )?;
+    db::update_task_pr_status(
+        &conn,
+        &approved_task.id,
+        Some("mergeable"),
+        Some("success"),
+        Some("approved"),
+        Some(3),
+        Some(false),
+        Some("[\"enhancement\",\"ready\"]"),
+        Some("ghi789"),
+    )?;
 
     // Sample tasks for Done
     let done_id = &columns[3].id;
-    let done_task1 = db::insert_task(&conn, &ws.id, done_id, "Setup project structure", Some("Initial Tauri + React setup complete"))?;
+    let done_task1 = db::insert_task(
+        &conn,
+        &ws.id,
+        done_id,
+        "Setup project structure",
+        Some("Initial Tauri + React setup complete"),
+    )?;
     db::update_task_branch(&conn, &done_task1.id, Some("feat/initial-setup"))?;
-    db::update_task_pr_info(&conn, &done_task1.id, Some(99), Some("https://github.com/demo/repo/pull/99"))?;
-    db::update_task_pr_status(&conn, &done_task1.id, Some("mergeable"), Some("success"), Some("approved"), Some(2), Some(false), Some("[\"merged\"]"), Some("xyz000"))?;
+    db::update_task_pr_info(
+        &conn,
+        &done_task1.id,
+        Some(99),
+        Some("https://github.com/demo/repo/pull/99"),
+    )?;
+    db::update_task_pr_status(
+        &conn,
+        &done_task1.id,
+        Some("mergeable"),
+        Some("success"),
+        Some("approved"),
+        Some(2),
+        Some(false),
+        Some("[\"merged\"]"),
+        Some("xyz000"),
+    )?;
 
-    db::insert_task(&conn, &ws.id, done_id, "Design settings UI", Some("Settings panel with tabs working"))?;
+    db::insert_task(
+        &conn,
+        &ws.id,
+        done_id,
+        "Design settings UI",
+        Some("Settings panel with tabs working"),
+    )?;
 
-    tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    Ok(ws)
+    tx.commit()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::get_workspace(&conn, &ws.id)?)
 }

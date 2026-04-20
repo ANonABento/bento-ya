@@ -4,6 +4,7 @@ export type Workspace = {
   repoPath: string
   tabOrder: number
   isActive: boolean
+  activeTaskCount: number
   config: string
   createdAt: string
   updatedAt: string

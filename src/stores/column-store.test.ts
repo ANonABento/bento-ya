@@ -3,6 +3,16 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useColumnStore } from './column-store'
 import type { Column } from '@/types'
 
+const refreshWorkspace = vi.fn()
+
+vi.mock('./workspace-store', () => ({
+  useWorkspaceStore: {
+    getState: () => ({
+      refreshWorkspace,
+    }),
+  },
+}))
+
 // Mock IPC module
 vi.mock('@/lib/ipc', () => ({
   getColumns: vi.fn(),
@@ -24,7 +34,11 @@ const createMockColumn = (overrides: Partial<Column> = {}): Column => ({
   position: 0,
   color: '#E8A87C',
   visible: true,
-  triggers: { on_entry: { type: 'none' }, on_exit: { type: 'none' }, exit_criteria: { type: 'manual', auto_advance: false } },
+  triggers: {
+    on_entry: { type: 'none' },
+    on_exit: { type: 'none' },
+    exit_criteria: { type: 'manual', auto_advance: false },
+  },
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
   ...overrides,
@@ -33,6 +47,7 @@ const createMockColumn = (overrides: Partial<Column> = {}): Column => ({
 describe('column-store', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    refreshWorkspace.mockReset()
     useColumnStore.setState({
       columns: [],
       loaded: false,
@@ -60,6 +75,7 @@ describe('column-store', () => {
     it('should add a new column', async () => {
       const newColumn = createMockColumn({ id: 'col-new', name: 'New Column', position: 0 })
       mockIpc.createColumn.mockResolvedValueOnce(newColumn)
+      refreshWorkspace.mockResolvedValueOnce(undefined)
 
       await useColumnStore.getState().add('ws-1', 'New Column')
 
@@ -67,6 +83,7 @@ describe('column-store', () => {
       expect(state.columns).toHaveLength(1)
       expect(state.columns[0]!.name).toBe('New Column')
       expect(mockIpc.createColumn).toHaveBeenCalledWith('ws-1', 'New Column', 0)
+      expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
     })
 
     it('should use correct position based on existing columns', async () => {
@@ -80,36 +97,34 @@ describe('column-store', () => {
 
       const newColumn = createMockColumn({ id: 'col-3', name: 'Third', position: 2 })
       mockIpc.createColumn.mockResolvedValueOnce(newColumn)
+      refreshWorkspace.mockResolvedValueOnce(undefined)
 
       await useColumnStore.getState().add('ws-1', 'Third')
 
       expect(mockIpc.createColumn).toHaveBeenCalledWith('ws-1', 'Third', 2)
+      expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
     })
   })
 
   describe('remove', () => {
     it('should remove a column optimistically', async () => {
       useColumnStore.setState({
-        columns: [
-          createMockColumn({ id: 'col-1' }),
-          createMockColumn({ id: 'col-2' }),
-        ],
+        columns: [createMockColumn({ id: 'col-1' }), createMockColumn({ id: 'col-2' })],
         loaded: true,
       })
       mockIpc.deleteColumn.mockResolvedValueOnce(undefined)
+      refreshWorkspace.mockResolvedValueOnce(undefined)
 
       await useColumnStore.getState().remove('col-1')
 
       const state = useColumnStore.getState()
       expect(state.columns).toHaveLength(1)
       expect(state.columns[0]!.id).toBe('col-2')
+      expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
     })
 
     it('should revert on IPC error', async () => {
-      const original = [
-        createMockColumn({ id: 'col-1' }),
-        createMockColumn({ id: 'col-2' }),
-      ]
+      const original = [createMockColumn({ id: 'col-1' }), createMockColumn({ id: 'col-2' })]
       useColumnStore.setState({
         columns: original,
         loaded: true,
@@ -134,6 +149,7 @@ describe('column-store', () => {
         loaded: true,
       })
       mockIpc.reorderColumns.mockResolvedValueOnce(undefined as unknown as Column[])
+      refreshWorkspace.mockResolvedValueOnce(undefined)
 
       await useColumnStore.getState().reorder('ws-1', ['col-3', 'col-1', 'col-2'])
 
@@ -144,6 +160,7 @@ describe('column-store', () => {
       expect(state.columns[1]!.position).toBe(1)
       expect(state.columns[2]!.id).toBe('col-2')
       expect(state.columns[2]!.position).toBe(2)
+      expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
     })
 
     it('should revert on IPC error', async () => {
