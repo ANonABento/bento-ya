@@ -1,10 +1,8 @@
 use crate::db::{self, AppState, Task};
 use crate::error::AppError;
 use crate::pipeline;
-use crate::process::agent_runner::AgentRunner;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
-use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, State};
 
 #[tauri::command(rename_all = "camelCase")]
@@ -758,15 +756,18 @@ pub async fn retry_from_start(
     app: AppHandle,
     state: State<'_, AppState>,
     task_id: String,
-    agent_runner: State<'_, Arc<Mutex<AgentRunner>>>,
 ) -> Result<Task, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
     // Cancel any running agent for this task
     {
-        let mut runner = agent_runner.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-        let _ = runner.force_stop_agent(&task_id);
+        let task = db::get_task(&conn, &task_id)?;
+        if task.agent_status.as_deref() == Some("running") {
+            crate::chat::tmux_transport::cancel_task_agent(
+                &conn, &task_id, task.agent_session_id.as_deref(),
+            );
+        }
     }
-
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     let task = db::get_task(&conn, &task_id)?;
     let old_column_id = task.column_id.clone();

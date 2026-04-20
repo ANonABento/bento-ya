@@ -110,16 +110,12 @@ pub async fn bridge_pty_to_tauri(
     mut event_rx: mpsc::Receiver<TransportEvent>,
 ) {
     let mut accumulated_text = String::new();
-    // Accumulate token usage across all result events in the session
-    let mut total_usage = TokenUsage::default();
 
     while let Some(event) = event_rx.recv().await {
         if handle_bridge_event(app, task_id, &event, &mut accumulated_text).await {
             break;
         }
     }
-
-    total_usage
 }
 
 /// Shared event handling logic for both mpsc and broadcast bridges.
@@ -447,6 +443,7 @@ pub fn spawn_cli_trigger_task(
                             &conn, &task.workspace_id,
                             Some(&task_id), session_id.as_deref(),
                             "anthropic", model_name, 0, 0, 0.0,
+                            Some(&column_name), duration_secs,
                         );
                         eprintln!("[bridge] Usage recorded: task={} column={} model={} duration={}s",
                             &task_id[..8], column_name, model_name, duration_secs);
