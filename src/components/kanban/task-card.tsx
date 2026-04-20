@@ -20,6 +20,7 @@ import { PrStatusIndicator, SiegeBadge } from './task-card-badges'
 import { useTaskCardActions } from './use-task-card-actions'
 import { AttentionBanner, BlockedBanner, QualityGateBanner, PipelineErrorBanner } from './task-card-status'
 import { AgentActivityPreview } from './task-card-activity'
+import { getColumnShortcutIndex, getVisibleColumnsForShortcuts } from './column-shortcuts'
 
 export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const openTask = useUIStore((s) => s.openTask)
@@ -33,6 +34,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const [showSettings, setShowSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState<'triggers' | 'dependencies'>('triggers')
   const columns = useColumnStore((s) => s.columns)
+  const visibleColumns = useMemo(() => getVisibleColumnsForShortcuts(columns), [columns])
 
   // Get exit criteria type for this task's column
   const columnTriggers = useMemo(() => {
@@ -175,6 +177,17 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       onContextMenu={handleContextMenu}
       onKeyDown={(e) => {
         if (e.metaKey || e.ctrlKey || e.altKey) return
+
+        const shortcutIndex = getColumnShortcutIndex(e.key, visibleColumns.length)
+        if (shortcutIndex !== null) {
+          e.preventDefault()
+          const targetColumn = visibleColumns[shortcutIndex]
+          if (targetColumn && targetColumn.id !== task.columnId) {
+            actions.handleMoveToColumn(targetColumn.id)
+          }
+          return
+        }
+
         switch (e.key) {
           case 'Enter':
           case ' ':

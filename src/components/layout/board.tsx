@@ -100,8 +100,13 @@ export function Board() {
           <div className="flex flex-1 flex-col overflow-hidden">
             <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
               <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
-                {sortedColumns.map((col) => (
-                  <Column key={col.id} column={col} />
+                {sortedColumns.map((col, index) => (
+                  <Column
+                    key={col.id}
+                    column={col}
+                    columnIndex={index}
+                    columnCount={sortedColumns.length}
+                  />
                 ))}
               </SortableContext>
 
