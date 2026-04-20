@@ -95,8 +95,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
   // Local UI state
   const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | 'dashboard' | null>(null)
-  const [isDragging, setIsDragging] = useState(false)
-  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | null>(null)
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)

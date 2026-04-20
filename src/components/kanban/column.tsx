@@ -23,12 +23,6 @@ type BatchQueueLocalState = {
 
 type ColumnProps = {
   column: ColumnType
-  isBacklog?: boolean
-}
-
-export const Column = memo(function Column({ column, isBacklog }: ColumnProps) {
-type ColumnProps = {
-  column: ColumnType
   autoOpenConfig?: boolean
   onConfigOpened?: () => void
 }
@@ -212,7 +206,7 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
             taskCount={tasks.length}
             color={column.color}
             scriptTrigger={scriptTrigger}
-            isBacklog={isBacklog}
+            isBacklog={column.position === 0}
             batchQueue={batchQueueState.isQueuing ? { total: batchQueueState.total, completed: batchQueueState.completed } : undefined}
             onConfigure={handleConfigure}
             onDelete={handleDelete}
