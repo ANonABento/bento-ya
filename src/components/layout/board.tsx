@@ -111,14 +111,12 @@ export function Board() {
           <div className="flex flex-1 flex-col overflow-hidden">
             <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
               <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
-                {sortedColumns.map((col, idx) => (
-                  <Column key={col.id} column={col} isBacklog={idx === 0} />
-                {sortedColumns.map((col) => (
+                {sortedColumns.map((col, index) => (
                   <Column
                     key={col.id}
                     column={col}
-                    autoOpenConfig={col.id === newColumnId}
-                    onConfigOpened={col.id === newColumnId ? () => { setNewColumnId(null) } : undefined}
+                    columnIndex={index}
+                    columnCount={sortedColumns.length}
                   />
                 ))}
               </SortableContext>

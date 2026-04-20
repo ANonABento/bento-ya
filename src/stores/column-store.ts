@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { Column, ColumnTriggers } from '@/types'
 import * as ipc from '@/lib/ipc'
+import { useWorkspaceStore } from './workspace-store'
 
 type ColumnUpdates = {
   name?: string
@@ -52,14 +53,18 @@ export const useColumnStore = create<ColumnState>()(
         const position = get().columns.length
         const column = await ipc.createColumn(workspaceId, name, position)
         set((s) => ({ columns: [...s.columns, column] }))
-        return column
+        await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
       },
 
       remove: async (id) => {
         const prev = get().columns
+        const column = prev.find((c) => c.id === id)
         set((s) => ({ columns: s.columns.filter((c) => c.id !== id) }))
         try {
           await ipc.deleteColumn(id)
+          if (column) {
+            await useWorkspaceStore.getState().refreshWorkspace(column.workspaceId)
+          }
         } catch {
           set({ columns: prev })
         }
@@ -77,6 +82,7 @@ export const useColumnStore = create<ColumnState>()(
         }))
         try {
           await ipc.reorderColumns(workspaceId, ids)
+          await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
         } catch {
           set({ columns: prev })
         }
@@ -103,9 +109,11 @@ export const useColumnStore = create<ColumnState>()(
                   ...(updates.icon !== undefined && { icon: updates.icon }),
                   ...(updates.color !== undefined && { color: updates.color ?? '' }),
                   ...(updates.visible !== undefined && { visible: updates.visible }),
-                  ...(parsedTriggers !== undefined && { triggers: parsedTriggers }),
+                  ...(updates.triggers !== undefined && {
+                    triggers: JSON.parse(updates.triggers) as import('@/types').ColumnTriggers,
+                  }),
                 }
-              : c
+              : c,
           ),
         }))
         try {

@@ -14,26 +14,13 @@ import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
 
-type BatchQueueLocalState = {
-  isQueuing: boolean
-  total: number
-  completed: number
-  queuedTaskIds: string[]
-}
-
 type ColumnProps = {
   column: ColumnType
-  isBacklog?: boolean
+  columnIndex: number
+  columnCount: number
 }
 
-export const Column = memo(function Column({ column, isBacklog }: ColumnProps) {
-type ColumnProps = {
-  column: ColumnType
-  autoOpenConfig?: boolean
-  onConfigOpened?: () => void
-}
-
-export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpened }: ColumnProps) {
+export const Column = memo(function Column({ column, columnIndex, columnCount }: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
@@ -209,6 +196,8 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
           <ColumnHeader
             name={column.name}
             icon={column.icon || 'list'}
+            columnIndex={columnIndex}
+            columnCount={columnCount}
             taskCount={tasks.length}
             color={column.color}
             scriptTrigger={scriptTrigger}

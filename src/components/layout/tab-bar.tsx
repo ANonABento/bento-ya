@@ -31,6 +31,7 @@ import { useTabBarNavigation } from './use-tab-bar-navigation'
 type TabProps = {
   workspace: Workspace
   isActive: boolean
+  activeTaskCount?: number
   notificationCount?: number
   onSelect: () => void
   onClose: () => void
@@ -41,17 +42,13 @@ type TabProps = {
 function SortableTab({
   workspace,
   isActive,
+  activeTaskCount = 0,
   notificationCount = 0,
   onSelect,
 }: Omit<TabProps, 'onClose'>) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: workspace.id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: workspace.id,
+  })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -75,17 +72,27 @@ function SortableTab({
         role="button"
         tabIndex={0}
         onClick={onSelect}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect() }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') onSelect()
+        }}
         className={`
           group flex h-8 cursor-pointer items-center justify-center px-3 text-sm
           transition-colors duration-150
-          ${isActive
-            ? 'font-medium text-text-primary'
-            : 'font-normal text-text-secondary hover:text-text-primary'
+          ${
+            isActive
+              ? 'font-medium text-text-primary'
+              : 'font-normal text-text-secondary hover:text-text-primary'
           }
         `}
       >
-        <span className="max-w-[120px] truncate text-center">{workspace.name}</span>
+        <span className="flex items-center">
+          <span className="max-w-[120px] truncate text-center">{workspace.name}</span>
+          {activeTaskCount > 0 && (
+            <span className="ml-1 rounded-full bg-primary/20 px-1.5 text-xs text-primary">
+              {activeTaskCount}
+            </span>
+          )}
+        </span>
 
         {/* Notification badge */}
         {notificationCount > 0 && (
@@ -135,7 +142,11 @@ function AddTabButton({ onClick }: { onClick: () => void }) {
           fill="currentColor"
           className="h-4 w-4"
         >
-          <path fillRule="evenodd" d="M3.75 3A1.75 1.75 0 0 0 2 4.75v10.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0 0 18 15.25v-8.5A1.75 1.75 0 0 0 16.25 5h-4.836a.25.25 0 0 1-.177-.073L9.823 3.513A1.75 1.75 0 0 0 8.586 3H3.75ZM10 8a.75.75 0 0 1 .75.75v1.5h1.5a.75.75 0 0 1 0 1.5h-1.5v1.5a.75.75 0 0 1-1.5 0v-1.5h-1.5a.75.75 0 0 1 0-1.5h1.5v-1.5A.75.75 0 0 1 10 8Z" clipRule="evenodd" />
+          <path
+            fillRule="evenodd"
+            d="M3.75 3A1.75 1.75 0 0 0 2 4.75v10.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0 0 18 15.25v-8.5A1.75 1.75 0 0 0 16.25 5h-4.836a.25.25 0 0 1-.177-.073L9.823 3.513A1.75 1.75 0 0 0 8.586 3H3.75ZM10 8a.75.75 0 0 1 .75.75v1.5h1.5a.75.75 0 0 1 0 1.5h-1.5v1.5a.75.75 0 0 1-1.5 0v-1.5h-1.5a.75.75 0 0 1 0-1.5h1.5v-1.5A.75.75 0 0 1 10 8Z"
+            clipRule="evenodd"
+          />
         </svg>
       </motion.button>
     </Tooltip>
@@ -161,7 +172,11 @@ function SettingsButton() {
           fill="currentColor"
           className="h-4 w-4"
         >
-          <path fillRule="evenodd" d="M8.34 1.804A1 1 0 0 1 9.32 1h1.36a1 1 0 0 1 .98.804l.295 1.473c.497.144.971.342 1.416.587l1.25-.834a1 1 0 0 1 1.262.125l.962.962a1 1 0 0 1 .125 1.262l-.834 1.25c.245.445.443.919.587 1.416l1.473.295a1 1 0 0 1 .804.98v1.36a1 1 0 0 1-.804.98l-1.473.295a6.95 6.95 0 0 1-.587 1.416l.834 1.25a1 1 0 0 1-.125 1.262l-.962.962a1 1 0 0 1-1.262.125l-1.25-.834a6.953 6.953 0 0 1-1.416.587l-.295 1.473a1 1 0 0 1-.98.804H9.32a1 1 0 0 1-.98-.804l-.295-1.473a6.957 6.957 0 0 1-1.416-.587l-1.25.834a1 1 0 0 1-1.262-.125l-.962-.962a1 1 0 0 1-.125-1.262l.834-1.25a6.957 6.957 0 0 1-.587-1.416l-1.473-.295A1 1 0 0 1 1 10.68V9.32a1 1 0 0 1 .804-.98l1.473-.295c.144-.497.342-.971.587-1.416l-.834-1.25a1 1 0 0 1 .125-1.262l.962-.962A1 1 0 0 1 5.38 3.03l1.25.834a6.957 6.957 0 0 1 1.416-.587l.295-1.473ZM13 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" clipRule="evenodd" />
+          <path
+            fillRule="evenodd"
+            d="M8.34 1.804A1 1 0 0 1 9.32 1h1.36a1 1 0 0 1 .98.804l.295 1.473c.497.144.971.342 1.416.587l1.25-.834a1 1 0 0 1 1.262.125l.962.962a1 1 0 0 1 .125 1.262l-.834 1.25c.245.445.443.919.587 1.416l1.473.295a1 1 0 0 1 .804.98v1.36a1 1 0 0 1-.804.98l-1.473.295a6.95 6.95 0 0 1-.587 1.416l.834 1.25a1 1 0 0 1-.125 1.262l-.962.962a1 1 0 0 1-1.262.125l-1.25-.834a6.953 6.953 0 0 1-1.416.587l-.295 1.473a1 1 0 0 1-.98.804H9.32a1 1 0 0 1-.98-.804l-.295-1.473a6.957 6.957 0 0 1-1.416-.587l-1.25.834a1 1 0 0 1-1.262-.125l-.962-.962a1 1 0 0 1-.125-1.262l.834-1.25a6.957 6.957 0 0 1-.587-1.416l-1.473-.295A1 1 0 0 1 1 10.68V9.32a1 1 0 0 1 .804-.98l1.473-.295c.144-.497.342-.971.587-1.416l-.834-1.25a1 1 0 0 1 .125-1.262l.962-.962A1 1 0 0 1 5.38 3.03l1.25.834a6.957 6.957 0 0 1 1.416-.587l.295-1.473ZM13 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+            clipRule="evenodd"
+          />
         </svg>
       </motion.button>
     </Tooltip>
@@ -192,7 +207,11 @@ function ChecklistButton() {
           fill="currentColor"
           className={`h-4 w-4 ${allComplete ? 'text-success' : ''}`}
         >
-          <path fillRule="evenodd" d="M6 4.75A.75.75 0 0 1 6.75 4h10.5a.75.75 0 0 1 0 1.5H6.75A.75.75 0 0 1 6 4.75ZM6 10a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H6.75A.75.75 0 0 1 6 10Zm0 5.25a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H6.75a.75.75 0 0 1-.75-.75ZM1.99 4.75a1 1 0 0 1 1-1H3a1 1 0 0 1 1 1v.01a1 1 0 0 1-1 1h-.01a1 1 0 0 1-1-1v-.01ZM1.99 15.25a1 1 0 0 1 1-1H3a1 1 0 0 1 1 1v.01a1 1 0 0 1-1 1h-.01a1 1 0 0 1-1-1v-.01ZM1.99 10a1 1 0 0 1 1-1H3a1 1 0 0 1 1 1v.01a1 1 0 0 1-1 1h-.01a1 1 0 0 1-1-1V10Z" clipRule="evenodd" />
+          <path
+            fillRule="evenodd"
+            d="M6 4.75A.75.75 0 0 1 6.75 4h10.5a.75.75 0 0 1 0 1.5H6.75A.75.75 0 0 1 6 4.75ZM6 10a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H6.75A.75.75 0 0 1 6 10Zm0 5.25a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H6.75a.75.75 0 0 1-.75-.75ZM1.99 4.75a1 1 0 0 1 1-1H3a1 1 0 0 1 1 1v.01a1 1 0 0 1-1 1h-.01a1 1 0 0 1-1-1v-.01ZM1.99 15.25a1 1 0 0 1 1-1H3a1 1 0 0 1 1 1v.01a1 1 0 0 1-1 1h-.01a1 1 0 0 1-1-1v-.01ZM1.99 10a1 1 0 0 1 1-1H3a1 1 0 0 1 1 1v.01a1 1 0 0 1-1 1h-.01a1 1 0 0 1-1-1V10Z"
+            clipRule="evenodd"
+          />
         </svg>
         {hasItems && !allComplete && (
           <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[8px] font-bold text-bg">
@@ -208,7 +227,6 @@ function ChecklistButton() {
     </Tooltip>
   )
 }
-
 
 // ─── TabBar ─────────────────────────────────────────────────────────────────
 
@@ -233,13 +251,86 @@ export function TabBar() {
     }),
   )
 
-  useTabBarNavigation({
-    sortedWorkspaces,
-    activeWorkspaceId,
-    setActive,
-    remove,
-    openAddDialog: () => { setShowAddDialog(true) },
-  })
+  // ─── Tab Navigation ─────────────────────────────────────────────────────────
+
+  const selectByIndex = useCallback(
+    (index: number) => {
+      const workspace = sortedWorkspaces[index]
+      if (workspace) {
+        setActive(workspace.id)
+      }
+    },
+    [sortedWorkspaces, setActive],
+  )
+
+  const selectPrev = useCallback(() => {
+    const currentIndex = sortedWorkspaces.findIndex((w) => w.id === activeWorkspaceId)
+    const newIndex = currentIndex > 0 ? currentIndex - 1 : sortedWorkspaces.length - 1
+    selectByIndex(newIndex)
+  }, [sortedWorkspaces, activeWorkspaceId, selectByIndex])
+
+  const selectNext = useCallback(() => {
+    const currentIndex = sortedWorkspaces.findIndex((w) => w.id === activeWorkspaceId)
+    const newIndex = currentIndex < sortedWorkspaces.length - 1 ? currentIndex + 1 : 0
+    selectByIndex(newIndex)
+  }, [sortedWorkspaces, activeWorkspaceId, selectByIndex])
+
+  const closeCurrentTab = useCallback(() => {
+    if (activeWorkspaceId && sortedWorkspaces.length > 1) {
+      void remove(activeWorkspaceId)
+    }
+  }, [activeWorkspaceId, sortedWorkspaces.length, remove])
+
+  // ─── Swipe Navigation ───────────────────────────────────────────────────────
+
+  useSwipeNavigation(selectPrev, selectNext, sortedWorkspaces.length > 1)
+
+  // ─── Keyboard Shortcuts ─────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isMod = e.metaKey || e.ctrlKey
+
+      if (isMod && !e.shiftKey) {
+        // Cmd+1-9: Switch to tab by index
+        if (e.key >= '1' && e.key <= '9') {
+          e.preventDefault()
+          const index = parseInt(e.key, 10) - 1
+          selectByIndex(index)
+          return
+        }
+
+        // Cmd+T: New tab
+        if (e.key === 't') {
+          e.preventDefault()
+          setShowAddDialog(true)
+          return
+        }
+
+        // Cmd+W: Close current tab
+        if (e.key === 'w') {
+          e.preventDefault()
+          closeCurrentTab()
+          return
+        }
+      }
+
+      // Ctrl+Tab / Ctrl+Shift+Tab: Next/Prev tab
+      if (e.ctrlKey && e.key === 'Tab') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          selectPrev()
+        } else {
+          selectNext()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [selectByIndex, selectPrev, selectNext, closeCurrentTab])
 
   // ─── Drag Handlers ──────────────────────────────────────────────────────────
 
@@ -259,9 +350,7 @@ export function TabBar() {
     void reorder(newOrder)
   }
 
-  const draggingWorkspace = draggingId
-    ? sortedWorkspaces.find((w) => w.id === draggingId)
-    : null
+  const draggingWorkspace = draggingId ? sortedWorkspaces.find((w) => w.id === draggingId) : null
 
   // Only show tabs if there are workspaces
   if (sortedWorkspaces.length === 0) {
@@ -290,8 +379,11 @@ export function TabBar() {
                     key={workspace.id}
                     workspace={workspace}
                     isActive={workspace.id === activeWorkspaceId}
+                    activeTaskCount={workspace.activeTaskCount}
                     notificationCount={getUnviewedCount(workspace.id)}
-                    onSelect={() => { setActive(workspace.id); }}
+                    onSelect={() => {
+                      setActive(workspace.id)
+                    }}
                   />
                 ))}
               </AnimatePresence>
@@ -305,7 +397,11 @@ export function TabBar() {
 
         {/* Right: add workspace + checklist + settings */}
         <div className="ml-auto flex items-center gap-1">
-          <AddTabButton onClick={() => { setShowAddDialog(true); }} />
+          <AddTabButton
+            onClick={() => {
+              setShowAddDialog(true)
+            }}
+          />
           <ChecklistButton />
           <SettingsButton />
         </div>
@@ -313,8 +409,111 @@ export function TabBar() {
 
       {/* Add workspace dialog - simple placeholder for now */}
       {showAddDialog && (
-        <AddWorkspaceDialog onClose={() => { setShowAddDialog(false); }} />
+        <AddWorkspaceDialog
+          onClose={() => {
+            setShowAddDialog(false)
+          }}
+        />
       )}
     </>
+  )
+}
+
+// ─── AddWorkspaceDialog ─────────────────────────────────────────────────────
+
+function AddWorkspaceDialog({ onClose }: { onClose: () => void }) {
+  const add = useWorkspaceStore((s) => s.add)
+  const [name, setName] = useState('')
+  const [repoPath, setRepoPath] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!name.trim() || !repoPath.trim() || isSubmitting) return
+
+    setIsSubmitting(true)
+    try {
+      await add(name.trim(), repoPath.trim())
+      onClose()
+    } catch (err) {
+      console.error('Failed to add workspace:', err)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        onClick={(e) => {
+          e.stopPropagation()
+        }}
+        className="w-full max-w-md rounded-xl border border-border-default bg-surface p-6 shadow-xl"
+      >
+        <h2 className="mb-4 text-lg font-semibold text-text-primary">Add Workspace</h2>
+
+        <form
+          onSubmit={(e) => {
+            void handleSubmit(e)
+          }}
+          className="space-y-4"
+        >
+          <div>
+            <label className="mb-1 block text-sm text-text-secondary">Name</label>
+            <input
+              ref={inputRef}
+              type="text"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value)
+              }}
+              placeholder="My Project"
+              className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm text-text-secondary">Repository Path</label>
+            <input
+              type="text"
+              value={repoPath}
+              onChange={(e) => {
+                setRepoPath(e.target.value)
+              }}
+              placeholder="/path/to/repo"
+              className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!name.trim() || !repoPath.trim() || isSubmitting}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg disabled:opacity-50"
+            >
+              {isSubmitting ? 'Adding...' : 'Add'}
+            </button>
+          </div>
+        </form>
+      </motion.div>
+    </div>
   )
 }
