@@ -39,6 +39,10 @@ export const useTaskStore = create<TaskState>()(
         const prev = get().tasks
         const task = prev.find((t) => t.id === id)
         set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }))
+        // Clear stale UI references to deleted task
+        const ui = useUIStore.getState()
+        if (ui.expandedTaskId === id) ui.collapseTask()
+        if (ui.activeTaskId === id) ui.closeChat()
         try {
           await ipc.deleteTask(id)
           if (task) {

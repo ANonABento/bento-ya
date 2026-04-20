@@ -146,14 +146,20 @@ function ScriptCard({
       }
     }
     document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+    }
   }, [showAttach])
 
   // Clear status message after a delay
   useEffect(() => {
     if (!attachStatus) return
-    const timer = setTimeout(() => setAttachStatus(null), 2500)
-    return () => clearTimeout(timer)
+    const timer = setTimeout(() => {
+      setAttachStatus(null)
+    }, 2500)
+    return () => {
+      clearTimeout(timer)
+    }
   }, [attachStatus])
 
   const handleAttach = async (columnId: string, columnName: string) => {

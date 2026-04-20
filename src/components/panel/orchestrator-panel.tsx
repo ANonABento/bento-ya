@@ -5,21 +5,25 @@
  * - useChatSession for chat logic (send, cancel, queue, streaming)
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { listen } from '@tauri-apps/api/event'
 import { useUIStore } from '@/stores/ui-store'
+import { useResizablePanel } from '@/hooks/use-resizable-panel'
+import { ResizeHandle } from '@/components/shared/resize-handle'
 import { useTaskStore } from '@/stores/task-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useOrchestratorSessions } from '@/hooks/use-orchestrator-sessions'
 import { useChatSession } from '@/hooks/chat-session'
-import { getChatHistory, type ChatMessage } from '@/lib/ipc'
 import { buildPromptWithAttachments } from '@/types'
 import { useCliPath } from '@/hooks/use-cli-path'
+import { useOrchestratorPanelLayout } from './use-orchestrator-panel-layout'
+import { useOrchestratorTaskRefresh } from './use-orchestrator-task-refresh'
 import { ChatHistory } from './chat-history'
 import { PanelSidebar } from './panel-sidebar'
+import { PipelineDashboard } from './pipeline-dashboard'
 import { ChatErrorBoundary } from './chat-error-boundary'
-import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls } from './shared'
+import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapMessages, mapToolCalls } from './shared'
 
 type OrchestratorPanelProps = {
   workspaceId: string
@@ -28,18 +32,19 @@ type OrchestratorPanelProps = {
 const COLLAPSED_HEIGHT = 40
 
 export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
-  // UI stores
-  const panelHeight = useUIStore((s) => s.panelHeight)
-  const panelWidth = useUIStore((s) => s.panelWidth)
-  const panelDock = useUIStore((s) => s.panelDock)
-  const isPanelCollapsed = useUIStore((s) => s.isPanelCollapsed)
-  const setPanelHeight = useUIStore((s) => s.setPanelHeight)
-  const setPanelWidth = useUIStore((s) => s.setPanelWidth)
-  const setPanelDock = useUIStore((s) => s.setPanelDock)
-  const togglePanel = useUIStore((s) => s.togglePanel)
   const loadTasks = useTaskStore((s) => s.load)
-
-  const isRightDock = panelDock === 'right'
+  const {
+    panelRef,
+    isPanelCollapsed,
+    isRightDock,
+    isDragging,
+    displayHeight,
+    displayWidth,
+    setPanelDock,
+    togglePanel,
+    handleResizeMouseDown,
+    handleHeaderClick,
+  } = useOrchestratorPanelLayout()
 
   // Get settings for LLM connection
   const settings = useSettingsStore((s) => s.global)
@@ -82,9 +87,18 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     },
   })
 
+  // Shared resize hook
+  const { handleMouseDown: handleResizeMouseDown, isDragging } = useResizablePanel({
+    direction: isRightDock ? 'horizontal' : 'vertical',
+    size: isRightDock ? panelWidth : panelHeight,
+    onResize: isRightDock ? setPanelWidth : setPanelHeight,
+    disabled: isPanelCollapsed,
+  })
+
   // Local UI state
-  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | null>(null)
+  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | 'dashboard' | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | null>(null)
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -96,8 +110,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   }, [chat.error])
 
   const panelRef = useRef<HTMLDivElement>(null)
-  const dragStartY = useRef(0)
-  const dragStartHeight = useRef(0)
 
   // Load messages when active session changes
   useEffect(() => {
@@ -179,58 +191,11 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     return () => { window.removeEventListener('keydown', handleKeyDown) }
   }, [togglePanel])
 
-  // Resize handle drag handler
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
-    if (isPanelCollapsed) return
-    e.preventDefault()
-    e.stopPropagation()
-    dragStartY.current = isRightDock ? e.clientX : e.clientY
-    dragStartHeight.current = isRightDock ? panelWidth : panelHeight
-    setIsDragging(true)
-  }, [panelHeight, panelWidth, isPanelCollapsed, isRightDock])
-
   // Header click handler (toggle panel)
   const handleHeaderClick = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('button')) return
     togglePanel()
   }, [togglePanel])
-
-  useEffect(() => {
-    if (!isDragging) return
-
-    document.body.style.cursor = isRightDock ? 'ew-resize' : 'ns-resize'
-    document.body.style.userSelect = 'none'
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isRightDock) {
-        // Handle at left edge of right panel: drag LEFT → panel grows, drag RIGHT → panel shrinks
-        const deltaX = dragStartY.current - e.clientX
-        const newWidth = dragStartHeight.current + deltaX
-        setPanelWidth(newWidth)
-      } else {
-        // Handle at top edge of bottom panel: drag UP → panel grows, drag DOWN → panel shrinks
-        const deltaY = dragStartY.current - e.clientY
-        const newHeight = dragStartHeight.current + deltaY
-        setPanelHeight(newHeight)
-      }
-    }
-
-    const handleMouseUp = () => {
-      setIsDragging(false)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-  }, [isDragging, setPanelHeight, setPanelWidth, isRightDock])
 
   // Re-clamp panel height on mount and window resize (prevent board from being squished)
   useEffect(() => {
@@ -270,17 +235,16 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   }, [chat])
 
   const handleNewChat = useCallback(async () => {
-    if (localMessages.length === 0) return
+    if (chat.messages.length === 0) return
     try {
       if (activeSession) {
         await resetSession()
       }
       await createSession()
-      setLocalMessages([])
     } catch (err) {
       console.error('[OrchestratorPanel] Failed to create new chat:', err)
     }
-  }, [localMessages.length, activeSession, resetSession, createSession])
+  }, [chat.messages.length, activeSession, resetSession, createSession])
 
   const handleSelectSession = useCallback((session: typeof activeSession) => {
     if (!session) return
@@ -295,10 +259,11 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     }
   }, [deleteSession])
 
-  const displayHeight = isPanelCollapsed ? COLLAPSED_HEIGHT : (isRightDock ? undefined : panelHeight)
-  const displayWidth = isPanelCollapsed ? COLLAPSED_HEIGHT : (isRightDock ? panelWidth : undefined)
-  const isLoading = sessionsLoading || messagesLoading
+  const isLoading = sessionsLoading || chat.isLoading
   const isProcessing = chat.streaming.isStreaming
+  const historyMessages = activeSession
+    ? mapMessages(chat.messages, workspaceId, activeSession.id)
+    : []
 
   const toolCalls = mapToolCalls(chat.streaming.toolCalls, workspaceId)
 
@@ -306,23 +271,11 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     <div className={`relative ${isRightDock ? 'flex h-full' : ''}`}>
       {/* Resize handle */}
       {!isPanelCollapsed && (
-        isRightDock ? (
-          <div
-            onMouseDown={handleResizeMouseDown}
-            className="absolute -left-1.5 top-0 bottom-0 w-3 z-50 group"
-            style={{ cursor: 'col-resize' }}
-          >
-            <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-transparent group-hover:bg-accent/60 transition-colors -translate-x-1/2" />
-          </div>
-        ) : (
-          <div
-            onMouseDown={handleResizeMouseDown}
-            className="absolute -top-1.5 left-0 right-0 h-3 z-50 group"
-            style={{ cursor: 'row-resize' }}
-          >
-            <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-transparent group-hover:bg-accent/60 transition-colors -translate-y-1/2" />
-          </div>
-        )
+        <ResizeHandle
+          direction={isRightDock ? 'horizontal' : 'vertical'}
+          position={isRightDock ? 'left' : 'top'}
+          onMouseDown={handleResizeMouseDown}
+        />
       )}
 
       <motion.div
@@ -378,6 +331,20 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   <path fillRule="evenodd" d="M2 9.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 .75.75v5a1.75 1.75 0 0 1-1.75 1.75H3.75A1.75 1.75 0 0 1 2 14.25v-5Z" clipRule="evenodd" />
                 </svg>
               </button>
+              <button
+                type="button"
+                onClick={() => { setSidebarMode(sidebarMode === 'dashboard' ? null : 'dashboard') }}
+                className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                  sidebarMode === 'dashboard'
+                    ? 'bg-surface-hover text-text-primary'
+                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                }`}
+                title="Pipeline dashboard"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM10 7a1.5 1.5 0 0 0-1.5 1.5v8a1.5 1.5 0 0 0 3 0v-8A1.5 1.5 0 0 0 10 7ZM4.5 12A1.5 1.5 0 0 0 3 13.5v3a1.5 1.5 0 0 0 3 0v-3A1.5 1.5 0 0 0 4.5 12Z" />
+                </svg>
+              </button>
             </>
           )}
         </div>
@@ -396,7 +363,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             <button
               type="button"
               onClick={() => { void handleNewChat() }}
-              disabled={localMessages.length === 0}
+              disabled={historyMessages.length === 0}
               className="flex h-6 cursor-pointer items-center gap-1 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
@@ -472,16 +439,20 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             className="flex flex-1 overflow-hidden"
           >
             {/* Sidebar */}
-            <PanelSidebar
-              mode={sidebarMode}
-              sessions={sessions}
-              activeSessionId={activeSession?.id}
-              workspaceId={workspaceId}
-              isCurrentChatEmpty={localMessages.length === 0}
-              onNewChat={() => { void handleNewChat() }}
-              onSelectSession={(session) => { handleSelectSession(session) }}
-              onDeleteSession={(sessionId) => { void handleDeleteSession(sessionId) }}
-            />
+            {sidebarMode === 'dashboard' ? (
+              <PipelineDashboard workspaceId={workspaceId} />
+            ) : (
+              <PanelSidebar
+                mode={sidebarMode}
+                sessions={sessions}
+                activeSessionId={activeSession?.id}
+                workspaceId={workspaceId}
+                isCurrentChatEmpty={localMessages.length === 0}
+                onNewChat={() => { void handleNewChat() }}
+                onSelectSession={(session) => { handleSelectSession(session) }}
+                onDeleteSession={(sessionId) => { void handleDeleteSession(sessionId) }}
+              />
+            )}
 
             {/* Main chat area */}
             <ChatErrorBoundary panelName="Orchestrator Chat">
@@ -504,7 +475,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   />
                 )}
                 <ChatHistory
-                  messages={localMessages}
+                  messages={historyMessages}
                   isLoading={isLoading}
                   streamingContent={chat.streaming.content}
                   processingStartTime={chat.streaming.startTime}

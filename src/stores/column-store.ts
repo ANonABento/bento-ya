@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
-import type { Column } from '@/types'
+import type { Column, ColumnTriggers } from '@/types'
 import * as ipc from '@/lib/ipc'
 import { useWorkspaceStore } from './workspace-store'
 
@@ -23,11 +23,19 @@ type ColumnState = {
   loaded: boolean
 
   load: (workspaceId: string) => Promise<void>
-  add: (workspaceId: string, name: string) => Promise<void>
+  add: (workspaceId: string, name: string) => Promise<Column>
   remove: (id: string) => Promise<void>
   reorder: (workspaceId: string, ids: string[]) => Promise<void>
   updateColumn: (id: string, updates: Partial<Column>) => void
   updateColumnAsync: (id: string, updates: ColumnUpdates) => Promise<void>
+}
+
+function parseTriggersSafely(triggers: string): ColumnTriggers | undefined {
+  try {
+    return JSON.parse(triggers) as ColumnTriggers
+  } catch {
+    return undefined
+  }
 }
 
 export const useColumnStore = create<ColumnState>()(
@@ -88,6 +96,9 @@ export const useColumnStore = create<ColumnState>()(
 
       updateColumnAsync: async (id, updates) => {
         const prev = get().columns
+        const parsedTriggers = updates.triggers !== undefined
+          ? parseTriggersSafely(updates.triggers)
+          : undefined
         // Optimistically update
         set((s) => ({
           columns: s.columns.map((c) =>

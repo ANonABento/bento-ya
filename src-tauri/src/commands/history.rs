@@ -86,6 +86,15 @@ pub struct RestoreResult {
     pub session_updated: bool,
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RestoreEventPayload {
+    snapshot_id: String,
+    session_id: String,
+    task_id: Option<String>,
+    session_updated: bool,
+}
+
 /// Restore a snapshot - creates a backup first, restores scrollback to session, returns result
 #[tauri::command(rename_all = "camelCase")]
 pub fn restore_snapshot(
@@ -157,12 +166,12 @@ pub fn restore_snapshot(
     };
 
     // Emit restore complete event
-    let _ = app.emit("history:restored", serde_json::json!({
-        "snapshotId": snapshot.id,
-        "sessionId": snapshot.session_id,
-        "taskId": snapshot.task_id,
-        "sessionUpdated": session_updated,
-    }));
+    let _ = app.emit("history:restored", RestoreEventPayload {
+        snapshot_id: snapshot.id.clone(),
+        session_id: snapshot.session_id.clone(),
+        task_id: snapshot.task_id.clone(),
+        session_updated,
+    });
 
     Ok(RestoreResult {
         snapshot,

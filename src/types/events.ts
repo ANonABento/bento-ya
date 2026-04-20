@@ -16,7 +16,7 @@ export const EventChannels = {
 
 export interface PtyOutputPayload {
   task_id: string
-  data: number[]
+  data: string  // base64-encoded raw PTY bytes
 }
 
 export interface PtyExitPayload {

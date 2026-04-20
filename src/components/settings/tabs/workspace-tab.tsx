@@ -1,9 +1,25 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
-import { SettingSection } from '@/components/shared/setting-components'
+import { SettingSection, SettingRow, SettingSlider } from '@/components/shared/setting-components'
 import { PathPicker } from '@/components/shared/path-picker'
+import { parseWorkspaceConfig } from '@/types'
+import type { WorkspaceConfig } from '@/types'
+import * as ipc from '@/lib/ipc'
+
+const MODEL_OPTIONS = [
+  { value: '', label: 'None (use trigger default)' },
+  { value: 'opus', label: 'Opus' },
+  { value: 'sonnet', label: 'Sonnet' },
+  { value: 'haiku', label: 'Haiku' },
+] as const
+
+const CLI_OPTIONS = [
+  { value: '', label: 'None (use trigger default)' },
+  { value: 'claude', label: 'Claude' },
+  { value: 'codex', label: 'Codex' },
+] as const
 
 export function WorkspaceTab() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
@@ -16,10 +32,30 @@ export function WorkspaceTab() {
 
   const workspace = workspaces.find((w) => w.id === activeWorkspaceId)
 
+  const config = useMemo<WorkspaceConfig>(
+    () => parseWorkspaceConfig(workspace?.config ?? '{}'),
+    [workspace?.config],
+  )
+
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSwitching, setIsSwitching] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const updateConfig = useCallback(async (patch: Partial<WorkspaceConfig>) => {
+    if (!workspace) return
+    const merged = { ...config, ...patch }
+    // Remove keys set to empty/default values
+    if (!merged.defaultModel) delete merged.defaultModel
+    if (!merged.defaultAgentCli) delete merged.defaultAgentCli
+    try {
+      const updated = await ipc.updateWorkspaceConfig(workspace.id, JSON.stringify(merged))
+      updateWorkspace(workspace.id, { config: updated.config })
+      setMessage({ type: 'success', text: 'Workspace settings updated' })
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to update workspace settings' })
+    }
+  }, [workspace, config, updateWorkspace])
 
   const handleRepoPathChange = useCallback(async (path: string) => {
     if (!workspace) return
@@ -124,6 +160,64 @@ export function WorkspaceTab() {
           </div>
         )}
       </SettingSection>
+
+      {/* Pipeline Defaults */}
+      {workspace && (
+        <SettingSection title="Pipeline Defaults" description="Fallback settings when column triggers don't specify values">
+          <div className="space-y-4">
+            <SettingRow label="Default Model" description="AI model used when trigger and task don't specify one">
+              <select
+                value={config.defaultModel ?? ''}
+                onChange={(e) => { void updateConfig({ defaultModel: e.target.value }) }}
+                className="rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+              >
+                {MODEL_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </SettingRow>
+
+            <SettingRow label="Default Agent CLI" description="CLI tool used when trigger doesn't specify one">
+              <select
+                value={config.defaultAgentCli ?? ''}
+                onChange={(e) => { void updateConfig({ defaultAgentCli: e.target.value }) }}
+                className="rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+              >
+                {CLI_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </SettingRow>
+
+            <SettingRow label="Max Concurrent Agents" description="Maximum number of agents running simultaneously">
+              <SettingSlider
+                value={config.maxConcurrentAgents ?? 5}
+                onChange={(v) => { void updateConfig({ maxConcurrentAgents: v }) }}
+                min={1}
+                max={10}
+              />
+            </SettingRow>
+
+            <SettingRow label="Auto-Advance" description="Automatically move tasks to next column when exit criteria are met">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={config.autoAdvance ?? true}
+                onClick={() => { void updateConfig({ autoAdvance: !(config.autoAdvance ?? true) }) }}
+                className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-accent/20 ${
+                  (config.autoAdvance ?? true) ? 'bg-accent' : 'bg-border-default'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                    (config.autoAdvance ?? true) ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </SettingRow>
+          </div>
+        </SettingSection>
+      )}
 
       {/* Switch Workspace */}
       {workspaces.length > 1 && (

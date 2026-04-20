@@ -21,7 +21,7 @@ import { useDepDrag } from '@/hooks/use-dep-drag'
 import { TaskSidePanel } from '@/components/layout/split-view'
 import { OrchestratorPanel } from '@/components/panel/orchestrator-panel'
 import { useDnd } from '@/hooks/use-dnd'
-import { useSplitView } from '@/hooks/use-split-view'
+import { useChatPanel } from '@/hooks/use-chat-panel'
 import { useUIStore } from '@/stores/ui-store'
 import { CardPositionContext, useCardPositionProvider } from '@/hooks/use-card-positions'
 import { DepDragContext } from '@/hooks/use-dep-drag-context'
@@ -36,17 +36,28 @@ export function Board() {
   const tasks = useTaskStore((s) => s.tasks)
   const loadScripts = useScriptStore((s) => s.load)
 
+  const [newColumnId, setNewColumnId] = useState<string | null>(null)
+
   const handleAddColumn = useCallback(() => {
     if (!activeWorkspaceId) return
     const name = `Column ${String(columns.length + 1)}`
-    void addColumn(activeWorkspaceId, name)
+    void addColumn(activeWorkspaceId, name).then((col) => {
+      setNewColumnId(col.id)
+    })
   }, [activeWorkspaceId, columns.length, addColumn])
 
   const { registerCard, positions } = useCardPositionProvider()
   const { dragState, handlePointerDown: onDepDragStart } = useDepDrag(tasks, positions)
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null)
 
-  const { isSplitView, activeTaskId, closeSplitView } = useSplitView()
+  const { isChatOpen, activeTaskId, closeChat } = useChatPanel()
+  const collapseTask = useUIStore((s) => s.collapseTask)
+
+  // Unified close: collapse card + close chat (used by back button, Escape, re-click)
+  const handleCloseAll = useCallback(() => {
+    closeChat()
+    collapseTask()
+  }, [closeChat, collapseTask])
 
   const sortedColumns = columns
     .filter((c) => c.visible)
@@ -91,11 +102,11 @@ export function Board() {
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
-        onDragStart={(e) => { setHoveredTaskId(null); onDragStart(e) }}
+        onDragStart={(e) => { setHoveredTaskId(null); collapseTask(); onDragStart(e) }}
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
       >
-        <div className="flex h-full">
+        <div className="flex h-full" data-board-container>
           {/* Board + orchestrator panel (left side, shrinks when task panel open) */}
           <div className="flex flex-1 flex-col overflow-hidden">
             <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
@@ -111,7 +122,7 @@ export function Board() {
               </SortableContext>
 
               {/* Add column button */}
-              {!isSplitView && (
+              {!isChatOpen && (
                 <button
                   onClick={handleAddColumn}
                   className="group flex h-full w-[280px] min-w-[200px] shrink-0 flex-col items-center justify-center gap-2 border-r border-dashed border-border-default bg-surface/10 text-text-secondary/40 transition-all hover:border-accent/50 hover:bg-accent/10 hover:text-accent"
@@ -141,7 +152,7 @@ export function Board() {
           )}
 
           {/* Task side panel (slides in from right, board stays visible) */}
-          <TaskSidePanel taskId={activeTaskId} onClose={closeSplitView} />
+          <TaskSidePanel taskId={activeTaskId} onClose={handleCloseAll} />
         </div>
         <DragOverlay dropAnimation={null}>
           {overlayContent}

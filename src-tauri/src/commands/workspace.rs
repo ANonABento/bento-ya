@@ -2,7 +2,26 @@ use crate::db::{self, AppState, Column, Workspace};
 use crate::error::AppError;
 use tauri::State;
 
-const DEFAULT_COLUMNS: &[&str] = &["Backlog", "Working", "Review", "Done"];
+struct DefaultColumn {
+    name: &'static str,
+    icon: &'static str,
+    color: Option<&'static str>,
+}
+
+// Semantic column colors — keep in sync with COLUMN_COLORS in column-config-constants.ts
+mod column_colors {
+    pub const GRAY: &str = "#6B7280";
+    pub const BLUE: &str = "#3B82F6";
+    pub const AMBER: &str = "#F59E0B";
+    pub const GREEN: &str = "#4ADE80";
+}
+
+const DEFAULT_COLUMNS: &[DefaultColumn] = &[
+    DefaultColumn { name: "Backlog", icon: "inbox", color: Some(column_colors::GRAY) },
+    DefaultColumn { name: "Working", icon: "play", color: Some(column_colors::BLUE) },
+    DefaultColumn { name: "Review", icon: "eye", color: Some(column_colors::AMBER) },
+    DefaultColumn { name: "Done", icon: "check", color: Some(column_colors::GREEN) },
+];
 
 #[tauri::command]
 pub fn create_workspace(
@@ -31,9 +50,9 @@ pub fn create_workspace(
 
     let ws = db::insert_workspace(&conn, name.trim(), repo_path.trim())?;
 
-    // Auto-create default columns
-    for (i, col_name) in DEFAULT_COLUMNS.iter().enumerate() {
-        db::insert_column(&conn, &ws.id, col_name, i as i64)?;
+    // Auto-create default columns with icons and colors
+    for (i, col) in DEFAULT_COLUMNS.iter().enumerate() {
+        db::insert_column_with_style(&conn, &ws.id, col.name, i as i64, col.icon, col.color)?;
     }
 
     tx.commit()
@@ -147,18 +166,20 @@ pub fn clone_workspace(
     let mut column_id_map = std::collections::HashMap::new();
 
     for col in &columns {
-        let new_col = db::insert_column(&conn, &new_ws.id, &col.name, col.position)?;
-        // Update the column with all properties
-        db::update_column(
-            &conn,
-            &new_col.id,
-            Some(&col.name),
-            Some(&col.icon),
-            Some(col.position),
-            Some(col.color.as_deref()),
-            Some(col.visible),
-            col.triggers.as_deref(),
-        )?;
+        let new_col = db::insert_column_with_style(&conn, &new_ws.id, &col.name, col.position, &col.icon, col.color.as_deref())?;
+        // Apply remaining properties (visibility, triggers)
+        if !col.visible || col.triggers.is_some() {
+            db::update_column(
+                &conn,
+                &new_col.id,
+                None,
+                None,
+                None,
+                None,
+                Some(col.visible),
+                col.triggers.as_deref(),
+            )?;
+        }
         column_id_map.insert(col.id.clone(), new_col.id);
     }
 
@@ -228,11 +249,11 @@ pub fn seed_demo_data(state: State<AppState>, repo_path: String) -> Result<Works
     // Create demo workspace
     let ws = db::insert_workspace(&conn, "Demo Workspace", &repo_path)?;
 
-    // Create default columns
+    // Create default columns with icons and colors
     let mut columns = Vec::new();
-    for (i, col_name) in DEFAULT_COLUMNS.iter().enumerate() {
-        let col = db::insert_column(&conn, &ws.id, col_name, i as i64)?;
-        columns.push(col);
+    for (i, col) in DEFAULT_COLUMNS.iter().enumerate() {
+        let c = db::insert_column_with_style(&conn, &ws.id, col.name, i as i64, col.icon, col.color)?;
+        columns.push(c);
     }
 
     // Sample tasks for Backlog

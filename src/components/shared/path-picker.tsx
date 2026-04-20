@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
+import { useNativeInput } from '@/hooks/use-native-input'
 
 type PathPickerProps = {
   value: string
@@ -9,6 +10,8 @@ type PathPickerProps = {
 }
 
 export function PathPicker({ value, onChange, readOnly, placeholder = '/path/to/repo' }: PathPickerProps) {
+  const { ref, handleChange } = useNativeInput(onChange)
+
   const handleBrowse = useCallback(async () => {
     try {
       const selected = await open({ directory: true, multiple: false })
@@ -23,11 +26,13 @@ export function PathPicker({ value, onChange, readOnly, placeholder = '/path/to/
   return (
     <div className="flex gap-2">
       <input
+        ref={readOnly ? undefined : ref}
         type="text"
         readOnly={readOnly}
         value={value}
-        onChange={readOnly ? undefined : (e) => { onChange(e.target.value) }}
+        onChange={readOnly ? undefined : handleChange}
         placeholder={placeholder}
+        data-testid="path-picker"
         className="flex-1 rounded-lg border border-border-default bg-bg px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
       />
       <button

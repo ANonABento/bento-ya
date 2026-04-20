@@ -1,0 +1,19 @@
+{
+  "on_entry": {
+    "type": "trigger_task",
+    "target_task": "task-123",
+    "action": "unblock",
+    "inject_prompt": "Resume after {task.title}"
+  },
+  "on_exit": {
+    "type": "spawn_cli",
+    "cli": "claude",
+    "command": "/start-task",
+    "use_queue": true
+  },
+  "exit_criteria": {
+    "type": "agent_complete",
+    "auto_advance": true,
+    "max_retries": 2
+  }
+}

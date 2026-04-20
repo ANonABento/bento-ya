@@ -140,36 +140,6 @@ pub fn get_orchestrator_session(
     Ok(db::get_or_create_orchestrator_session(&conn, &workspace_id)?)
 }
 
-/// Send a message to the orchestrator (legacy - uses active session)
-#[tauri::command]
-pub fn send_orchestrator_message(
-    app: AppHandle,
-    state: State<AppState>,
-    workspace_id: String,
-    message: String,
-) -> Result<ChatMessage, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-    // Get or create active chat session
-    let chat_session = db::get_or_create_active_session(&conn, &workspace_id)?;
-
-    // Store user message
-    let user_msg = db::insert_chat_message(&conn, &workspace_id, &chat_session.id, "user", &message)?;
-
-    // Update orchestrator session status to processing
-    let orch_session = db::get_or_create_orchestrator_session(&conn, &workspace_id)?;
-    let _ = db::update_orchestrator_session(&conn, &orch_session.id, Some("processing"), None);
-
-    // Emit event
-    let _ = app.emit("orchestrator:processing", &OrchestratorEvent {
-        workspace_id: workspace_id.clone(),
-        event_type: "processing".to_string(),
-        message: Some(message.clone()),
-    });
-
-    Ok(user_msg)
-}
-
 /// List chat sessions for a workspace
 #[tauri::command]
 pub fn list_chat_sessions(

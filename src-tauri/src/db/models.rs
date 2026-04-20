@@ -243,6 +243,35 @@ pub struct Script {
     pub updated_at: String,
 }
 
+// ─── Pipeline Timing Entities ───────────────────────────────────────────────
+
+/// Tracks how long a task spends in each column for bottleneck analysis.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PipelineTiming {
+    pub id: String,
+    pub task_id: String,
+    pub column_id: String,
+    pub column_name: String,
+    pub entered_at: String,
+    pub exited_at: Option<String>,
+    pub duration_seconds: Option<i64>,
+    pub success: Option<bool>,
+    pub retry_count: i64,
+}
+
+/// Average timing per column for workspace-level analysis.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnTimingAverage {
+    pub column_id: String,
+    pub column_name: String,
+    pub avg_duration_seconds: f64,
+    pub task_count: i64,
+    pub success_count: i64,
+    pub failure_count: i64,
+}
+
 // ─── Usage Tracking Entities ────────────────────────────────────────────────
 
 /// A record of LLM token usage (per-request).

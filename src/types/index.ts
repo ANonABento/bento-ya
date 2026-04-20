@@ -1,4 +1,5 @@
-export type { Workspace } from './workspace'
+export type { Workspace, WorkspaceConfig } from './workspace'
+export { parseWorkspaceConfig } from './workspace'
 export type {
   Column,
   ColumnTriggers,
@@ -6,6 +7,7 @@ export type {
   SpawnCliAction,
   MoveColumnAction,
   TriggerTaskAction,
+  TriggerTaskActionType,
   RunScriptAction,
   CreatePrAction,
   NoneAction,

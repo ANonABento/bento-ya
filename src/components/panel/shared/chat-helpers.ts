@@ -69,9 +69,8 @@ export function mapMessages(
     id: msg.id,
     workspaceId,
     sessionId,
-    role: msg.role as 'system' | 'user' | 'assistant',
+    role: msg.role,
     content: msg.content,
     createdAt: msg.createdAt,
   }))
 }
-
