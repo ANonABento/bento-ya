@@ -21,6 +21,9 @@ pub mod voice_stubs;
 pub use voice_stubs as voice;
 pub mod workspace;
 
+// Re-export models commands (they live in models module, not commands)
+pub use crate::models;
+
 #[tauri::command]
 pub fn greet(name: &str) -> String {
     format!("Hello, {}! Welcome to Bento-ya.", name)

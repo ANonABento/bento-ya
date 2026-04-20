@@ -74,8 +74,8 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActive)
-  const openTask = useUIStore((s) => s.openTask)
-  const closeTask = useUIStore((s) => s.closeTask)
+  const focusTask = useUIStore((s) => s.focusTask)
+  const closeChat = useUIStore((s) => s.closeChat)
   const activeTaskId = useUIStore((s) => s.activeTaskId)
   const togglePanel = useUIStore((s) => s.togglePanel)
   const openSettings = useSettingsStore((s) => s.openSettings)
@@ -91,7 +91,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
         id: `nav-task-${task.id}`,
         label: `Go to task: ${task.title}`,
         category: 'Navigation',
-        action: () => { openTask(task.id) },
+        action: () => { focusTask(task.id) },
       })
     }
 
@@ -101,7 +101,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
       label: 'Go to board view',
       category: 'Navigation',
       shortcut: ['Esc'],
-      action: () => { closeTask() },
+      action: () => { closeChat() },
     })
 
     // Tasks: create new
@@ -188,7 +188,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
     }
 
     return cmds
-  }, [tasks, columns, workspaces, activeWorkspaceId, activeTaskId, search, openTask, closeTask, addTask, duplicateTask, setActiveWorkspace, togglePanel, openSettings, setActiveTab, onShowShortcuts])
+  }, [tasks, columns, workspaces, activeWorkspaceId, activeTaskId, search, focusTask, closeChat, addTask, duplicateTask, setActiveWorkspace, togglePanel, openSettings, setActiveTab, onShowShortcuts])
 
   // Filter commands
   const filtered = useMemo(() => {

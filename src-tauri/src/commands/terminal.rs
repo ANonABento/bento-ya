@@ -1,43 +1,41 @@
-use std::sync::{Arc, Mutex};
+use crate::chat::registry::SharedSessionRegistry;
 
-use tauri::State;
-
-use crate::process::pty_manager::PtyManager;
-
+/// Write input data to a PTY session via the SessionRegistry.
 #[tauri::command(rename_all = "camelCase")]
-pub fn write_to_pty(
+pub async fn write_to_pty(
     task_id: String,
     data: String,
-    pty_manager: State<'_, Arc<Mutex<PtyManager>>>,
+    session_registry: tauri::State<'_, SharedSessionRegistry>,
 ) -> Result<(), String> {
-    let mut mgr = pty_manager
-        .lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
-    mgr.write(&task_id, data.as_bytes())
-        .map_err(|e| e.to_string())
+    let mut registry = session_registry.lock().await;
+    let session = registry
+        .get_mut(&task_id)
+        .ok_or_else(|| format!("No session for task: {}", task_id))?;
+    session.write_pty(data.as_bytes())
 }
 
+/// Resize a PTY session via the SessionRegistry.
 #[tauri::command(rename_all = "camelCase")]
-pub fn resize_pty(
+pub async fn resize_pty(
     task_id: String,
     cols: u16,
     rows: u16,
-    pty_manager: State<'_, Arc<Mutex<PtyManager>>>,
+    session_registry: tauri::State<'_, SharedSessionRegistry>,
 ) -> Result<(), String> {
-    let mgr = pty_manager
-        .lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
-    mgr.resize(&task_id, cols, rows)
-        .map_err(|e| e.to_string())
+    let mut registry = session_registry.lock().await;
+    let session = registry
+        .get_mut(&task_id)
+        .ok_or_else(|| format!("No session for task: {}", task_id))?;
+    session.resize_pty(cols, rows)
 }
 
+/// Get PTY scrollback is no longer supported via the legacy PtyManager.
+/// Terminal view now uses the xterm.js scrollback buffer directly.
 #[tauri::command(rename_all = "camelCase")]
-pub fn get_pty_scrollback(
-    task_id: String,
-    pty_manager: State<'_, Arc<Mutex<PtyManager>>>,
+pub async fn get_pty_scrollback(
+    _task_id: String,
 ) -> Result<String, String> {
-    let mgr = pty_manager
-        .lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
-    mgr.get_scrollback(&task_id).map_err(|e| e.to_string())
+    // Scrollback is now handled client-side by xterm.js (10k lines buffer).
+    // This command is kept for backward compatibility but returns empty.
+    Ok(String::new())
 }

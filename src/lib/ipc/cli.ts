@@ -44,3 +44,17 @@ export type CliCapabilities = {
 export async function getCliCapabilities(cliId: string): Promise<CliCapabilities> {
   return invoke<CliCapabilities>('get_cli_capabilities', { cliId })
 }
+
+// ─── CLI Update Check ─────────────────────────────────────────────────────
+
+export type CliUpdateInfo = {
+  cliId: string
+  currentVersion: string
+  latestVersion: string | null
+  hasUpdate: boolean
+  updateCommand: string | null
+}
+
+export async function checkCliUpdate(cliId: string): Promise<CliUpdateInfo> {
+  return invoke<CliUpdateInfo>('check_cli_update', { cliId })
+}

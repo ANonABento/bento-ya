@@ -4,8 +4,9 @@
 //! supporting spawn_cli, move_column, trigger_task actions.
 
 use crate::chat::bridge;
-use crate::db::{self, Column, Task};
+use crate::db::{self, Column, Task, Workspace};
 use crate::error::AppError;
+use crate::git::branch_manager;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -290,6 +291,55 @@ fn resolve_working_dir(task: &Task, workspace_repo_path: &str) -> String {
     workspace_repo_path.to_string()
 }
 
+/// Auto-create a branch + worktree for a task if missing.
+/// Returns the updated task with `branch_name` and `worktree_path` set.
+fn ensure_task_worktree(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    repo_path: &str,
+) -> Result<Task, AppError> {
+    let mut task = task.clone();
+
+    // Step 1: Ensure task has a branch
+    if task.branch_name.as_deref().unwrap_or("").is_empty() {
+        let slug = branch_manager::slugify(&task.title);
+        match branch_manager::create_task_branch(repo_path, &slug, None) {
+            Ok(branch_name) => {
+                task = db::update_task_branch(conn, &task.id, Some(&branch_name))?;
+                log::info!("[triggers] Auto-created branch '{}' for task {}", branch_name, task.id);
+            }
+            Err(e) => {
+                // Branch may already exist (e.g. from a previous attempt)
+                let branch_name = format!("bentoya/{}", slug);
+                log::warn!("[triggers] Branch creation failed ({}), trying existing '{}'", e, branch_name);
+                task = db::update_task_branch(conn, &task.id, Some(&branch_name))?;
+            }
+        }
+    }
+
+    let branch_name = task.branch_name.as_deref().unwrap_or("");
+    if branch_name.is_empty() {
+        log::warn!("[triggers] Could not determine branch for task {}, skipping worktree", task.id);
+        return Ok(task);
+    }
+
+    // Step 2: Create worktree
+    match branch_manager::create_task_worktree(repo_path, branch_name, &task.id) {
+        Ok(wt_path) => {
+            task = db::update_task_worktree_path(conn, &task.id, Some(&wt_path))?;
+            super::emit_tasks_changed(app, &task.workspace_id, "worktree_auto_created");
+            log::info!("[triggers] Auto-created worktree at '{}' for task {}", wt_path, task.id);
+        }
+        Err(e) => {
+            log::error!("[triggers] Failed to create worktree for task {}: {}", task.id, e);
+            // Continue without worktree — agent falls back to repo root
+        }
+    }
+
+    Ok(task)
+}
+
 // ─── Per-Action Handlers ──────────────────────────────────────────────────
 
 fn execute_spawn_cli(
@@ -306,29 +356,87 @@ fn execute_spawn_cli(
     model: Option<&str>,
 ) -> Result<Task, AppError> {
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
-    let working_dir = resolve_working_dir(task, &workspace.repo_path);
+
+    // Auto-create worktree for trigger-spawned agents to sandbox them
+    let task = if task.worktree_path.is_none() && !workspace.repo_path.is_empty() {
+        ensure_task_worktree(conn, app, task, &workspace.repo_path)?
+    } else {
+        task.clone()
+    };
+
+    let working_dir = resolve_working_dir(&task, &workspace.repo_path);
 
     if !working_dir.is_empty() && !std::path::Path::new(&working_dir).exists() {
         log::warn!("Working dir '{}' does not exist, agent may fail", working_dir);
     }
 
+    // Write .task.md to worktree — agent reads this instead of getting full spec in prompt
+    if !working_dir.is_empty() {
+        let task_md_path = std::path::Path::new(&working_dir).join(".task.md");
+        let checklist_section = task.checklist.as_deref()
+            .filter(|c| !c.is_empty() && *c != "[]")
+            .map(|c| format!("\n## Checklist\n{}\n", c))
+            .unwrap_or_default();
+
+        let task_md = format!(
+            "# {}\n\n{}\n{}\n## Context\n- Workspace: {}\n- Branch: {}\n- Working dir: {}\n",
+            task.title,
+            task.description.as_deref().unwrap_or(""),
+            checklist_section,
+            workspace.name,
+            task.branch_name.as_deref().unwrap_or("(none)"),
+            working_dir,
+        );
+
+        if let Err(e) = std::fs::write(&task_md_path, &task_md) {
+            log::warn!("Failed to write .task.md for task {}: {}", task.id, e);
+        }
+
+        // Exclude .task.md from git (avoid agent committing it)
+        let exclude_path = std::path::Path::new(&working_dir).join(".git").join("info").join("exclude");
+        if exclude_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&exclude_path) {
+                if !content.contains(".task.md") {
+                    let _ = std::fs::write(&exclude_path, format!("{}\n.task.md\n.task-handoff.md\n", content.trim_end()));
+                }
+            }
+        }
+    }
+
     let ctx = TemplateContext {
-        task, column, workspace: &workspace,
+        task: &task, column, workspace: &workspace,
         prev_column: other_column, next_column: Option::None, dep_tasks: HashMap::new(),
     };
 
-    // Resolve prompt: direct prompt wins over template
+    // Resolve prompt: direct prompt > template > .task.md pointer (token-optimized default)
     let resolved_prompt = if let Some(p) = prompt {
         if !p.is_empty() { template::interpolate(p, &ctx) }
         else if let Some(tmpl) = prompt_template { template::interpolate(tmpl, &ctx) }
-        else { format!("{}\n\n{}", task.title, task.description.as_deref().unwrap_or("")) }
+        else { format!("{}\n\nSee .task.md for full spec.", task.title) }
     } else if let Some(tmpl) = prompt_template {
         template::interpolate(tmpl, &ctx)
     } else {
-        format!("{}\n\n{}", task.title, task.description.as_deref().unwrap_or(""))
+        format!("{}\n\nSee .task.md for full spec.", task.title)
     };
 
-    let cli_type = cli.unwrap_or("claude").to_string();
+    // Resolve CLI and model from workspace config (both use the same parsed value)
+    let workspace_config: serde_json::Value = serde_json::from_str(&workspace.config).unwrap_or_default();
+
+    // Resolve CLI: trigger config > workspace default > "claude"
+    let ws_default_cli = workspace_config.get("defaultAgentCli").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+    let cli_type = cli.or(ws_default_cli).unwrap_or("claude").to_string();
+
+    // Resolve model: task override > trigger config > workspace default > none
+    let ws_default_model = workspace_config.get("defaultModel").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+    let resolved_model = task.model.as_deref().or(model).or(ws_default_model).map(|m| m.to_string());
+    // Resolve CLI: trigger config > workspace config > global settings
+    let cli_type = cli.map(|c| c.to_string()).unwrap_or_else(|| {
+        let settings = crate::config::AppSettings::load();
+        settings.resolve_with_workspace(
+            Some(&workspace.config),
+            "default_agent_cli",
+        ).unwrap_or_else(|| settings.default_agent_cli.clone())
+    });
 
     // Prepend slash command if provided
     let initial_prompt = match command {
@@ -363,8 +471,13 @@ fn execute_spawn_cli(
 
     emit_pipeline(app, EVT_RUNNING, &task.id, &column.id, PipelineState::Running, Some(format!("CLI trigger: {}", cli_type)));
 
-    // Resolve model: task override > trigger config > none
-    let resolved_model = task.model.as_deref().or(model).map(|m| m.to_string());
+    // Resolve model: task override > trigger config > workspace config > global settings
+    let resolved_model = task.model.as_deref().or(model).map(|m| m.to_string()).or_else(|| {
+        let settings = crate::config::AppSettings::load();
+        let m = settings.resolve_with_workspace(Some(&workspace.config), "default_model")
+            .unwrap_or_else(|| settings.default_model.clone());
+        if m.is_empty() { None } else { Some(m) }
+    });
     let mut cli_args = Vec::new();
     if let Some(ref m) = resolved_model {
         cli_args.push("--model".to_string());
@@ -469,6 +582,74 @@ fn execute_trigger_task(
     Ok(task.clone())
 }
 
+/// Build a PR body from git diff/log and task context. Template-based, no LLM.
+fn build_pr_body(
+    task: &Task,
+    column: &Column,
+    workspace: &Workspace,
+    repo_path: &str,
+    base: &str,
+    head: &str,
+) -> String {
+    let mut sections: Vec<String> = Vec::new();
+
+    // Description section
+    if let Some(ref desc) = task.description {
+        if !desc.is_empty() {
+            sections.push(format!("## Description\n\n{}", desc));
+        }
+    }
+
+    // Pipeline context
+    sections.push(format!(
+        "## Pipeline Context\n\n- **Workspace:** {}\n- **Column:** {}\n- **Branch:** `{}` → `{}`",
+        workspace.name, column.name, head, base,
+    ));
+
+    // Git log (commits on this branch not in base)
+    let merge_base = std::process::Command::new("git")
+        .args(["merge-base", base, head])
+        .current_dir(repo_path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+    let range = match &merge_base {
+        Some(mb) => format!("{}..{}", mb, head),
+        None => format!("{}..{}", base, head),
+    };
+
+    if let Ok(output) = std::process::Command::new("git")
+        .args(["log", "--oneline", "--no-decorate", &range])
+        .current_dir(repo_path)
+        .output()
+    {
+        if output.status.success() {
+            let log = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !log.is_empty() {
+                sections.push(format!("## Commits\n\n```\n{}\n```", log));
+            }
+        }
+    }
+
+    // Git diff --stat
+    if let Ok(output) = std::process::Command::new("git")
+        .args(["diff", "--stat", &range])
+        .current_dir(repo_path)
+        .output()
+    {
+        if output.status.success() {
+            let stat = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !stat.is_empty() {
+                sections.push(format!("## Changes\n\n```\n{}\n```", stat));
+            }
+        }
+    }
+
+    sections.join("\n\n")
+}
+
 fn execute_create_pr(
     conn: &Connection,
     app: &AppHandle,
@@ -488,8 +669,8 @@ fn execute_create_pr(
         }
     };
 
-    if task.pr_number.is_some() {
-        log::info!("[create_pr] Task {} already has PR #{}, skipping", task.id, task.pr_number.unwrap());
+    if let Some(pr_num) = task.pr_number {
+        log::info!("[create_pr] Task {} already has PR #{}, skipping", task.id, pr_num);
         let updated = db::update_task_pipeline_state(
             conn, &task.id, PipelineState::Idle.as_str(), None, None,
         )?;
@@ -498,8 +679,8 @@ fn execute_create_pr(
 
     let base = base_branch.unwrap_or("main").to_string();
     let pr_title = task.title.clone();
-    let pr_body = task.description.clone().unwrap_or_default();
     let repo_path = resolve_working_dir(task, &workspace.repo_path);
+    let pr_body = build_pr_body(task, column, &workspace, &repo_path, &base, &branch_name);
     let task_id = task.id.clone();
     let column_id = column.id.clone();
 
@@ -514,6 +695,36 @@ fn execute_create_pr(
 
     tokio::spawn(async move {
         let result = tokio::task::spawn_blocking(move || -> Result<(i64, String), String> {
+            // Push branch to remote first (gh pr create requires the branch to exist on remote)
+            let push_output = std::process::Command::new("git")
+                .args(["push", "-u", "origin", &branch_name])
+                .current_dir(&repo_path)
+                .output()
+                .map_err(|e| format!("Failed to push branch: {}", e))?;
+
+            if !push_output.status.success() {
+                let stderr = String::from_utf8_lossy(&push_output.stderr);
+                // "Everything up-to-date" is not an error
+                if !stderr.contains("up-to-date") && !stderr.contains("already exists") {
+                    // Fallback: force-push if regular push fails (e.g. stale remote branch)
+                    // Safety: only force-push bentoya/* branches, never main/master
+                    if branch_name.starts_with("bentoya/") {
+                        log::warn!("[pipeline] Regular push failed, trying force-push: {}", stderr.trim());
+                        let force_output = std::process::Command::new("git")
+                            .args(["push", "-u", "origin", &branch_name, "--force"])
+                            .current_dir(&repo_path)
+                            .output()
+                            .map_err(|e| format!("Failed to force-push branch: {}", e))?;
+                        if !force_output.status.success() {
+                            let force_stderr = String::from_utf8_lossy(&force_output.stderr);
+                            return Err(format!("git push --force failed: {}", force_stderr.trim()));
+                        }
+                    } else {
+                        return Err(format!("git push failed (force-push not allowed on '{}'): {}", branch_name, stderr.trim()));
+                    }
+                }
+            }
+
             let output = std::process::Command::new("gh")
                 .args([
                     "pr", "create",

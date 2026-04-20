@@ -1,5 +1,6 @@
 use crate::db::{self, AppState, Column};
 use crate::error::AppError;
+use crate::pipeline::triggers::ColumnTriggersV2;
 use tauri::State;
 
 #[tauri::command]
@@ -48,6 +49,21 @@ pub fn update_column(
     if let Some(pos) = position {
         if pos < 0 {
             return Err(AppError::InvalidInput("Position must be non-negative".to_string()));
+        }
+    }
+
+    // Validate trigger JSON if provided
+    if let Some(ref t) = triggers {
+        if !t.is_empty() && t != "{}" {
+            match serde_json::from_str::<ColumnTriggersV2>(t) {
+                Ok(_) => {} // Valid
+                Err(e) => {
+                    return Err(AppError::InvalidInput(format!(
+                        "Invalid trigger configuration: {}. Check that trigger types match: spawn_cli, move_column, trigger_task, run_script (requires script_id), create_pr, none.",
+                        e
+                    )));
+                }
+            }
         }
     }
 

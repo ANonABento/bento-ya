@@ -37,8 +37,18 @@ export async function retryPipeline(taskId: string): Promise<Task> {
   return invoke<Task>('retry_pipeline', { taskId })
 }
 
-export async function retryFromStart(taskId: string): Promise<Task> {
-  return invoke<Task>('retry_from_start', { taskId })
+// ─── Batch Queue ────────────────────────────────────────────────────────────
+
+export async function queueBacklog(taskIds: string[]): Promise<Task[]> {
+  return invoke<Task[]>('queue_agent_tasks', { taskIds })
+}
+
+export async function cancelBacklogQueue(taskIds: string[]): Promise<void> {
+  await Promise.all(
+    taskIds.map((taskId) =>
+      invoke('update_task_agent_status', { taskId, agentStatus: null, queuedAt: null })
+    )
+  )
 }
 
 // ─── Pipeline event listeners ───────────────────────────────────────────────

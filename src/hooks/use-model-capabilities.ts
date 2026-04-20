@@ -1,87 +1,88 @@
 /**
- * Hook for auto-detecting model capabilities from the CLI backend.
- * Fetches capabilities on mount, falls back to hardcoded defaults.
- * Provides reactive helpers for UI controls.
+ * Hook for model capabilities — wraps useModels to provide the same interface
+ * as the old CLI-detection-based hook. Consumers get capabilities from the
+ * dynamic model registry now.
  */
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { getCliCapabilities, type ModelCapability } from '@/lib/ipc'
-
-export type { ModelCapability }
+import { useCallback, useMemo } from 'react'
+import { useModels, type ModelEntry } from './use-models'
 
 export type ModelId = 'opus' | 'sonnet' | 'haiku'
 
-/** Hardcoded fallback capabilities (used when CLI detection fails) */
-const FALLBACK_MODELS: ModelCapability[] = [
-  { id: 'opus', name: 'Opus', description: 'Most powerful', supportsExtendedContext: true, contextWindow: '200k', maxEffort: 'high', available: true },
-  { id: 'sonnet', name: 'Sonnet', description: 'Fast & capable', supportsExtendedContext: false, contextWindow: '200k', maxEffort: 'high', available: true },
-  { id: 'haiku', name: 'Haiku', description: 'Quick & light', supportsExtendedContext: false, contextWindow: '200k', maxEffort: 'low', available: true },
-]
+/** Legacy capability shape used by model-selector and chat-input */
+export type ModelCapability = {
+  id: string
+  name: string
+  description: string
+  supportsExtendedContext: boolean
+  contextWindow: string
+  maxEffort: string
+  available: boolean
+}
 
 type UseModelCapabilitiesResult = {
-  /** All available models with their capabilities */
   models: ModelCapability[]
-  /** Get capabilities for a specific model */
   getCapabilities: (modelId: string) => ModelCapability
-  /** Whether detection is still running */
   isDetecting: boolean
-  /** Whether detection succeeded (vs using fallbacks) */
   isDetected: boolean
-  /** CLI version string if detected */
   cliVersion: string | null
-  /** Re-run detection */
   refresh: () => void
 }
 
-export function useModelCapabilities(cliId: string = 'claude'): UseModelCapabilitiesResult {
-  const [models, setModels] = useState<ModelCapability[]>(FALLBACK_MODELS)
-  const [isDetecting, setIsDetecting] = useState(true)
-  const [isDetected, setIsDetected] = useState(false)
-  const [cliVersion, setCliVersion] = useState<string | null>(null)
-  const hasRun = useRef(false)
+/** Convert a ModelEntry to the legacy ModelCapability shape */
+function toCapability(entry: ModelEntry): ModelCapability {
+  const effort = entry.tier === 'fast' ? 'low' : 'high'
+  const description =
+    entry.tier === 'flagship'
+      ? 'Most powerful'
+      : entry.tier === 'fast'
+        ? 'Quick & light'
+        : 'Fast & capable'
 
-  const detect = useCallback(async () => {
-    setIsDetecting(true)
-    try {
-      const caps = await getCliCapabilities(cliId)
-      if (caps.detected && caps.models.length > 0) {
-        setModels(caps.models)
-        setIsDetected(true)
-        setCliVersion(caps.cliVersion)
-      } else {
-        // CLI not found, use fallbacks
-        setModels(FALLBACK_MODELS)
-        setIsDetected(false)
-      }
-    } catch {
-      setModels(FALLBACK_MODELS)
-      setIsDetected(false)
-    } finally {
-      setIsDetecting(false)
-    }
-  }, [cliId])
+  return {
+    id: entry.alias ?? entry.id,
+    name: entry.displayName,
+    description,
+    supportsExtendedContext: entry.supportsExtendedContext,
+    contextWindow: `${Math.round(entry.contextWindow / 1000)}k`,
+    maxEffort: effort,
+    available: true,
+  }
+}
 
-  useEffect(() => {
-    if (hasRun.current) return
-    hasRun.current = true
-    void detect()
-  }, [detect])
+const FALLBACK: ModelCapability = {
+  id: 'sonnet',
+  name: 'Sonnet',
+  description: 'Fast & capable',
+  supportsExtendedContext: false,
+  contextWindow: '200k',
+  maxEffort: 'high',
+  available: true,
+}
+
+export function useModelCapabilities(
+  cliId: string = 'claude',
+): UseModelCapabilitiesResult {
+  const provider = cliId === 'codex' ? 'openai' : 'anthropic'
+  const { models: entries, isLoading, lastFetched, refresh } = useModels(provider)
+
+  const models = useMemo(() => entries.map(toCapability), [entries])
 
   const getCapabilities = useCallback(
-    (modelId: string): ModelCapability => {
-      const fallback: ModelCapability = { id: 'sonnet', name: 'Sonnet', description: 'Fast & capable', supportsExtendedContext: false, contextWindow: '200k', maxEffort: 'high', available: true }
-      return models.find((m) => m.id === modelId) ?? fallback
-    },
+    (modelId: string): ModelCapability =>
+      models.find((m) => m.id === modelId) ?? FALLBACK,
     [models],
   )
 
-  const refresh = useCallback(() => {
-    hasRun.current = false
-    void detect()
-  }, [detect])
-
   return useMemo(
-    () => ({ models, getCapabilities, isDetecting, isDetected, cliVersion, refresh }),
-    [models, getCapabilities, isDetecting, isDetected, cliVersion, refresh],
+    () => ({
+      models,
+      getCapabilities,
+      isDetecting: isLoading,
+      isDetected: !!lastFetched,
+      cliVersion: null, // No longer relevant
+      refresh: () => void refresh(),
+    }),
+    [models, getCapabilities, isLoading, lastFetched, refresh],
   )
 }
