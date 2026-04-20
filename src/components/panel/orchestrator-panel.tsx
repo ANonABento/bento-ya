@@ -7,6 +7,10 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
+import { listen } from '@tauri-apps/api/event'
+import { useUIStore } from '@/stores/ui-store'
+import { useResizablePanel } from '@/hooks/use-resizable-panel'
+import { ResizeHandle } from '@/components/shared/resize-handle'
 import { useTaskStore } from '@/stores/task-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useOrchestratorSessions } from '@/hooks/use-orchestrator-sessions'
@@ -17,6 +21,7 @@ import { useOrchestratorPanelLayout } from './use-orchestrator-panel-layout'
 import { useOrchestratorTaskRefresh } from './use-orchestrator-task-refresh'
 import { ChatHistory } from './chat-history'
 import { PanelSidebar } from './panel-sidebar'
+import { PipelineDashboard } from './pipeline-dashboard'
 import { ChatErrorBoundary } from './chat-error-boundary'
 import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapMessages, mapToolCalls } from './shared'
 
@@ -82,8 +87,20 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     },
   })
 
+  // Shared resize hook
+  const { handleMouseDown: handleResizeMouseDown, isDragging } = useResizablePanel({
+    direction: isRightDock ? 'horizontal' : 'vertical',
+    size: isRightDock ? panelWidth : panelHeight,
+    onResize: isRightDock ? setPanelWidth : setPanelHeight,
+    disabled: isPanelCollapsed,
+  })
+
   // Local UI state
+  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | 'dashboard' | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
   const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | null>(null)
+  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
+  const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
 
   // Sync hook error to local state (like AgentPanel does)
@@ -92,7 +109,110 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     if (chat.error) setLocalError(chat.error)
   }, [chat.error])
 
-  useOrchestratorTaskRefresh(workspaceId, loadTasks)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // Load messages when active session changes
+  useEffect(() => {
+    if (!activeSession) {
+      setLocalMessages([])
+      return
+    }
+    setMessagesLoading(true)
+    void getChatHistory(activeSession.id, 100)
+      .then(setLocalMessages)
+      .catch((err: unknown) => {
+        console.error('[OrchestratorPanel] Failed to load messages:', err)
+      })
+      .finally(() => {
+        setMessagesLoading(false)
+      })
+  }, [activeSession])
+
+  // Sync chat hook messages with local messages
+  useEffect(() => {
+    if (chat.messages.length > 0) {
+      setLocalMessages(chat.messages.map((m) => ({
+        id: m.id,
+        workspaceId,
+        sessionId: activeSession?.id ?? null,
+        role: m.role,
+        content: m.content,
+        createdAt: m.createdAt,
+      })))
+    }
+  }, [chat.messages, workspaceId, activeSession?.id])
+
+  // Listen for task events to refresh board
+  useEffect(() => {
+    const unsubscribes: Array<() => void> = []
+
+    const setupListeners = async () => {
+      const unsubTaskCreated = await listen('task:created', (event) => {
+        const payload = event.payload as { workspace_id?: string }
+        if (payload.workspace_id === workspaceId) {
+          void loadTasks(workspaceId)
+        }
+      })
+      unsubscribes.push(unsubTaskCreated)
+
+      const unsubTaskUpdated = await listen('task:updated', (event) => {
+        const payload = event.payload as { workspace_id?: string }
+        if (payload.workspace_id === workspaceId) {
+          void loadTasks(workspaceId)
+        }
+      })
+      unsubscribes.push(unsubTaskUpdated)
+
+      const unsubTaskDeleted = await listen('task:deleted', (event) => {
+        const payload = event.payload as { workspace_id?: string }
+        if (payload.workspace_id === workspaceId) {
+          void loadTasks(workspaceId)
+        }
+      })
+      unsubscribes.push(unsubTaskDeleted)
+    }
+
+    void setupListeners()
+
+    return () => {
+      unsubscribes.forEach((unsub) => { unsub() })
+    }
+  }, [workspaceId, loadTasks])
+
+  // Keyboard shortcut: Cmd+J to toggle
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
+        e.preventDefault()
+        togglePanel()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => { window.removeEventListener('keydown', handleKeyDown) }
+  }, [togglePanel])
+
+  // Header click handler (toggle panel)
+  const handleHeaderClick = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return
+    togglePanel()
+  }, [togglePanel])
+
+  // Re-clamp panel height on mount and window resize (prevent board from being squished)
+  useEffect(() => {
+    // Clamp on mount in case persisted value exceeds current viewport
+    setPanelHeight(panelHeight)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- clamp once on mount
+
+  useEffect(() => {
+    const handleResize = () => {
+      // Read latest values from store (avoids re-registering listener on every drag)
+      const state = useUIStore.getState()
+      setPanelHeight(state.panelHeight)
+      setPanelWidth(state.panelWidth)
+    }
+    window.addEventListener('resize', handleResize)
+    return () => { window.removeEventListener('resize', handleResize) }
+  }, [setPanelHeight, setPanelWidth])
 
   // Clear error when user starts typing (like AgentPanel)
   const handleInputChange = useCallback(() => {
@@ -151,23 +271,11 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     <div className={`relative ${isRightDock ? 'flex h-full' : ''}`}>
       {/* Resize handle */}
       {!isPanelCollapsed && (
-        isRightDock ? (
-          <div
-            onMouseDown={handleResizeMouseDown}
-            className="absolute -left-1.5 top-0 bottom-0 w-3 z-50 group"
-            style={{ cursor: 'col-resize' }}
-          >
-            <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-transparent group-hover:bg-accent/60 transition-colors -translate-x-1/2" />
-          </div>
-        ) : (
-          <div
-            onMouseDown={handleResizeMouseDown}
-            className="absolute -top-1.5 left-0 right-0 h-3 z-50 group"
-            style={{ cursor: 'row-resize' }}
-          >
-            <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-transparent group-hover:bg-accent/60 transition-colors -translate-y-1/2" />
-          </div>
-        )
+        <ResizeHandle
+          direction={isRightDock ? 'horizontal' : 'vertical'}
+          position={isRightDock ? 'left' : 'top'}
+          onMouseDown={handleResizeMouseDown}
+        />
       )}
 
       <motion.div
@@ -221,6 +329,20 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                   <path d="M3.75 3A1.75 1.75 0 0 0 2 4.75v3.26a3.235 3.235 0 0 1 1.75-.51h12.5c.644 0 1.245.188 1.75.51V6.75A1.75 1.75 0 0 0 16.25 5h-4.836a.25.25 0 0 1-.177-.073L9.823 3.513A1.75 1.75 0 0 0 8.586 3H3.75Z" />
                   <path fillRule="evenodd" d="M2 9.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 .75.75v5a1.75 1.75 0 0 1-1.75 1.75H3.75A1.75 1.75 0 0 1 2 14.25v-5Z" clipRule="evenodd" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setSidebarMode(sidebarMode === 'dashboard' ? null : 'dashboard') }}
+                className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                  sidebarMode === 'dashboard'
+                    ? 'bg-surface-hover text-text-primary'
+                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                }`}
+                title="Pipeline dashboard"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM10 7a1.5 1.5 0 0 0-1.5 1.5v8a1.5 1.5 0 0 0 3 0v-8A1.5 1.5 0 0 0 10 7ZM4.5 12A1.5 1.5 0 0 0 3 13.5v3a1.5 1.5 0 0 0 3 0v-3A1.5 1.5 0 0 0 4.5 12Z" />
                 </svg>
               </button>
             </>
@@ -317,16 +439,20 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             className="flex flex-1 overflow-hidden"
           >
             {/* Sidebar */}
-            <PanelSidebar
-              mode={sidebarMode}
-              sessions={sessions}
-              activeSessionId={activeSession?.id}
-              workspaceId={workspaceId}
-              isCurrentChatEmpty={historyMessages.length === 0}
-              onNewChat={() => { void handleNewChat() }}
-              onSelectSession={(session) => { handleSelectSession(session) }}
-              onDeleteSession={(sessionId) => { void handleDeleteSession(sessionId) }}
-            />
+            {sidebarMode === 'dashboard' ? (
+              <PipelineDashboard workspaceId={workspaceId} />
+            ) : (
+              <PanelSidebar
+                mode={sidebarMode}
+                sessions={sessions}
+                activeSessionId={activeSession?.id}
+                workspaceId={workspaceId}
+                isCurrentChatEmpty={localMessages.length === 0}
+                onNewChat={() => { void handleNewChat() }}
+                onSelectSession={(session) => { handleSelectSession(session) }}
+                onDeleteSession={(sessionId) => { void handleDeleteSession(sessionId) }}
+              />
+            )}
 
             {/* Main chat area */}
             <ChatErrorBoundary panelName="Orchestrator Chat">

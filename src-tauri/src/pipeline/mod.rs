@@ -14,6 +14,9 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
+/// Maximum duration (in seconds) for unbounded siege retry (max_retries = -1).
+const SIEGE_TIMEOUT_SECS: i64 = 1800; // 30 minutes
+
 // ─── Pipeline State ─────────────────────────────────────────────────────────
 
 /// Pipeline execution states for a task
@@ -155,7 +158,19 @@ pub fn decide_completion(
     }
 
     // Failure path
-    let max_retries = parse_trigger_field_u64(triggers_json, "max_retries") as i64;
+    let max_retries = parse_trigger_field_i64(triggers_json, "max_retries").unwrap_or(0);
+
+    if max_retries == -1 {
+        // Unbounded siege mode: retry until time cap reached
+        if is_siege_timed_out(task.pipeline_triggered_at.as_deref()) {
+            return CompletionAction::Failed;
+        }
+        return CompletionAction::Retry {
+            attempt: task.retry_count + 1,
+            max: -1,
+        };
+    }
+
     if max_retries > 0 && task.retry_count < max_retries {
         CompletionAction::Retry {
             attempt: task.retry_count + 1,
@@ -205,31 +220,51 @@ pub fn check_exit_met(task: &Task, exit_type: &str) -> Option<bool> {
     }
 }
 
+/// Extract a single field from the `exit_criteria` object in a triggers JSON blob.
+fn get_exit_criteria_field(triggers_json: Option<&str>, field: &str) -> Option<serde_json::Value> {
+    triggers_json
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        .and_then(|v| v.get("exit_criteria")?.get(field).cloned())
+}
+
 /// Parse the exit_criteria type from a column's triggers JSON.
 pub fn parse_exit_type(triggers_json: Option<&str>) -> String {
-    triggers::parse_column_triggers(triggers_json)
-        .exit_criteria
-        .map(|exit| exit.criteria_type.as_str().to_string())
+    get_exit_criteria_field(triggers_json, "type")
+        .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_else(|| "manual".to_string())
 }
 
 /// Parse a boolean field from exit_criteria in triggers JSON.
 fn parse_trigger_field_bool(triggers_json: Option<&str>, field: &str) -> bool {
-    let exit_criteria = triggers::parse_column_triggers(triggers_json).exit_criteria;
-    match (field, exit_criteria) {
-        ("auto_advance", Some(exit)) => exit.auto_advance,
-        _ => false,
-    }
+    get_exit_criteria_field(triggers_json, field)
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 /// Parse a u64 field from exit_criteria in triggers JSON.
 fn parse_trigger_field_u64(triggers_json: Option<&str>, field: &str) -> u64 {
-    let exit_criteria = triggers::parse_column_triggers(triggers_json).exit_criteria;
-    match (field, exit_criteria) {
-        ("max_retries", Some(exit)) => exit.max_retries.map(u64::from).unwrap_or(0),
-        ("timeout", Some(exit)) => exit.timeout.unwrap_or(0),
-        _ => 0,
-    }
+    get_exit_criteria_field(triggers_json, field)
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0)
+}
+
+/// Parse an i64 field from exit_criteria in triggers JSON.
+fn parse_trigger_field_i64(triggers_json: Option<&str>, field: &str) -> Option<i64> {
+    get_exit_criteria_field(triggers_json, field)
+        .and_then(|v| v.as_i64())
+}
+
+/// Check if a siege retry has exceeded the time cap.
+/// Returns true if `pipeline_triggered_at` is older than `SIEGE_TIMEOUT_SECS`.
+fn is_siege_timed_out(triggered_at: Option<&str>) -> bool {
+    let Some(ts) = triggered_at else {
+        // No timestamp means we can't measure — allow retry
+        return false;
+    };
+    let Ok(started) = chrono::DateTime::parse_from_rfc3339(ts) else {
+        return false;
+    };
+    chrono::Utc::now().signed_duration_since(started) >= chrono::Duration::seconds(SIEGE_TIMEOUT_SECS)
 }
 
 // ─── Pipeline Engine ────────────────────────────────────────────────────────
@@ -247,6 +282,11 @@ pub fn fire_trigger(
     if db::get_column(conn, &column.id).is_err() {
         log::warn!("Column {} deleted before trigger could fire for task {}", column.id, task.id);
         return Ok(task.clone());
+    }
+
+    // Record timing: task entering this column
+    if let Err(e) = db::insert_pipeline_timing(conn, &task.id, &column.id, &column.name) {
+        log::warn!("Failed to insert pipeline timing for task {}: {}", task.id, e);
     }
 
     // Check for V2 triggers
@@ -375,6 +415,15 @@ pub fn try_auto_advance(
     task: &Task,
     current_column: &Column,
 ) -> Result<Option<Task>, AppError> {
+    // Check workspace-level auto-advance toggle (defaults to true)
+    if let Ok(workspace) = db::get_workspace(conn, &task.workspace_id) {
+        if let Ok(cfg) = serde_json::from_str::<serde_json::Value>(&workspace.config) {
+            if let Some(false) = cfg.get("autoAdvance").and_then(|v| v.as_bool()) {
+                return Ok(None);
+            }
+        }
+    }
+
     // Check if auto-advance is enabled via V2 triggers
     let auto_advance = parse_trigger_field_bool(current_column.triggers.as_deref(), "auto_advance");
 
@@ -483,8 +532,24 @@ pub fn mark_complete(
     task_id: &str,
     success: bool,
 ) -> Result<Task, AppError> {
+    mark_complete_with_error(conn, app, task_id, success, None)
+}
+
+/// Mark a pipeline execution as complete with optional error details
+pub fn mark_complete_with_error(
+    conn: &Connection,
+    app: &AppHandle,
+    task_id: &str,
+    success: bool,
+    error_detail: Option<&str>,
+) -> Result<Task, AppError> {
     let task = db::get_task(conn, task_id)?;
     let column = db::get_column(conn, &task.column_id)?;
+
+    // Record timing: task exiting this column
+    if let Err(e) = db::complete_pipeline_timing(conn, task_id, &column.id, success, task.retry_count) {
+        log::warn!("Failed to complete pipeline timing for task {}: {}", task_id, e);
+    }
 
     let action = decide_completion(&task, column.triggers.as_deref(), success);
 
@@ -529,16 +594,29 @@ pub fn mark_complete(
         }
         CompletionAction::Retry { attempt, max } => {
             increment_retry_count(conn, task_id)?;
-            log::info!("[pipeline] Auto-retrying task {} (attempt {}/{})", task_id, attempt, max);
+            let retry_msg = match error_detail {
+                Some(detail) => format!("Retrying ({}/{}) — {}", attempt, max, detail),
+                None => format!("Retrying ({}/{})", attempt, max),
+            };
+            log::info!("[pipeline] {}: {}", task_id, retry_msg);
 
-            emit_pipeline(app, "pipeline:error", task_id, &column.id, PipelineState::Idle, Some(format!("Retrying ({}/{})", attempt, max)));
+            emit_pipeline(app, "pipeline:error", task_id, &column.id, PipelineState::Idle, Some(retry_msg));
+            let msg = if max == -1 {
+                format!("Siege retry #{}", attempt)
+            } else {
+                format!("Retrying ({}/{})", attempt, max)
+            };
+            log::info!("[pipeline] {} task {}", msg, task_id);
+
+            emit_pipeline(app, "pipeline:error", task_id, &column.id, PipelineState::Idle, Some(msg));
 
             let updated_task = db::get_task(conn, task_id)?;
             fire_trigger(conn, app, &updated_task, &column)
         }
         CompletionAction::Failed => {
+            let error_msg = error_detail.unwrap_or("Execution failed");
             let updated_task = db::update_task_pipeline_state(
-                conn, task_id, PipelineState::Idle.as_str(), None, Some("Execution failed"),
+                conn, task_id, PipelineState::Idle.as_str(), None, Some(error_msg),
             )?;
             emit_completion_event(app, task_id, &column.id, &task.workspace_id, false);
             Ok(updated_task)
@@ -682,6 +760,85 @@ mod tests {
         let task = make_task(0, "running");
         let action = decide_completion(&task, Some("{}"), false);
         assert_eq!(action, CompletionAction::Failed);
+    }
+
+    // ─── siege (unbounded retry) tests ───────────────────────────────
+
+    fn siege_triggers_json(auto_advance: bool) -> String {
+        serde_json::json!({
+            "exit_criteria": {
+                "type": "agent_complete",
+                "auto_advance": auto_advance,
+                "max_retries": -1
+            }
+        }).to_string()
+    }
+
+    #[test]
+    fn test_decide_siege_retries_when_recent() {
+        let mut task = make_task(3, "running");
+        // Started 5 minutes ago — well within 30-min cap
+        task.pipeline_triggered_at = Some(
+            (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339()
+        );
+        let triggers = siege_triggers_json(true);
+        let action = decide_completion(&task, Some(&triggers), false);
+        assert_eq!(action, CompletionAction::Retry { attempt: 4, max: -1 });
+    }
+
+    #[test]
+    fn test_decide_siege_fails_when_timed_out() {
+        let mut task = make_task(50, "running");
+        // Started 31 minutes ago — past the 30-min cap
+        task.pipeline_triggered_at = Some(
+            (chrono::Utc::now() - chrono::Duration::minutes(31)).to_rfc3339()
+        );
+        let triggers = siege_triggers_json(true);
+        let action = decide_completion(&task, Some(&triggers), false);
+        assert_eq!(action, CompletionAction::Failed);
+    }
+
+    #[test]
+    fn test_decide_siege_retries_without_timestamp() {
+        let mut task = make_task(5, "running");
+        task.pipeline_triggered_at = None; // No timestamp — allow retry
+        let triggers = siege_triggers_json(false);
+        let action = decide_completion(&task, Some(&triggers), false);
+        assert_eq!(action, CompletionAction::Retry { attempt: 6, max: -1 });
+    }
+
+    #[test]
+    fn test_decide_siege_success_still_advances() {
+        let mut task = make_task(3, "running");
+        task.pipeline_triggered_at = Some(chrono::Utc::now().to_rfc3339());
+        let triggers = siege_triggers_json(true);
+        // Success should advance regardless of siege mode
+        let action = decide_completion(&task, Some(&triggers), true);
+        assert_eq!(action, CompletionAction::Advance);
+    }
+
+    // ─── is_siege_timed_out tests ────────────────────────────────────
+
+    #[test]
+    fn test_siege_timeout_none_timestamp() {
+        assert!(!is_siege_timed_out(None));
+    }
+
+    #[test]
+    fn test_siege_timeout_recent() {
+        let ts = (chrono::Utc::now() - chrono::Duration::minutes(10)).to_rfc3339();
+        assert!(!is_siege_timed_out(Some(&ts)));
+    }
+
+    #[test]
+    fn test_siege_timeout_expired() {
+        let ts = (chrono::Utc::now() - chrono::Duration::minutes(31)).to_rfc3339();
+        assert!(is_siege_timed_out(Some(&ts)));
+    }
+
+    #[test]
+    fn test_siege_timeout_invalid_timestamp() {
+        assert!(!is_siege_timed_out(Some("not-a-date")));
     }
 
     // ─── check_exit_met tests ─────────────────────────────────────────

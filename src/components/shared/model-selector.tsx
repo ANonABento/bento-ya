@@ -6,36 +6,31 @@
 import { useState, useCallback } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
 import { SelectorDropdown, SelectorOption, SelectorButton } from './selector-dropdown'
-import type { ModelCapability } from '@/hooks/use-model-capabilities'
+import { useModelCapabilities, type ModelCapability } from '@/hooks/use-model-capabilities'
 
 export type ModelId = 'opus' | 'sonnet' | 'haiku'
 
-const FALLBACK_MODELS: ModelCapability[] = [
-  { id: 'opus', name: 'Opus', description: 'Most powerful', supportsExtendedContext: true, contextWindow: '200k', maxEffort: 'high', available: true },
-  { id: 'sonnet', name: 'Sonnet', description: 'Fast & capable', supportsExtendedContext: false, contextWindow: '200k', maxEffort: 'high', available: true },
-  { id: 'haiku', name: 'Haiku', description: 'Quick & light', supportsExtendedContext: false, contextWindow: '200k', maxEffort: 'low', available: true },
-]
-
 interface ModelSelectorProps {
   value: ModelId
-  /** Model capabilities from useModelCapabilities hook */
+  /** Model capabilities from useModelCapabilities hook (optional — fetches dynamically if not provided) */
   models?: ModelCapability[]
   onChange: (modelId: ModelId) => void
 }
 
 export function ModelSelector({
   value,
-  models,
+  models: modelsProp,
   onChange,
 }: ModelSelectorProps) {
+  const { models: dynamicModels } = useModelCapabilities()
+  const models = modelsProp ?? dynamicModels
   const [open, setOpen] = useState(false)
 
   const settings = useSettingsStore((s) => s.global)
   const anthropicProvider = settings.model.providers.find((p) => p.id === 'anthropic')
   const connectionMode = anthropicProvider?.connectionMode ?? 'cli'
 
-  const modelList = models ?? FALLBACK_MODELS
-  const currentModel = modelList.find((m) => m.id === value) ?? modelList[1]
+  const currentModel = models.find((m) => m.id === value) ?? models[1]
 
   const handleSelect = useCallback((modelId: ModelId) => {
     onChange(modelId)
@@ -66,7 +61,7 @@ export function ModelSelector({
         header={header}
         width="w-48"
       >
-        {modelList.map((model) => (
+        {models.map((model) => (
           <SelectorOption
             key={model.id}
             selected={model.id === value}

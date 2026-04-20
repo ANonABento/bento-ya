@@ -29,6 +29,8 @@ export type AgentMode = {
 export type ModelConfig = {
   showCostEstimates: boolean
   providers: ProviderConfig[]
+  /** Model IDs that are disabled (hidden from orchestrator dropdown) */
+  disabledModels: string[]
 }
 
 export type McpServer = {
@@ -167,6 +169,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ],
   model: {
     showCostEstimates: true,
+    disabledModels: [],
     providers: [
       {
         id: 'anthropic',

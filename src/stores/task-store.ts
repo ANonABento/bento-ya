@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { Task } from '@/types'
 import * as ipc from '@/lib/ipc'
+import { useUIStore } from '@/stores/ui-store'
 
 type TaskState = {
   tasks: Task[]
@@ -36,6 +37,10 @@ export const useTaskStore = create<TaskState>()(
       remove: async (id) => {
         const prev = get().tasks
         set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }))
+        // Clear stale UI references to deleted task
+        const ui = useUIStore.getState()
+        if (ui.expandedTaskId === id) ui.collapseTask()
+        if (ui.activeTaskId === id) ui.closeChat()
         try {
           await ipc.deleteTask(id)
         } catch {

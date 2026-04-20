@@ -24,9 +24,13 @@ const SAME_COL_THRESHOLD = 20     // px — cards closer than this are "same col
 const CURVE_PULL_FACTOR = 0.35    // control point distance as fraction of euclidean distance
 const CURVE_PULL_MIN = 42         // px — minimum control point distance
 const CURVE_PULL_MAX = 200        // px — maximum control point distance
-const SOURCE_PADDING = 2          // px — anchor offset from source card edge
-const TARGET_PADDING = 8          // px — anchor offset from target card edge (room for arrow)
-const LANE_SPACING = 9            // px — gap between parallel connections on same card edge
+/** Horizontal offset: how far the bezier start sits from the source card edge */
+const SOURCE_OFFSET_X = 2
+/** Horizontal offset: how far the bezier end sits from the target card edge.
+ *  The arrowhead marker extends from this point toward the card (refX=10). */
+const TARGET_OFFSET_X = 2
+/** Vertical spacing between multiple arrows connecting to the same card edge */
+const LANE_SPACING_Y = 16
 const LINE_OPACITY = 0.7
 const LINE_WIDTH = 2
 const SVG_Z_INDEX = 10
@@ -103,7 +107,7 @@ function getLaneOffset(
   tracker.set(cardId, idx + 1)
 
   if (total === 1) return 0
-  return (idx - (total - 1) / 2) * LANE_SPACING
+  return (idx - (total - 1) / 2) * LANE_SPACING_Y
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -143,8 +147,8 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
         const srcOffset = getLaneOffset(dep.task_id, outTracker, outLanes)
         const tgtOffset = getLaneOffset(taskId, inTracker, inLanes)
 
-        const src = anchor(fromRect, sourceSide, srcOffset, SOURCE_PADDING)
-        const tgt = anchor(toRect, targetSide, tgtOffset, TARGET_PADDING)
+        const src = anchor(fromRect, sourceSide, srcOffset, SOURCE_OFFSET_X)
+        const tgt = anchor(toRect, targetSide, tgtOffset, TARGET_OFFSET_X)
 
         result.push({
           id: `${dep.task_id}-${taskId}`,
@@ -166,16 +170,21 @@ export function DependencyLines({ tasks, positions, hoveredTaskId }: DependencyL
 
   if (visibleLines.length === 0) return null
 
+  // Get scroll content dimensions so SVG covers full content area
+  const boardEl = document.querySelector('[data-board-scroll]')
+  const svgWidth = boardEl ? boardEl.scrollWidth : '100%'
+  const svgHeight = boardEl ? boardEl.scrollHeight : '100%'
+
   return (
     <svg
-      className="absolute inset-0 pointer-events-none overflow-visible"
-      style={{ zIndex: SVG_Z_INDEX }}
+      className="absolute top-0 left-0 pointer-events-none"
+      style={{ zIndex: SVG_Z_INDEX, width: svgWidth, height: svgHeight }}
     >
       <defs>
         <marker
           id="dep-arrow"
           viewBox="0 0 10 10"
-          refX="7"
+          refX="10"
           refY="5"
           markerWidth="5"
           markerHeight="5"
