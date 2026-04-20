@@ -141,59 +141,20 @@ impl Provider {
     }
 }
 
-/// Model definition with aliases and API IDs
-#[derive(Debug, Clone)]
-pub struct ModelInfo {
-    /// User-friendly alias (e.g., "sonnet", "opus")
-    pub alias: &'static str,
-    /// Full API model ID
-    pub api_id: &'static str,
-    /// Display name
-    pub name: &'static str,
-    /// Cost per million input tokens (USD)
-    pub input_cost_per_m: f64,
-    /// Cost per million output tokens (USD)
-    pub output_cost_per_m: f64,
-}
-
-/// Available Anthropic models
-pub const ANTHROPIC_MODELS: &[ModelInfo] = &[
-    ModelInfo {
-        alias: "sonnet",
-        api_id: "claude-sonnet-4-6-20260217",
-        name: "Claude Sonnet 4.6",
-        input_cost_per_m: 3.0,
-        output_cost_per_m: 15.0,
-    },
-    ModelInfo {
-        alias: "opus",
-        api_id: "claude-opus-4-20250514",
-        name: "Claude Opus 4",
-        input_cost_per_m: 15.0,
-        output_cost_per_m: 75.0,
-    },
-    ModelInfo {
-        alias: "haiku",
-        api_id: "claude-haiku-3-5-20250615",
-        name: "Claude Haiku 3.5",
-        input_cost_per_m: 0.25,
-        output_cost_per_m: 1.25,
-    },
-];
-
-/// Resolve a model alias or ID to the full API model ID
-pub fn resolve_model_id(alias_or_id: &str) -> &str {
-    // Check if it's an alias
-    for model in ANTHROPIC_MODELS {
-        if model.alias == alias_or_id {
-            return model.api_id;
-        }
+/// Resolve a model alias or ID to the full API model ID.
+/// Uses the dynamic metadata registry.
+pub fn resolve_model_id(alias_or_id: &str) -> String {
+    // Check if it's an alias in the metadata registry
+    if let Some(full_id) = crate::models::metadata::resolve_alias(alias_or_id) {
+        return full_id.to_string();
     }
     // Already a full ID, return as-is
-    alias_or_id
+    alias_or_id.to_string()
 }
 
-/// Get model info by alias or ID
-pub fn get_model_info(alias_or_id: &str) -> Option<&'static ModelInfo> {
-    ANTHROPIC_MODELS.iter().find(|m| m.alias == alias_or_id || m.api_id == alias_or_id)
+/// Get pricing for a model by alias or full ID.
+/// Returns (input_cost_per_m, output_cost_per_m) or None.
+pub fn get_model_pricing(alias_or_id: &str) -> Option<(f64, f64)> {
+    let full_id = resolve_model_id(alias_or_id);
+    crate::models::metadata::get_pricing(&full_id)
 }

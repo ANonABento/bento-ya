@@ -279,22 +279,25 @@ pub fn get_api_key() -> Result<String, String> {
         .map_err(|_| "ANTHROPIC_API_KEY environment variable not set".to_string())
 }
 
-/// Calculate cost in USD for Anthropic models
+/// Calculate cost in USD for any model.
+/// Uses the dynamic metadata registry for pricing.
 pub fn calculate_cost(model: &str, usage: &TokenUsage) -> f64 {
-    use crate::llm::types::get_model_info;
-
-    let (input_price, output_price) = if let Some(info) = get_model_info(model) {
-        (info.input_cost_per_m, info.output_cost_per_m)
-    } else {
-        // Fallback: try to infer from model name
-        if model.contains("opus") {
-            (15.0, 75.0)
-        } else if model.contains("haiku") {
-            (0.25, 1.25)
-        } else {
-            (3.0, 15.0) // Default to Sonnet pricing
-        }
-    };
+    let (input_price, output_price) = crate::models::metadata::get_pricing(model)
+        .or_else(|| {
+            // Try resolving as alias first
+            let full_id = crate::llm::types::resolve_model_id(model);
+            crate::models::metadata::get_pricing(&full_id)
+        })
+        .unwrap_or_else(|| {
+            // Last resort: infer from model name
+            if model.contains("opus") {
+                (15.0, 75.0)
+            } else if model.contains("haiku") {
+                (0.80, 4.0)
+            } else {
+                (3.0, 15.0) // Default to Sonnet pricing
+            }
+        });
 
     let input_cost = (usage.input_tokens as f64 / 1_000_000.0) * input_price;
     let output_cost = (usage.output_tokens as f64 / 1_000_000.0) * output_price;

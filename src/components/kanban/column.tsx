@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useMemo, useRef, useEffect } from 'react'
+import { memo, useState, useCallback, useMemo, useRef, useEffect, type ChangeEvent } from 'react'
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
@@ -9,15 +9,31 @@ import { useTaskStore } from '@/stores/task-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useScriptStore } from '@/stores/script-store'
+import { queueBacklog, cancelBacklogQueue } from '@/lib/ipc/pipeline'
 import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
 
-type ColumnProps = {
-  column: ColumnType
+type BatchQueueLocalState = {
+  isQueuing: boolean
+  total: number
+  completed: number
+  queuedTaskIds: string[]
 }
 
-export const Column = memo(function Column({ column }: ColumnProps) {
+type ColumnProps = {
+  column: ColumnType
+  isBacklog?: boolean
+}
+
+export const Column = memo(function Column({ column, isBacklog }: ColumnProps) {
+type ColumnProps = {
+  column: ColumnType
+  autoOpenConfig?: boolean
+  onConfigOpened?: () => void
+}
+
+export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpened }: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
@@ -56,6 +72,52 @@ export const Column = memo(function Column({ column }: ColumnProps) {
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const addTaskInputRef = useRef<HTMLInputElement>(null)
 
+  // Batch queue state
+  const [batchQueueState, setBatchQueueState] = useState<BatchQueueLocalState>(
+    { isQueuing: false, total: 0, completed: 0, queuedTaskIds: [] }
+  )
+
+  // Track completed tasks when batch queue is active
+  useEffect(() => {
+    if (!batchQueueState.isQueuing || batchQueueState.queuedTaskIds.length === 0) return
+    const completedCount = batchQueueState.queuedTaskIds.filter(
+      (id) => {
+        const task = allTasks.find((t) => t.id === id)
+        return task && task.agentStatus !== 'queued'
+      }
+    ).length
+    if (completedCount !== batchQueueState.completed) {
+      setBatchQueueState((prev) => ({ ...prev, completed: completedCount }))
+    }
+    if (completedCount === batchQueueState.total) {
+      setBatchQueueState({ isQueuing: false, total: 0, completed: 0, queuedTaskIds: [] })
+    }
+  }, [allTasks, batchQueueState.isQueuing, batchQueueState.queuedTaskIds, batchQueueState.total, batchQueueState.completed])
+
+  const handleRunAll = useCallback(async () => {
+    const ids = tasks.map((t) => t.id)
+    if (ids.length === 0) return
+    try {
+      await queueBacklog(ids)
+      setBatchQueueState({ isQueuing: true, total: ids.length, completed: 0, queuedTaskIds: ids })
+    } catch (err) {
+      console.error('[Column] Failed to queue backlog:', err)
+    }
+  }, [tasks])
+
+  const handleCancelQueue = useCallback(async () => {
+    const remainingIds = batchQueueState.queuedTaskIds.filter((id) => {
+      const task = allTasks.find((t) => t.id === id)
+      return task && task.agentStatus === 'queued'
+    })
+    try {
+      await cancelBacklogQueue(remainingIds)
+    } catch (err) {
+      console.error('[Column] Failed to cancel queue:', err)
+    }
+    setBatchQueueState({ isQueuing: false, total: 0, completed: 0, queuedTaskIds: [] })
+  }, [batchQueueState.queuedTaskIds, allTasks])
+
   const {
     attributes,
     listeners,
@@ -79,12 +141,25 @@ export const Column = memo(function Column({ column }: ColumnProps) {
     data: { type: 'column', columnId: column.id },
   })
 
-  // Focus input when add task is shown
+  // Focus input when add task is shown + listen for native input events (WebDriver compat)
   useEffect(() => {
     if (showAddTask) {
       addTaskInputRef.current?.focus()
+      const el = addTaskInputRef.current
+      if (!el) return
+      const handler = () => { setNewTaskTitle(el.value) }
+      el.addEventListener('input', handler)
+      return () => { el.removeEventListener('input', handler) }
     }
   }, [showAddTask])
+
+  // Auto-open config dialog for newly created columns
+  useEffect(() => {
+    if (autoOpenConfig) {
+      setShowConfigDialog(true)
+      onConfigOpened?.()
+    }
+  }, [autoOpenConfig, onConfigOpened])
 
   const handleConfigure = useCallback(() => {
     setShowConfigDialog(true)
@@ -125,6 +200,7 @@ export const Column = memo(function Column({ column }: ColumnProps) {
         ref={setNodeRef}
         style={style}
         layout
+        data-column-id={column.id}
         className={`flex w-[300px] min-w-[280px] max-w-[360px] shrink-0 flex-col border-r border-border-default bg-surface/30 ${
           isDragging ? 'opacity-50' : ''
         }`}
@@ -136,9 +212,13 @@ export const Column = memo(function Column({ column }: ColumnProps) {
             taskCount={tasks.length}
             color={column.color}
             scriptTrigger={scriptTrigger}
+            isBacklog={isBacklog}
+            batchQueue={batchQueueState.isQueuing ? { total: batchQueueState.total, completed: batchQueueState.completed } : undefined}
             onConfigure={handleConfigure}
             onDelete={handleDelete}
             onAddTask={handleAddTask}
+            onRunAll={() => { void handleRunAll(); }}
+            onCancelQueue={() => { void handleCancelQueue(); }}
           />
         </div>
 
@@ -163,7 +243,8 @@ export const Column = memo(function Column({ column }: ColumnProps) {
                       ref={addTaskInputRef}
                       type="text"
                       value={newTaskTitle}
-                      onChange={(e) => { setNewTaskTitle(e.target.value); }}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => { setNewTaskTitle(e.target.value); }}
+                      data-testid="add-task-input"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') void handleSubmitTask()
                         if (e.key === 'Escape') handleCancelAddTask()

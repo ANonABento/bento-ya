@@ -102,6 +102,22 @@ async fn move_task(
         let old_column = db::get_column(&conn, &old_column_id).ok();
         let target_column = db::get_column(&conn, &req.target_column_id).ok();
 
+        // Cancel running agent if task is leaving its column AND target has no spawn_cli trigger.
+        // If target also has a trigger, the new trigger replaces the old agent — no need to cancel.
+        if task_before.agent_status.as_deref() == Some("running") {
+            let target_has_trigger = target_column.as_ref()
+                .and_then(|c| c.triggers.as_deref())
+                .map(|t| t.contains("spawn_cli"))
+                .unwrap_or(false);
+
+            if !target_has_trigger {
+                eprintln!("[api] Task {} leaving to non-trigger column — cancelling agent", req.id);
+                crate::chat::tmux_transport::cancel_task_agent(
+                    &conn, &req.id, task_before.agent_session_id.as_deref(),
+                );
+            }
+        }
+
         if let (Some(ref old_col), Some(ref tgt_col)) = (&old_column, &target_column) {
             let _ = pipeline::triggers::fire_on_exit(&conn, &api.app, &task_before, old_col, Some(tgt_col));
         }
@@ -258,8 +274,74 @@ async fn retry_task(
     }
 }
 
+async fn retry_from_start(
+    AxumState(api): AxumState<Arc<ApiState>>,
+    Json(req): Json<RetryReq>,
+) -> impl IntoResponse {
+    let conn = get_db!(api);
+
+    let task = match db::get_task(&conn, &req.task_id) {
+        Ok(t) => t, Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
+    };
+
+    let old_column_id = task.column_id.clone();
+
+    // Find first column
+    let columns = match db::list_columns(&conn, &task.workspace_id) {
+        Ok(c) => c, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+    let first_column = match columns.into_iter().next() {
+        Some(c) => c, None => return err_response(StatusCode::INTERNAL_SERVER_ERROR, "No columns found".to_string()).into_response(),
+    };
+
+    let column_changed = old_column_id != first_column.id;
+
+    // Reset pipeline state and move to first column
+    let ts = db::now();
+    if let Err(e) = conn.execute(
+        "UPDATE tasks SET column_id = ?1, position = 0, pipeline_state = 'idle', \
+         pipeline_triggered_at = NULL, pipeline_error = NULL, retry_count = 0, \
+         review_status = NULL, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![first_column.id, ts, req.task_id],
+    ) {
+        return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+    }
+
+    // Fire on_exit for old column
+    if column_changed {
+        if let Ok(old_col) = db::get_column(&conn, &old_column_id) {
+            let _ = pipeline::triggers::fire_on_exit(&conn, &api.app, &task, &old_col, Some(&first_column));
+        }
+    }
+
+    pipeline::emit_tasks_changed(&api.app, &task.workspace_id, "api_retry_from_start");
+
+    let task = match db::get_task(&conn, &req.task_id) {
+        Ok(t) => t, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+
+    match pipeline::fire_trigger(&conn, &api.app, &task, &first_column) {
+        Ok(t) => ok_response(serde_json::to_value(&t).unwrap_or_default()).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
 async fn health() -> impl IntoResponse {
     Json(ApiResponse { success: true, data: Some(serde_json::json!({"status": "ok"})), error: None })
+}
+
+async fn get_settings() -> impl IntoResponse {
+    let settings = crate::config::AppSettings::load();
+    ok_response(serde_json::to_value(&settings).unwrap_or_default()).into_response()
+}
+
+async fn update_settings(Json(updates): Json<serde_json::Value>) -> impl IntoResponse {
+    let mut settings = crate::config::AppSettings::load();
+    settings.merge_update(&updates);
+    match settings.save() {
+        Ok(_) => ok_response(serde_json::to_value(&settings).unwrap_or_default()).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
 }
 
 // ─── Server lifecycle ───────────────────────────────────────────────────────
@@ -292,6 +374,8 @@ pub fn start(app: AppHandle) {
             .route("/api/approve_task", post(approve_task))
             .route("/api/reject_task", post(reject_task))
             .route("/api/retry_task", post(retry_task))
+            .route("/api/settings", get(get_settings))
+            .route("/api/settings", post(update_settings))
             .with_state(api_state);
 
         // Bind to random available port

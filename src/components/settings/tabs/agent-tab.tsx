@@ -1,21 +1,20 @@
 import { useState, useEffect } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
 import type { AgentConfig, ProviderConfig } from '@/types/settings'
-import { detectSingleCli, type DetectedCli } from '@/lib/ipc'
+import { detectSingleCli, checkCliUpdate, type DetectedCli, type CliUpdateInfo } from '@/lib/ipc'
+import { useModels } from '@/hooks/use-models'
 import { SettingSection, SettingRow, SettingInput, SettingSlider } from '@/components/shared/setting-components'
 import { Dropdown } from '@/components/shared/dropdown'
 
-const PROVIDER_INFO: Record<string, { name: string; description: string; models: string[]; cliId: string }> = {
+const PROVIDER_INFO: Record<string, { name: string; description: string; cliId: string }> = {
   anthropic: {
     name: 'Anthropic',
     description: 'Claude models via CLI or API',
-    models: ['claude-haiku-4-5-20251115', 'claude-sonnet-4-6-20260217', 'claude-opus-4-6-20260217'],
     cliId: 'claude',
   },
   openai: {
     name: 'OpenAI',
     description: 'Codex models via CLI or API',
-    models: ['codex-5.2', 'codex-5.3', 'codex-5.3-spark'],
     cliId: 'codex',
   },
 }
@@ -32,9 +31,19 @@ export function AgentTab() {
   const agent = global.agent
   const model = global.model
 
+  // Dynamic model registry
+  const { models: allModels, lastFetched, source: modelSource, refresh: refreshModels } = useModels()
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshStatus, setRefreshStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+
   // CLI detection state per provider
   const [detectedClis, setDetectedClis] = useState<Record<string, DetectedCli>>({})
   const [detecting, setDetecting] = useState<Record<string, boolean>>({})
+
+  // CLI update check state
+  const [cliUpdates, setCliUpdates] = useState<Record<string, CliUpdateInfo>>({})
+  const [checkingUpdate, setCheckingUpdate] = useState<Record<string, boolean>>({})
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null)
 
   // Track expanded state (separate from enabled)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
@@ -64,10 +73,12 @@ export function AgentTab() {
     updateGlobal('model', { ...model, providers })
   }
 
-  // Get all available models from enabled providers
-  const availableModels = model.providers
-    .filter((p) => p.enabled)
-    .flatMap((p) => PROVIDER_INFO[p.id]?.models ?? [])
+  // Get all available models from enabled providers, excluding disabled ones
+  const enabledProviderIds = new Set(model.providers.filter((p) => p.enabled).map((p) => p.id))
+  const disabledModelIds = new Set(model.disabledModels ?? [])
+  const availableModels = allModels
+    .filter((m) => enabledProviderIds.has(m.provider) && !disabledModelIds.has(m.id))
+    .map((m) => m.id)
 
   // Toggle provider enabled state
   const handleToggleProvider = (providerId: string, enabled: boolean) => {
@@ -80,7 +91,20 @@ export function AgentTab() {
   const handleToggleExpanded = (providerId: string) => {
     const provider = model.providers.find((p) => p.id === providerId)
     if (!provider?.enabled) return
-    setExpanded((prev) => ({ ...prev, [providerId]: !prev[providerId] }))
+    const willExpand = !expanded[providerId]
+    setExpanded((prev) => ({ ...prev, [providerId]: willExpand }))
+
+    // Check for CLI updates when expanding in CLI mode (once per session)
+    if (willExpand && provider.connectionMode === 'cli' && !cliUpdates[providerId] && !checkingUpdate[providerId]) {
+      const cliId = PROVIDER_INFO[providerId]?.cliId
+      if (cliId) {
+        setCheckingUpdate((prev) => ({ ...prev, [providerId]: true }))
+        void checkCliUpdate(cliId)
+          .then((info) => { setCliUpdates((prev) => ({ ...prev, [providerId]: info })) })
+          .catch(() => {})
+          .finally(() => { setCheckingUpdate((prev) => ({ ...prev, [providerId]: false })) })
+      }
+    }
   }
 
   // Auto-detect CLI when switching to CLI mode
@@ -120,11 +144,72 @@ export function AgentTab() {
     <div className="space-y-6">
       {/* Providers */}
       <SettingSection title="Providers">
+        <div className="mb-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-secondary">
+              {allModels.length} models ·{' '}
+              {modelSource === 'api'
+                ? `From API · ${new Date(lastFetched!).toLocaleDateString()}`
+                : modelSource === 'cli'
+                  ? 'From CLI'
+                  : 'Built-in list'}
+            </span>
+            <button
+              onClick={() => {
+                setRefreshing(true)
+                setRefreshStatus(null)
+                void refreshModels().then((result) => {
+                  if (result.success) {
+                    const msg = result.newModels.length > 0
+                      ? `Found ${result.newModels.length} new: ${result.newModels.join(', ')}`
+                      : `${result.modelCount} models up to date`
+                    setRefreshStatus({ message: msg, type: 'success' })
+                  } else {
+                    setRefreshStatus({
+                      message: result.error ?? 'Set API keys to discover new models automatically',
+                      type: 'error',
+                    })
+                  }
+                  setRefreshing(false)
+                  // Auto-dismiss after 5s
+                  setTimeout(() => { setRefreshStatus(null) }, 5000)
+                })
+              }}
+              disabled={refreshing}
+              className="flex items-center gap-1.5 rounded-md border border-border-default px-2 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-text-primary disabled:opacity-50"
+            >
+              {refreshing ? (
+                <>
+                  <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Checking...
+                </>
+              ) : (
+                'Check for new models'
+              )}
+            </button>
+          </div>
+          {refreshStatus && (
+            <div
+              className={`rounded-md px-3 py-1.5 text-xs transition-all ${
+                refreshStatus.type === 'success'
+                  ? 'bg-green-500/10 text-green-400'
+                  : 'bg-yellow-500/10 text-yellow-400'
+              }`}
+            >
+              {refreshStatus.message}
+            </div>
+          )}
+        </div>
         <div className="space-y-3">
           {model.providers.map((provider) => {
             const info = PROVIDER_INFO[provider.id]
             if (!info) return null
             const isExpanded = expanded[provider.id] && provider.enabled
+            const providerModels = allModels.filter((m) => m.provider === provider.id)
+            const providerModelCount = providerModels.length
 
             return (
               <div
@@ -163,6 +248,11 @@ export function AgentTab() {
                     <div className="text-left">
                       <span className={`text-sm font-medium ${provider.enabled ? 'text-text-primary' : 'text-text-secondary'}`}>
                         {info.name}
+                        {providerModelCount > 0 && (
+                          <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/20 px-1 text-[10px] font-medium text-accent">
+                            {providerModelCount}
+                          </span>
+                        )}
                       </span>
                       <p className="text-xs text-text-secondary">{info.description}</p>
                     </div>
@@ -254,6 +344,58 @@ export function AgentTab() {
                             CLI not found. Install or enter path manually.
                           </p>
                         )}
+
+                        {/* Version + Update — single row */}
+                        {provider.cliPath && (() => {
+                          const update = cliUpdates[provider.id]
+                          const isChecking = checkingUpdate[provider.id]
+                          return (
+                            <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
+                              {isChecking ? (
+                                <span className="flex items-center gap-1 text-text-secondary">
+                                  <svg className="h-2.5 w-2.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                  </svg>
+                                  checking...
+                                </span>
+                              ) : update ? (
+                                <span className="flex items-center gap-1.5">
+                                  <span className="font-mono text-text-secondary">{update.currentVersion}</span>
+                                  {update.hasUpdate ? (
+                                    <>
+                                      <span className="text-text-secondary">→</span>
+                                      <span className="font-mono text-yellow-400">{update.latestVersion}</span>
+                                      {update.updateCommand && (
+                                        <button
+                                          onClick={() => {
+                                            void navigator.clipboard.writeText(update.updateCommand!)
+                                            setCopiedCmd(provider.id)
+                                            setTimeout(() => { setCopiedCmd(null) }, 2000)
+                                          }}
+                                          className="ml-0.5 rounded border border-yellow-500/30 px-1 py-0.5 text-[10px] text-yellow-400 transition-colors hover:bg-yellow-500/10"
+                                          title={update.updateCommand}
+                                        >
+                                          {copiedCmd === provider.id ? '✓ copied' : (
+                                            <span className="flex items-center gap-1">
+                                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5">
+                                                <path d="M5.5 3.5A1.5 1.5 0 0 1 7 2h2.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 1 .439 1.061V9.5A1.5 1.5 0 0 1 12 11V8.621a3 3 0 0 0-.879-2.121L9 4.379A3 3 0 0 0 6.879 3.5H5.5Z" />
+                                                <path d="M4 5a1.5 1.5 0 0 0-1.5 1.5v6A1.5 1.5 0 0 0 4 14h5a1.5 1.5 0 0 0 1.5-1.5V8.621a1.5 1.5 0 0 0-.44-1.06L7.94 5.439A1.5 1.5 0 0 0 6.878 5H4Z" />
+                                              </svg>
+                                              upgrade cmd
+                                            </span>
+                                          )}
+                                        </button>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className="text-green-400">✓ latest</span>
+                                  )}
+                                </span>
+                              ) : null}
+                            </div>
+                          )
+                        })()}
                       </div>
                     )}
 
@@ -275,6 +417,101 @@ export function AgentTab() {
                         />
                       </div>
                     )}
+
+                    {/* Available Models with toggles */}
+                    {providerModels.length > 0 && (() => {
+                      const disabledSet = new Set(model.disabledModels ?? [])
+                      const enabledCount = providerModels.filter((m) => !disabledSet.has(m.id)).length
+                      const allEnabled = enabledCount === providerModels.length
+                      const noneEnabled = enabledCount === 0
+
+                      const toggleModel = (modelId: string) => {
+                        const current = new Set(model.disabledModels ?? [])
+                        if (current.has(modelId)) {
+                          current.delete(modelId)
+                        } else {
+                          current.add(modelId)
+                        }
+                        updateGlobal('model', { ...model, disabledModels: [...current] })
+                      }
+
+                      const toggleAll = (enable: boolean) => {
+                        if (enable) {
+                          // Remove all this provider's models from disabled
+                          const current = new Set(model.disabledModels ?? [])
+                          for (const m of providerModels) current.delete(m.id)
+                          updateGlobal('model', { ...model, disabledModels: [...current] })
+                        } else {
+                          // Add all this provider's models to disabled
+                          const current = new Set(model.disabledModels ?? [])
+                          for (const m of providerModels) current.add(m.id)
+                          updateGlobal('model', { ...model, disabledModels: [...current] })
+                        }
+                      }
+
+                      return (
+                        <div>
+                          <div className="mb-2 flex items-center justify-between">
+                            <label className="text-xs font-medium text-text-secondary">
+                              Models ({enabledCount}/{providerModels.length})
+                            </label>
+                            <button
+                              onClick={() => { toggleAll(noneEnabled || !allEnabled ? true : false) }}
+                              className="text-[10px] text-text-secondary transition-colors hover:text-text-primary"
+                            >
+                              {allEnabled ? 'Deselect all' : 'Select all'}
+                            </button>
+                          </div>
+                          <div className="space-y-0.5">
+                            {providerModels.map((m) => {
+                              const enabled = !disabledSet.has(m.id)
+                              return (
+                                <div
+                                  key={m.id}
+                                  className={`flex items-center justify-between rounded-md px-2.5 py-1.5 transition-opacity ${
+                                    enabled ? 'bg-surface-hover/50' : 'bg-surface-hover/20 opacity-50'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    {/* Toggle */}
+                                    <button
+                                      onClick={() => { toggleModel(m.id) }}
+                                      className={`relative h-4 w-7 rounded-full transition-colors ${
+                                        enabled ? 'bg-accent' : 'bg-surface-hover'
+                                      }`}
+                                    >
+                                      <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${
+                                        enabled ? 'left-3.5' : 'left-0.5'
+                                      }`} />
+                                    </button>
+                                    <span className={`h-1.5 w-1.5 rounded-full ${
+                                      m.tier === 'flagship' ? 'bg-purple-400' :
+                                      m.tier === 'fast' ? 'bg-green-400' : 'bg-blue-400'
+                                    }`} />
+                                    <span className="text-xs font-medium text-text-primary">
+                                      {m.displayName}
+                                    </span>
+                                    {m.alias && (
+                                      <span className="rounded bg-surface-hover px-1 py-0.5 text-[10px] font-mono text-text-secondary">
+                                        {m.alias}
+                                      </span>
+                                    )}
+                                    {m.isNew && (
+                                      <span className="rounded bg-accent/20 px-1 py-0.5 text-[10px] font-medium text-accent">
+                                        New
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-[10px] text-text-secondary">
+                                    {Math.round(m.contextWindow / 1000)}k
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })()}
                   </div>
                 )}
               </div>
