@@ -45,8 +45,15 @@ pub fn collect(conn: &Connection) {
             }
         };
 
-        // Check for finished agents — candidate for session cleanup
-        let agent_finished = matches!(
+        // Check for finished agents — candidate for session cleanup.
+        // Never kill sessions for tasks with an active pipeline (state = running/triggered)
+        // since the pipeline's tmux wait-for completion detection needs the session alive.
+        let pipeline_active = matches!(
+            task.pipeline_state.as_str(),
+            "running" | "triggered"
+        );
+
+        let agent_finished = !pipeline_active && matches!(
             task.agent_status.as_deref(),
             Some("completed") | Some("failed") | Some("cancelled") | Some("idle")
         );
