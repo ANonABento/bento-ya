@@ -1,8 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { AgentConfig, ProviderConfig } from '@/types/settings'
 import { detectSingleCli, checkCliUpdate, type DetectedCli, type CliUpdateInfo } from '@/lib/ipc'
-import { useModels } from '@/hooks/use-models'
+import { useModels, type ModelEntry } from '@/hooks/use-models'
+import { useWorkspaceUsage } from '@/hooks/use-workspace-usage'
+import { formatUsageCost, formatUsageTokens } from '@/lib/usage'
 import { SettingSection, SettingRow, SettingInput, SettingSlider } from '@/components/shared/setting-components'
 import { Dropdown } from '@/components/shared/dropdown'
 
@@ -62,6 +65,20 @@ export function AgentTab() {
     localStorage.setItem('agent-tab-coming-soon-collapsed', String(comingSoonCollapsed))
   }, [comingSoonCollapsed])
 
+  // Persist comparison-table collapsed state (default to collapsed)
+  const [comparisonCollapsed, setComparisonCollapsed] = useState(() => {
+    try {
+      const saved = localStorage.getItem('agent-tab-comparison-collapsed')
+      return saved === null ? true : saved === 'true'
+    } catch {
+      return true
+    }
+  })
+
+  useEffect(() => {
+    localStorage.setItem('agent-tab-comparison-collapsed', String(comparisonCollapsed))
+  }, [comparisonCollapsed])
+
   const updateAgent = (updates: Partial<AgentConfig>) => {
     updateGlobal('agent', { ...agent, ...updates })
   }
@@ -76,9 +93,36 @@ export function AgentTab() {
   // Get all available models from enabled providers, excluding disabled ones
   const enabledProviderIds = new Set(model.providers.filter((p) => p.enabled).map((p) => p.id))
   const disabledModelIds = new Set(model.disabledModels ?? [])
-  const availableModels = allModels
-    .filter((m) => enabledProviderIds.has(m.provider) && !disabledModelIds.has(m.id))
-    .map((m) => m.id)
+  const enabledModels: ModelEntry[] = allModels.filter(
+    (m) => enabledProviderIds.has(m.provider) && !disabledModelIds.has(m.id),
+  )
+  const availableModels = enabledModels.map((m) => m.id)
+
+  // Workspace usage for per-model stats in comparison table (only fetch when expanded)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const { records: usageRecords } = useWorkspaceUsage(activeWorkspaceId ?? '', {
+    limit: 500,
+    enabled: !comparisonCollapsed && !!activeWorkspaceId,
+  })
+
+  // Aggregate usage by model id (also match by alias so e.g. "claude-opus-4-7" records
+  // attribute to the same entry as the API/registry id when they differ).
+  const usageByModel = useMemo(() => {
+    const map = new Map<string, { cost: number; inputTokens: number; outputTokens: number; count: number }>()
+    for (const r of usageRecords) {
+      const existing = map.get(r.model) ?? { cost: 0, inputTokens: 0, outputTokens: 0, count: 0 }
+      existing.cost += r.costUsd
+      existing.inputTokens += r.inputTokens
+      existing.outputTokens += r.outputTokens
+      existing.count += 1
+      map.set(r.model, existing)
+    }
+    return map
+  }, [usageRecords])
+
+  const getModelUsage = (m: ModelEntry) => {
+    return usageByModel.get(m.id) ?? (m.alias ? usageByModel.get(m.alias) : undefined)
+  }
 
   // Toggle provider enabled state
   const handleToggleProvider = (providerId: string, enabled: boolean) => {
@@ -518,6 +562,137 @@ export function AgentTab() {
             )
           })}
         </div>
+      </SettingSection>
+
+      {/* Model Comparison */}
+      <SettingSection title="Model Comparison" border>
+        <button
+          onClick={() => { setComparisonCollapsed(!comparisonCollapsed) }}
+          className="flex w-full items-center justify-between mb-2 -mt-2"
+        >
+          <span className="text-xs text-text-secondary">
+            {comparisonCollapsed
+              ? `Compare ${String(enabledModels.length)} enabled models side-by-side`
+              : 'Hide comparison'}
+          </span>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className={`h-4 w-4 text-text-secondary transition-transform ${
+              comparisonCollapsed ? '' : 'rotate-180'
+            }`}
+          >
+            <path
+              fillRule="evenodd"
+              d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </button>
+        {!comparisonCollapsed && (
+          enabledModels.length === 0 ? (
+            <div className="rounded-lg border border-border-default bg-bg px-3 py-4 text-center text-xs text-text-secondary">
+              Enable a provider and at least one model to see the comparison.
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border-default bg-bg">
+              <table className="w-full min-w-[720px] text-xs">
+                <thead className="border-b border-border-default text-left text-text-secondary">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Model</th>
+                    <th className="px-3 py-2 font-medium">Context</th>
+                    <th className="px-3 py-2 font-medium">Max Out</th>
+                    <th className="px-3 py-2 text-right font-medium">In $/M</th>
+                    <th className="px-3 py-2 text-right font-medium">Out $/M</th>
+                    <th className="px-3 py-2 font-medium">Capabilities</th>
+                    <th className="px-3 py-2 text-right font-medium">Calls</th>
+                    <th className="px-3 py-2 text-right font-medium">Tokens</th>
+                    <th className="px-3 py-2 text-right font-medium">Spent</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-default">
+                  {enabledModels.map((m) => {
+                    const usage = getModelUsage(m)
+                    const totalTokens = usage ? usage.inputTokens + usage.outputTokens : 0
+                    return (
+                      <tr key={m.id} className="text-text-primary">
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                                m.tier === 'flagship'
+                                  ? 'bg-purple-400'
+                                  : m.tier === 'fast'
+                                    ? 'bg-green-400'
+                                    : 'bg-blue-400'
+                              }`}
+                              title={m.tier}
+                            />
+                            <div className="flex flex-col">
+                              <span className="font-medium">{m.displayName}</span>
+                              <span className="text-[10px] text-text-secondary">{m.provider}</span>
+                            </div>
+                            {m.alias && (
+                              <span className="rounded bg-surface-hover px-1 py-0.5 font-mono text-[10px] text-text-secondary">
+                                {m.alias}
+                              </span>
+                            )}
+                            {m.isNew && (
+                              <span className="rounded bg-accent/20 px-1 py-0.5 text-[10px] font-medium text-accent">
+                                New
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 text-text-secondary">
+                          {Math.round(m.contextWindow / 1000)}k
+                          {m.supportsExtendedContext && (
+                            <span className="ml-1 text-[10px] text-accent">+</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-text-secondary">
+                          {Math.round(m.maxOutputTokens / 1000)}k
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-text-secondary">
+                          {m.inputCostPerM !== null ? `$${m.inputCostPerM.toFixed(2)}` : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-text-secondary">
+                          {m.outputCostPerM !== null ? `$${m.outputCostPerM.toFixed(2)}` : '—'}
+                        </td>
+                        <td className="px-3 py-2">
+                          {m.capabilities.length === 0 ? (
+                            <span className="text-text-secondary">—</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {m.capabilities.map((cap) => (
+                                <span
+                                  key={cap}
+                                  className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] text-text-secondary"
+                                >
+                                  {cap}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right text-text-secondary">
+                          {usage ? usage.count : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right text-text-secondary">
+                          {usage ? formatUsageTokens(totalTokens) : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right text-accent">
+                          {usage ? formatUsageCost(usage.cost) : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        )}
       </SettingSection>
 
       {/* Coming Soon */}
