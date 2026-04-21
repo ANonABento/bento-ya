@@ -722,6 +722,73 @@ pub fn validate_task_dependencies(
     pipeline::dependencies::validate_dependencies(&conn, &task_id, &deps)
 }
 
+/// Reset a task back to Backlog after retries were exhausted.
+///
+/// Deletes the task's worktree, clears branch_name/worktree_path, resets
+/// retry_count to 0, sets an explanatory pipeline_error, and moves the task
+/// into the first column (Backlog) so the agent gets a clean slate on retry.
+pub fn reset_task_to_backlog(
+    conn: &rusqlite::Connection,
+    app: &AppHandle,
+    task_id: &str,
+) -> Result<Task, AppError> {
+    use crate::git::branch_manager;
+
+    let task = db::get_task(conn, task_id)?;
+
+    // Find the first column (Backlog) — columns are ordered by position.
+    let columns = db::list_columns(conn, &task.workspace_id)?;
+    let first_col = columns.into_iter().next().ok_or_else(|| {
+        AppError::NotFound(format!(
+            "No columns found in workspace {}",
+            task.workspace_id
+        ))
+    })?;
+
+    // retry_count doesn't include the initial attempt, so total attempts = retry_count + 1.
+    let attempts = task.retry_count + 1;
+
+    // Delete the worktree so the agent starts from a clean slate.
+    if task.worktree_path.is_some() {
+        if let Ok(workspace) = db::get_workspace(conn, &task.workspace_id) {
+            if !workspace.repo_path.is_empty() {
+                if let Err(e) = branch_manager::remove_task_worktree(&workspace.repo_path, task_id) {
+                    log::warn!(
+                        "[reset_task_to_backlog] Failed to remove worktree for task {}: {}",
+                        task_id, e
+                    );
+                }
+            }
+        }
+    }
+
+    let max_pos: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
+            rusqlite::params![first_col.id],
+            |row| row.get(0),
+        )
+        .unwrap_or(-1);
+
+    let error_msg = format!("Moved to Backlog after {} failed attempts", attempts);
+    let ts = db::now();
+
+    conn.execute(
+        "UPDATE tasks SET column_id = ?1, position = ?2, branch_name = NULL, worktree_path = NULL, retry_count = 0, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = ?3, updated_at = ?4 WHERE id = ?5",
+        rusqlite::params![first_col.id, max_pos + 1, error_msg, ts, task_id],
+    )
+    .map_err(AppError::from)?;
+
+    log::info!(
+        "[reset_task_to_backlog] Task {} reset to column '{}' after {} failed attempts",
+        task_id, first_col.name, attempts
+    );
+
+    pipeline::emit_tasks_changed(app, &task.workspace_id, "task_reset_to_backlog");
+
+    Ok(db::get_task(conn, task_id)?)
+}
+
 /// Retry a failed pipeline trigger
 /// Clears the error and re-fires the column trigger
 #[tauri::command(rename_all = "camelCase")]
