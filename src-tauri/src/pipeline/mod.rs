@@ -644,6 +644,53 @@ pub fn mark_complete_with_error(
 fn emit_completion_event(app: &AppHandle, task_id: &str, column_id: &str, workspace_id: &str, success: bool) {
     emit_pipeline(app, "pipeline:complete", task_id, column_id, PipelineState::Idle, Some(if success { "Success" } else { "Failed" }.to_string()));
     emit_tasks_changed(app, workspace_id, "pipeline_complete");
+
+    // Promote queued tasks now that a slot may have opened up
+    promote_queued_tasks(app, workspace_id);
+}
+
+/// Check if any tasks are queued (waiting for a concurrency slot) and promote
+/// the oldest one if there's capacity. Called after every task completion/failure.
+fn promote_queued_tasks(app: &AppHandle, workspace_id: &str) {
+    let conn = match Connection::open(db::db_path()) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("[pipeline] promote_queued_tasks: DB open failed: {}", e);
+            return;
+        }
+    };
+    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+
+    let running = db::get_running_agent_count(&conn, workspace_id).unwrap_or(0);
+    let max = triggers::DEFAULT_MAX_CONCURRENT_AGENTS;
+
+    if running >= max {
+        return; // Still at capacity
+    }
+
+    let queued = match db::get_queued_tasks(&conn, workspace_id) {
+        Ok(q) => q,
+        Err(_) => return,
+    };
+
+    if let Some(next) = queued.first() {
+        log::info!(
+            "[pipeline] Promoting queued task {} (slot opened: {}/{})",
+            next.id, running, max
+        );
+        // Clear queued status so the trigger can fire
+        let _ = db::update_task_agent_status(&conn, &next.id, Some("idle"), None);
+        // Re-fire the column's on_entry trigger
+        if let Ok(columns) = db::list_columns(&conn, workspace_id) {
+            if let Some(col) = columns.iter().find(|c| c.id == next.column_id) {
+                let parsed_triggers = triggers::parse_column_triggers(col.triggers.as_deref());
+                match triggers::fire_on_entry(&conn, app, &next, col, &parsed_triggers, None) {
+                    Ok(_) => log::info!("[pipeline] Queued task {} promoted successfully", next.id),
+                    Err(e) => log::warn!("[pipeline] Failed to promote queued task {}: {}", next.id, e),
+                }
+            }
+        }
+    }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────

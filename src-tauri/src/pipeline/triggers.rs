@@ -377,6 +377,9 @@ fn ensure_task_worktree(
 
 // ─── Per-Action Handlers ──────────────────────────────────────────────────
 
+/// Default max concurrent agents per workspace (when not configured in workspace settings).
+pub const DEFAULT_MAX_CONCURRENT_AGENTS: i64 = 3;
+
 fn execute_spawn_cli(
     conn: &Connection,
     app: &AppHandle,
@@ -391,6 +394,23 @@ fn execute_spawn_cli(
     model: Option<&str>,
 ) -> Result<Task, AppError> {
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
+
+    // ── Concurrency guard ──────────────────────────────────────────────
+    // Check how many agents are already running in this workspace.
+    // If at or above the limit, mark this task as queued instead of spawning.
+    let max_concurrent = DEFAULT_MAX_CONCURRENT_AGENTS;
+    let running_count = db::get_running_agent_count(conn, &task.workspace_id).unwrap_or(0);
+
+    if running_count >= max_concurrent {
+        log::info!(
+            "[triggers] Concurrency limit reached ({}/{}) — queuing task {} instead of spawning",
+            running_count, max_concurrent, task.id
+        );
+        let ts = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        db::update_task_agent_status(conn, &task.id, Some("queued"), Some(&ts))?;
+        super::emit_tasks_changed(app, &task.workspace_id, "task_queued_concurrency");
+        return Ok(task.clone());
+    }
 
     // Auto-create worktree for trigger-spawned agents to sandbox them
     let task = if task.worktree_path.is_none() && !workspace.repo_path.is_empty() {

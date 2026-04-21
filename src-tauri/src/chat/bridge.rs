@@ -456,6 +456,7 @@ pub fn spawn_cli_trigger_task(
                             &conn, &task.workspace_id,
                             Some(&task_id), session_id.as_deref(),
                             "anthropic", model_name, 0, 0, 0.0,
+                            Some(&column_name), duration_secs,
                         );
                         eprintln!("[bridge] Usage recorded: task={} column={} model={} duration={}s",
                             &task_id[..8], column_name, model_name, duration_secs);
