@@ -81,6 +81,23 @@ pub fn insert_task(
     get_task(conn, &id)
 }
 
+/// Move a task to the end of a column, resetting its pipeline state to idle.
+pub fn append_task_to_column(conn: &Connection, task_id: &str, column_id: &str) -> SqlResult<Task> {
+    let max_pos: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
+            params![column_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(-1);
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = NULL, updated_at = ?3 WHERE id = ?4",
+        params![column_id, max_pos + 1, ts, task_id],
+    )?;
+    get_task(conn, task_id)
+}
+
 pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
     conn.query_row(
         &format!("SELECT {} FROM tasks WHERE id = ?1", TASK_COLUMNS),
@@ -379,6 +396,23 @@ pub fn mark_task_notification_sent(conn: &Connection, id: &str) -> SqlResult<Tas
         params![ts, ts, id],
     )?;
     get_task(conn, id)
+}
+
+/// Get the next queued task in a workspace (lowest position, idle, in Backlog column)
+pub fn get_next_queued_task(conn: &Connection, workspace_id: &str) -> SqlResult<Option<Task>> {
+    let result = conn.query_row(
+        &format!(
+            "SELECT {} FROM tasks WHERE workspace_id = ?1 AND queued_at IS NOT NULL AND pipeline_state = 'idle' AND column_id IN (SELECT id FROM columns WHERE name = 'Backlog' AND workspace_id = ?1) ORDER BY position LIMIT 1",
+            TASK_COLUMNS
+        ),
+        params![workspace_id],
+        map_task_row,
+    );
+    match result {
+        Ok(task) => Ok(Some(task)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 /// Clear the notification sent timestamp

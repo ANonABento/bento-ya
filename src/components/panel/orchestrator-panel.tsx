@@ -5,7 +5,7 @@
  * - useChatSession for chat logic (send, cancel, queue, streaming)
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { listen } from '@tauri-apps/api/event'
 import { useUIStore } from '@/stores/ui-store'
@@ -15,15 +15,14 @@ import { useTaskStore } from '@/stores/task-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useOrchestratorSessions } from '@/hooks/use-orchestrator-sessions'
 import { useChatSession } from '@/hooks/chat-session'
+import { getChatHistory, type ChatMessage } from '@/lib/ipc'
 import { buildPromptWithAttachments } from '@/types'
 import { useCliPath } from '@/hooks/use-cli-path'
-import { useOrchestratorPanelLayout } from './use-orchestrator-panel-layout'
-import { useOrchestratorTaskRefresh } from './use-orchestrator-task-refresh'
 import { ChatHistory } from './chat-history'
 import { PanelSidebar } from './panel-sidebar'
 import { PipelineDashboard } from './pipeline-dashboard'
 import { ChatErrorBoundary } from './chat-error-boundary'
-import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapMessages, mapToolCalls } from './shared'
+import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls } from './shared'
 
 type OrchestratorPanelProps = {
   workspaceId: string
@@ -32,19 +31,18 @@ type OrchestratorPanelProps = {
 const COLLAPSED_HEIGHT = 40
 
 export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
+  // UI stores
+  const panelHeight = useUIStore((s) => s.panelHeight)
+  const panelWidth = useUIStore((s) => s.panelWidth)
+  const panelDock = useUIStore((s) => s.panelDock)
+  const isPanelCollapsed = useUIStore((s) => s.isPanelCollapsed)
+  const setPanelHeight = useUIStore((s) => s.setPanelHeight)
+  const setPanelWidth = useUIStore((s) => s.setPanelWidth)
+  const setPanelDock = useUIStore((s) => s.setPanelDock)
+  const togglePanel = useUIStore((s) => s.togglePanel)
   const loadTasks = useTaskStore((s) => s.load)
-  const {
-    panelRef,
-    isPanelCollapsed,
-    isRightDock,
-    isDragging,
-    displayHeight,
-    displayWidth,
-    setPanelDock,
-    togglePanel,
-    handleResizeMouseDown,
-    handleHeaderClick,
-  } = useOrchestratorPanelLayout()
+
+  const isRightDock = panelDock === 'right'
 
   // Get settings for LLM connection
   const settings = useSettingsStore((s) => s.global)
@@ -97,8 +95,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
   // Local UI state
   const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | 'dashboard' | null>(null)
-  const [isDragging, setIsDragging] = useState(false)
-  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | null>(null)
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -235,16 +231,17 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   }, [chat])
 
   const handleNewChat = useCallback(async () => {
-    if (chat.messages.length === 0) return
+    if (localMessages.length === 0) return
     try {
       if (activeSession) {
         await resetSession()
       }
       await createSession()
+      setLocalMessages([])
     } catch (err) {
       console.error('[OrchestratorPanel] Failed to create new chat:', err)
     }
-  }, [chat.messages.length, activeSession, resetSession, createSession])
+  }, [localMessages.length, activeSession, resetSession, createSession])
 
   const handleSelectSession = useCallback((session: typeof activeSession) => {
     if (!session) return
@@ -259,11 +256,10 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     }
   }, [deleteSession])
 
-  const isLoading = sessionsLoading || chat.isLoading
+  const displayHeight = isPanelCollapsed ? COLLAPSED_HEIGHT : (isRightDock ? undefined : panelHeight)
+  const displayWidth = isPanelCollapsed ? COLLAPSED_HEIGHT : (isRightDock ? panelWidth : undefined)
+  const isLoading = sessionsLoading || messagesLoading
   const isProcessing = chat.streaming.isStreaming
-  const historyMessages = activeSession
-    ? mapMessages(chat.messages, workspaceId, activeSession.id)
-    : []
 
   const toolCalls = mapToolCalls(chat.streaming.toolCalls, workspaceId)
 
@@ -363,7 +359,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             <button
               type="button"
               onClick={() => { void handleNewChat() }}
-              disabled={historyMessages.length === 0}
+              disabled={localMessages.length === 0}
               className="flex h-6 cursor-pointer items-center gap-1 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
@@ -475,7 +471,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   />
                 )}
                 <ChatHistory
-                  messages={historyMessages}
+                  messages={localMessages}
                   isLoading={isLoading}
                   streamingContent={chat.streaming.content}
                   processingStartTime={chat.streaming.startTime}
