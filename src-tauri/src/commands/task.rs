@@ -652,6 +652,63 @@ Return ONLY the JSON array, no other text."#,
     })
 }
 
+/// Queue N tasks from Backlog for sequential batch processing.
+/// Sets queued_at on the first N tasks, then moves the first one to Plan.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn queue_backlog(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    workspace_id: String,
+    count: i64,
+) -> Result<Vec<Task>, AppError> {
+    if count <= 0 {
+        return Err(AppError::InvalidInput("Count must be positive".to_string()));
+    }
+
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    // Find the Backlog column
+    let columns = db::list_columns(&conn, &workspace_id)?;
+    let backlog_column = columns.iter().find(|c| c.name == "Backlog")
+        .ok_or_else(|| AppError::InvalidInput("No 'Backlog' column found".to_string()))?;
+
+    // Get first N tasks from Backlog ordered by position
+    let backlog_tasks = db::list_tasks_by_column(&conn, &backlog_column.id)?;
+    let to_queue: Vec<&Task> = backlog_tasks.iter().take(count as usize).collect();
+
+    if to_queue.is_empty() {
+        return Err(AppError::InvalidInput("No tasks in Backlog to queue".to_string()));
+    }
+
+    // Set queued_at on each task
+    let ts = db::now();
+    let mut queued_tasks = Vec::new();
+    for task in &to_queue {
+        conn.execute(
+            "UPDATE tasks SET queued_at = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![ts, ts, task.id],
+        ).map_err(AppError::from)?;
+        queued_tasks.push(db::get_task(&conn, &task.id)?);
+    }
+
+    // Move the first task to Plan and fire trigger
+    let plan_column = columns.iter().find(|c| c.name == "Plan")
+        .ok_or_else(|| AppError::InvalidInput("No 'Plan' column found".to_string()))?;
+
+    let moved_task = db::append_task_to_column(&conn, &queued_tasks[0].id, &plan_column.id)
+        .map_err(AppError::from)?;
+
+    pipeline::emit_tasks_changed(&app, &workspace_id, "batch_queue_started");
+
+    // Fire the Plan trigger on the first task
+    pipeline::fire_trigger(&conn, &app, &moved_task, plan_column)?;
+
+    // Return all queued tasks: first task with its new column, rest unchanged
+    let mut result = queued_tasks;
+    result[0] = moved_task;
+    Ok(result)
+}
+
 /// Validate that task dependencies won't create a cycle
 #[tauri::command]
 pub fn validate_task_dependencies(
@@ -722,6 +779,62 @@ pub async fn retry_pipeline(
     // Re-fire the trigger
     let task = db::get_task(&conn, &task_id)?;
     let task = pipeline::fire_trigger(&conn, &app, &task, &column)?;
+
+    Ok(task)
+}
+
+/// Retry a task from the start of the pipeline
+/// Resets pipeline state, moves task to the first column, and fires its trigger.
+/// Cancels any running agent session first. Preserves existing worktree.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn retry_from_start(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    task_id: String,
+) -> Result<Task, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    // Cancel any running agent for this task
+    {
+        let task = db::get_task(&conn, &task_id)?;
+        if task.agent_status.as_deref() == Some("running") {
+            crate::chat::tmux_transport::cancel_task_agent(
+                &conn, &task_id, task.agent_session_id.as_deref(),
+            );
+        }
+    }
+
+    let task = db::get_task(&conn, &task_id)?;
+    let old_column_id = task.column_id.clone();
+
+    // Find the first column in this workspace
+    let columns = db::list_columns(&conn, &task.workspace_id)?;
+    let first_column = columns.into_iter().next()
+        .ok_or_else(|| AppError::InvalidInput("No columns found in workspace".into()))?;
+
+    let column_changed = old_column_id != first_column.id;
+
+    // Reset pipeline state and move to first column
+    let ts = db::now();
+    conn.execute(
+        "UPDATE tasks SET column_id = ?1, position = 0, pipeline_state = 'idle', \
+         pipeline_triggered_at = NULL, pipeline_error = NULL, retry_count = 0, \
+         review_status = NULL, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![first_column.id, ts, task_id],
+    ).map_err(AppError::from)?;
+
+    // Fire on_exit for old column if changed
+    if column_changed {
+        let old_column = db::get_column(&conn, &old_column_id)?;
+        let _ = pipeline::triggers::fire_on_exit(&conn, &app, &task, &old_column, Some(&first_column));
+    }
+
+    // Notify frontend
+    pipeline::emit_tasks_changed(&app, &task.workspace_id, "retry_from_start");
+
+    // Fire the first column's entry trigger
+    let task = db::get_task(&conn, &task_id)?;
+    let task = pipeline::fire_trigger(&conn, &app, &task, &first_column)?;
 
     Ok(task)
 }

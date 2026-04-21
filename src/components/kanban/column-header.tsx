@@ -1,7 +1,6 @@
 import { memo, useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { IconButton } from '@/components/shared/icon-button'
-import { shouldEnableColumnShortcuts } from './column-shortcuts'
 
 type ScriptTriggerInfo = {
   scriptName: string
@@ -16,8 +15,6 @@ type BatchQueueState = {
 type ColumnHeaderProps = {
   name: string
   icon: string
-  columnIndex: number
-  columnCount: number
   taskCount: number
   color: string
   scriptTrigger?: ScriptTriggerInfo
@@ -90,8 +87,6 @@ function getIcon(icon: string) {
 export const ColumnHeader = memo(function ColumnHeader({
   name,
   icon,
-  columnIndex,
-  columnCount,
   taskCount,
   color,
   scriptTrigger,
@@ -106,7 +101,6 @@ export const ColumnHeader = memo(function ColumnHeader({
   const [showMenu, setShowMenu] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
-  const showShortcutHint = shouldEnableColumnShortcuts(columnCount)
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -130,28 +124,8 @@ export const ColumnHeader = memo(function ColumnHeader({
   }
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2">
-      <span
-        className="flex h-5 w-5 items-center justify-center rounded text-text-secondary"
-        style={{ color: color || 'var(--accent)' }}
-      >
-        {getIcon(icon)}
-      </span>
-      <h3 className="flex min-w-0 items-center text-xs font-semibold uppercase tracking-wider text-text-secondary">
-        <span className="truncate">
-          {name}
-        </span>
-        {showShortcutHint && (
-          <kbd className="ml-1 rounded bg-muted/30 px-1 font-mono text-xs text-muted-foreground opacity-50">
-            {columnIndex + 1}
-          </kbd>
-        )}
-      </h3>
-      <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
-        {taskCount}
-      </span>
-
-      {scriptTrigger && (
+    <>
+      <div className="flex items-center gap-2 px-3 py-2">
         <span
           className="flex h-5 w-5 items-center justify-center rounded text-text-secondary"
           style={{ color: color || 'var(--accent)' }}
