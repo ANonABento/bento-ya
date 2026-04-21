@@ -211,7 +211,6 @@ fn build_trigger_command(cli_command: &str, args: &[String], initial_prompt: &st
             // codex needs `exec` subcommand for non-interactive mode
             cmd_parts.push("exec".to_string());
             cmd_parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
-            cmd_parts.push("--full-auto".to_string());
             cmd_parts.push("--skip-git-repo-check".to_string());
         }
         _ => {}
