@@ -288,9 +288,15 @@ pub fn run() {
 fn recover_tmux_sessions(app: tauri::AppHandle) {
     use chat::tmux_transport;
 
-    // Check tmux availability
+    // Check tmux availability and ensure server is configured
     match tmux_transport::check_tmux() {
-        Ok(version) => eprintln!("[startup] tmux available: {}", version),
+        Ok(version) => {
+            eprintln!("[startup] tmux available: {}", version);
+            // Ensure tmux server won't die when all sessions are killed
+            if let Err(e) = tmux_transport::ensure_tmux_server() {
+                eprintln!("[startup] tmux server setup failed: {}", e);
+            }
+        }
         Err(e) => {
             eprintln!("[startup] {}", e);
             return;

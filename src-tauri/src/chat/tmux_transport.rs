@@ -48,6 +48,41 @@ pub fn check_tmux() -> Result<String, String> {
         })
 }
 
+/// Ensure the tmux server is running and configured for pipeline use.
+/// Auto-starts a detached default session if needed, and sets exit-empty off
+/// so the server survives when all sessions are killed (e.g. by GC).
+pub fn ensure_tmux_server() -> Result<(), String> {
+    // Check if server is running
+    let check = Command::new("tmux")
+        .arg("list-sessions")
+        .output()
+        .map_err(|e| format!("tmux not found: {}", e))?;
+
+    if !check.status.success() {
+        let stderr = String::from_utf8_lossy(&check.stderr);
+        if stderr.contains("no server running") {
+            eprintln!("[tmux] Server not running — auto-starting");
+            let start = Command::new("tmux")
+                .args(["new-session", "-d", "-s", "default"])
+                .output()
+                .map_err(|e| format!("tmux server could not be started: {}", e))?;
+            if !start.status.success() {
+                return Err(format!("tmux auto-start failed: {}", String::from_utf8_lossy(&start.stderr)));
+            }
+            eprintln!("[tmux] Server auto-started successfully");
+        } else {
+            return Err(format!("tmux error: {}", stderr.trim()));
+        }
+    }
+
+    // Set exit-empty off so server survives when GC kills all sessions
+    let _ = Command::new("tmux")
+        .args(["set-option", "-s", "exit-empty", "off"])
+        .output();
+
+    Ok(())
+}
+
 /// List existing bentoya tmux sessions.
 /// Returns session names (e.g., ["bentoya_task-123", "bentoya_task-456"]).
 pub fn list_sessions() -> Vec<String> {
