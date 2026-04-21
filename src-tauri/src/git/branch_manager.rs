@@ -325,6 +325,67 @@ pub fn remove_task_worktree(repo_path: &str, task_id: &str) -> Result<(), String
     Ok(())
 }
 
+/// Clean a worktree of uncommitted changes before a pipeline retry.
+///
+/// - `git checkout -- .` discards changes to tracked files
+/// - `git clean -fd` removes untracked files and directories
+/// - `.task.md` is deleted so the next trigger writes a fresh plan
+///
+/// Committed work on the branch is preserved. Returns a short summary of what
+/// was cleaned for logging.
+pub fn clean_worktree(worktree_path: &str) -> Result<String, String> {
+    let path = std::path::Path::new(worktree_path);
+    if !path.exists() {
+        return Err(format!("Worktree path does not exist: {}", worktree_path));
+    }
+
+    let checkout = std::process::Command::new("git")
+        .args(["checkout", "--", "."])
+        .current_dir(path)
+        .output()
+        .map_err(|e| format!("Failed to run git checkout: {}", e))?;
+    if !checkout.status.success() {
+        let stderr = String::from_utf8_lossy(&checkout.stderr);
+        // An empty worktree (no tracked changes to restore) can exit non-zero
+        // with "did not match any file(s) known to git" — that's fine.
+        if !stderr.contains("did not match any file") {
+            return Err(format!("git checkout -- . failed: {}", stderr.trim()));
+        }
+    }
+
+    let clean = std::process::Command::new("git")
+        .args(["clean", "-fd"])
+        .current_dir(path)
+        .output()
+        .map_err(|e| format!("Failed to run git clean: {}", e))?;
+    if !clean.status.success() {
+        let stderr = String::from_utf8_lossy(&clean.stderr);
+        return Err(format!("git clean -fd failed: {}", stderr.trim()));
+    }
+    let removed = String::from_utf8_lossy(&clean.stdout).trim().to_string();
+
+    let task_md = path.join(".task.md");
+    let task_md_removed = if task_md.exists() {
+        std::fs::remove_file(&task_md)
+            .map_err(|e| format!("Failed to remove .task.md: {}", e))?;
+        true
+    } else {
+        false
+    };
+
+    let mut summary = Vec::new();
+    if !removed.is_empty() {
+        summary.push(format!("clean removed:\n{}", removed));
+    }
+    if task_md_removed {
+        summary.push(".task.md deleted".to_string());
+    }
+    if summary.is_empty() {
+        summary.push("no changes to clean".to_string());
+    }
+    Ok(summary.join("; "))
+}
+
 /// List all bentoya worktrees in a repo.
 pub fn list_worktrees(repo_path: &str) -> Result<Vec<String>, String> {
     let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
@@ -367,5 +428,72 @@ mod tests {
     #[test]
     fn test_slugify_hyphens() {
         assert_eq!(slugify("foo---bar"), "foo-bar");
+    }
+
+    /// Initialize a minimal git repo at `path` with one committed file so
+    /// `git checkout -- .` has a baseline to restore to.
+    #[cfg(test)]
+    fn init_test_repo(path: &std::path::Path) {
+        use std::process::Command;
+        Command::new("git").args(["init", "-q"]).current_dir(path).output().unwrap();
+        Command::new("git").args(["config", "user.email", "test@example.com"]).current_dir(path).output().unwrap();
+        Command::new("git").args(["config", "user.name", "Test"]).current_dir(path).output().unwrap();
+        Command::new("git").args(["config", "commit.gpgsign", "false"]).current_dir(path).output().unwrap();
+        std::fs::write(path.join("README.md"), "baseline\n").unwrap();
+        Command::new("git").args(["add", "."]).current_dir(path).output().unwrap();
+        Command::new("git").args(["commit", "-q", "-m", "init"]).current_dir(path).output().unwrap();
+    }
+
+    #[test]
+    fn test_clean_worktree_removes_dirty_state() {
+        let tmp = std::env::temp_dir().join(format!("bentoya-clean-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        init_test_repo(&tmp);
+
+        // Dirty the tracked file, add an untracked file, and write .task.md
+        std::fs::write(tmp.join("README.md"), "modified\n").unwrap();
+        std::fs::write(tmp.join("scratch.txt"), "untracked\n").unwrap();
+        std::fs::create_dir_all(tmp.join("build")).unwrap();
+        std::fs::write(tmp.join("build/out.bin"), "junk\n").unwrap();
+        std::fs::write(tmp.join(".task.md"), "old plan\n").unwrap();
+
+        let summary = clean_worktree(tmp.to_str().unwrap()).expect("clean_worktree failed");
+
+        // Tracked file restored
+        assert_eq!(std::fs::read_to_string(tmp.join("README.md")).unwrap(), "baseline\n");
+        // Untracked file and directory removed
+        assert!(!tmp.join("scratch.txt").exists());
+        assert!(!tmp.join("build").exists());
+        // .task.md removed
+        assert!(!tmp.join(".task.md").exists());
+        // Summary mentions what happened
+        assert!(summary.contains(".task.md"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_clean_worktree_on_clean_repo_is_noop() {
+        let tmp = std::env::temp_dir().join(format!("bentoya-clean-noop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        init_test_repo(&tmp);
+
+        let summary = clean_worktree(tmp.to_str().unwrap()).expect("clean_worktree failed");
+        assert!(summary.contains("no changes"));
+        assert_eq!(std::fs::read_to_string(tmp.join("README.md")).unwrap(), "baseline\n");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_clean_worktree_missing_path_errors() {
+        let missing = std::env::temp_dir().join("bentoya-definitely-not-there-xyz");
+        let _ = std::fs::remove_dir_all(&missing);
+        let err = clean_worktree(missing.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("does not exist"));
     }
 }
