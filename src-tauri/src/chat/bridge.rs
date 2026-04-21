@@ -293,6 +293,19 @@ pub fn spawn_cli_trigger_task(
                     // Spawn a fresh tmux session
                     reg.remove(&task_id);
 
+                    // Kill any stale tmux session left over from a dead agent.
+                    // Without this, `spawn()` would reattach to the zombie session
+                    // instead of creating a fresh one, causing trigger retries to fail.
+                    if tmux_transport::has_session(&task_id) {
+                        eprintln!(
+                            "[bridge] Killing stale tmux session {} before retry",
+                            tmux_name
+                        );
+                        if let Err(e) = tmux_transport::kill_session(&task_id) {
+                            eprintln!("[bridge] Failed to kill stale tmux session: {}", e);
+                        }
+                    }
+
                     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
                     let config = SessionConfig {
                         cli_path: shell,
