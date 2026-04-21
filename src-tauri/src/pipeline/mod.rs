@@ -566,6 +566,17 @@ pub fn mark_complete_with_error(
 
             // Try to auto-advance
             if let Some(advanced_task) = try_auto_advance(conn, app, &task, &column)? {
+                // Task advanced — start next queued task only when task reaches the PR
+                // column (or the final non-advancing column), not on every intermediate hop.
+                if task.queued_at.is_some() {
+                    if let Ok(new_col) = db::get_column(conn, &advanced_task.column_id) {
+                        let new_col_auto_advance = parse_trigger_field_bool(new_col.triggers.as_deref(), "auto_advance");
+                        if !new_col_auto_advance {
+                            // Task has reached a resting column (e.g. PR waiting for review)
+                            let _ = start_next_queued_task(conn, app, &task.workspace_id);
+                        }
+                    }
+                }
                 return Ok(advanced_task);
             }
 
@@ -574,6 +585,10 @@ pub fn mark_complete_with_error(
                 conn, task_id, PipelineState::Idle.as_str(), None, None,
             )?;
             emit_completion_event(app, task_id, &column.id, &task.workspace_id, true);
+            // Task completed pipeline — start next queued if this was a batch task
+            if task.queued_at.is_some() {
+                let _ = start_next_queued_task(conn, app, &task.workspace_id);
+            }
             Ok(updated_task)
         }
         CompletionAction::Complete => {
@@ -590,6 +605,9 @@ pub fn mark_complete_with_error(
                 conn, task_id, PipelineState::Idle.as_str(), None, None,
             )?;
             emit_completion_event(app, task_id, &column.id, &task.workspace_id, true);
+            if task.queued_at.is_some() {
+                let _ = start_next_queued_task(conn, app, &task.workspace_id);
+            }
             Ok(updated_task)
         }
         CompletionAction::Retry { attempt, max } => {
@@ -619,9 +637,54 @@ pub fn mark_complete_with_error(
                 conn, task_id, PipelineState::Idle.as_str(), None, Some(error_msg),
             )?;
             emit_completion_event(app, task_id, &column.id, &task.workspace_id, false);
+            // Task permanently failed — start next queued if this was a batch task
+            if task.queued_at.is_some() {
+                let _ = start_next_queued_task(conn, app, &task.workspace_id);
+            }
             Ok(updated_task)
         }
     }
+}
+
+/// Start the next queued task from the batch queue.
+/// Finds the next task with queued_at set in the Backlog column,
+/// moves it to the Plan column, and fires the Plan trigger.
+pub fn start_next_queued_task(
+    conn: &Connection,
+    app: &AppHandle,
+    workspace_id: &str,
+) -> Result<Option<Task>, AppError> {
+    let next_task = db::get_next_queued_task(conn, workspace_id)?;
+    let next_task = match next_task {
+        Some(t) => t,
+        None => {
+            log::info!("[pipeline] Batch queue complete — no more queued tasks in workspace {}", workspace_id);
+            return Ok(None);
+        }
+    };
+
+    // Find the Plan column
+    let columns = db::list_columns(conn, workspace_id)?;
+    let plan_column = columns.iter().find(|c| c.name == "Plan");
+    let plan_column = match plan_column {
+        Some(c) => c.clone(),
+        None => {
+            log::warn!("[pipeline] No 'Plan' column found in workspace {} — cannot auto-start next queued task", workspace_id);
+            return Ok(None);
+        }
+    };
+
+    // Move task to end of Plan column
+    let moved_task = db::append_task_to_column(conn, &next_task.id, &plan_column.id)?;
+
+    log::info!("[pipeline] Auto-starting queued task '{}' ({})", moved_task.title, moved_task.id);
+
+    emit_tasks_changed(app, workspace_id, "batch_queue_advance");
+
+    // Fire the Plan column trigger
+    let task = fire_trigger(conn, app, &moved_task, &plan_column)?;
+
+    Ok(Some(task))
 }
 
 fn emit_completion_event(app: &AppHandle, task_id: &str, column_id: &str, workspace_id: &str, success: bool) {

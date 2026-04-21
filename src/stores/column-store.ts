@@ -1,8 +1,7 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
-import type { Column, ColumnTriggers } from '@/types'
+import type { Column } from '@/types'
 import * as ipc from '@/lib/ipc'
-import { useWorkspaceStore } from './workspace-store'
 
 type ColumnUpdates = {
   name?: string
@@ -30,14 +29,6 @@ type ColumnState = {
   updateColumnAsync: (id: string, updates: ColumnUpdates) => Promise<void>
 }
 
-function parseTriggersSafely(triggers: string): ColumnTriggers | undefined {
-  try {
-    return JSON.parse(triggers) as ColumnTriggers
-  } catch {
-    return undefined
-  }
-}
-
 export const useColumnStore = create<ColumnState>()(
   devtools(
     (set, get) => ({
@@ -53,18 +44,14 @@ export const useColumnStore = create<ColumnState>()(
         const position = get().columns.length
         const column = await ipc.createColumn(workspaceId, name, position)
         set((s) => ({ columns: [...s.columns, column] }))
-        await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+        return column
       },
 
       remove: async (id) => {
         const prev = get().columns
-        const column = prev.find((c) => c.id === id)
         set((s) => ({ columns: s.columns.filter((c) => c.id !== id) }))
         try {
           await ipc.deleteColumn(id)
-          if (column) {
-            await useWorkspaceStore.getState().refreshWorkspace(column.workspaceId)
-          }
         } catch {
           set({ columns: prev })
         }
@@ -82,7 +69,6 @@ export const useColumnStore = create<ColumnState>()(
         }))
         try {
           await ipc.reorderColumns(workspaceId, ids)
-          await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
         } catch {
           set({ columns: prev })
         }
@@ -96,9 +82,6 @@ export const useColumnStore = create<ColumnState>()(
 
       updateColumnAsync: async (id, updates) => {
         const prev = get().columns
-        const parsedTriggers = updates.triggers !== undefined
-          ? parseTriggersSafely(updates.triggers)
-          : undefined
         // Optimistically update
         set((s) => ({
           columns: s.columns.map((c) =>
@@ -109,11 +92,9 @@ export const useColumnStore = create<ColumnState>()(
                   ...(updates.icon !== undefined && { icon: updates.icon }),
                   ...(updates.color !== undefined && { color: updates.color ?? '' }),
                   ...(updates.visible !== undefined && { visible: updates.visible }),
-                  ...(updates.triggers !== undefined && {
-                    triggers: JSON.parse(updates.triggers) as import('@/types').ColumnTriggers,
-                  }),
+                  ...(updates.triggers !== undefined && { triggers: JSON.parse(updates.triggers) as import('@/types').ColumnTriggers }),
                 }
-              : c,
+              : c
           ),
         }))
         try {
