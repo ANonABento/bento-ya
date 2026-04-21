@@ -614,6 +614,23 @@ pub fn mark_complete_with_error(
             fire_trigger(conn, app, &updated_task, &column)
         }
         CompletionAction::Failed => {
+            // If retries were exhausted (task was retried at least once), reset the task
+            // to the Backlog column for a clean-slate re-run instead of leaving it stuck.
+            if task.retry_count > 0 {
+                match crate::commands::task::reset_task_to_backlog(conn, app, task_id) {
+                    Ok(reset_task) => {
+                        emit_completion_event(app, task_id, &column.id, &task.workspace_id, false);
+                        return Ok(reset_task);
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "[pipeline] Failed to reset task {} to Backlog, falling back to idle+error: {}",
+                            task_id, e
+                        );
+                    }
+                }
+            }
+
             let error_msg = error_detail.unwrap_or("Execution failed");
             let updated_task = db::update_task_pipeline_state(
                 conn, task_id, PipelineState::Idle.as_str(), None, Some(error_msg),
