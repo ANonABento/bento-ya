@@ -282,6 +282,11 @@ pub fn spawn_cli_trigger_task(
         let tmux_name = tmux_session_name(&task_id);
 
         let result: Result<(), String> = async {
+            // Guard against a dead tmux server (e.g. killed overnight). All downstream
+            // tmux commands (send-keys, wait-for, etc.) fail with "no server running"
+            // otherwise. Auto-start a default session if needed.
+            tmux_transport::ensure_tmux_server()?;
+
             let registry: SharedSessionRegistry = app.state::<SharedSessionRegistry>().inner().clone();
 
             // Ensure a tmux-backed PTY session exists

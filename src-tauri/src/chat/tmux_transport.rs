@@ -48,6 +48,62 @@ pub fn check_tmux() -> Result<String, String> {
         })
 }
 
+/// Check if the tmux server is running (not just the binary available).
+/// Returns Ok(()) when the server responds, Err when it's down.
+fn check_tmux_server() -> Result<(), String> {
+    let output = Command::new("tmux")
+        .arg("list-sessions")
+        .output()
+        .map_err(|e| format!("tmux not found: {}", e))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("no server running") {
+        Err(format!("tmux server is not running: {}", stderr.trim()))
+    } else {
+        // list-sessions can fail for reasons other than no server (e.g. permissions).
+        // Treat only "no server running" as server-down — surface other errors as-is.
+        Err(format!("tmux list-sessions failed: {}", stderr.trim()))
+    }
+}
+
+/// Ensure the tmux server is running. If not, auto-start it with a default
+/// detached session. Returns a clear error if the server can't be started.
+///
+/// This guards against the tmux server dying (e.g. overnight) — without this,
+/// all spawn_cli triggers fail with "no server running on /tmp/tmux-<uid>/default".
+pub fn ensure_tmux_server() -> Result<(), String> {
+    if check_tmux_server().is_ok() {
+        return Ok(());
+    }
+
+    eprintln!("[tmux] Server not running — attempting auto-start");
+
+    let start = Command::new("tmux")
+        .args(["new-session", "-d", "-s", "default"])
+        .output()
+        .map_err(|e| format!("tmux server could not be started: {}", e))?;
+
+    if !start.status.success() {
+        let stderr = String::from_utf8_lossy(&start.stderr);
+        return Err(format!(
+            "tmux server could not be started: {}",
+            stderr.trim()
+        ));
+    }
+
+    match check_tmux_server() {
+        Ok(()) => {
+            eprintln!("[tmux] Server auto-started successfully");
+            Ok(())
+        }
+        Err(e) => Err(format!("tmux server could not be started: {}", e)),
+    }
+}
+
 /// List existing bentoya tmux sessions.
 /// Returns session names (e.g., ["bentoya_task-123", "bentoya_task-456"]).
 pub fn list_sessions() -> Vec<String> {
@@ -561,5 +617,14 @@ mod tests {
         assert!(!transport.is_alive());
         assert!(transport.pid().is_none());
         assert_eq!(transport.task_id, "test-task");
+    }
+
+    #[test]
+    fn test_ensure_tmux_server() {
+        // ensure_tmux_server should leave the server up whether it was up already
+        // or had to auto-start. Running this test should end with a live server.
+        let result = ensure_tmux_server();
+        assert!(result.is_ok(), "ensure_tmux_server failed: {:?}", result);
+        assert!(check_tmux_server().is_ok(), "server not up after ensure");
     }
 }
