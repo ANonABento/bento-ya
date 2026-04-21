@@ -28,6 +28,12 @@ const COMING_SOON = [
   { name: 'Local Models', description: 'Ollama, LM Studio, etc.' },
 ]
 
+const TIER_DOT_CLASS: Record<ModelEntry['tier'], string> = {
+  flagship: 'bg-purple-400',
+  fast: 'bg-green-400',
+  standard: 'bg-blue-400',
+}
+
 export function AgentTab() {
   const global = useSettingsStore((s) => s.global)
   const updateGlobal = useSettingsStore((s) => s.updateGlobal)
@@ -528,10 +534,7 @@ export function AgentTab() {
                                         enabled ? 'left-3.5' : 'left-0.5'
                                       }`} />
                                     </button>
-                                    <span className={`h-1.5 w-1.5 rounded-full ${
-                                      m.tier === 'flagship' ? 'bg-purple-400' :
-                                      m.tier === 'fast' ? 'bg-green-400' : 'bg-blue-400'
-                                    }`} />
+                                    <span className={`h-1.5 w-1.5 rounded-full ${TIER_DOT_CLASS[m.tier]}`} />
                                     <span className="text-xs font-medium text-text-primary">
                                       {m.displayName}
                                     </span>
@@ -620,13 +623,7 @@ export function AgentTab() {
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-2">
                             <span
-                              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                                m.tier === 'flagship'
-                                  ? 'bg-purple-400'
-                                  : m.tier === 'fast'
-                                    ? 'bg-green-400'
-                                    : 'bg-blue-400'
-                              }`}
+                              className={`h-1.5 w-1.5 shrink-0 rounded-full ${TIER_DOT_CLASS[m.tier]}`}
                               title={m.tier}
                             />
                             <div className="flex flex-col">
