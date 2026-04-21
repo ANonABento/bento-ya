@@ -200,11 +200,25 @@ async fn handle_bridge_event(
 /// Build the CLI command string for a trigger, handling CLI-specific prompt flags.
 fn build_trigger_command(cli_command: &str, args: &[String], initial_prompt: &str) -> String {
     let mut cmd_parts = vec![cli_command.to_string()];
+
+    // Add permission bypass flags per CLI so triggers run non-interactively
+    let cli_name = cli_command.rsplit('/').next().unwrap_or(cli_command);
+    match cli_name {
+        "claude" => {
+            cmd_parts.push("--dangerously-skip-permissions".to_string());
+        }
+        "codex" => {
+            cmd_parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
+            cmd_parts.push("--full-auto".to_string());
+            cmd_parts.push("--skip-git-repo-check".to_string());
+        }
+        _ => {}
+    }
+
     cmd_parts.extend(args.iter().cloned());
     if !initial_prompt.is_empty() {
         let escaped = initial_prompt.replace('\'', "'\\''");
         // claude CLI uses -p for prompt; codex/others take prompt as positional arg
-        let cli_name = cli_command.rsplit('/').next().unwrap_or(cli_command);
         if cli_name == "claude" {
             cmd_parts.push("-p".to_string());
         }
