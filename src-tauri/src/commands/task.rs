@@ -730,6 +730,41 @@ pub async fn retry_pipeline(
     state: State<'_, AppState>,
     task_id: String,
 ) -> Result<Task, AppError> {
+    use crate::git::branch_manager;
+
+    // Clean the worktree before re-firing so the new agent starts fresh.
+    // Done outside the DB lock — filesystem I/O can block.
+    let worktree_path = {
+        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let task = db::get_task(&conn, &task_id)?;
+        task.worktree_path.clone()
+    };
+
+    if let Some(wt) = worktree_path.as_deref() {
+        if !wt.is_empty() && std::path::Path::new(wt).exists() {
+            let wt_owned = wt.to_string();
+            let task_id_for_log = task_id.clone();
+            let clean_result = tokio::task::spawn_blocking(move || {
+                branch_manager::clean_worktree(&wt_owned)
+            })
+            .await
+            .map_err(|e| AppError::CommandError(e.to_string()))?;
+
+            match clean_result {
+                Ok(summary) => log::info!(
+                    "[pipeline] retry cleaned worktree for task {}: {}",
+                    task_id_for_log,
+                    summary
+                ),
+                Err(e) => log::warn!(
+                    "[pipeline] retry failed to clean worktree for task {}: {}",
+                    task_id_for_log,
+                    e
+                ),
+            }
+        }
+    }
+
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     // Get the task
