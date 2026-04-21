@@ -76,7 +76,7 @@ pub fn session_name(task_id: &str) -> String {
 }
 
 /// Check if a tmux session exists.
-fn has_session(task_id: &str) -> bool {
+pub fn has_session(task_id: &str) -> bool {
     Command::new("tmux")
         .args(["has-session", "-t", &session_name(task_id)])
         .output()
@@ -84,8 +84,8 @@ fn has_session(task_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Kill a tmux session.
-fn kill_session(task_id: &str) -> Result<(), String> {
+/// Kill a tmux session by task id.
+pub fn kill_session(task_id: &str) -> Result<(), String> {
     let output = Command::new("tmux")
         .args(["kill-session", "-t", &session_name(task_id)])
         .output()

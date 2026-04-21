@@ -229,6 +229,7 @@ mod tests {
             repo_path: "/test".to_string(),
             tab_order: 0,
             is_active: true,
+            active_task_count: 0,
             config: "{}".to_string(),
             created_at: String::new(),
             updated_at: String::new(),
