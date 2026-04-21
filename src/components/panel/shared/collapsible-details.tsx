@@ -32,7 +32,7 @@ export const CollapsibleDetails = memo(function CollapsibleDetails({
   // Build summary text
   const parts: string[] = []
   if (hasToolCalls) {
-    parts.push(`${toolCalls.length} tool${toolCalls.length > 1 ? 's' : ''}`)
+    parts.push(`${String(toolCalls.length)} tool${toolCalls.length > 1 ? 's' : ''}`)
   }
   if (duration > 0) {
     parts.push(`${duration.toFixed(1)}s`)
@@ -43,7 +43,7 @@ export const CollapsibleDetails = memo(function CollapsibleDetails({
     <div className="border-l-2 border-border-default pl-2 text-xs">
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => { setIsOpen(!isOpen) }}
         className="flex items-center gap-1.5 text-text-secondary hover:text-text-primary transition-colors w-full"
       >
         <svg

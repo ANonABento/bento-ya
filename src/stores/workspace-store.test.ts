@@ -11,6 +11,7 @@ const mockWorkspace: Workspace = {
   repoPath: '/path/to/repo',
   tabOrder: 0,
   isActive: true,
+  activeTaskCount: 0,
   config: '{}',
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
@@ -80,6 +81,28 @@ describe('workspace-store', () => {
       useWorkspaceStore.getState().setActive('ws-1')
 
       expect(useWorkspaceStore.getState().activeWorkspaceId).toBe('ws-1')
+    })
+  })
+
+  describe('refreshWorkspace', () => {
+    it('should replace the matching workspace with backend data', async () => {
+      useWorkspaceStore.setState({
+        workspaces: [
+          mockWorkspace,
+          { ...mockWorkspace, id: 'ws-2', name: 'Other Workspace', activeTaskCount: 1 },
+        ],
+        activeWorkspaceId: 'ws-1',
+      })
+      const refreshed = { ...mockWorkspace, name: 'Updated Workspace', activeTaskCount: 3 }
+      vi.mocked(invoke).mockResolvedValueOnce(refreshed)
+
+      await useWorkspaceStore.getState().refreshWorkspace('ws-1')
+
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith('get_workspace', { id: 'ws-1' })
+      expect(useWorkspaceStore.getState().workspaces).toEqual([
+        refreshed,
+        { ...mockWorkspace, id: 'ws-2', name: 'Other Workspace', activeTaskCount: 1 },
+      ])
     })
   })
 

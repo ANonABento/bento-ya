@@ -65,7 +65,9 @@ function InputPreview({ input }: { input: Record<string, unknown> }) {
   const entries = Object.entries(input)
   if (entries.length === 0) return null
 
-  const [key, value] = entries[0]!
+  const firstEntry = entries[0]
+  if (!firstEntry) return null
+  const [key, value] = firstEntry
   const preview = typeof value === 'string'
     ? value.length > 40 ? `${value.slice(0, 40)}...` : value
     : JSON.stringify(value).slice(0, 40)

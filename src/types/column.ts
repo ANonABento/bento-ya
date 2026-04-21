@@ -3,6 +3,7 @@
 export type ActionType = 'spawn_cli' | 'move_column' | 'trigger_task' | 'run_script' | 'create_pr' | 'none'
 
 export type CliType = 'claude' | 'codex' | 'aider'
+export type TriggerTaskActionType = 'move_column' | 'start' | 'unblock'
 
 export interface SpawnCliAction {
   type: 'spawn_cli'
@@ -37,7 +38,7 @@ export interface TriggerTaskAction {
   /** Task ID or template like {dependency.task_id} */
   target_task: string
   /** What to do to the target task */
-  action: 'move_column' | 'start' | 'unblock'
+  action: TriggerTaskActionType
   /** Target column for move_column action */
   target_column?: string
   /** Prompt to inject into target task */
@@ -131,24 +132,28 @@ export const DEFAULT_SPAWN_CLI: SpawnCliAction = {
   use_queue: true,
 }
 
+export function parseColumnTriggers(triggers: Column['triggers']): ColumnTriggers | null {
+  if (!triggers) return null
+
+  if (typeof triggers === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(triggers)
+      if (parsed && typeof parsed === 'object') {
+        return parsed as ColumnTriggers
+      }
+    } catch {
+      return null
+    }
+    return null
+  }
+
+  return triggers
+}
+
 /** Resolve V2 triggers from a column, with safe fallback.
  *  Handles both parsed objects and JSON strings (backend sends strings). */
 export function getColumnTriggers(column: Column): ColumnTriggers {
-  if (!column.triggers) return DEFAULT_TRIGGERS
-
-  // Backend sends triggers as a JSON string — parse if needed
-  let triggers: ColumnTriggers | null = null
-  if (typeof column.triggers === 'string') {
-    try {
-      const parsed: unknown = JSON.parse(column.triggers)
-      if (parsed && typeof parsed === 'object') {
-        triggers = parsed as ColumnTriggers
-      }
-    } catch { /* invalid JSON → use defaults */ }
-  } else {
-    triggers = column.triggers
-  }
-
+  const triggers = parseColumnTriggers(column.triggers)
   if (triggers && Object.keys(triggers).length > 0) {
     return triggers
   }

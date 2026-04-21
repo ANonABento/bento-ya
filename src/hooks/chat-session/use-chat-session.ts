@@ -66,7 +66,9 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
   const isProcessingRef = useRef(false)
   const unlistenRefs = useRef<UnlistenFn[]>([])
   const lastModelRef = useRef<string | null>(null)
+  const loadRequestIdRef = useRef(0)
   const messagesRef = useRef<UnifiedMessage[]>([])
+  const loadMessagesRef = useRef<() => Promise<void>>(async () => {})
   messagesRef.current = messages
 
   const onErrorRef = useRef(onError)
@@ -107,21 +109,39 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
   // ─── Load Messages ─────────────────────────────────────────────────────
 
   const loadMessages = useCallback(async () => {
-    if (!primaryId) return
+    const requestId = ++loadRequestIdRef.current
+    if (!primaryId) {
+      setMessages([])
+      setIsLoading(false)
+      return
+    }
+
+    setIsLoading(true)
+
     try {
+      let nextMessages: UnifiedMessage[] = []
       if (mode === 'agent' && taskId) {
         const agentMessages = await ipc.getAgentMessages(taskId)
-        setMessages(agentMessages.map(toUnifiedMessage))
+        nextMessages = agentMessages.map(toUnifiedMessage)
       } else if (mode === 'orchestrator' && sessionId) {
         const chatMessages = await ipc.getChatHistory(sessionId, 100)
-        setMessages(chatMessages.map(toUnifiedMessage))
+        nextMessages = chatMessages.map(toUnifiedMessage)
       }
+      if (requestId !== loadRequestIdRef.current) return
+      setMessages(nextMessages)
     } catch (err) {
+      if (requestId !== loadRequestIdRef.current) return
       onErrorRef.current?.(`Failed to load messages: ${getErrorMessage(err)}`)
     } finally {
-      setIsLoading(false)
+      if (requestId === loadRequestIdRef.current) {
+        setIsLoading(false)
+      }
     }
   }, [mode, primaryId, taskId, sessionId])
+
+  useEffect(() => {
+    loadMessagesRef.current = loadMessages
+  }, [loadMessages])
 
   useEffect(() => {
     void loadMessages()
@@ -168,8 +188,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
           if (payload.taskId !== taskId) return
           isProcessingRef.current = false
           setStreaming(INITIAL_STREAMING_STATE)
-          void ipc.getAgentMessages(taskId).then((msgs) => {
-            setMessages(msgs.map(toUnifiedMessage))
+          void loadMessagesRef.current().then(() => {
             onCompleteRef.current?.()
           })
         })
@@ -224,14 +243,11 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
 
         const unlistenComplete = await listen<OrchestratorEvent>('orchestrator:complete', (event) => {
           if (event.payload.workspaceId !== workspaceId) return
-          if (sessionId) {
-            void ipc.getChatHistory(sessionId, 100).then((msgs) => {
-              setMessages(msgs.map(toUnifiedMessage))
-              isProcessingRef.current = false
-              setStreaming(INITIAL_STREAMING_STATE)
-              onCompleteRef.current?.()
-            })
-          }
+          isProcessingRef.current = false
+          setStreaming(INITIAL_STREAMING_STATE)
+          void loadMessagesRef.current().then(() => {
+            onCompleteRef.current?.()
+          })
         })
         listeners.push(unlistenComplete)
 

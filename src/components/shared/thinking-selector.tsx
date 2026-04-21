@@ -6,6 +6,7 @@
 
 import { useState, useCallback } from 'react'
 import { SelectorDropdown, SelectorButton } from './selector-dropdown'
+import type { ThinkingLevel } from './thinking-utils'
 
 const THINKING_LEVELS = [
   { id: 'none', label: 'None', description: 'No extended thinking', cliValue: undefined },
@@ -15,13 +16,6 @@ const THINKING_LEVELS = [
 ] as const
 
 const LEVEL_ORDER = ['none', 'low', 'medium', 'high'] as const
-
-export type ThinkingLevel = (typeof THINKING_LEVELS)[number]['id']
-
-/** Map thinking level to CLI --effort value (undefined = omit flag) */
-export function thinkingToEffort(level: ThinkingLevel): string | undefined {
-  return THINKING_LEVELS.find((l) => l.id === level)?.cliValue
-}
 
 interface ThinkingSelectorProps {
   value: ThinkingLevel

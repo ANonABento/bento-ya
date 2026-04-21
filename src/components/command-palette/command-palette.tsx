@@ -330,7 +330,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
                               <kbd className="rounded bg-bg px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
                                 {key}
                               </kbd>
-                              {j < cmd.shortcut!.length - 1 && (
+                              {j < (cmd.shortcut?.length ?? 0) - 1 && (
                                 <span className="mx-0.5 text-[10px] text-text-secondary">+</span>
                               )}
                             </span>

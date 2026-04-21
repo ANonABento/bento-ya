@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { getColumnTriggers, DEFAULT_TRIGGERS } from '@/types/column'
+import { getColumnTriggers, DEFAULT_TRIGGERS, parseColumnTriggers } from '@/types/column'
 import type { Column } from '@/types/column'
 
 const createMockColumn = (triggers?: Column['triggers']): Column => ({
@@ -14,6 +16,11 @@ const createMockColumn = (triggers?: Column['triggers']): Column => ({
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
 })
+
+const sharedFixture = readFileSync(
+  join(process.cwd(), 'src/testing/fixtures/column-triggers-v2.json'),
+  'utf8',
+)
 
 describe('getColumnTriggers', () => {
   it('should return triggers when column has parsed triggers object', () => {
@@ -87,5 +94,29 @@ describe('getColumnTriggers', () => {
     expect(result.on_entry).toBeUndefined()
     expect(result.on_exit).toBeUndefined()
     expect(result.exit_criteria).toEqual({ type: 'agent_complete', auto_advance: true })
+  })
+
+  it('should parse the shared trigger contract fixture', () => {
+    const parsed = parseColumnTriggers(sharedFixture as unknown as Column['triggers'])
+
+    expect(parsed).toEqual({
+      on_entry: {
+        type: 'trigger_task',
+        target_task: 'task-123',
+        action: 'unblock',
+        inject_prompt: 'Resume after {task.title}',
+      },
+      on_exit: {
+        type: 'spawn_cli',
+        cli: 'claude',
+        command: '/start-task',
+        use_queue: true,
+      },
+      exit_criteria: {
+        type: 'agent_complete',
+        auto_advance: true,
+        max_retries: 2,
+      },
+    })
   })
 })

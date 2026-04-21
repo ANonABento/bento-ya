@@ -22,7 +22,7 @@ export function useTaskSync(workspaceId: string | null) {
 
     let cancelled = false
 
-    listen<TasksChangedPayload>('tasks:changed', (payload) => {
+    void listen<TasksChangedPayload>('tasks:changed', (payload) => {
       if (cancelled) return
       if (payload.workspaceId === workspaceId) {
         void loadTasks(workspaceId)

@@ -20,9 +20,16 @@ const PROVIDER_CLI_MAP: Record<string, string> = {
   openai: 'codex',
 }
 
+function persistDetectedCliPath(providerId: string, cliPath: string) {
+  const { global, updateGlobal } = useSettingsStore.getState()
+  const providers = global.model.providers.map((provider) =>
+    provider.id === providerId ? { ...provider, cliPath } : provider
+  )
+  updateGlobal('model', { ...global.model, providers })
+}
+
 export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
   const settings = useSettingsStore((s) => s.global)
-  const updateGlobal = useSettingsStore((s) => s.updateGlobal)
 
   const provider = settings.model.providers.find((p) => p.id === providerId)
   const cliId = PROVIDER_CLI_MAP[providerId] || providerId
@@ -39,18 +46,15 @@ export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
   const hasDetected = useRef(false)
 
   useEffect(() => {
+    setResolvedPath(configuredPath)
+    setDetectionError(null)
+    setIsDetecting(needsDetection)
+  }, [configuredPath, needsDetection])
+
+  useEffect(() => {
     // Reset detection state when provider changes
     hasDetected.current = false
   }, [providerId])
-
-  // Sync resolvedPath when configuredPath changes (e.g., after detection updates settings)
-  useEffect(() => {
-    if (configuredPath.includes('/')) {
-      setResolvedPath(configuredPath)
-      setDetectionError(null)
-      setIsDetecting(false)
-    }
-  }, [configuredPath])
 
   useEffect(() => {
     // Only auto-detect if path is just a binary name (no slashes)
@@ -61,35 +65,39 @@ export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
     // Don't re-detect if we already tried
     if (hasDetected.current) return
     hasDetected.current = true
+    let cancelled = false
 
     // Auto-detect the CLI path
     const detectPath = async () => {
-      setIsDetecting(true)
-      setDetectionError(null)
       try {
         const detected = await detectSingleCli(cliId)
         if (detected.isAvailable && detected.path) {
+          if (cancelled) return
           setResolvedPath(detected.path)
-          // Also update settings so this persists
-          const providers = settings.model.providers.map((p) =>
-            p.id === providerId ? { ...p, cliPath: detected.path } : p
-          )
-          updateGlobal('model', { ...settings.model, providers })
+          persistDetectedCliPath(providerId, detected.path)
         } else {
+          if (cancelled) return
           const cliName = cliId === 'claude' ? 'Claude' : cliId === 'codex' ? 'Codex' : cliId
           setDetectionError(`${cliName} CLI not found. Please install it or set the path in Settings > Agent.`)
           setResolvedPath(configuredPath) // Fallback to configured
         }
       } catch {
+        if (cancelled) return
         setDetectionError(`Failed to detect ${cliId} CLI`)
         setResolvedPath(configuredPath)
       } finally {
-        setIsDetecting(false)
+        if (!cancelled) {
+          setIsDetecting(false)
+        }
       }
     }
 
     void detectPath()
-  }, [configuredPath, cliId, providerId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    return () => {
+      cancelled = true
+    }
+  }, [configuredPath, cliId, providerId])
 
   return {
     cliPath: resolvedPath,
@@ -103,8 +111,7 @@ export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
  * Call this once at the app root to populate settings.
  */
 export function useAutoDetectClis(): { isDetecting: boolean } {
-  const settings = useSettingsStore((s) => s.global)
-  const updateGlobal = useSettingsStore((s) => s.updateGlobal)
+  const providers = useSettingsStore((s) => s.global.model.providers)
   const [isDetecting, setIsDetecting] = useState(false)
   const hasRun = useRef(false)
 
@@ -114,9 +121,8 @@ export function useAutoDetectClis(): { isDetecting: boolean } {
 
     const detectAll = async () => {
       setIsDetecting(true)
-      const updates: Array<{ providerId: string; path: string }> = []
 
-      for (const provider of settings.model.providers) {
+      for (const provider of providers) {
         const cliId = PROVIDER_CLI_MAP[provider.id]
         if (!cliId) continue
 
@@ -126,27 +132,18 @@ export function useAutoDetectClis(): { isDetecting: boolean } {
         try {
           const detected = await detectSingleCli(cliId)
           if (detected.isAvailable && detected.path) {
-            updates.push({ providerId: provider.id, path: detected.path })
+            persistDetectedCliPath(provider.id, detected.path)
           }
         } catch {
           // Detection failure is non-critical - CLI may not be installed
         }
       }
 
-      // Batch update all detected paths
-      if (updates.length > 0) {
-        const providers = settings.model.providers.map((p) => {
-          const update = updates.find((u) => u.providerId === p.id)
-          return update ? { ...p, cliPath: update.path } : p
-        })
-        updateGlobal('model', { ...settings.model, providers })
-      }
-
       setIsDetecting(false)
     }
 
     void detectAll()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [providers])
 
   return { isDetecting }
 }

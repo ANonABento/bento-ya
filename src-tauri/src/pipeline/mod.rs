@@ -312,7 +312,10 @@ pub fn evaluate_exit_criteria(
     task: &Task,
     column: &Column,
 ) -> Result<bool, AppError> {
-    let exit_type = parse_exit_type(column.triggers.as_deref());
+    let exit_type = triggers::parse_column_triggers(column.triggers.as_deref())
+        .exit_criteria
+        .map(|exit| exit.criteria_type)
+        .unwrap_or_default();
 
     // Set state to evaluating
     let _ = db::update_task_pipeline_state(
@@ -320,15 +323,15 @@ pub fn evaluate_exit_criteria(
         task.pipeline_triggered_at.as_deref(), None,
     );
 
-    emit_pipeline(app, "pipeline:evaluating", &task.id, &column.id, PipelineState::Evaluating, Some(format!("Exit type: {}", exit_type)));
+    emit_pipeline(app, "pipeline:evaluating", &task.id, &column.id, PipelineState::Evaluating, Some(format!("Exit type: {}", exit_type.as_str())));
 
     // Try pure check first, fall back to external checks
-    let exit_met = match check_exit_met(task, &exit_type) {
+    let exit_met = match check_exit_met(task, exit_type.as_str()) {
         Some(result) => result,
         None => {
             // Needs external resources — handle here
-            match exit_type.as_str() {
-                "agent_complete" => {
+            match exit_type {
+                triggers::ExitCriteriaTypeV2::AgentComplete => {
                     // Has session ID — needs DB lookup
                     if let Some(ref session_id) = task.agent_session_id {
                         match db::get_agent_session(conn, session_id) {
@@ -344,7 +347,7 @@ pub fn evaluate_exit_criteria(
                         false
                     }
                 }
-                "time_elapsed" => {
+                triggers::ExitCriteriaTypeV2::TimeElapsed => {
                     let timeout_secs = parse_trigger_field_u64(column.triggers.as_deref(), "timeout");
                     let timeout_secs = if timeout_secs == 0 { 300 } else { timeout_secs };
                     if let Some(ref triggered_at) = task.pipeline_triggered_at {
@@ -358,7 +361,7 @@ pub fn evaluate_exit_criteria(
                         false
                     }
                 }
-                "pr_approved" => {
+                triggers::ExitCriteriaTypeV2::PrApproved => {
                     if let Some(pr_number) = task.pr_number {
                         if let Ok(workspace) = db::get_workspace(conn, &task.workspace_id) {
                             let output = std::process::Command::new("gh")
@@ -384,7 +387,7 @@ pub fn evaluate_exit_criteria(
     };
 
     if exit_met {
-        emit_pipeline(app, "pipeline:exit_met", &task.id, &column.id, PipelineState::Evaluating, Some(format!("Exit criteria met: {}", exit_type)));
+        emit_pipeline(app, "pipeline:exit_met", &task.id, &column.id, PipelineState::Evaluating, Some(format!("Exit criteria met: {}", exit_type.as_str())));
     }
 
     // Reset state to running or idle
