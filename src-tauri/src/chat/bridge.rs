@@ -282,11 +282,6 @@ pub fn spawn_cli_trigger_task(
         let tmux_name = tmux_session_name(&task_id);
 
         let result: Result<(), String> = async {
-            // Guard against a dead tmux server (e.g. killed overnight). All downstream
-            // tmux commands (send-keys, wait-for, etc.) fail with "no server running"
-            // otherwise. Auto-start a default session if needed.
-            tmux_transport::ensure_tmux_server()?;
-
             let registry: SharedSessionRegistry = app.state::<SharedSessionRegistry>().inner().clone();
 
             // Ensure a tmux-backed PTY session exists
@@ -297,6 +292,19 @@ pub fn spawn_cli_trigger_task(
                 if !session_alive {
                     // Spawn a fresh tmux session
                     reg.remove(&task_id);
+
+                    // Kill any stale tmux session left over from a dead agent.
+                    // Without this, `spawn()` would reattach to the zombie session
+                    // instead of creating a fresh one, causing trigger retries to fail.
+                    if tmux_transport::has_session(&task_id) {
+                        eprintln!(
+                            "[bridge] Killing stale tmux session {} before retry",
+                            tmux_name
+                        );
+                        if let Err(e) = tmux_transport::kill_session(&task_id) {
+                            eprintln!("[bridge] Failed to kill stale tmux session: {}", e);
+                        }
+                    }
 
                     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
                     let config = SessionConfig {
