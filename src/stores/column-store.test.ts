@@ -255,5 +255,29 @@ describe('column-store', () => {
       expect(state.columns[0]!.icon).toBe('check')
       expect(state.columns[0]!.name).toBe('Name')
     })
+
+    it('should not throw when optimistic trigger parsing fails', async () => {
+      useColumnStore.setState({
+        columns: [createMockColumn({ id: 'col-1' })],
+        loaded: true,
+      })
+      const originalTriggers = useColumnStore.getState().columns[0]!.triggers
+      const updated = createMockColumn({
+        id: 'col-1',
+        triggers: {
+          on_entry: { type: 'move_column', target: 'next' },
+          on_exit: { type: 'none' },
+          exit_criteria: { type: 'manual', auto_advance: false },
+        },
+      })
+      mockIpc.updateColumn.mockResolvedValueOnce(updated)
+
+      await expect(
+        useColumnStore.getState().updateColumnAsync('col-1', { triggers: 'not valid json' }),
+      ).resolves.toBeUndefined()
+
+      expect(mockIpc.updateColumn).toHaveBeenCalledWith('col-1', { triggers: 'not valid json' })
+      expect(useColumnStore.getState().columns[0]!.triggers).not.toEqual(originalTriggers)
+    })
   })
 })

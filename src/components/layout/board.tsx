@@ -8,7 +8,11 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core'
-import { SortableContext, horizontalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -36,11 +40,22 @@ export function Board() {
   const tasks = useTaskStore((s) => s.tasks)
   const loadScripts = useScriptStore((s) => s.load)
 
-  const handleAddColumn = useCallback(() => {
+  const [newColumnId, setNewColumnId] = useState<string | null>(null)
+
+  const handleAddColumn = useCallback(async () => {
     if (!activeWorkspaceId) return
+
     const name = `Column ${String(columns.length + 1)}`
-    void addColumn(activeWorkspaceId, name)
+    try {
+      const col = await addColumn(activeWorkspaceId, name)
+      setNewColumnId(col.id)
+    } catch (error) {
+      console.error('[Board] Failed to add column:', error)
+    }
   }, [activeWorkspaceId, columns.length, addColumn])
+  const handleConfigOpened = useCallback(() => {
+    setNewColumnId(null)
+  }, [])
 
   const { registerCard, positions } = useCardPositionProvider()
   const { dragState, handlePointerDown: onDepDragStart } = useDepDrag(tasks, positions)
@@ -55,9 +70,7 @@ export function Board() {
     collapseTask()
   }, [closeChat, collapseTask])
 
-  const sortedColumns = columns
-    .filter((c) => c.visible)
-    .sort((a, b) => a.position - b.position)
+  const sortedColumns = columns.filter((c) => c.visible).sort((a, b) => a.position - b.position)
   const columnIds = sortedColumns.map((c) => c.id)
 
   const { activeItem, onDragStart, onDragOver, onDragEnd } = useDnd()
@@ -94,69 +107,90 @@ export function Board() {
 
   return (
     <CardPositionContext.Provider value={{ registerCard, positions }}>
-    <DepDragContext.Provider value={{ onDepDragStart, isDraggingDep: !!dragState, hoveredTaskId, setHoveredTaskId }}>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCorners}
-        onDragStart={(e) => { setHoveredTaskId(null); collapseTask(); onDragStart(e) }}
-        onDragOver={onDragOver}
-        onDragEnd={onDragEnd}
+      <DepDragContext.Provider
+        value={{ onDepDragStart, isDraggingDep: !!dragState, hoveredTaskId, setHoveredTaskId }}
       >
-        <div className="flex h-full" data-board-container>
-          {/* Board + orchestrator panel (left side, shrinks when task panel open) */}
-          <div className="flex flex-1 flex-col overflow-hidden">
-            <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
-              <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
-                {sortedColumns.map((col, index) => (
-                  <Column
-                    key={col.id}
-                    column={col}
-                    columnIndex={index}
-                    columnCount={sortedColumns.length}
-                    autoOpenConfig={col.id === newColumnId}
-                    onConfigOpened={() => { setNewColumnId(null) }}
-                  />
-                ))}
-              </SortableContext>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={(e) => {
+            setHoveredTaskId(null)
+            collapseTask()
+            onDragStart(e)
+          }}
+          onDragOver={onDragOver}
+          onDragEnd={onDragEnd}
+        >
+          <div className="flex h-full" data-board-container>
+            {/* Board + orchestrator panel (left side, shrinks when task panel open) */}
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
+                <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
+                  {sortedColumns.map((col, index) => (
+                    <Column
+                      key={col.id}
+                      column={col}
+                      columnIndex={index}
+                      columnCount={sortedColumns.length}
+                      autoOpenConfig={col.id === newColumnId}
+                      onConfigOpened={handleConfigOpened}
+                    />
+                  ))}
+                </SortableContext>
 
-              {/* Add column button */}
-              {!isChatOpen && (
-                <button
-                  onClick={handleAddColumn}
-                  className="group flex h-full w-[280px] min-w-[200px] shrink-0 flex-col items-center justify-center gap-2 border-r border-dashed border-border-default bg-surface/10 text-text-secondary/40 transition-all hover:border-accent/50 hover:bg-accent/10 hover:text-accent"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-8 w-8">
-                    <path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4M9 3v18M9 3h6m-6 18h6m0-18h4a2 2 0 0 1 2 2v6m-6-8v10" strokeLinecap="round"/>
-                    <path d="M19 15v3m0 3v-3m0 0h-3m3 0h3" strokeLinecap="round"/>
-                  </svg>
-                  <span className="text-xs font-medium">Add Column</span>
-                </button>
+                {/* Add column button */}
+                {!isChatOpen && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleAddColumn()
+                    }}
+                    className="group flex h-full w-[280px] min-w-[200px] shrink-0 flex-col items-center justify-center gap-2 border-r border-dashed border-border-default bg-surface/10 text-text-secondary/40 transition-all hover:border-accent/50 hover:bg-accent/10 hover:text-accent"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      className="h-8 w-8"
+                    >
+                      <path
+                        d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4M9 3v18M9 3h6m-6 18h6m0-18h4a2 2 0 0 1 2 2v6m-6-8v10"
+                        strokeLinecap="round"
+                      />
+                      <path d="M19 15v3m0 3v-3m0 0h-3m3 0h3" strokeLinecap="round" />
+                    </svg>
+                    <span className="text-xs font-medium">Add Column</span>
+                  </button>
+                )}
+
+                {/* Dependency lines overlay */}
+                <DependencyLines
+                  tasks={tasks}
+                  positions={positions}
+                  hoveredTaskId={hoveredTaskId}
+                />
+                {dragState && <DepDragPreview dragState={dragState} positions={positions} />}
+              </div>
+
+              {/* Orchestrator panel - bottom dock */}
+              {activeWorkspaceId && panelDock === 'bottom' && (
+                <OrchestratorPanel workspaceId={activeWorkspaceId} />
               )}
-
-              {/* Dependency lines overlay */}
-              <DependencyLines tasks={tasks} positions={positions} hoveredTaskId={hoveredTaskId} />
-              {dragState && <DepDragPreview dragState={dragState} positions={positions} />}
             </div>
 
-            {/* Orchestrator panel - bottom dock */}
-            {activeWorkspaceId && panelDock === 'bottom' && (
+            {/* Orchestrator panel - right dock */}
+            {activeWorkspaceId && panelDock === 'right' && (
               <OrchestratorPanel workspaceId={activeWorkspaceId} />
             )}
+
+            {/* Task side panel (slides in from right, board stays visible) */}
+            <TaskSidePanel taskId={activeTaskId} onClose={handleCloseAll} />
           </div>
-
-          {/* Orchestrator panel - right dock */}
-          {activeWorkspaceId && panelDock === 'right' && (
-            <OrchestratorPanel workspaceId={activeWorkspaceId} />
-          )}
-
-          {/* Task side panel (slides in from right, board stays visible) */}
-          <TaskSidePanel taskId={activeTaskId} onClose={handleCloseAll} />
-        </div>
-        <DragOverlay dropAnimation={null}>
-          {overlayContent}
-        </DragOverlay>
-      </DndContext>
-    </DepDragContext.Provider>
+          <DragOverlay dropAnimation={null}>{overlayContent}</DragOverlay>
+        </DndContext>
+      </DepDragContext.Provider>
     </CardPositionContext.Provider>
   )
 }

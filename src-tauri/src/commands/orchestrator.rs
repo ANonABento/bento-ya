@@ -5,20 +5,19 @@
 
 use std::collections::HashMap;
 
-use crate::chat::ChefSession;
 use crate::chat::events::{ChatEvent, ToolStatus};
 use crate::chat::registry::SharedSessionRegistry;
 use crate::chat::session::{SessionConfig, TransportType, UnifiedChatSession};
-use crate::db::{self, AppState, ChatMessage, ChatSession, OrchestratorSession, Column, Task};
+use crate::chat::ChefSession;
+use crate::db::{self, AppState, ChatMessage, ChatSession, Column, OrchestratorSession, Task};
 use crate::error::AppError;
-use crate::llm::{
-    AnthropicClient, calculate_cost, resolve_model_id,
-    build_cli_system_prompt, build_board_context, format_board_context_message,
-    orchestrator_tools, tools_to_api_format, execute_tools, parse_cli_action_blocks,
-};
 use crate::llm::types::{LlmRequest, Message};
-use tauri::{AppHandle, Emitter, State};
+use crate::llm::{
+    calculate_cost, execute_tools, orchestrator_tools, parse_cli_action_blocks, resolve_model_id,
+    tools_to_api_format, AnthropicClient,
+};
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::AbortHandle;
 
@@ -156,13 +155,16 @@ pub fn get_orchestrator_context(
     state: State<AppState>,
     workspace_id: String,
 ) -> Result<OrchestratorContext, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
     let workspace = db::get_workspace(&conn, &workspace_id)?;
     let columns = db::list_columns(&conn, &workspace_id)?;
     let tasks = db::list_tasks(&conn, &workspace_id)?;
     let recent_messages = db::list_chat_messages(&conn, &workspace_id, Some(20))?;
-    
+
     Ok(OrchestratorContext {
         workspace_id: workspace.id,
         workspace_name: workspace.name,
@@ -178,8 +180,14 @@ pub fn get_orchestrator_session(
     state: State<AppState>,
     workspace_id: String,
 ) -> Result<OrchestratorSession, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    Ok(db::get_or_create_orchestrator_session(&conn, &workspace_id)?)
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::get_or_create_orchestrator_session(
+        &conn,
+        &workspace_id,
+    )?)
 }
 
 /// List chat sessions for a workspace
@@ -188,7 +196,10 @@ pub fn list_chat_sessions(
     state: State<AppState>,
     workspace_id: String,
 ) -> Result<Vec<ChatSession>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::list_chat_sessions(&conn, &workspace_id)?)
 }
 
@@ -198,7 +209,10 @@ pub fn get_active_chat_session(
     state: State<AppState>,
     workspace_id: String,
 ) -> Result<ChatSession, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::get_or_create_active_session(&conn, &workspace_id)?)
 }
 
@@ -209,7 +223,10 @@ pub fn create_chat_session(
     workspace_id: String,
     title: Option<String>,
 ) -> Result<ChatSession, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     let title = title.unwrap_or_else(|| "New Chat".to_string());
     Ok(db::create_chat_session(&conn, &workspace_id, &title)?)
 }
@@ -223,7 +240,10 @@ pub async fn delete_chat_session(
 ) -> Result<(), AppError> {
     // Look up workspace_id from the session to build registry key
     let workspace_id = {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         db::get_chat_session(&conn, &session_id)
             .map(|s| s.workspace_id)
             .ok()
@@ -237,7 +257,10 @@ pub async fn delete_chat_session(
     }
 
     // Delete from database
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::delete_chat_session(&conn, &session_id)?;
     Ok(())
 }
@@ -249,17 +272,20 @@ pub fn get_chat_history(
     session_id: String,
     limit: Option<i64>,
 ) -> Result<Vec<ChatMessage>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::list_chat_messages(&conn, &session_id, limit)?)
 }
 
 /// Clear chat history for a session
 #[tauri::command]
-pub fn clear_chat_history(
-    state: State<AppState>,
-    session_id: String,
-) -> Result<(), AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+pub fn clear_chat_history(state: State<AppState>, session_id: String) -> Result<(), AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::delete_chat_messages(&conn, &session_id)?;
     Ok(())
 }
@@ -274,7 +300,10 @@ pub async fn reset_cli_session(
 ) -> Result<(), AppError> {
     // Look up workspace_id from the session to build registry key
     let workspace_id = {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         db::get_chat_session(&conn, &session_id)
             .map(|s| s.workspace_id)
             .ok()
@@ -291,7 +320,10 @@ pub async fn reset_cli_session(
 
     // Clear cli_session_id from database
     {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         let _ = db::update_chat_session_cli_id(&conn, &session_id, None);
     }
 
@@ -308,17 +340,26 @@ pub fn process_orchestrator_response(
     response_text: String,
     actions: Vec<OrchestratorAction>,
 ) -> Result<OrchestratorResponse, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     // Get active chat session
     let chat_session = db::get_or_create_active_session(&conn, &workspace_id)?;
 
     // Store assistant message
-    let _ = db::insert_chat_message(&conn, &workspace_id, &chat_session.id, "assistant", &response_text)?;
-    
+    let _ = db::insert_chat_message(
+        &conn,
+        &workspace_id,
+        &chat_session.id,
+        "assistant",
+        &response_text,
+    )?;
+
     // Process actions
     let mut tasks_created = Vec::new();
-    
+
     for action in &actions {
         match action.action_type.as_str() {
             "create_task" => {
@@ -350,18 +391,21 @@ pub fn process_orchestrator_response(
             _ => {}
         }
     }
-    
+
     // Update session status to idle
     let session = db::get_or_create_orchestrator_session(&conn, &workspace_id)?;
     let _ = db::update_orchestrator_session(&conn, &session.id, Some("idle"), None);
-    
+
     // Emit completion event
-    let _ = app.emit("orchestrator:complete", &OrchestratorEvent {
-        workspace_id: workspace_id.clone(),
-        event_type: "complete".to_string(),
-        message: Some(format!("Created {} task(s)", tasks_created.len())),
-    });
-    
+    let _ = app.emit(
+        "orchestrator:complete",
+        &OrchestratorEvent {
+            workspace_id: workspace_id.clone(),
+            event_type: "complete".to_string(),
+            message: Some(format!("Created {} task(s)", tasks_created.len())),
+        },
+    );
+
     Ok(OrchestratorResponse {
         message: response_text,
         actions: actions.clone(),
@@ -377,22 +421,34 @@ pub fn set_orchestrator_error(
     workspace_id: String,
     error_message: String,
 ) -> Result<OrchestratorSession, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
     let session = db::get_or_create_orchestrator_session(&conn, &workspace_id)?;
-    let updated = db::update_orchestrator_session(&conn, &session.id, Some("error"), Some(Some(&error_message)))?;
-    
+    let updated = db::update_orchestrator_session(
+        &conn,
+        &session.id,
+        Some("error"),
+        Some(Some(&error_message)),
+    )?;
+
     // Emit error event
-    let _ = app.emit("orchestrator:error", &OrchestratorEvent {
-        workspace_id,
-        event_type: "error".to_string(),
-        message: Some(error_message),
-    });
+    let _ = app.emit(
+        "orchestrator:error",
+        &OrchestratorEvent {
+            workspace_id,
+            event_type: "error".to_string(),
+            message: Some(error_message),
+        },
+    );
 
     Ok(updated)
 }
 
 /// Stream a chat message to the LLM and emit chunks
+#[allow(clippy::too_many_arguments)]
 #[tauri::command(rename_all = "camelCase")]
 pub async fn stream_orchestrator_chat(
     app: AppHandle,
@@ -412,7 +468,10 @@ pub async fn stream_orchestrator_chat(
 
     // Store user message and get history
     let (history, orch_session_id, actual_session_id, cli_session_id) = {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
         // Verify session exists, or fall back to active session
         let chat_session = match db::get_chat_session(&conn, &session_id) {
@@ -451,11 +510,14 @@ pub async fn stream_orchestrator_chat(
     };
 
     // Emit processing event
-    let _ = app.emit("orchestrator:processing", &OrchestratorEvent {
-        workspace_id: workspace_id.clone(),
-        event_type: "processing".to_string(),
-        message: Some(message.clone()),
-    });
+    let _ = app.emit(
+        "orchestrator:processing",
+        &OrchestratorEvent {
+            workspace_id: workspace_id.clone(),
+            event_type: "processing".to_string(),
+            message: Some(message.clone()),
+        },
+    );
 
     // Handle based on connection mode
     let result = match connection_mode.as_str() {
@@ -464,7 +526,12 @@ pub async fn stream_orchestrator_chat(
             let env_var_name = api_key_env_var.as_deref().unwrap_or("ANTHROPIC_API_KEY");
             let api_key = api_key
                 .or_else(|| std::env::var(env_var_name).ok())
-                .ok_or_else(|| AppError::InvalidInput(format!("No API key provided and {} not set", env_var_name)))?;
+                .ok_or_else(|| {
+                    AppError::InvalidInput(format!(
+                        "No API key provided and {} not set",
+                        env_var_name
+                    ))
+                })?;
 
             stream_via_api(
                 app.clone(),
@@ -476,7 +543,8 @@ pub async fn stream_orchestrator_chat(
                 &api_key,
                 &model,
                 history,
-            ).await
+            )
+            .await
         }
         "cli" => {
             let cli = cli_path.clone().unwrap_or_else(|| "claude".to_string());
@@ -491,11 +559,13 @@ pub async fn stream_orchestrator_chat(
                 &model,
                 &message,
                 cli_session_id.as_deref(),
-            ).await
+            )
+            .await
         }
-        _ => {
-            Err(AppError::InvalidInput(format!("Unknown connection mode: {}", connection_mode)))
-        }
+        _ => Err(AppError::InvalidInput(format!(
+            "Unknown connection mode: {}",
+            connection_mode
+        ))),
     };
 
     if let Err(err) = &result {
@@ -510,11 +580,14 @@ pub async fn stream_orchestrator_chat(
             );
         }
 
-        let _ = app.emit("orchestrator:error", &OrchestratorEvent {
-            workspace_id,
-            event_type: "error".to_string(),
-            message: Some(error_message),
-        });
+        let _ = app.emit(
+            "orchestrator:error",
+            &OrchestratorEvent {
+                workspace_id,
+                event_type: "error".to_string(),
+                message: Some(error_message),
+            },
+        );
     }
 
     result
@@ -545,21 +618,28 @@ pub async fn cancel_orchestrator_chat(
 
     // Update orchestrator session to idle
     {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         let session = db::get_or_create_orchestrator_session(&conn, &workspace_id)?;
         let _ = db::update_orchestrator_session(&conn, &session.id, Some("idle"), None);
     }
 
     // Emit cancelled event
-    let _ = app.emit("orchestrator:complete", &OrchestratorEvent {
-        workspace_id: workspace_id.clone(),
-        event_type: "cancelled".to_string(),
-        message: Some("Request cancelled".to_string()),
-    });
+    let _ = app.emit(
+        "orchestrator:complete",
+        &OrchestratorEvent {
+            workspace_id: workspace_id.clone(),
+            event_type: "cancelled".to_string(),
+            message: Some("Request cancelled".to_string()),
+        },
+    );
 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn stream_via_api(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -586,7 +666,10 @@ async fn stream_via_api(
 
     // Get workspace context for system prompt
     let (workspace, columns, tasks) = {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         let workspace = db::get_workspace(&conn, workspace_id)?;
         let columns = db::list_columns(&conn, workspace_id)?;
         let tasks = db::list_tasks(&conn, workspace_id)?;
@@ -642,9 +725,7 @@ async fn stream_via_api(
     let workspace_id_clone = workspace_id.to_string();
     let mut pending_tool_calls: HashMap<String, (String, serde_json::Value)> = HashMap::new();
 
-    let stream_handle = tokio::spawn(async move {
-        client.stream_chat(request, tx).await
-    });
+    let stream_handle = tokio::spawn(async move { client.stream_chat(request, tx).await });
     let stream_registry_key = api_stream_key(workspace_id, session_id);
     api_stream_registry
         .insert(stream_registry_key.clone(), stream_handle.abort_handle())
@@ -655,14 +736,17 @@ async fn stream_via_api(
         let tool_use_payload = chunk.tool_use.as_ref().map(|tu| {
             pending_tool_calls.insert(tu.id.clone(), (tu.name.clone(), tu.input.clone()));
 
-            let _ = app_clone.emit("orchestrator:tool_call", &ToolCallPayload {
-                workspace_id: workspace_id_clone.clone(),
-                tool_id: tu.id.clone(),
-                tool_name: tu.name.clone(),
-                status: "running".to_string(),
-                input: Some(tu.input.clone()),
-                result: None,
-            });
+            let _ = app_clone.emit(
+                "orchestrator:tool_call",
+                &ToolCallPayload {
+                    workspace_id: workspace_id_clone.clone(),
+                    tool_id: tu.id.clone(),
+                    tool_name: tu.name.clone(),
+                    status: "running".to_string(),
+                    input: Some(tu.input.clone()),
+                    result: None,
+                },
+            );
 
             ToolUsePayload {
                 id: tu.id.clone(),
@@ -671,12 +755,15 @@ async fn stream_via_api(
             }
         });
 
-        let _ = app_clone.emit("orchestrator:stream", &StreamChunkPayload {
-            workspace_id: workspace_id_clone.clone(),
-            delta: chunk.delta,
-            finish_reason: chunk.finish_reason.clone(),
-            tool_use: tool_use_payload,
-        });
+        let _ = app_clone.emit(
+            "orchestrator:stream",
+            &StreamChunkPayload {
+                workspace_id: workspace_id_clone.clone(),
+                delta: chunk.delta,
+                finish_reason: chunk.finish_reason.clone(),
+                tool_use: tool_use_payload,
+            },
+        );
     }
 
     // Wait for streaming to complete and get response
@@ -684,22 +771,32 @@ async fn stream_via_api(
     let response = match stream_handle.await {
         Ok(result) => result.map_err(AppError::DatabaseError)?,
         Err(err) if err.is_cancelled() => return Ok(()),
-        Err(err) => return Err(AppError::DatabaseError(format!("Stream task failed: {}", err))),
+        Err(err) => {
+            return Err(AppError::DatabaseError(format!(
+                "Stream task failed: {}",
+                err
+            )))
+        }
     };
 
     // Execute any tool calls
     let mut tool_results_summary = String::new();
     if !response.tool_uses.is_empty() {
-        let tool_uses: Vec<crate::llm::ToolUse> = response.tool_uses.iter().map(|tu| {
-            crate::llm::ToolUse {
+        let tool_uses: Vec<crate::llm::ToolUse> = response
+            .tool_uses
+            .iter()
+            .map(|tu| crate::llm::ToolUse {
                 id: tu.id.clone(),
                 name: tu.name.clone(),
                 input: tu.input.clone(),
-            }
-        }).collect();
+            })
+            .collect();
 
         let execution_result = {
-            let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            let conn = state
+                .db
+                .lock()
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
             execute_tools(&conn, &app, workspace_id, &tool_uses, &columns)?
         };
 
@@ -710,21 +807,31 @@ async fn stream_via_api(
                 .cloned()
                 .unwrap_or_else(|| ("unknown".to_string(), serde_json::Value::Null));
 
-            let _ = app.emit("orchestrator:tool_result", &ToolResultPayload {
-                workspace_id: workspace_id.to_string(),
-                tool_use_id: result.tool_use_id.clone(),
-                result: result.content.clone(),
-                is_error: result.is_error,
-            });
+            let _ = app.emit(
+                "orchestrator:tool_result",
+                &ToolResultPayload {
+                    workspace_id: workspace_id.to_string(),
+                    tool_use_id: result.tool_use_id.clone(),
+                    result: result.content.clone(),
+                    is_error: result.is_error,
+                },
+            );
 
-            let _ = app.emit("orchestrator:tool_call", &ToolCallPayload {
-                workspace_id: workspace_id.to_string(),
-                tool_id: result.tool_use_id.clone(),
-                tool_name,
-                status: if result.is_error { "error" } else { "complete" }.to_string(),
-                input: if tool_input.is_null() { None } else { Some(tool_input) },
-                result: Some(result.content.clone()),
-            });
+            let _ = app.emit(
+                "orchestrator:tool_call",
+                &ToolCallPayload {
+                    workspace_id: workspace_id.to_string(),
+                    tool_id: result.tool_use_id.clone(),
+                    tool_name,
+                    status: if result.is_error { "error" } else { "complete" }.to_string(),
+                    input: if tool_input.is_null() {
+                        None
+                    } else {
+                        Some(tool_input)
+                    },
+                    result: Some(result.content.clone()),
+                },
+            );
         }
 
         tool_results_summary = execution_result.summary;
@@ -741,10 +848,19 @@ async fn stream_via_api(
 
     // Store assistant message and usage
     {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
         // Store assistant response
-        let assistant_msg = db::insert_chat_message(&conn, workspace_id, session_id, "assistant", &assistant_content)?;
+        let assistant_msg = db::insert_chat_message(
+            &conn,
+            workspace_id,
+            session_id,
+            "assistant",
+            &assistant_content,
+        )?;
 
         // Record usage (use original alias for cost lookup since model info uses aliases)
         let cost = calculate_cost(model, &response.usage);
@@ -764,59 +880,17 @@ async fn stream_via_api(
         let _ = db::update_orchestrator_session(&conn, orch_session_id, Some("idle"), None);
 
         // Emit complete event
-        let _ = app.emit("orchestrator:complete", &OrchestratorEvent {
-            workspace_id: workspace_id.to_string(),
-            event_type: "complete".to_string(),
-            message: Some(assistant_msg.id),
-        });
+        let _ = app.emit(
+            "orchestrator:complete",
+            &OrchestratorEvent {
+                workspace_id: workspace_id.to_string(),
+                event_type: "complete".to_string(),
+                message: Some(assistant_msg.id),
+            },
+        );
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{api_stream_key, ApiStreamRegistry};
-
-    #[test]
-    fn test_api_stream_key() {
-        assert_eq!(api_stream_key("ws-1", "session-1"), "chef-api:ws-1:session-1");
-    }
-
-    #[tokio::test]
-    async fn test_api_stream_registry_abort() {
-        let registry = ApiStreamRegistry::default();
-        let handle = tokio::spawn(async {
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-        });
-
-        registry.insert("stream-1".to_string(), handle.abort_handle()).await;
-        assert_eq!(registry.len().await, 1);
-
-        assert!(registry.abort("stream-1").await);
-        assert_eq!(registry.len().await, 0);
-        assert!(handle.await.unwrap_err().is_cancelled());
-    }
-
-    #[tokio::test]
-    async fn test_api_stream_registry_replaces_existing_handle() {
-        let registry = ApiStreamRegistry::default();
-        let first = tokio::spawn(async {
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-        });
-        let second = tokio::spawn(async {
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-        });
-
-        registry.insert("stream-1".to_string(), first.abort_handle()).await;
-        registry.insert("stream-1".to_string(), second.abort_handle()).await;
-
-        assert_eq!(registry.len().await, 1);
-        assert!(first.await.unwrap_err().is_cancelled());
-
-        assert!(registry.abort("stream-1").await);
-        assert!(second.await.unwrap_err().is_cancelled());
-    }
 }
 
 /// Stream orchestrator chat via unified CLI session.
@@ -824,6 +898,7 @@ mod tests {
 /// Replaces the old `stream_via_cli` which used `CliSessionManager`.
 /// Uses `UnifiedChatSession` from the `SessionRegistry` with board
 /// context injection and retry logic for stale resume IDs.
+#[allow(clippy::too_many_arguments)]
 async fn stream_via_unified_cli(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -849,6 +924,7 @@ async fn stream_via_unified_cli(
             working_dir: None,
             effort_level: None,
         };
+        let prompt_builder = ChefSession::new_cli(workspace_id.to_string(), config.clone());
 
         // Get or create session
         if !registry.has(&registry_key) {
@@ -877,19 +953,19 @@ async fn stream_via_unified_cli(
 
         // Build system prompt + board context, then send
         let (workspace, columns, tasks) = {
-            let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            let conn = state
+                .db
+                .lock()
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
             let workspace = db::get_workspace(&conn, workspace_id)?;
             let columns = db::list_columns(&conn, workspace_id)?;
             let tasks = db::list_tasks(&conn, workspace_id)?;
             (workspace, columns, tasks)
         };
 
-        let system_prompt = build_cli_system_prompt(&workspace, &columns, &tasks);
+        let system_prompt = prompt_builder.build_system_prompt(&workspace, &columns, &tasks);
         session.set_system_prompt(system_prompt);
-
-        let board_context = build_board_context(&workspace, &columns, &tasks);
-        let board_context_msg = format_board_context_message(&board_context);
-        let full_message = format!("{}\n\n{}", board_context_msg, message);
+        let full_message = prompt_builder.augment_message(message, &workspace, &columns, &tasks);
 
         // Forward events to frontend
         let ws_id = workspace_id.to_string();
@@ -905,12 +981,17 @@ async fn stream_via_unified_cli(
             Ok((response, sid)) => {
                 // Check for empty response (stale resume)
                 if response.is_empty() {
-                    log::warn!("Empty CLI response — likely stale --resume, retrying without resume");
+                    log::warn!(
+                        "Empty CLI response — likely stale --resume, retrying without resume"
+                    );
                     session.set_resume_id(None);
 
                     // Clear stale cli_session_id from DB
                     {
-                        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+                        let conn = state
+                            .db
+                            .lock()
+                            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
                         let _ = db::update_chat_session_cli_id(&conn, session_id, None);
                     }
 
@@ -922,7 +1003,7 @@ async fn stream_via_unified_cli(
                             emit_orchestrator_cli_event(&app_retry, &ws_id2, event);
                         })
                         .await
-                        .map_err(|e| AppError::InvalidInput(e))?
+                        .map_err(AppError::InvalidInput)?
                 } else {
                     (response, sid)
                 }
@@ -939,20 +1020,26 @@ async fn stream_via_unified_cli(
                         emit_orchestrator_cli_event(&app_retry, &ws_id2, event);
                     })
                     .await
-                    .map_err(|e| AppError::InvalidInput(e))?
+                    .map_err(AppError::InvalidInput)?
             }
         }
     };
 
     // Save cli_session_id to database
     if let Some(cli_sid) = &captured_cli_session_id {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         let _ = db::update_chat_session_cli_id(&conn, session_id, Some(cli_sid));
     }
 
     // Parse action blocks and execute tools
     {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         let tool_uses = parse_cli_action_blocks(&full_response);
 
         if !tool_uses.is_empty() {
@@ -963,21 +1050,27 @@ async fn stream_via_unified_cli(
                         if tool_result.is_error {
                             log::warn!("CLI action error: {}", tool_result.content);
                         }
-                        let _ = app.emit("orchestrator:tool_result", &ToolResultPayload {
-                            workspace_id: workspace_id.to_string(),
-                            tool_use_id: tool_result.tool_use_id.clone(),
-                            result: tool_result.content.clone(),
-                            is_error: tool_result.is_error,
-                        });
+                        let _ = app.emit(
+                            "orchestrator:tool_result",
+                            &ToolResultPayload {
+                                workspace_id: workspace_id.to_string(),
+                                tool_use_id: tool_result.tool_use_id.clone(),
+                                result: tool_result.content.clone(),
+                                is_error: tool_result.is_error,
+                            },
+                        );
                     }
                 }
                 Err(e) => {
                     log::error!("CLI action execution failed: {}", e);
-                    let _ = app.emit("orchestrator:error", &OrchestratorEvent {
-                        workspace_id: workspace_id.to_string(),
-                        event_type: "warning".to_string(),
-                        message: Some(format!("Action execution failed: {}", e)),
-                    });
+                    let _ = app.emit(
+                        "orchestrator:error",
+                        &OrchestratorEvent {
+                            workspace_id: workspace_id.to_string(),
+                            event_type: "warning".to_string(),
+                            message: Some(format!("Action execution failed: {}", e)),
+                        },
+                    );
                 }
             }
         }
@@ -985,15 +1078,22 @@ async fn stream_via_unified_cli(
 
     // Store assistant message and emit completion
     {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-        let assistant_msg = db::insert_chat_message(&conn, workspace_id, session_id, "assistant", &full_response)?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let assistant_msg =
+            db::insert_chat_message(&conn, workspace_id, session_id, "assistant", &full_response)?;
         let _ = db::update_orchestrator_session(&conn, orch_session_id, Some("idle"), None);
 
-        let _ = app.emit("orchestrator:complete", &OrchestratorEvent {
-            workspace_id: workspace_id.to_string(),
-            event_type: "complete".to_string(),
-            message: Some(assistant_msg.id.clone()),
-        });
+        let _ = app.emit(
+            "orchestrator:complete",
+            &OrchestratorEvent {
+                workspace_id: workspace_id.to_string(),
+                event_type: "complete".to_string(),
+                message: Some(assistant_msg.id.clone()),
+            },
+        );
     }
 
     // Emit finish event (empty delta with finish_reason)
@@ -1024,7 +1124,10 @@ fn emit_orchestrator_cli_event(app: &AppHandle, workspace_id: &str, event: ChatE
                 },
             );
         }
-        ChatEvent::ThinkingContent { content, is_complete } => {
+        ChatEvent::ThinkingContent {
+            content,
+            is_complete,
+        } => {
             let _ = app.emit(
                 "orchestrator:thinking",
                 &ThinkingPayload {
@@ -1034,7 +1137,9 @@ fn emit_orchestrator_cli_event(app: &AppHandle, workspace_id: &str, event: ChatE
                 },
             );
         }
-        ChatEvent::ToolUse { id, name, status, .. } => {
+        ChatEvent::ToolUse {
+            id, name, status, ..
+        } => {
             let status_str = match status {
                 ToolStatus::Running => "running",
                 ToolStatus::Complete => "complete",
@@ -1051,6 +1156,63 @@ fn emit_orchestrator_cli_event(app: &AppHandle, workspace_id: &str, event: ChatE
                 },
             );
         }
-        ChatEvent::Complete | ChatEvent::SessionId(_) | ChatEvent::RawOutput(_) | ChatEvent::Unknown => {}
+        ChatEvent::Complete
+        | ChatEvent::SessionId(_)
+        | ChatEvent::RawOutput(_)
+        | ChatEvent::Unknown => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{api_stream_key, ApiStreamRegistry};
+
+    #[test]
+    fn test_api_stream_key() {
+        assert_eq!(
+            api_stream_key("ws-1", "session-1"),
+            "chef-api:ws-1:session-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_api_stream_registry_abort() {
+        let registry = ApiStreamRegistry::default();
+        let handle = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        });
+
+        registry
+            .insert("stream-1".to_string(), handle.abort_handle())
+            .await;
+        assert_eq!(registry.len().await, 1);
+
+        assert!(registry.abort("stream-1").await);
+        assert_eq!(registry.len().await, 0);
+        assert!(handle.await.unwrap_err().is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn test_api_stream_registry_replaces_existing_handle() {
+        let registry = ApiStreamRegistry::default();
+        let first = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        });
+        let second = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        });
+
+        registry
+            .insert("stream-1".to_string(), first.abort_handle())
+            .await;
+        registry
+            .insert("stream-1".to_string(), second.abort_handle())
+            .await;
+
+        assert_eq!(registry.len().await, 1);
+        assert!(first.await.unwrap_err().is_cancelled());
+
+        assert!(registry.abort("stream-1").await);
+        assert!(second.await.unwrap_err().is_cancelled());
     }
 }

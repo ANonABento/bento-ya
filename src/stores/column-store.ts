@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { Column } from '@/types'
+import { parseColumnTriggers } from '@/types/column'
 import * as ipc from '@/lib/ipc'
 import { useWorkspaceStore } from './workspace-store'
 
@@ -89,6 +90,11 @@ export const useColumnStore = create<ColumnState>()(
 
       updateColumnAsync: async (id, updates) => {
         const prev = get().columns
+        const optimisticTriggers =
+          updates.triggers !== undefined
+            ? parseColumnTriggers(updates.triggers as Column['triggers'])
+            : undefined
+
         // Optimistically update
         set((s) => ({
           columns: s.columns.map((c) =>
@@ -99,6 +105,7 @@ export const useColumnStore = create<ColumnState>()(
                   ...(updates.icon !== undefined && { icon: updates.icon }),
                   ...(updates.color !== undefined && { color: updates.color ?? '' }),
                   ...(updates.visible !== undefined && { visible: updates.visible }),
+                  ...(optimisticTriggers && { triggers: optimisticTriggers }),
                 }
               : c,
           ),
