@@ -121,6 +121,10 @@ pub fn has_session(task_id: &str) -> bool {
 
 /// Kill a tmux session by task id.
 pub fn kill_session(task_id: &str) -> Result<(), String> {
+    // Log the caller's stack context
+    eprintln!("[tmux] kill_session called for task {} (session: {})", task_id, session_name(task_id));
+    // Capture backtrace for debugging
+    eprintln!("[tmux] kill_session backtrace: {:?}", std::backtrace::Backtrace::force_capture());
     let output = Command::new("tmux")
         .args(["kill-session", "-t", &session_name(task_id)])
         .output()
@@ -473,15 +477,18 @@ impl ChatTransport for TmuxTransport {
     }
 
     fn kill(&mut self) -> Result<(), String> {
+        eprintln!("[tmux-transport] kill() called for task {} (owns_session={})", self.task_id, self.owns_session);
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.try_send(());
         }
         // Kill the attach process
         if let Some(pid) = self.attach_pid {
+            eprintln!("[tmux-transport] Killing attach PID {} for task {}", pid, self.task_id);
             unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM); }
         }
         // Kill the tmux session if we own it
         if self.owns_session {
+            eprintln!("[tmux-transport] Killing owned session for task {}", self.task_id);
             let _ = kill_session(&self.task_id);
         }
         self.pty = None;

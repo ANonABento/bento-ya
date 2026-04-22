@@ -129,6 +129,7 @@ impl SessionRegistry {
     /// Remove a session, caching its scrollback before killing.
     /// Also cancels any associated bridge.
     pub fn remove(&mut self, key: &str) -> Option<UnifiedChatSession> {
+        eprintln!("[registry] remove() called for key: {}", key);
         // Cancel associated bridge
         self.cancel_bridge(key);
 

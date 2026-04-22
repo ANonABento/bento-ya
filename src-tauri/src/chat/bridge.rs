@@ -288,176 +288,64 @@ pub fn spawn_cli_trigger_task(
     tokio::spawn(async move {
         let start_time = std::time::Instant::now();
         let full_cmd = build_trigger_command(&cli_command, &args, &initial_prompt);
-        let nonce = gen_nonce();
-        let wait_channel = format!("bywait_{}", nonce);
-        let exit_file = {
-            let data_dir = crate::db::data_dir();
-            format!("{}/exit_{}", data_dir.display(), nonce)
-        };
-        let tmux_name = tmux_session_name(&task_id);
+        let log_file = format!("{}/trigger_{}.log", crate::db::data_dir().display(), gen_nonce());
 
         let result: Result<(), String> = async {
-            // Guard against dead tmux server (e.g. killed by GC or overnight)
-            tmux_transport::ensure_tmux_server()?;
+            // ── Direct process execution (no tmux) ─────────────────────
+            // Pipeline triggers run as direct child processes. No tmux,
+            // no PTY bridge, no attach process. This eliminates SIGHUP
+            // from terminal disconnects and idle sweep kills.
 
-            let registry: SharedSessionRegistry = app.state::<SharedSessionRegistry>().inner().clone();
-
-            // Ensure a tmux-backed PTY session exists
-            {
-                let mut reg = registry.lock().await;
-                let session_alive = reg.get(&task_id).map(|s| s.is_alive()).unwrap_or(false);
-
-                if !session_alive {
-                    // Spawn a fresh tmux session
-                    reg.remove(&task_id);
-
-                    // Kill any stale tmux session left over from a dead agent.
-                    // Without this, `spawn()` would reattach to the zombie session
-                    // instead of creating a fresh one, causing trigger retries to fail.
-                    if tmux_transport::has_session(&task_id) {
-                        eprintln!(
-                            "[bridge] Killing stale tmux session {} before retry",
-                            tmux_name
-                        );
-                        if let Err(e) = tmux_transport::kill_session(&task_id) {
-                            eprintln!("[bridge] Failed to kill stale tmux session: {}", e);
-                        }
-                    }
-
-                    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-                    let config = SessionConfig {
-                        cli_path: shell,
-                        model: String::new(),
-                        system_prompt: String::new(),
-                        working_dir: Some(working_dir.clone()),
-                        effort_level: None,
-                    };
-
-                    let session = reg
-                        .get_or_create(&task_id, config, TransportType::Pty)
-                        .map_err(|e| e.to_string())?;
-
-                    let _mpsc_rx = session.start_pty(120, 40)?;
-
-                    // Start managed bridge
-                    if let Some(rx) = session.resubscribe() {
-                        let bridge = ManagedBridge::start(app.clone(), task_id.clone(), rx);
-                        reg.set_bridge(&task_id, bridge);
-                    }
-                }
-
-                // Ensure bridge is running for existing sessions too
-                let needs_bridge = !reg.has_active_bridge(&task_id);
-                if needs_bridge {
-                    let rx = reg.get(&task_id).and_then(|s| s.resubscribe());
-                    if let Some(rx) = rx {
-                        let bridge = ManagedBridge::start(app.clone(), task_id.clone(), rx);
-                        reg.set_bridge(&task_id, bridge);
-                    }
-                }
-
-                // Update PID in agent session record
-                if let Some(ref sid) = session_id {
-                    if let Some(pid) = reg.get(&task_id).and_then(|s| s.pid()) {
-                        if let Ok(conn) = Connection::open(db::db_path()) {
-                            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-                            let _ = db::update_agent_session(
-                                &conn, sid,
-                                Some(Some(pid as i64)), None, None, None, None, None,
-                            );
-                        }
-                    }
-                }
-            }
-            // Registry lock released
-
-            // Write a wrapper script instead of pasting the full command into tmux.
-            // This avoids shell escaping issues, input buffer overflow, and ensures
-            // the completion chain (exit code + wait-for) always executes even if
-            // the CLI does unexpected things to the shell.
-            let script_path = format!("{}/trigger_{}.sh", crate::db::data_dir().display(), nonce);
-            let log_file = format!("{}/trigger_{}.log", crate::db::data_dir().display(), nonce);
-            let script_content = format!(
-                "#!/bin/bash\nexec > '{}' 2>&1\nset -x\necho \"SCRIPT START $(date)\"\necho \"PID=$$\"\ncd '{}'\n{}\nexit_code=$?\necho \"SCRIPT DONE exit=$exit_code $(date)\"\necho $exit_code > '{}'\ntmux wait-for -S '{}'\necho \"WAIT-FOR SIGNALED\"\n",
-                log_file,
-                working_dir.replace('\'', "'\\''"),
-                full_cmd,
-                exit_file,
-                wait_channel,
-            );
-
-            tokio::fs::write(&script_path, &script_content)
-                .await
-                .map_err(|e| format!("Failed to write trigger script: {}", e))?;
-
-            // Make executable
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = tokio::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755)).await;
-            }
-
-            eprintln!("[bridge] Injecting trigger script for task {}: {}", task_id, script_path);
+            eprintln!("[bridge] Spawning direct process for task {}", task_id);
             eprintln!("[bridge] CLI command: {}", full_cmd);
+            eprintln!("[bridge] Working dir: {}", working_dir);
 
-            // Send the short script invocation to tmux (not the full command)
-            let invoke_cmd = format!("bash '{}'", script_path);
-            let send_output = tokio::process::Command::new("tmux")
-                .args(["send-keys", "-t", &tmux_name, "-l", &invoke_cmd])
-                .output()
-                .await
-                .map_err(|e| format!("tmux send-keys failed: {}", e))?;
+            // Open log file for stdout/stderr capture
+            let log_out = std::fs::File::create(&log_file)
+                .map_err(|e| format!("Failed to create log file: {}", e))?;
+            let log_err = log_out.try_clone()
+                .map_err(|e| format!("Failed to clone log file: {}", e))?;
 
-            if !send_output.status.success() {
-                let stderr = String::from_utf8_lossy(&send_output.stderr);
-                let _ = tokio::fs::remove_file(&script_path).await;
-                return Err(format!("tmux send-keys error: {}", stderr.trim()));
+            // Build the command — use shell to handle the full command string
+            // (which includes pipes, semicolons, quotes from build_trigger_command)
+            let mut child = tokio::process::Command::new("bash")
+                .args(["-c", &full_cmd])
+                .current_dir(&working_dir)
+                .stdout(log_out)
+                .stderr(log_err)
+                .stdin(std::process::Stdio::null())
+                .spawn()
+                .map_err(|e| format!("Failed to spawn CLI process: {}", e))?;
+
+            let child_pid = child.id().unwrap_or(0);
+            eprintln!("[bridge] Process spawned for task {}: PID {}", task_id, child_pid);
+
+            // Update PID in agent session record
+            if let Some(ref sid) = session_id {
+                if let Ok(conn) = Connection::open(db::db_path()) {
+                    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                    let _ = db::update_agent_session(
+                        &conn, sid,
+                        Some(Some(child_pid as i64)), None, None, None, None, None,
+                    );
+                }
             }
 
-            // Send Enter separately (not literal)
-            let enter_output = tokio::process::Command::new("tmux")
-                .args(["send-keys", "-t", &tmux_name, "Enter"])
-                .output()
-                .await
-                .map_err(|e| format!("tmux send-keys failed: {}", e))?;
-
-            if !enter_output.status.success() {
-                let stderr = String::from_utf8_lossy(&enter_output.stderr);
-                let _ = tokio::fs::remove_file(&script_path).await;
-                return Err(format!("tmux send-keys Enter error: {}", stderr.trim()));
-            }
-
-            // Wait for command completion via tmux wait-for (blocks until signaled)
-            // Timeout after 2 hours to prevent permanently stuck tasks
-            eprintln!("[bridge] Waiting for completion via tmux wait-for: {}", wait_channel);
-
-            let wait_future = tokio::process::Command::new("tmux")
-                .args(["wait-for", &wait_channel])
-                .output();
-
-            let wait_output = tokio::time::timeout(
-                std::time::Duration::from_secs(7200), // 2 hour max
-                wait_future,
+            // Wait for process to complete with 2-hour timeout
+            let status = tokio::time::timeout(
+                std::time::Duration::from_secs(7200),
+                child.wait(),
             )
             .await
-            .map_err(|_| format!("Trigger timed out after 2 hours for task {}", task_id))?
-            .map_err(|e| format!("tmux wait-for failed: {}", e))?;
+            .map_err(|_| {
+                // Kill the process on timeout
+                let _ = child.start_kill();
+                format!("Trigger timed out after 2 hours for task {}", task_id)
+            })?
+            .map_err(|e| format!("Process wait failed: {}", e))?;
 
-            if !wait_output.status.success() {
-                let stderr = String::from_utf8_lossy(&wait_output.stderr);
-                return Err(format!("tmux wait-for error: {}", stderr.trim()));
-            }
-
-            // Read exit code from temp file
-            let exit_code = tokio::fs::read_to_string(&exit_file)
-                .await
-                .ok()
-                .and_then(|s| s.trim().parse::<i32>().ok())
-                .unwrap_or(1); // Default to failure if can't read
-
-            // Clean up temp files (exit file + trigger script)
-            let _ = tokio::fs::remove_file(&exit_file).await;
-            let _ = tokio::fs::remove_file(&script_path).await;
+            let exit_code = status.code().unwrap_or(1);
+            let _ = tokio::fs::remove_file(&log_file).await;
 
             let success = exit_code == 0;
             eprintln!("[bridge] Trigger completed for task {}: exit_code={}, success={}", task_id, exit_code, success);
@@ -547,8 +435,8 @@ pub fn spawn_cli_trigger_task(
             }
             pipeline::emit_tasks_changed(&app, "", "trigger_failed");
 
-            // Clean up temp file on error too
-            let _ = tokio::fs::remove_file(&exit_file).await;
+            // Clean up log file on error too
+            let _ = tokio::fs::remove_file(&log_file).await;
         }
     });
 }
