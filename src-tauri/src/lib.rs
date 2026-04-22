@@ -21,6 +21,7 @@ pub mod whisper;
 use commands::voice::RecorderState;
 use db::AppState;
 use chat::registry::{new_shared_session_registry, start_idle_sweep};
+use commands::orchestrator::ApiStreamRegistry;
 use tauri::Manager;
 #[cfg(feature = "voice")]
 use whisper::AudioRecorder;
@@ -61,6 +62,7 @@ pub fn run() {
     };
 
     let session_registry = new_shared_session_registry();
+    let api_stream_registry = ApiStreamRegistry::default();
     #[cfg(feature = "voice")]
     let recorder_state = RecorderState(Mutex::new(AudioRecorder::new()));
 
@@ -73,7 +75,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(state)
-        .manage(session_registry);
+        .manage(session_registry)
+        .manage(api_stream_registry);
 
     #[cfg(feature = "webdriver")]
     {

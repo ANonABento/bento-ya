@@ -19,7 +19,8 @@ use crate::llm::{
 use crate::llm::types::{LlmRequest, Message};
 use tauri::{AppHandle, Emitter, State};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
+use tokio::task::AbortHandle;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -107,6 +108,44 @@ pub struct ToolCallPayload {
     pub input: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,
+}
+
+/// Tracks abort handles for in-flight API orchestrator streams so cancel can stop them.
+#[derive(Default)]
+pub struct ApiStreamRegistry {
+    handles: Mutex<HashMap<String, AbortHandle>>,
+}
+
+impl ApiStreamRegistry {
+    async fn insert(&self, key: String, handle: AbortHandle) {
+        let mut handles = self.handles.lock().await;
+        if let Some(previous) = handles.insert(key, handle) {
+            previous.abort();
+        }
+    }
+
+    async fn abort(&self, key: &str) -> bool {
+        let mut handles = self.handles.lock().await;
+        if let Some(handle) = handles.remove(key) {
+            handle.abort();
+            true
+        } else {
+            false
+        }
+    }
+
+    async fn remove(&self, key: &str) {
+        self.handles.lock().await.remove(key);
+    }
+
+    #[cfg(test)]
+    async fn len(&self) -> usize {
+        self.handles.lock().await.len()
+    }
+}
+
+fn api_stream_key(workspace_id: &str, session_id: &str) -> String {
+    format!("chef-api:{}:{}", workspace_id, session_id)
 }
 
 // ─── Commands ───────────────────────────────────────────────────────────────
@@ -359,6 +398,7 @@ pub async fn stream_orchestrator_chat(
     app: AppHandle,
     state: State<'_, AppState>,
     session_registry: State<'_, SharedSessionRegistry>,
+    api_stream_registry: State<'_, ApiStreamRegistry>,
     workspace_id: String,
     session_id: String,
     message: String,
@@ -418,7 +458,7 @@ pub async fn stream_orchestrator_chat(
     });
 
     // Handle based on connection mode
-    match connection_mode.as_str() {
+    let result = match connection_mode.as_str() {
         "api" => {
             // Get API key: explicit param > env var from provider config > ANTHROPIC_API_KEY fallback
             let env_var_name = api_key_env_var.as_deref().unwrap_or("ANTHROPIC_API_KEY");
@@ -426,7 +466,17 @@ pub async fn stream_orchestrator_chat(
                 .or_else(|| std::env::var(env_var_name).ok())
                 .ok_or_else(|| AppError::InvalidInput(format!("No API key provided and {} not set", env_var_name)))?;
 
-            stream_via_api(app.clone(), state.clone(), &workspace_id, &actual_session_id, &orch_session_id, &api_key, &model, history).await
+            stream_via_api(
+                app.clone(),
+                state.clone(),
+                api_stream_registry.inner(),
+                &workspace_id,
+                &actual_session_id,
+                &orch_session_id,
+                &api_key,
+                &model,
+                history,
+            ).await
         }
         "cli" => {
             let cli = cli_path.clone().unwrap_or_else(|| "claude".to_string());
@@ -446,7 +496,28 @@ pub async fn stream_orchestrator_chat(
         _ => {
             Err(AppError::InvalidInput(format!("Unknown connection mode: {}", connection_mode)))
         }
+    };
+
+    if let Err(err) = &result {
+        let error_message = err.to_string();
+
+        if let Ok(conn) = state.db.lock() {
+            let _ = db::update_orchestrator_session(
+                &conn,
+                &orch_session_id,
+                Some("error"),
+                Some(Some(error_message.as_str())),
+            );
+        }
+
+        let _ = app.emit("orchestrator:error", &OrchestratorEvent {
+            workspace_id,
+            event_type: "error".to_string(),
+            message: Some(error_message),
+        });
     }
+
+    result
 }
 
 /// Cancel an ongoing orchestrator chat (kills the CLI process)
@@ -455,6 +526,7 @@ pub async fn cancel_orchestrator_chat(
     app: AppHandle,
     state: State<'_, AppState>,
     session_registry: State<'_, SharedSessionRegistry>,
+    api_stream_registry: State<'_, ApiStreamRegistry>,
     session_id: String,
     workspace_id: String,
 ) -> Result<(), AppError> {
@@ -466,6 +538,10 @@ pub async fn cancel_orchestrator_chat(
             let _ = session.kill();
         }
     }
+
+    let _ = api_stream_registry
+        .abort(&api_stream_key(&workspace_id, &session_id))
+        .await;
 
     // Update orchestrator session to idle
     {
@@ -487,6 +563,7 @@ pub async fn cancel_orchestrator_chat(
 async fn stream_via_api(
     app: AppHandle,
     state: State<'_, AppState>,
+    api_stream_registry: &ApiStreamRegistry,
     workspace_id: &str,
     session_id: &str,
     orch_session_id: &str,
@@ -568,6 +645,10 @@ async fn stream_via_api(
     let stream_handle = tokio::spawn(async move {
         client.stream_chat(request, tx).await
     });
+    let stream_registry_key = api_stream_key(workspace_id, session_id);
+    api_stream_registry
+        .insert(stream_registry_key.clone(), stream_handle.abort_handle())
+        .await;
 
     // Forward chunks to frontend
     while let Some(chunk) = rx.recv().await {
@@ -599,10 +680,12 @@ async fn stream_via_api(
     }
 
     // Wait for streaming to complete and get response
-    let response = stream_handle
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Stream task failed: {}", e)))?
-        .map_err(|e| AppError::DatabaseError(e))?;
+    api_stream_registry.remove(&stream_registry_key).await;
+    let response = match stream_handle.await {
+        Ok(result) => result.map_err(AppError::DatabaseError)?,
+        Err(err) if err.is_cancelled() => return Ok(()),
+        Err(err) => return Err(AppError::DatabaseError(format!("Stream task failed: {}", err))),
+    };
 
     // Execute any tool calls
     let mut tool_results_summary = String::new();
@@ -689,6 +772,51 @@ async fn stream_via_api(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{api_stream_key, ApiStreamRegistry};
+
+    #[test]
+    fn test_api_stream_key() {
+        assert_eq!(api_stream_key("ws-1", "session-1"), "chef-api:ws-1:session-1");
+    }
+
+    #[tokio::test]
+    async fn test_api_stream_registry_abort() {
+        let registry = ApiStreamRegistry::default();
+        let handle = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        });
+
+        registry.insert("stream-1".to_string(), handle.abort_handle()).await;
+        assert_eq!(registry.len().await, 1);
+
+        assert!(registry.abort("stream-1").await);
+        assert_eq!(registry.len().await, 0);
+        assert!(handle.await.unwrap_err().is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn test_api_stream_registry_replaces_existing_handle() {
+        let registry = ApiStreamRegistry::default();
+        let first = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        });
+        let second = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        });
+
+        registry.insert("stream-1".to_string(), first.abort_handle()).await;
+        registry.insert("stream-1".to_string(), second.abort_handle()).await;
+
+        assert_eq!(registry.len().await, 1);
+        assert!(first.await.unwrap_err().is_cancelled());
+
+        assert!(registry.abort("stream-1").await);
+        assert!(second.await.unwrap_err().is_cancelled());
+    }
 }
 
 /// Stream orchestrator chat via unified CLI session.
