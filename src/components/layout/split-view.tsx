@@ -32,7 +32,7 @@ export function TaskSidePanel({
     <AnimatePresence mode="wait">
       {task && (
         <motion.div
-          key="task-chat-panel"
+          key={task.id}
           initial={{ width: 0, opacity: 0 }}
           animate={{ width: agentPanelWidth, opacity: 1 }}
           exit={{ width: 0, opacity: 0 }}

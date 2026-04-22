@@ -7,7 +7,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { listen, type UnlistenFn } from '@/lib/ipc/invoke'
 import { ensurePtySession, resizePty, writeToPty } from '@/lib/ipc/terminal'
-import { getTheme } from '@/lib/theme'
+import { useThemeStore } from '@/stores/theme-store'
 import { getXtermTheme } from '@/lib/xterm-theme'
 import { EventChannels, type PtyExitPayload, type PtyOutputPayload } from '@/types/events'
 import { AgentOutput } from './agent-output'
@@ -36,9 +36,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
 
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
-  const fitAddonRef = useRef<FitAddon | null>(null)
-  const initializedSessionRef = useRef(false)
-  const theme = getTheme()
+  const theme = useThemeStore((s) => s.resolved)
 
   const appendBytes = useCallback((bytes: Uint8Array) => {
     const text = new TextDecoder().decode(bytes)
@@ -50,38 +48,33 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
     const unlisteners: Promise<UnlistenFn>[] = []
+
+    setRawText('')
+    setIsAlive(true)
+    setExitCode(null)
 
     unlisteners.push(
       listen<PtyOutputPayload>(EventChannels.ptyOutput(taskId), (payload) => {
+        if (cancelled) return
         appendBytes(decodeBase64Bytes(payload.data))
       }),
     )
 
     unlisteners.push(
       listen<PtyExitPayload>(EventChannels.ptyExit(taskId), (payload) => {
+        if (cancelled) return
         setIsAlive(false)
         setExitCode(payload.exit_code)
       }),
     )
 
-    return () => {
-      void Promise.all(unlisteners).then((fns) => {
-        fns.forEach((fn) => {
-          fn()
-        })
-      })
-    }
-  }, [appendBytes, taskId])
+    void Promise.all(unlisteners)
+      .then(async () => {
+        if (cancelled) return
 
-  useEffect(() => {
-    if (initializedSessionRef.current) return
-    initializedSessionRef.current = true
-
-    let cancelled = false
-
-    void ensurePtySession(taskId, workingDir, 80, 24)
-      .then((info) => {
+        const info = await ensurePtySession(taskId, workingDir, 80, 24)
         if (cancelled || !info.scrollback) return
         appendBytes(decodeBase64Bytes(info.scrollback))
       })
@@ -94,6 +87,11 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
 
     return () => {
       cancelled = true
+      void Promise.all(unlisteners).then((fns) => {
+        fns.forEach((fn) => {
+          fn()
+        })
+      })
     }
   }, [appendBytes, taskId, workingDir])
 
@@ -150,7 +148,6 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
     }
 
     terminalRef.current = terminal
-    fitAddonRef.current = fitAddon
 
     const fitAndResize = () => {
       try {
@@ -184,9 +181,8 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
       resizeObserver.disconnect()
       terminal.dispose()
       terminalRef.current = null
-      fitAddonRef.current = null
     }
-  }, [isAlive, rawText, taskId, theme, viewMode])
+  }, [taskId, theme, viewMode])
 
   return (
     <div className="flex h-full flex-col">
