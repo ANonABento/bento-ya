@@ -7,12 +7,7 @@
 import { useEffect, useRef } from 'react'
 import { listen, type UnlistenFn } from '@/lib/ipc'
 import { useTaskStore } from '@/stores/task-store'
-
-type TasksChangedPayload = {
-  workspaceId?: string
-  workspace_id?: string
-  reason: string
-}
+import { getWorkspaceEventId, type WorkspaceScopedEventPayload } from '@/types/events'
 
 export function useTaskSync(workspaceId: string | null) {
   const loadTasks = useTaskStore((s) => s.load)
@@ -23,9 +18,9 @@ export function useTaskSync(workspaceId: string | null) {
 
     let cancelled = false
 
-    void listen<TasksChangedPayload>('tasks:changed', (payload) => {
+    void listen<WorkspaceScopedEventPayload>('tasks:changed', (payload) => {
       if (cancelled) return
-      if ((payload.workspaceId ?? payload.workspace_id) === workspaceId) {
+      if (getWorkspaceEventId(payload) === workspaceId) {
         void loadTasks(workspaceId)
       }
     }).then((unlisten) => {

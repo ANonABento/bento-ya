@@ -40,7 +40,6 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
 
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
-  const fitAddonRef = useRef<FitAddon | null>(null)
   const rawTextRef = useRef(rawText)
   rawTextRef.current = rawText
 
@@ -134,7 +133,9 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
 
     try {
       const webgl = new WebglAddon()
-      webgl.onContextLoss(() => { webgl.dispose() })
+      webgl.onContextLoss(() => {
+        webgl.dispose()
+      })
       terminal.loadAddon(webgl)
     } catch {
       // Canvas renderer fallback is acceptable.
@@ -190,9 +191,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
         // Ignore initial zero-sized layout.
       }
     })
-
     terminalRef.current = terminal
-    fitAddonRef.current = fitAddon
 
     return () => {
       resizeObserver.disconnect()
@@ -201,7 +200,6 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
       binaryDisposable.dispose()
       terminal.dispose()
       terminalRef.current = null
-      fitAddonRef.current = null
     }
   }, [isAlive, taskId, theme, viewMode])
 
@@ -224,7 +222,9 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
         <div className="flex items-center rounded-md border border-border-default bg-surface text-[10px]">
           <button
             type="button"
-            onClick={() => { setViewMode('structured') }}
+            onClick={() => {
+              setViewMode('structured')
+            }}
             className={`rounded-l-md px-2 py-0.5 transition-colors ${
               viewMode === 'structured'
                 ? 'bg-accent/10 font-medium text-accent'
@@ -235,7 +235,9 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
           </button>
           <button
             type="button"
-            onClick={() => { setViewMode('raw') }}
+            onClick={() => {
+              setViewMode('raw')
+            }}
             className={`rounded-r-md px-2 py-0.5 transition-colors ${
               viewMode === 'raw'
                 ? 'bg-accent/10 font-medium text-accent'
@@ -253,11 +255,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
             <AgentOutput rawOutput={rawText} />
           </div>
         ) : (
-          <div
-            ref={containerRef}
-            className="h-full w-full"
-            style={{ padding: '4px 0 4px 4px' }}
-          />
+          <div ref={containerRef} className="h-full w-full" style={{ padding: '4px 0 4px 4px' }} />
         )}
       </div>
     </div>
