@@ -53,8 +53,14 @@ const {
     fit = vi.fn()
   }
 
-  class MockSearchAddon {}
-  class MockUnicode11Addon {}
+  class MockSearchAddon {
+    addonName = 'search'
+  }
+
+  class MockUnicode11Addon {
+    addonName = 'unicode11'
+  }
+
   class MockWebglAddon {
     onContextLoss = vi.fn()
     dispose = vi.fn()
@@ -112,7 +118,9 @@ vi.mock('@/stores/theme-store', () => ({
 }))
 
 vi.mock('./agent-output', () => ({
-  AgentOutput: ({ rawOutput }: { rawOutput: string }) => <div data-testid="agent-output">{rawOutput}</div>,
+  AgentOutput: ({ rawOutput }: { rawOutput: string }) => (
+    <div data-testid="agent-output">{rawOutput}</div>
+  ),
 }))
 
 describe('TerminalView', () => {
@@ -157,12 +165,20 @@ describe('TerminalView', () => {
   })
 
   it('does not recreate the xterm instance when raw output streams in', async () => {
-    const handlers = new Map<string, (payload: { task_id: string; data?: string; exit_code?: number | null }) => void>()
+    const handlers = new Map<
+      string,
+      (payload: { task_id: string; data?: string; exit_code?: number | null }) => void
+    >()
 
-    listenMock.mockImplementation((event: string, handler: (payload: { task_id: string; data?: string; exit_code?: number | null }) => void) => {
-      handlers.set(event, handler)
-      return Promise.resolve(() => {})
-    })
+    listenMock.mockImplementation(
+      (
+        event: string,
+        handler: (payload: { task_id: string; data?: string; exit_code?: number | null }) => void,
+      ) => {
+        handlers.set(event, handler)
+        return Promise.resolve(() => {})
+      },
+    )
 
     render(<TerminalView taskId="task-1" workingDir="/tmp/worktree" />)
 
@@ -172,7 +188,7 @@ describe('TerminalView', () => {
       expect(terminalInstances).toHaveLength(1)
     })
 
-    await act(async () => {
+    act(() => {
       handlers.get('pty:task-1:output')?.({
         task_id: 'task-1',
         data: btoa('hello world'),

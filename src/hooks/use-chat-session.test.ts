@@ -90,13 +90,16 @@ describe('useChatSession', () => {
   })
 
   describe('canSend', () => {
-    it('should return canSend=true when agent mode has taskId', () => {
+    it('should return canSend=true when agent mode has taskId', async () => {
       const config: ChatSessionConfig = {
         mode: 'agent',
         taskId: 'task-1',
         workingDir: '/tmp',
       }
       const { result } = renderHook(() => useChatSession(config))
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
       expect(result.current.canSend).toBe(true)
     })
 
@@ -109,13 +112,16 @@ describe('useChatSession', () => {
       expect(result.current.canSend).toBe(false)
     })
 
-    it('should return canSend=true when orchestrator mode has workspaceId and sessionId', () => {
+    it('should return canSend=true when orchestrator mode has workspaceId and sessionId', async () => {
       const config: ChatSessionConfig = {
         mode: 'orchestrator',
         workspaceId: 'ws-1',
         sessionId: 'session-1',
       }
       const { result } = renderHook(() => useChatSession(config))
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
       expect(result.current.canSend).toBe(true)
     })
 
@@ -159,7 +165,7 @@ describe('useChatSession', () => {
         '/tmp',
         'claude',
         undefined,
-        undefined
+        undefined,
       )
     })
 
@@ -234,7 +240,7 @@ describe('useChatSession', () => {
         undefined,
         undefined,
         'sonnet',
-        'claude'
+        'claude',
       )
     })
 
@@ -378,7 +384,17 @@ describe('useChatSession', () => {
         taskId: 'task-1',
       }
       mockIpc.getAgentMessages.mockResolvedValueOnce([
-        { id: 'msg-1', taskId: 'task-1', role: 'user', content: 'Hello', model: null, effortLevel: null, toolCalls: null, thinkingContent: null, createdAt: '2024-01-01' },
+        {
+          id: 'msg-1',
+          taskId: 'task-1',
+          role: 'user',
+          content: 'Hello',
+          model: null,
+          effortLevel: null,
+          toolCalls: null,
+          thinkingContent: null,
+          createdAt: '2024-01-01',
+        },
       ])
 
       const { result } = renderHook(() => useChatSession(config))
@@ -402,7 +418,14 @@ describe('useChatSession', () => {
         sessionId: 'session-1',
       }
       mockIpc.getChatHistory.mockResolvedValueOnce([
-        { id: 'msg-1', workspaceId: 'ws-1', sessionId: 'session-1', role: 'user', content: 'Hello', createdAt: '2024-01-01' },
+        {
+          id: 'msg-1',
+          workspaceId: 'ws-1',
+          sessionId: 'session-1',
+          role: 'user',
+          content: 'Hello',
+          createdAt: '2024-01-01',
+        },
       ])
 
       const { result } = renderHook(() => useChatSession(config))
@@ -534,13 +557,16 @@ describe('useChatSession', () => {
       })
     })
 
-    it('should initialize with empty streaming content', () => {
+    it('should initialize with empty streaming content', async () => {
       const config: ChatSessionConfig = {
         mode: 'agent',
         taskId: 'task-1',
         workingDir: '/tmp',
       }
       const { result } = renderHook(() => useChatSession(config))
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
 
       // Stream handler is set up, content starts empty
       expect(result.current.streaming.content).toBe('')
@@ -555,8 +581,28 @@ describe('useChatSession', () => {
         taskId: 'task-1',
       }
       mockIpc.getAgentMessages.mockResolvedValueOnce([
-        { id: 'msg-1', taskId: 'task-1', role: 'user', content: 'Hello', model: null, effortLevel: null, toolCalls: null, thinkingContent: null, createdAt: '2024-01-01' },
-        { id: 'msg-2', taskId: 'task-1', role: 'assistant', content: 'Hi!', model: null, effortLevel: null, toolCalls: null, thinkingContent: null, createdAt: '2024-01-01' },
+        {
+          id: 'msg-1',
+          taskId: 'task-1',
+          role: 'user',
+          content: 'Hello',
+          model: null,
+          effortLevel: null,
+          toolCalls: null,
+          thinkingContent: null,
+          createdAt: '2024-01-01',
+        },
+        {
+          id: 'msg-2',
+          taskId: 'task-1',
+          role: 'assistant',
+          content: 'Hi!',
+          model: null,
+          effortLevel: null,
+          toolCalls: null,
+          thinkingContent: null,
+          createdAt: '2024-01-01',
+        },
       ])
 
       const { result } = renderHook(() => useChatSession(config))
@@ -576,7 +622,14 @@ describe('useChatSession', () => {
         sessionId: 'session-1',
       }
       mockIpc.getChatHistory.mockResolvedValueOnce([
-        { id: 'msg-1', workspaceId: 'ws-1', sessionId: 'session-1', role: 'user', content: 'Hello', createdAt: '2024-01-01' },
+        {
+          id: 'msg-1',
+          workspaceId: 'ws-1',
+          sessionId: 'session-1',
+          role: 'user',
+          content: 'Hello',
+          createdAt: '2024-01-01',
+        },
       ])
 
       const { result } = renderHook(() => useChatSession(config))
@@ -597,8 +650,9 @@ describe('useChatSession', () => {
 
       const { result } = renderHook(() => useChatSession(config))
 
-      // Give it time to potentially call the API
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
 
       expect(mockIpc.getAgentMessages).not.toHaveBeenCalled()
       expect(result.current.isLoading).toBe(false)

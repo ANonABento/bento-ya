@@ -19,6 +19,8 @@ type TerminalViewProps = {
   workingDir: string
 }
 
+const textDecoder = new TextDecoder()
+
 function decodeBase64Bytes(data: string): Uint8Array {
   const binary = atob(data)
   const bytes = new Uint8Array(binary.length)
@@ -36,11 +38,15 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
 
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
+  const rawTextRef = useRef('')
+  const isAliveRef = useRef(true)
+  const isMountedRef = useRef(true)
   const theme = useThemeStore((s) => s.resolved)
 
   const appendBytes = useCallback((bytes: Uint8Array) => {
-    const text = new TextDecoder().decode(bytes)
-    setRawText((prev) => prev + text)
+    const text = textDecoder.decode(bytes)
+    rawTextRef.current += text
+    setRawText(rawTextRef.current)
 
     if (terminalRef.current) {
       terminalRef.current.write(bytes)
@@ -48,23 +54,26 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
   }, [])
 
   useEffect(() => {
-    let cancelled = false
+    const lifecycle = { cancelled: false }
     const unlisteners: Promise<UnlistenFn>[] = []
 
+    isMountedRef.current = true
+    rawTextRef.current = ''
+    isAliveRef.current = true
     setRawText('')
     setIsAlive(true)
     setExitCode(null)
 
     unlisteners.push(
       listen<PtyOutputPayload>(EventChannels.ptyOutput(taskId), (payload) => {
-        if (cancelled) return
+        if (lifecycle.cancelled) return
         appendBytes(decodeBase64Bytes(payload.data))
       }),
     )
 
     unlisteners.push(
       listen<PtyExitPayload>(EventChannels.ptyExit(taskId), (payload) => {
-        if (cancelled) return
+        if (lifecycle.cancelled) return
         setIsAlive(false)
         setExitCode(payload.exit_code)
       }),
@@ -72,21 +81,26 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
 
     void Promise.all(unlisteners)
       .then(async () => {
-        if (cancelled) return
+        if (lifecycle.cancelled) return
 
         const info = await ensurePtySession(taskId, workingDir, 80, 24)
-        if (cancelled || !info.scrollback) return
-        appendBytes(decodeBase64Bytes(info.scrollback))
+        if (!isMountedRef.current) return
+
+        const scrollback = info.scrollback
+        if (typeof scrollback !== 'string' || scrollback.length === 0) return
+
+        appendBytes(decodeBase64Bytes(scrollback))
       })
       .catch((err: unknown) => {
-        if (cancelled) return
+        if (lifecycle.cancelled) return
         const message = err instanceof Error ? err.message : String(err)
         setRawText((prev) => `${prev}\nFailed to start terminal: ${message}`.trimStart())
         setIsAlive(false)
       })
 
     return () => {
-      cancelled = true
+      lifecycle.cancelled = true
+      isMountedRef.current = false
       void Promise.all(unlisteners).then((fns) => {
         fns.forEach((fn) => {
           fn()
@@ -96,6 +110,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
   }, [appendBytes, taskId, workingDir])
 
   useEffect(() => {
+    isAliveRef.current = isAlive
     if (terminalRef.current) {
       terminalRef.current.options.cursorBlink = isAlive
     }
@@ -114,7 +129,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
       fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", Menlo, monospace',
       fontSize: 13,
       lineHeight: 1.3,
-      cursorBlink: isAlive,
+      cursorBlink: isAliveRef.current,
       cursorStyle: 'bar',
       scrollback: 10000,
       convertEol: true,
@@ -143,8 +158,8 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
       // Canvas renderer fallback is fine.
     }
 
-    if (rawText) {
-      terminal.write(rawText)
+    if (rawTextRef.current) {
+      terminal.write(rawTextRef.current)
     }
 
     terminalRef.current = terminal

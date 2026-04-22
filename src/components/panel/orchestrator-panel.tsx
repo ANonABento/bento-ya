@@ -96,7 +96,9 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const error = localError ?? chat.error ?? cliDetectionError
   const isLoading = sessionsLoading || chat.isLoading
   const isProcessing = chat.streaming.isStreaming
-  const historyMessages = activeSession ? mapMessages(chat.messages, workspaceId, activeSession.id) : []
+  const historyMessages = activeSession
+    ? mapMessages(chat.messages, workspaceId, activeSession.id)
+    : []
   const toolCalls = mapToolCalls(chat.streaming.toolCalls, workspaceId)
   const sidebarPanelMode: 'history' | 'files' | null =
     sidebarMode === 'dashboard' ? null : sidebarMode
@@ -107,11 +109,14 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     chat.clearError()
   }, [chat, error])
 
-  const handleSendMessage = useCallback((message: ChatInputMessage) => {
-    if (!chat.canSend) return
-    const prompt = buildPromptWithAttachments(message.content, message.attachments)
-    void chat.sendMessage(prompt, message.model)
-  }, [chat])
+  const handleSendMessage = useCallback(
+    (message: ChatInputMessage) => {
+      if (!chat.canSend) return
+      const prompt = buildPromptWithAttachments(message.content, message.attachments)
+      void chat.sendMessage(prompt, message.model)
+    },
+    [chat],
+  )
 
   const handleCancel = useCallback(async () => {
     await chat.cancel()
@@ -129,17 +134,23 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     }
   }, [activeSession, createSession, historyMessages.length, resetSession])
 
-  const handleSelectSession = useCallback((session: NonNullable<typeof activeSession>) => {
-    switchSession(session)
-  }, [switchSession])
+  const handleSelectSession = useCallback(
+    (session: NonNullable<typeof activeSession>) => {
+      switchSession(session)
+    },
+    [switchSession],
+  )
 
-  const handleDeleteSession = useCallback(async (sessionId: string) => {
-    try {
-      await deleteSession(sessionId)
-    } catch (err) {
-      console.error('[OrchestratorPanel] Failed to delete session:', err)
-    }
-  }, [deleteSession])
+  const handleDeleteSession = useCallback(
+    async (sessionId: string) => {
+      try {
+        await deleteSession(sessionId)
+      } catch (err) {
+        console.error('[OrchestratorPanel] Failed to delete session:', err)
+      }
+    },
+    [deleteSession],
+  )
 
   return (
     <div className={`relative ${isRightDock ? 'flex h-full' : ''}`}>
@@ -167,7 +178,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       >
         <div
           onClick={handleHeaderClick}
-          className="relative flex cursor-pointer select-none items-center justify-between px-3 py-1.5"
+          className="relative flex select-none items-center justify-between px-3 py-1.5"
+          style={{ cursor: 'pointer' }}
         >
           <div className="flex items-center gap-1">
             {!isPanelCollapsed && (
@@ -183,8 +195,17 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                       : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
                   }`}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13a.75.75 0 0 0-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 0 0 0-1.5h-3.25V5Z" clipRule="evenodd" />
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-4 w-4"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13a.75.75 0 0 0-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 0 0 0-1.5h-3.25V5Z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                 </button>
                 <button
@@ -198,9 +219,18 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                       : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
                   }`}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-4 w-4"
+                  >
                     <path d="M3.75 3A1.75 1.75 0 0 0 2 4.75v3.26a3.235 3.235 0 0 1 1.75-.51h12.5c.644 0 1.245.188 1.75.51V6.75A1.75 1.75 0 0 0 16.25 5h-4.836a.25.25 0 0 1-.177-.073L9.823 3.513A1.75 1.75 0 0 0 8.586 3H3.75Z" />
-                    <path fillRule="evenodd" d="M2 9.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 .75.75v5a1.75 1.75 0 0 1-1.75 1.75H3.75A1.75 1.75 0 0 1 2 14.25v-5Z" clipRule="evenodd" />
+                    <path
+                      fillRule="evenodd"
+                      d="M2 9.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 .75.75v5a1.75 1.75 0 0 1-1.75 1.75H3.75A1.75 1.75 0 0 1 2 14.25v-5Z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                 </button>
                 <button
@@ -215,7 +245,12 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   }`}
                   title="Pipeline dashboard"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-4 w-4"
+                  >
                     <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM10 7a1.5 1.5 0 0 0-1.5 1.5v8a1.5 1.5 0 0 0 3 0v-8A1.5 1.5 0 0 0 10 7ZM4.5 12A1.5 1.5 0 0 0 3 13.5v3a1.5 1.5 0 0 0 3 0v-3A1.5 1.5 0 0 0 4.5 12Z" />
                   </svg>
                 </button>
@@ -236,9 +271,15 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   void handleNewChat()
                 }}
                 disabled={historyMessages.length === 0}
-                className="flex h-6 items-center gap-1 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+                className="flex h-6 items-center gap-1 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+                style={{ cursor: historyMessages.length === 0 ? 'not-allowed' : 'pointer' }}
               >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  className="h-3.5 w-3.5"
+                >
                   <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
                 </svg>
                 New
@@ -257,12 +298,30 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 className="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
               >
                 {isRightDock ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                    <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v7.5h13V4.25a.75.75 0 0 0-.75-.75H4.25ZM3.5 13.25v2.5c0 .414.336.75.75.75h11.5a.75.75 0 0 0 .75-.75v-2.5h-13Z" clipRule="evenodd" />
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-4 w-4"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v7.5h13V4.25a.75.75 0 0 0-.75-.75H4.25ZM3.5 13.25v2.5c0 .414.336.75.75.75h11.5a.75.75 0 0 0 .75-.75v-2.5h-13Z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                 ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                    <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v11.5c0 .414.336.75.75.75h7.5V3.5H4.25Zm9 0v13h2.5a.75.75 0 0 0 .75-.75V4.25a.75.75 0 0 0-.75-.75h-2.5Z" clipRule="evenodd" />
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-4 w-4"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v11.5c0 .414.336.75.75.75h7.5V3.5H4.25Zm9 0v13h2.5a.75.75 0 0 0 .75-.75V4.25a.75.75 0 0 0-.75-.75h-2.5Z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                 )}
               </button>
@@ -410,8 +469,19 @@ function ProcessingIndicator({ startTime }: { startTime: number | null }) {
   return (
     <span className="flex items-center gap-1 text-xs text-accent">
       <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
-        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        <circle
+          className="opacity-25"
+          cx="12"
+          cy="12"
+          r="10"
+          stroke="currentColor"
+          strokeWidth="4"
+        />
+        <path
+          className="opacity-75"
+          fill="currentColor"
+          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+        />
       </svg>
       Thinking{elapsed > 0 ? `... ${String(elapsed)}s` : '...'}
     </span>

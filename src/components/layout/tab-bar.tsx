@@ -76,7 +76,7 @@ function SortableTab({
           if (e.key === 'Enter' || e.key === ' ') onSelect()
         }}
         className={`
-          group flex h-8 cursor-pointer items-center justify-center px-3 text-sm
+          group flex h-8 items-center justify-center px-3 text-sm
           transition-colors duration-150
           ${
             isActive
@@ -84,6 +84,7 @@ function SortableTab({
               : 'font-normal text-text-secondary hover:text-text-primary'
           }
         `}
+        style={{ cursor: 'pointer' }}
       >
         <span className="flex items-center">
           <span className="max-w-[120px] truncate text-center">{workspace.name}</span>
@@ -130,6 +131,7 @@ function AddTabButton({ onClick }: { onClick: () => void }) {
   return (
     <Tooltip content="New Workspace" side="bottom">
       <motion.button
+        type="button"
         onClick={onClick}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
@@ -161,6 +163,7 @@ function SettingsButton() {
   return (
     <Tooltip content="Settings" side="bottom">
       <motion.button
+        type="button"
         onClick={openSettings}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
@@ -196,6 +199,7 @@ function ChecklistButton() {
   return (
     <Tooltip content="Checklist" side="bottom">
       <motion.button
+        type="button"
         onClick={openChecklist}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
