@@ -371,23 +371,44 @@ pub fn spawn_cli_trigger_task(
             }
             // Registry lock released
 
-            // Inject command via tmux send-keys with wait-for completion
-            // Format: {command}; echo $? > {exit_file}; tmux wait-for -S {channel}
-            let wrapped_cmd = format!(
-                "{}; echo $? > {}; tmux wait-for -S {}",
-                full_cmd, exit_file, wait_channel
+            // Write a wrapper script instead of pasting the full command into tmux.
+            // This avoids shell escaping issues, input buffer overflow, and ensures
+            // the completion chain (exit code + wait-for) always executes even if
+            // the CLI does unexpected things to the shell.
+            let script_path = format!("{}/trigger_{}.sh", crate::db::data_dir().display(), nonce);
+            let script_content = format!(
+                "#!/bin/bash\ncd '{}'\n{}\nexit_code=$?\necho $exit_code > '{}'\ntmux wait-for -S '{}'\n",
+                working_dir.replace('\'', "'\\''"),
+                full_cmd,
+                exit_file,
+                wait_channel,
             );
 
-            eprintln!("[bridge] Injecting via tmux send-keys for task {}: {}", task_id, full_cmd);
+            tokio::fs::write(&script_path, &script_content)
+                .await
+                .map_err(|e| format!("Failed to write trigger script: {}", e))?;
 
+            // Make executable
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = tokio::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755)).await;
+            }
+
+            eprintln!("[bridge] Injecting trigger script for task {}: {}", task_id, script_path);
+            eprintln!("[bridge] CLI command: {}", full_cmd);
+
+            // Send the short script invocation to tmux (not the full command)
+            let invoke_cmd = format!("bash '{}'", script_path);
             let send_output = tokio::process::Command::new("tmux")
-                .args(["send-keys", "-t", &tmux_name, "-l", &wrapped_cmd])
+                .args(["send-keys", "-t", &tmux_name, "-l", &invoke_cmd])
                 .output()
                 .await
                 .map_err(|e| format!("tmux send-keys failed: {}", e))?;
 
             if !send_output.status.success() {
                 let stderr = String::from_utf8_lossy(&send_output.stderr);
+                let _ = tokio::fs::remove_file(&script_path).await;
                 return Err(format!("tmux send-keys error: {}", stderr.trim()));
             }
 
@@ -400,6 +421,7 @@ pub fn spawn_cli_trigger_task(
 
             if !enter_output.status.success() {
                 let stderr = String::from_utf8_lossy(&enter_output.stderr);
+                let _ = tokio::fs::remove_file(&script_path).await;
                 return Err(format!("tmux send-keys Enter error: {}", stderr.trim()));
             }
 
@@ -431,8 +453,9 @@ pub fn spawn_cli_trigger_task(
                 .and_then(|s| s.trim().parse::<i32>().ok())
                 .unwrap_or(1); // Default to failure if can't read
 
-            // Clean up temp file
+            // Clean up temp files (exit file + trigger script)
             let _ = tokio::fs::remove_file(&exit_file).await;
+            let _ = tokio::fs::remove_file(&script_path).await;
 
             let success = exit_code == 0;
             eprintln!("[bridge] Trigger completed for task {}: exit_code={}, success={}", task_id, exit_code, success);
