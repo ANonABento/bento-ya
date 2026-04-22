@@ -412,9 +412,21 @@ fn execute_spawn_cli(
         return Ok(task.clone());
     }
 
-    // Auto-create worktree for trigger-spawned agents to sandbox them
-    let task = if task.worktree_path.is_none() && !workspace.repo_path.is_empty() {
-        ensure_task_worktree(conn, app, task, &workspace.repo_path)?
+    // Auto-create worktree for trigger-spawned agents to sandbox them.
+    // Check both: DB field is unset OR the path no longer exists on disk
+    // (can happen after retry cleanup deletes the worktree directory).
+    let needs_worktree = task.worktree_path.as_ref()
+        .map(|p| p.is_empty() || !std::path::Path::new(p).exists())
+        .unwrap_or(true);
+
+    let task = if needs_worktree && !workspace.repo_path.is_empty() {
+        // Clear stale worktree_path so ensure_task_worktree creates a fresh one
+        if task.worktree_path.is_some() {
+            log::warn!("[triggers] Worktree path set but directory missing for task {} — recreating", task.id);
+            let _ = db::update_task_worktree_path(conn, &task.id, None);
+        }
+        let mut fresh_task = db::get_task(conn, &task.id)?;
+        ensure_task_worktree(conn, app, &fresh_task, &workspace.repo_path)?
     } else {
         task.clone()
     };

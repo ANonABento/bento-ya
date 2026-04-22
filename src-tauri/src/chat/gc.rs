@@ -45,6 +45,8 @@ pub fn collect(conn: &Connection) {
             }
         };
 
+        eprintln!("[gc] Evaluating session {} — task {} pipeline_state={} agent_status={:?}", session_name, task_id, task.pipeline_state, task.agent_status);
+
         // Check for finished agents — candidate for session cleanup.
         // Never kill sessions for tasks with an active pipeline (state = running/triggered)
         // since the pipeline's tmux wait-for completion detection needs the session alive.

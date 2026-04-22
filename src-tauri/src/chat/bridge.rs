@@ -376,8 +376,10 @@ pub fn spawn_cli_trigger_task(
             // the completion chain (exit code + wait-for) always executes even if
             // the CLI does unexpected things to the shell.
             let script_path = format!("{}/trigger_{}.sh", crate::db::data_dir().display(), nonce);
+            let log_file = format!("{}/trigger_{}.log", crate::db::data_dir().display(), nonce);
             let script_content = format!(
-                "#!/bin/bash\ncd '{}'\n{}\nexit_code=$?\necho $exit_code > '{}'\ntmux wait-for -S '{}'\n",
+                "#!/bin/bash\nexec > '{}' 2>&1\nset -x\necho \"SCRIPT START $(date)\"\necho \"PID=$$\"\ncd '{}'\n{}\nexit_code=$?\necho \"SCRIPT DONE exit=$exit_code $(date)\"\necho $exit_code > '{}'\ntmux wait-for -S '{}'\necho \"WAIT-FOR SIGNALED\"\n",
+                log_file,
                 working_dir.replace('\'', "'\\''"),
                 full_cmd,
                 exit_file,
