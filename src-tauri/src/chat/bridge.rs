@@ -345,7 +345,12 @@ pub fn spawn_cli_trigger_task(
             .map_err(|e| format!("Process wait failed: {}", e))?;
 
             let exit_code = status.code().unwrap_or(1);
-            let _ = tokio::fs::remove_file(&log_file).await;
+            // Keep log file on failure for debugging; clean up on success
+            if exit_code == 0 {
+                let _ = tokio::fs::remove_file(&log_file).await;
+            } else {
+                eprintln!("[bridge] Keeping log file for failed task {}: {}", task_id, log_file);
+            }
 
             let success = exit_code == 0;
             eprintln!("[bridge] Trigger completed for task {}: exit_code={}, success={}", task_id, exit_code, success);
