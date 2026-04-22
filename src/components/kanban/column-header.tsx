@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useEffect } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { IconButton } from '@/components/shared/icon-button'
 import { shouldEnableColumnShortcuts } from './column-shortcuts'
@@ -30,7 +30,6 @@ type ColumnHeaderProps = {
   onCancelQueue?: () => void
 }
 
-// Icon components
 function getIcon(icon: string) {
   switch (icon) {
     case 'inbox':
@@ -78,7 +77,7 @@ function getIcon(icon: string) {
           <path fillRule="evenodd" d="M13 6H3v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V6ZM5.72 7.47a.75.75 0 0 1 1.06 0L8 8.69l1.22-1.22a.75.75 0 1 1 1.06 1.06l-1.75 1.75a.75.75 0 0 1-1.06 0L5.72 8.53a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
         </svg>
       )
-    default: // list
+    default:
       return (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
           <path fillRule="evenodd" d="M2.5 3.5c0-.56.44-1 1-1h9a1 1 0 1 1 0 2h-9a1 1 0 0 1-1-1ZM2.5 8c0-.56.44-1 1-1h9a1 1 0 1 1 0 2h-9a1 1 0 0 1-1-1ZM3.5 11.5a1 1 0 1 0 0 2h9a1 1 0 1 0 0-2h-9Z" clipRule="evenodd" />
@@ -108,21 +107,20 @@ export const ColumnHeader = memo(function ColumnHeader({
   const menuRef = useRef<HTMLDivElement>(null)
   const showShortcutHint = shouldEnableColumnShortcuts(columnCount)
 
-  // Close menu when clicking outside
   useEffect(() => {
     if (!showMenu) return
+
     const handleClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setShowMenu(false)
       }
     }
-    document.addEventListener('mousedown', handleClick)
-    return () => { document.removeEventListener('mousedown', handleClick); }
-  }, [showMenu])
 
-  const handleRunAllClick = () => {
-    setShowConfirm(true)
-  }
+    document.addEventListener('mousedown', handleClick)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+    }
+  }, [showMenu])
 
   const handleConfirmRunAll = () => {
     setShowConfirm(false)
@@ -139,9 +137,7 @@ export const ColumnHeader = memo(function ColumnHeader({
           {getIcon(icon)}
         </span>
         <h3 className="flex min-w-0 items-center text-xs font-semibold uppercase tracking-wider text-text-secondary">
-          <span className="truncate">
-            {name}
-          </span>
+          <span className="truncate">{name}</span>
           {showShortcutHint && (
             <kbd className="ml-1 rounded bg-muted/30 px-1 font-mono text-xs text-muted-foreground opacity-50">
               {columnIndex + 1}
@@ -161,7 +157,6 @@ export const ColumnHeader = memo(function ColumnHeader({
           </span>
         )}
 
-        {/* Batch queue progress badge */}
         {batchQueue && (
           <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">
             Queued: {batchQueue.completed}/{batchQueue.total}
@@ -169,7 +164,6 @@ export const ColumnHeader = memo(function ColumnHeader({
         )}
 
         <div className="ml-auto flex items-center gap-0.5">
-          {/* Run All button (backlog only, when tasks exist and not already queuing) */}
           {isBacklog && taskCount > 0 && !batchQueue && (
             <IconButton
               icon={
@@ -177,54 +171,54 @@ export const ColumnHeader = memo(function ColumnHeader({
                   <path d="M2 4.5A2.5 2.5 0 0 1 4.5 2h2.879a2.5 2.5 0 0 1 1.767.732l4.122 4.122a2.5 2.5 0 0 1 0 3.536l-2.879 2.878a2.5 2.5 0 0 1-3.536 0L2.731 9.146A2.5 2.5 0 0 1 2 7.38V4.5ZM5.5 5a.5.5 0 1 0 0 1 .5.5 0 0 0 0-1Z" />
                 </svg>
               }
-              onClick={handleRunAllClick}
+              onClick={() => { setShowConfirm(true) }}
               tooltip="Run All"
               tooltipSide="bottom"
             />
           )}
 
-        {/* Cancel queue button */}
-        {batchQueue && (
+          {/* Cancel queue button */}
+          {batchQueue && (
+            <IconButton
+              icon={
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                  <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm2.78-4.22a.75.75 0 0 1-1.06 0L8 9.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L6.94 8 5.22 6.28a.75.75 0 0 1 1.06-1.06L8 6.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L9.06 8l1.72 1.72a.75.75 0 0 1 0 1.06Z" clipRule="evenodd" />
+                </svg>
+              }
+              onClick={onCancelQueue}
+              tooltip="Cancel queue"
+              tooltipSide="bottom"
+            />
+          )}
+
+          {/* Add task button */}
           <IconButton
             icon={
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-                <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm2.78-4.22a.75.75 0 0 1-1.06 0L8 9.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L6.94 8 5.22 6.28a.75.75 0 0 1 1.06-1.06L8 6.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L9.06 8l1.72 1.72a.75.75 0 0 1 0 1.06Z" clipRule="evenodd" />
+                <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
               </svg>
             }
-            onClick={onCancelQueue}
-            tooltip="Cancel queue"
-            tooltipSide="bottom"
-          />
-        )}
-
-        {/* Add task button */}
-        <IconButton
-          icon={
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-              <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
-            </svg>
-          }
-          onClick={onAddTask}
-          tooltip="Add task"
-          tooltipSide="bottom"
-        />
-
-        {/* Menu button */}
-        <div className="relative" ref={menuRef}>
-          <IconButton
-            icon={
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
-                <path d="M8 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM9.5 12.5a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0Z" />
-              </svg>
-            }
-            onClick={() => { setShowMenu(!showMenu); }}
-            tooltip="Column options"
+            onClick={onAddTask}
+            tooltip="Add task"
             tooltipSide="bottom"
           />
 
-          <AnimatePresence>
-            {showMenu && (
-              <motion.div
+          {/* Menu button */}
+          <div className="relative" ref={menuRef}>
+            <IconButton
+              icon={
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
+                  <path d="M8 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM9.5 12.5a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0Z" />
+                </svg>
+              }
+              onClick={() => { setShowMenu(!showMenu) }}
+              tooltip="Column options"
+              tooltipSide="bottom"
+            />
+
+            <AnimatePresence>
+              {showMenu && (
+                <motion.div
                   initial={{ opacity: 0, scale: 0.95, y: -5 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -5 }}
@@ -255,23 +249,22 @@ export const ColumnHeader = memo(function ColumnHeader({
                     </svg>
                     Delete
                   </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
 
-      {/* Run All confirmation dialog */}
       {showConfirm && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={() => { setShowConfirm(false); }}
+          onClick={() => { setShowConfirm(false) }}
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            onClick={(e) => { e.stopPropagation(); }}
+            onClick={(e) => { e.stopPropagation() }}
             className="w-full max-w-sm rounded border border-border-default bg-surface p-6 shadow-xl"
           >
             <h3 className="mb-2 text-lg font-semibold text-text-primary">
@@ -282,7 +275,7 @@ export const ColumnHeader = memo(function ColumnHeader({
             </p>
             <div className="flex justify-end gap-2">
               <button
-                onClick={() => { setShowConfirm(false); }}
+                onClick={() => { setShowConfirm(false) }}
                 className="rounded px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
               >
                 Cancel

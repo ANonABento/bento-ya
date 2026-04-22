@@ -113,6 +113,8 @@ export function Board() {
                     column={col}
                     columnIndex={index}
                     columnCount={sortedColumns.length}
+                    autoOpenConfig={col.id === newColumnId}
+                    onConfigOpened={() => { setNewColumnId(null) }}
                   />
                 ))}
               </SortableContext>

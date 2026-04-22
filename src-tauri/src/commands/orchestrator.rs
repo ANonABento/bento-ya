@@ -3,6 +3,9 @@
 //! The orchestrator is a dedicated agent that interprets natural language
 //! and creates/manages tasks on the board.
 
+use std::collections::HashMap;
+
+use crate::chat::ChefSession;
 use crate::chat::events::{ChatEvent, ToolStatus};
 use crate::chat::registry::SharedSessionRegistry;
 use crate::chat::session::{SessionConfig, TransportType, UnifiedChatSession};
@@ -10,7 +13,7 @@ use crate::db::{self, AppState, ChatMessage, ChatSession, OrchestratorSession, C
 use crate::error::AppError;
 use crate::llm::{
     AnthropicClient, calculate_cost, resolve_model_id,
-    build_system_prompt, build_cli_system_prompt, build_board_context, format_board_context_message,
+    build_cli_system_prompt, build_board_context, format_board_context_message,
     orchestrator_tools, tools_to_api_format, execute_tools, parse_cli_action_blocks,
 };
 use crate::llm::types::{LlmRequest, Message};
@@ -493,6 +496,16 @@ async fn stream_via_api(
 ) -> Result<(), AppError> {
     // Resolve model alias to full API ID (e.g., "sonnet" -> "claude-sonnet-4-6-20260217")
     let model_id = resolve_model_id(model);
+    let chef = ChefSession::new_api(
+        workspace_id.to_string(),
+        SessionConfig {
+            cli_path: String::new(),
+            model: model.to_string(),
+            system_prompt: String::new(),
+            working_dir: None,
+            effort_level: None,
+        },
+    );
 
     // Get workspace context for system prompt
     let (workspace, columns, tasks) = {
@@ -504,9 +517,7 @@ async fn stream_via_api(
     };
 
     // Build system prompt with board context
-    let system_prompt = build_system_prompt(&workspace, &columns);
-    let board_context = build_board_context(&workspace, &columns, &tasks);
-    let board_context_msg = format_board_context_message(&board_context);
+    let system_prompt = chef.build_system_prompt(&workspace, &columns, &tasks);
 
     // Build messages from history, injecting board context into the last user message
     let mut messages: Vec<Message> = Vec::new();
@@ -521,7 +532,7 @@ async fn stream_via_api(
         if m.role == "user" && i == history_len - 1 {
             messages.push(Message {
                 role: m.role.clone(),
-                content: format!("{}\n\n{}", board_context_msg, m.content),
+                content: chef.augment_message(&m.content, &workspace, &columns, &tasks),
             });
         } else {
             messages.push(Message {
@@ -552,6 +563,7 @@ async fn stream_via_api(
     let client = AnthropicClient::new(api_key.to_string());
     let app_clone = app.clone();
     let workspace_id_clone = workspace_id.to_string();
+    let mut pending_tool_calls: HashMap<String, (String, serde_json::Value)> = HashMap::new();
 
     let stream_handle = tokio::spawn(async move {
         client.stream_chat(request, tx).await
@@ -559,10 +571,23 @@ async fn stream_via_api(
 
     // Forward chunks to frontend
     while let Some(chunk) = rx.recv().await {
-        let tool_use_payload = chunk.tool_use.as_ref().map(|tu| ToolUsePayload {
-            id: tu.id.clone(),
-            name: tu.name.clone(),
-            input: tu.input.clone(),
+        let tool_use_payload = chunk.tool_use.as_ref().map(|tu| {
+            pending_tool_calls.insert(tu.id.clone(), (tu.name.clone(), tu.input.clone()));
+
+            let _ = app_clone.emit("orchestrator:tool_call", &ToolCallPayload {
+                workspace_id: workspace_id_clone.clone(),
+                tool_id: tu.id.clone(),
+                tool_name: tu.name.clone(),
+                status: "running".to_string(),
+                input: Some(tu.input.clone()),
+                result: None,
+            });
+
+            ToolUsePayload {
+                id: tu.id.clone(),
+                name: tu.name.clone(),
+                input: tu.input.clone(),
+            }
         });
 
         let _ = app_clone.emit("orchestrator:stream", &StreamChunkPayload {
@@ -597,11 +622,25 @@ async fn stream_via_api(
 
         // Emit tool results to frontend
         for result in &execution_result.results {
+            let (tool_name, tool_input) = pending_tool_calls
+                .get(&result.tool_use_id)
+                .cloned()
+                .unwrap_or_else(|| ("unknown".to_string(), serde_json::Value::Null));
+
             let _ = app.emit("orchestrator:tool_result", &ToolResultPayload {
                 workspace_id: workspace_id.to_string(),
                 tool_use_id: result.tool_use_id.clone(),
                 result: result.content.clone(),
                 is_error: result.is_error,
+            });
+
+            let _ = app.emit("orchestrator:tool_call", &ToolCallPayload {
+                workspace_id: workspace_id.to_string(),
+                tool_id: result.tool_use_id.clone(),
+                tool_name,
+                status: if result.is_error { "error" } else { "complete" }.to_string(),
+                input: if tool_input.is_null() { None } else { Some(tool_input) },
+                result: Some(result.content.clone()),
             });
         }
 
@@ -717,7 +756,7 @@ async fn stream_via_unified_cli(
             (workspace, columns, tasks)
         };
 
-        let system_prompt = build_cli_system_prompt(&workspace, &columns);
+        let system_prompt = build_cli_system_prompt(&workspace, &columns, &tasks);
         session.set_system_prompt(system_prompt);
 
         let board_context = build_board_context(&workspace, &columns, &tasks);

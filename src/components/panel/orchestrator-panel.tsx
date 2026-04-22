@@ -1,27 +1,27 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { buildPromptWithAttachments } from '@/types'
 import { thinkingToEffort } from '@/components/shared/thinking-utils'
 import { useTaskStore } from '@/stores/task-store'
 import { useSettingsStore } from '@/stores/settings-store'
-import { useOrchestratorSessions } from '@/hooks/use-orchestrator-sessions'
-import { useChatSession } from '@/hooks/chat-session'
 import { useCliPath } from '@/hooks/use-cli-path'
+import { useChatSession } from '@/hooks/chat-session'
+import { useOrchestratorSessions } from '@/hooks/use-orchestrator-sessions'
+import { ResizeHandle } from '@/components/shared/resize-handle'
 import { useOrchestratorPanelLayout } from './use-orchestrator-panel-layout'
 import { useOrchestratorTaskRefresh } from './use-orchestrator-task-refresh'
-import { ResizeHandle } from '@/components/shared/resize-handle'
+import { ChatErrorBoundary } from './chat-error-boundary'
 import { ChatHistory } from './chat-history'
 import { PanelSidebar } from './panel-sidebar'
 import { PipelineDashboard } from './pipeline-dashboard'
-import { ChatErrorBoundary } from './chat-error-boundary'
 import {
+  ChatInput,
+  CliDetectingBanner,
   ErrorBanner,
   FailedMessageBanner,
-  CliDetectingBanner,
-  ChatInput,
-  type ChatInputMessage,
   mapMessages,
   mapToolCalls,
+  type ChatInputMessage,
 } from './shared'
 
 type OrchestratorPanelProps = {
@@ -34,6 +34,15 @@ const COLLAPSED_HEIGHT = 40
 
 export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const loadTasks = useTaskStore((s) => s.load)
+  const settings = useSettingsStore((s) => s.global)
+  const anthropicProvider = settings.model.providers.find((p) => p.id === 'anthropic')
+  const connectionMode = anthropicProvider?.connectionMode ?? 'cli'
+  const apiKeyEnvVar = anthropicProvider?.apiKeyEnvVar || 'ANTHROPIC_API_KEY'
+  const apiKey = settings.agent.envVars[apiKeyEnvVar] || undefined
+  const { cliPath, isDetecting: cliDetecting, detectionError: cliDetectionError } = useCliPath()
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>(null)
+  const [localError, setLocalError] = useState<string | null>(null)
+
   const {
     panelRef,
     isPanelCollapsed,
@@ -47,17 +56,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     handleHeaderClick,
   } = useOrchestratorPanelLayout()
 
-  const settings = useSettingsStore((s) => s.global)
-  const anthropicProvider = settings.model.providers.find((provider) => provider.id === 'anthropic')
-  const connectionMode = anthropicProvider?.connectionMode ?? 'cli'
-  const apiKeyEnvVar = anthropicProvider?.apiKeyEnvVar ?? 'ANTHROPIC_API_KEY'
-  const apiKey = settings.agent.envVars[apiKeyEnvVar]
-  const {
-    cliPath,
-    isDetecting: cliDetecting,
-    detectionError: cliDetectionError,
-  } = useCliPath()
-
   const {
     sessions,
     activeSession,
@@ -69,9 +67,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     resetSession,
   } = useOrchestratorSessions(workspaceId)
 
-  const [sidebarMode, setSidebarMode] = useState<SidebarMode>(null)
-  const [localError, setLocalError] = useState<string | null>(null)
-
   const chat = useChatSession({
     mode: 'orchestrator',
     workspaceId,
@@ -81,7 +76,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     apiKey: apiKey || undefined,
     apiKeyEnvVar,
     onError: (err) => {
-      console.error('[OrchestratorPanel] Chat error:', err)
       setLocalError(err)
     },
     onToolResult: () => {
@@ -388,11 +382,15 @@ function ProcessingIndicator({ startTime }: { startTime: number | null }) {
       return
     }
 
-    const interval = setInterval(() => {
+    const tick = () => {
       setElapsed(Math.floor((Date.now() - startTime) / 1000))
-    }, 1000)
+    }
 
-    return () => { clearInterval(interval) }
+    tick()
+    const interval = window.setInterval(tick, 1000)
+    return () => {
+      window.clearInterval(interval)
+    }
   }, [startTime])
 
   return (

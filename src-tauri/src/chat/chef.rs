@@ -97,10 +97,11 @@ impl ChefSession {
         &self,
         workspace: &Workspace,
         columns: &[Column],
+        tasks: &[Task],
     ) -> String {
         match self.mode {
-            ChefMode::Api => context::build_system_prompt(workspace, columns),
-            ChefMode::Cli => context::build_cli_system_prompt(workspace, columns),
+            ChefMode::Api => context::build_system_prompt(workspace, columns, tasks),
+            ChefMode::Cli => context::build_cli_system_prompt(workspace, columns, tasks),
         }
     }
 
@@ -165,7 +166,7 @@ impl ChefSession {
             .map_err(|e| format!("Failed to list tasks: {}", e))?;
 
         // Update system prompt with current board state
-        let system_prompt = self.build_system_prompt(&workspace, &columns);
+        let system_prompt = self.build_system_prompt(&workspace, &columns, &tasks);
         self.session.set_system_prompt(system_prompt);
 
         // Augment message with board context
@@ -272,8 +273,8 @@ mod tests {
         let cli_chef = ChefSession::new_cli("ws-1".to_string(), test_config());
         let api_chef = ChefSession::new_api("ws-1".to_string(), test_config());
 
-        let cli_prompt = cli_chef.build_system_prompt(&workspace, &[]);
-        let api_prompt = api_chef.build_system_prompt(&workspace, &[]);
+        let cli_prompt = cli_chef.build_system_prompt(&workspace, &[], &[]);
+        let api_prompt = api_chef.build_system_prompt(&workspace, &[], &[]);
 
         // CLI mode has action block instructions
         assert!(cli_prompt.contains("```action"));

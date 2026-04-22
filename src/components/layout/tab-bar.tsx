@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   DndContext,
@@ -22,9 +22,8 @@ import { useAttentionStore } from '@/stores/attention-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useChecklistStore } from '@/stores/checklist-store'
 import { Tooltip } from '@/components/shared/tooltip'
+import { useSwipeNavigation } from '@/hooks/use-swipe'
 import type { Workspace } from '@/types'
-import { AddWorkspaceDialog } from './add-workspace-dialog'
-import { useTabBarNavigation } from './use-tab-bar-navigation'
 
 type TabProps = {
   workspace: Workspace
