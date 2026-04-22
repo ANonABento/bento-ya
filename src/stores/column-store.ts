@@ -109,9 +109,7 @@ export const useColumnStore = create<ColumnState>()(
                   ...(updates.icon !== undefined && { icon: updates.icon }),
                   ...(updates.color !== undefined && { color: updates.color ?? '' }),
                   ...(updates.visible !== undefined && { visible: updates.visible }),
-                  ...(updates.triggers !== undefined && {
-                    triggers: JSON.parse(updates.triggers) as import('@/types').ColumnTriggers,
-                  }),
+                  ...(parsedTriggers !== undefined && { triggers: parsedTriggers }),
                 }
               : c,
           ),

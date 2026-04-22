@@ -18,21 +18,38 @@ type ColumnProps = {
   column: ColumnType
   columnIndex: number
   columnCount: number
+  autoOpenConfig?: boolean
+  onConfigOpened?: () => void
 }
 
-export const Column = memo(function Column({ column, columnIndex, columnCount }: ColumnProps) {
+type BatchQueueLocalState = {
+  isQueuing: boolean
+  total: number
+  completed: number
+  queuedTaskIds: string[]
+}
+
+export const Column = memo(function Column({
+  column,
+  columnIndex,
+  columnCount,
+  autoOpenConfig = false,
+  onConfigOpened,
+}: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
   const getScriptName = useScriptStore((s) => s.getScriptName)
+  const isBacklog = columnIndex === 0
 
   // Memoize filtered tasks to prevent infinite loops
   const tasks = useMemo(
-    () => allTasks
-      .filter((t) => t.columnId === column.id)
-      .sort((a, b) => a.position - b.position),
-    [allTasks, column.id]
+    () =>
+      allTasks
+        .filter((t) => t.columnId === column.id)
+        .sort((a, b) => a.position - b.position),
+    [allTasks, column.id],
   )
   const taskIds = useMemo(() => tasks.map((t) => t.id), [tasks])
 
@@ -142,10 +159,9 @@ export const Column = memo(function Column({ column, columnIndex, columnCount }:
 
   // Auto-open config dialog for newly created columns
   useEffect(() => {
-    if (autoOpenConfig) {
-      setShowConfigDialog(true)
-      onConfigOpened?.()
-    }
+    if (!autoOpenConfig) return
+    setShowConfigDialog(true)
+    onConfigOpened?.()
   }, [autoOpenConfig, onConfigOpened])
 
   const handleConfigure = useCallback(() => {

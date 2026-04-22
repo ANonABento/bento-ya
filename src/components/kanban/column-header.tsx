@@ -130,36 +130,23 @@ export const ColumnHeader = memo(function ColumnHeader({
   }
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2">
-      <span
-        className="flex h-5 w-5 items-center justify-center rounded text-text-secondary"
-        style={{ color: color || 'var(--accent)' }}
-      >
-        {getIcon(icon)}
-      </span>
-      <h3 className="flex min-w-0 items-center text-xs font-semibold uppercase tracking-wider text-text-secondary">
-        <span className="truncate">
-          {name}
-        </span>
-        {showShortcutHint && (
-          <kbd className="ml-1 rounded bg-muted/30 px-1 font-mono text-xs text-muted-foreground opacity-50">
-            {columnIndex + 1}
-          </kbd>
-        )}
-      </h3>
-      <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
-        {taskCount}
-      </span>
-
-      {scriptTrigger && (
+    <>
+      <div className="flex items-center gap-2 px-3 py-2">
         <span
           className="flex h-5 w-5 items-center justify-center rounded text-text-secondary"
           style={{ color: color || 'var(--accent)' }}
         >
           {getIcon(icon)}
         </span>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary truncate">
-          {name}
+        <h3 className="flex min-w-0 items-center text-xs font-semibold uppercase tracking-wider text-text-secondary">
+          <span className="truncate">
+            {name}
+          </span>
+          {showShortcutHint && (
+            <kbd className="ml-1 rounded bg-muted/30 px-1 font-mono text-xs text-muted-foreground opacity-50">
+              {columnIndex + 1}
+            </kbd>
+          )}
         </h3>
         <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
           {taskCount}
@@ -196,48 +183,48 @@ export const ColumnHeader = memo(function ColumnHeader({
             />
           )}
 
-          {/* Cancel queue button */}
-          {batchQueue && (
-            <IconButton
-              icon={
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-                  <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm2.78-4.22a.75.75 0 0 1-1.06 0L8 9.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L6.94 8 5.22 6.28a.75.75 0 0 1 1.06-1.06L8 6.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L9.06 8l1.72 1.72a.75.75 0 0 1 0 1.06Z" clipRule="evenodd" />
-                </svg>
-              }
-              onClick={onCancelQueue}
-              tooltip="Cancel queue"
-              tooltipSide="bottom"
-            />
-          )}
-
-          {/* Add task button */}
+        {/* Cancel queue button */}
+        {batchQueue && (
           <IconButton
             icon={
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-                <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
+                <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm2.78-4.22a.75.75 0 0 1-1.06 0L8 9.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L6.94 8 5.22 6.28a.75.75 0 0 1 1.06-1.06L8 6.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L9.06 8l1.72 1.72a.75.75 0 0 1 0 1.06Z" clipRule="evenodd" />
               </svg>
             }
-            onClick={onAddTask}
-            tooltip="Add task"
+            onClick={onCancelQueue}
+            tooltip="Cancel queue"
+            tooltipSide="bottom"
+          />
+        )}
+
+        {/* Add task button */}
+        <IconButton
+          icon={
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+              <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
+            </svg>
+          }
+          onClick={onAddTask}
+          tooltip="Add task"
+          tooltipSide="bottom"
+        />
+
+        {/* Menu button */}
+        <div className="relative" ref={menuRef}>
+          <IconButton
+            icon={
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
+                <path d="M8 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM9.5 12.5a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0Z" />
+              </svg>
+            }
+            onClick={() => { setShowMenu(!showMenu); }}
+            tooltip="Column options"
             tooltipSide="bottom"
           />
 
-          {/* Menu button */}
-          <div className="relative" ref={menuRef}>
-            <IconButton
-              icon={
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
-                  <path d="M8 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM9.5 12.5a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0Z" />
-                </svg>
-              }
-              onClick={() => { setShowMenu(!showMenu); }}
-              tooltip="Column options"
-              tooltipSide="bottom"
-            />
-
-            <AnimatePresence>
-              {showMenu && (
-                <motion.div
+          <AnimatePresence>
+            {showMenu && (
+              <motion.div
                   initial={{ opacity: 0, scale: 0.95, y: -5 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -5 }}
@@ -268,10 +255,10 @@ export const ColumnHeader = memo(function ColumnHeader({
                     </svg>
                     Delete
                   </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
         </div>
       </div>
 

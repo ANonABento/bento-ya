@@ -9,7 +9,8 @@ import { listen, type UnlistenFn } from '@/lib/ipc'
 import { useTaskStore } from '@/stores/task-store'
 
 type TasksChangedPayload = {
-  workspaceId: string
+  workspaceId?: string
+  workspace_id?: string
   reason: string
 }
 
@@ -24,7 +25,7 @@ export function useTaskSync(workspaceId: string | null) {
 
     void listen<TasksChangedPayload>('tasks:changed', (payload) => {
       if (cancelled) return
-      if (payload.workspaceId === workspaceId) {
+      if ((payload.workspaceId ?? payload.workspace_id) === workspaceId) {
         void loadTasks(workspaceId)
       }
     }).then((unlisten) => {

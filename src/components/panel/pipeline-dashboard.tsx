@@ -21,7 +21,8 @@ import {
 } from './pipeline-dashboard-utils'
 
 type TasksChangedPayload = {
-  workspaceId: string
+  workspaceId?: string
+  workspace_id?: string
   reason: string
 }
 
@@ -33,7 +34,7 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
   const tasks = useTaskStore((s) => s.tasks)
   const loadTasks = useTaskStore((s) => s.load)
   const columns = useColumnStore((s) => s.columns)
-  const openTask = useUIStore((s) => s.openTask)
+  const openChat = useUIStore((s) => s.openChat)
 
   const [, setTick] = useState(0)
   const unlistenRefs = useRef<UnlistenFn[]>([])
@@ -53,19 +54,27 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
     }
 
     // tasks:changed
-    listen<TasksChangedPayload>('tasks:changed', (payload) => {
-      if (payload.workspaceId === workspaceId) refresh()
+    void listen<TasksChangedPayload>('tasks:changed', (payload) => {
+      if ((payload.workspaceId ?? payload.workspace_id) === workspaceId) {
+        refresh()
+      }
     }).then((unlisten) => {
-      if (cancelled) unlisten()
-      else unlistenRefs.current.push(unlisten)
+      if (cancelled) {
+        unlisten()
+      } else {
+        unlistenRefs.current.push(unlisten)
+      }
     })
 
     // Pipeline events
     const pipelineListeners = [onPipelineRunning, onPipelineComplete, onPipelineError, onPipelineAdvanced]
     for (const sub of pipelineListeners) {
-      sub(() => { refresh() }).then((unlisten) => {
-        if (cancelled) unlisten()
-        else unlistenRefs.current.push(unlisten)
+      void sub(() => { refresh() }).then((unlisten) => {
+        if (cancelled) {
+          unlisten()
+        } else {
+          unlistenRefs.current.push(unlisten)
+        }
       })
     }
 
@@ -129,7 +138,7 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
-                  onClick={() => { openTask(task.id) }}
+                  onClick={() => { openChat(task.id) }}
                   className="w-full rounded-md bg-surface p-2 text-left transition-colors hover:bg-surface-hover"
                   style={{ cursor: 'pointer' }}
                 >
@@ -145,7 +154,7 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
                   <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-hover">
                     <div
                       className="h-full rounded-full bg-accent transition-all duration-500"
-                      style={{ width: `${progress}%` }}
+                      style={{ width: `${String(progress)}%` }}
                     />
                   </div>
                 </motion.button>
@@ -164,7 +173,7 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
               <button
                 key={task.id}
                 type="button"
-                onClick={() => { openTask(task.id) }}
+                onClick={() => { openChat(task.id) }}
                 className="w-full rounded-md bg-surface p-2 text-left transition-colors hover:bg-surface-hover"
                 style={{ cursor: 'pointer' }}
               >
@@ -185,27 +194,31 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
       {/* Recent completions */}
       {recentCompletions.length > 0 && (
         <Section title="Completions">
-          {recentCompletions.map((task) => (
-            <div
-              key={task.id}
-              className="rounded-md bg-surface p-2"
-            >
-              <div className="flex items-center justify-between gap-1">
-                <span className="truncate text-xs font-medium text-text-primary">{task.title}</span>
-                <span className="text-[10px] text-text-tertiary">{formatRelativeTime(task.updatedAt)}</span>
+          {recentCompletions.map((task) => {
+            const prUrl = task.prUrl ?? undefined
+
+            return (
+              <div
+                key={task.id}
+                className="rounded-md bg-surface p-2"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span className="truncate text-xs font-medium text-text-primary">{task.title}</span>
+                  <span className="text-[10px] text-text-tertiary">{formatRelativeTime(task.updatedAt)}</span>
+                </div>
+                {prUrl && (
+                  <button
+                    type="button"
+                    onClick={() => { window.open(prUrl, '_blank') }}
+                    className="mt-0.5 text-[10px] text-accent hover:underline"
+                    style={{ cursor: 'pointer' }}
+                  >
+                    {task.prNumber ? `PR #${String(task.prNumber)}` : 'View PR'}
+                  </button>
+                )}
               </div>
-              {task.prUrl && (
-                <button
-                  type="button"
-                  onClick={() => { window.open(task.prUrl ?? undefined, '_blank') }}
-                  className="mt-0.5 text-[10px] text-accent hover:underline"
-                  style={{ cursor: 'pointer' }}
-                >
-                  {task.prNumber ? `PR #${task.prNumber}` : 'View PR'}
-                </button>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </Section>
       )}
 

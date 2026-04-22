@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { listen } from '@tauri-apps/api/event'
 
 type TaskEventPayload = {
+  workspace_id?: string
   workspaceId?: string
 }
 
@@ -14,7 +15,7 @@ export function useOrchestratorTaskRefresh(
 
     const setupListeners = async () => {
       const refreshIfMatches = (payload: TaskEventPayload) => {
-        if (payload.workspaceId === workspaceId) {
+        if ((payload.workspaceId ?? payload.workspace_id) === workspaceId) {
           void refreshTasks(workspaceId)
         }
       }
