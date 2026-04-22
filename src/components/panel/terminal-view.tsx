@@ -24,6 +24,25 @@ type TerminalViewProps = {
   workingDir: string
 }
 
+function decodeBase64ToBytes(data: string): Uint8Array {
+  const binary = atob(data)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes
+}
+
+function writeTerminalChunk(term: Terminal, data: string, fallbackToRaw = true) {
+  try {
+    term.write(decodeBase64ToBytes(data))
+  } catch {
+    if (fallbackToRaw) {
+      term.write(data)
+    }
+  }
+}
+
 export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -58,7 +77,9 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
 
     try {
       const webgl = new WebglAddon()
-      webgl.onContextLoss(() => { webgl.dispose() })
+      webgl.onContextLoss(() => {
+        webgl.dispose()
+      })
       term.loadAddon(webgl)
     } catch {
       // Canvas renderer fallback is fine.
@@ -79,16 +100,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
     listenerPromises.push(
       listen<PtyOutputPayload>(EventChannels.ptyOutput(taskId), (payload) => {
         if (disposed) return
-        try {
-          const binary = atob(payload.data)
-          const bytes = new Uint8Array(binary.length)
-          for (let i = 0; i < binary.length; i += 1) {
-            bytes[i] = binary.charCodeAt(i)
-          }
-          term.write(bytes)
-        } catch {
-          term.write(payload.data)
-        }
+        writeTerminalChunk(term, payload.data)
       }),
     )
 
@@ -121,16 +133,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
           ensurePtySession(taskId, workingDir, cols, rows)
             .then((info) => {
               if (info.scrollback) {
-                try {
-                  const binary = atob(info.scrollback)
-                  const bytes = new Uint8Array(binary.length)
-                  for (let i = 0; i < binary.length; i += 1) {
-                    bytes[i] = binary.charCodeAt(i)
-                  }
-                  term.write(bytes)
-                } catch {
-                  // Ignore scrollback decode failures.
-                }
+                writeTerminalChunk(term, info.scrollback, false)
               }
               resolve()
             })
@@ -186,11 +189,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <div
-        ref={containerRef}
-        className="min-h-0 flex-1"
-        style={{ padding: '4px 0 4px 4px' }}
-      />
+      <div ref={containerRef} className="min-h-0 flex-1" style={{ padding: '4px 0 4px 4px' }} />
     </div>
   )
 }

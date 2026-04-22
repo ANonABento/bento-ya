@@ -625,8 +625,8 @@ fn execute_create_pr(
         }
     };
 
-    if task.pr_number.is_some() {
-        log::info!("[create_pr] Task {} already has PR #{}, skipping", task.id, task.pr_number.unwrap());
+    if let Some(pr_number) = task.pr_number {
+        log::info!("[create_pr] Task {} already has PR #{}, skipping", task.id, pr_number);
         let updated = db::update_task_pipeline_state(
             conn, &task.id, PipelineState::Idle.as_str(), None, None,
         )?;
@@ -1411,7 +1411,7 @@ mod tests {
 
         for steps_json in built_in_steps {
             let parsed: Vec<serde_json::Value> = serde_json::from_str(steps_json)
-                .expect(&format!("Failed to parse: {}", steps_json));
+                .unwrap_or_else(|_| panic!("Failed to parse: {}", steps_json));
             assert!(!parsed.is_empty());
             for step in &parsed {
                 let step_type = step.get("type").and_then(|v| v.as_str());

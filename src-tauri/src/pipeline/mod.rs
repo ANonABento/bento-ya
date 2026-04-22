@@ -46,7 +46,7 @@ impl PipelineState {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s {
             "triggered" => PipelineState::Triggered,
             "running" => PipelineState::Running,
@@ -393,7 +393,7 @@ pub fn evaluate_exit_criteria(
     // Reset state to running or idle
     let new_state = if exit_met {
         PipelineState::Idle
-    } else if PipelineState::from_str(&task.pipeline_state) == PipelineState::Running {
+    } else if PipelineState::parse(&task.pipeline_state) == PipelineState::Running {
         PipelineState::Running
     } else {
         PipelineState::Idle
@@ -988,13 +988,13 @@ mod tests {
     #[test]
     fn test_pipeline_state_roundtrip() {
         for state in [PipelineState::Idle, PipelineState::Triggered, PipelineState::Running, PipelineState::Evaluating, PipelineState::Advancing] {
-            assert_eq!(PipelineState::from_str(state.as_str()), state);
+            assert_eq!(PipelineState::parse(state.as_str()), state);
         }
     }
 
     #[test]
     fn test_pipeline_state_unknown_defaults_idle() {
-        assert_eq!(PipelineState::from_str("garbage"), PipelineState::Idle);
-        assert_eq!(PipelineState::from_str(""), PipelineState::Idle);
+        assert_eq!(PipelineState::parse("garbage"), PipelineState::Idle);
+        assert_eq!(PipelineState::parse(""), PipelineState::Idle);
     }
 }

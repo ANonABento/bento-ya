@@ -33,7 +33,6 @@ type TabProps = {
   activeTaskCount?: number
   notificationCount?: number
   onSelect: () => void
-  onClose: () => void
 }
 
 // ─── SortableTab ────────────────────────────────────────────────────────────
@@ -44,7 +43,7 @@ function SortableTab({
   activeTaskCount = 0,
   notificationCount = 0,
   onSelect,
-}: Omit<TabProps, 'onClose'>) {
+}: TabProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: workspace.id,
   })
