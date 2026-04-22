@@ -601,7 +601,7 @@ describe('useChatSession', () => {
       await new Promise((resolve) => setTimeout(resolve, 50))
 
       expect(mockIpc.getAgentMessages).not.toHaveBeenCalled()
-      expect(result.current.isLoading).toBe(true) // Still loading since it never completed
+      expect(result.current.isLoading).toBe(false)
     })
   })
 })

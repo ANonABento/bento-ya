@@ -634,7 +634,6 @@ fn emit_completion_event(app: &AppHandle, task_id: &str, column_id: &str, worksp
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db;
 
     /// Create a minimal task for testing decision logic.
     fn make_task(retry_count: i64, pipeline_state: &str) -> Task {

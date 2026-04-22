@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
-import type { Column, ColumnTriggers } from '@/types'
+import type { Column } from '@/types'
 import * as ipc from '@/lib/ipc'
 import { useWorkspaceStore } from './workspace-store'
 
@@ -30,14 +30,6 @@ type ColumnState = {
   updateColumnAsync: (id: string, updates: ColumnUpdates) => Promise<void>
 }
 
-function parseTriggersSafely(triggers: string): ColumnTriggers | undefined {
-  try {
-    return JSON.parse(triggers) as ColumnTriggers
-  } catch {
-    return undefined
-  }
-}
-
 export const useColumnStore = create<ColumnState>()(
   devtools(
     (set, get) => ({
@@ -54,6 +46,7 @@ export const useColumnStore = create<ColumnState>()(
         const column = await ipc.createColumn(workspaceId, name, position)
         set((s) => ({ columns: [...s.columns, column] }))
         await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+        return column
       },
 
       remove: async (id) => {
@@ -96,9 +89,6 @@ export const useColumnStore = create<ColumnState>()(
 
       updateColumnAsync: async (id, updates) => {
         const prev = get().columns
-        const parsedTriggers = updates.triggers !== undefined
-          ? parseTriggersSafely(updates.triggers)
-          : undefined
         // Optimistically update
         set((s) => ({
           columns: s.columns.map((c) =>

@@ -20,6 +20,13 @@ type ColumnProps = {
   columnCount: number
 }
 
+type BatchQueueLocalState = {
+  isQueuing: boolean
+  total: number
+  completed: number
+  queuedTaskIds: string[]
+}
+
 export const Column = memo(function Column({ column, columnIndex, columnCount }: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
@@ -52,6 +59,11 @@ export const Column = memo(function Column({ column, columnIndex, columnCount }:
       : entryIsScript ? 'entry' as const : 'exit' as const
     return { scriptName, event }
   }, [column, getScriptName])
+
+  const isBacklog = useMemo(
+    () => /^(backlog|todo|inbox|queue|triage|icebox|ideas)$/i.test(column.name.trim()),
+    [column.name]
+  )
 
   const [showConfigDialog, setShowConfigDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -139,14 +151,6 @@ export const Column = memo(function Column({ column, columnIndex, columnCount }:
       return () => { el.removeEventListener('input', handler) }
     }
   }, [showAddTask])
-
-  // Auto-open config dialog for newly created columns
-  useEffect(() => {
-    if (autoOpenConfig) {
-      setShowConfigDialog(true)
-      onConfigOpened?.()
-    }
-  }, [autoOpenConfig, onConfigOpened])
 
   const handleConfigure = useCallback(() => {
     setShowConfigDialog(true)

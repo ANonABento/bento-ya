@@ -3,6 +3,7 @@ import { devtools } from 'zustand/middleware'
 import type { Task } from '@/types'
 import * as ipc from '@/lib/ipc'
 import { useWorkspaceStore } from './workspace-store'
+import { useUIStore } from './ui-store'
 
 type TaskState = {
   tasks: Task[]

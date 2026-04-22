@@ -454,16 +454,6 @@ fn execute_spawn_cli(
         format!("{}\n\nSee .task.md for full spec.", task.title)
     };
 
-    // Resolve CLI and model from workspace config (both use the same parsed value)
-    let workspace_config: serde_json::Value = serde_json::from_str(&workspace.config).unwrap_or_default();
-
-    // Resolve CLI: trigger config > workspace default > "claude"
-    let ws_default_cli = workspace_config.get("defaultAgentCli").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
-    let cli_type = cli.or(ws_default_cli).unwrap_or("claude").to_string();
-
-    // Resolve model: task override > trigger config > workspace default > none
-    let ws_default_model = workspace_config.get("defaultModel").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
-    let resolved_model = task.model.as_deref().or(model).or(ws_default_model).map(|m| m.to_string());
     // Resolve CLI: trigger config > workspace config > global settings
     let cli_type = cli.map(|c| c.to_string()).unwrap_or_else(|| {
         let settings = crate::config::AppSettings::load();
@@ -1209,7 +1199,7 @@ mod tests {
 
     #[test]
     fn test_resolve_column_target_next() {
-        let (conn, ws, _, col2, col3) = setup();
+        let (conn, ws, _, col2, _) = setup();
         let task = db::insert_task(&conn, &ws.id, &col2.id, "Task", None).unwrap();
 
         let result = resolve_column_target(&conn, &task, "next").unwrap();
@@ -1219,7 +1209,7 @@ mod tests {
 
     #[test]
     fn test_resolve_column_target_previous() {
-        let (conn, ws, col1, col2, _) = setup();
+        let (conn, ws, _, col2, _) = setup();
         let task = db::insert_task(&conn, &ws.id, &col2.id, "Task", None).unwrap();
 
         let result = resolve_column_target(&conn, &task, "previous").unwrap();

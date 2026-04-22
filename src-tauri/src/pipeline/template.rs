@@ -166,6 +166,7 @@ mod tests {
             repo_path: "/home/user/project".to_string(),
             tab_order: 0,
             is_active: true,
+            active_task_count: 0,
             config: "{}".to_string(),
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
