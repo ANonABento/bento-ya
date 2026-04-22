@@ -72,8 +72,9 @@ function SortableTab({
             onSelect()
           }
         }}
+        style={{ cursor: 'pointer' }}
         className={`
-          group flex h-8 cursor-pointer items-center justify-center px-3 text-sm
+          group flex h-8 items-center justify-center px-3 text-sm
           transition-colors duration-150
           ${
             isActive

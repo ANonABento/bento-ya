@@ -179,7 +179,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       >
         <div
           onClick={handleHeaderClick}
-          className="relative flex cursor-pointer select-none items-center justify-between px-3 py-1.5"
+          className="relative flex select-none items-center justify-between px-3 py-1.5"
+          style={{ cursor: 'pointer' }}
         >
           <div className="flex items-center gap-1">
             {!isPanelCollapsed && (
@@ -187,7 +188,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 <button
                   type="button"
                   onClick={() => { setSidebarMode(sidebarMode === 'history' ? null : 'history') }}
-                  className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                  style={{ cursor: 'pointer' }}
+                  className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
                     sidebarMode === 'history'
                       ? 'bg-surface-hover text-text-primary'
                       : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
@@ -200,7 +202,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 <button
                   type="button"
                   onClick={() => { setSidebarMode(sidebarMode === 'files' ? null : 'files') }}
-                  className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                  style={{ cursor: 'pointer' }}
+                  className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
                     sidebarMode === 'files'
                       ? 'bg-surface-hover text-text-primary'
                       : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
@@ -214,7 +217,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 <button
                   type="button"
                   onClick={() => { setSidebarMode(sidebarMode === 'dashboard' ? null : 'dashboard') }}
-                  className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                  style={{ cursor: 'pointer' }}
+                  className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
                     sidebarMode === 'dashboard'
                       ? 'bg-surface-hover text-text-primary'
                       : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
@@ -242,7 +246,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 type="button"
                 onClick={() => { void handleNewChat() }}
                 disabled={historyMessages.length === 0}
-                className="flex h-6 cursor-pointer items-center gap-1 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+                style={{ cursor: historyMessages.length === 0 ? 'not-allowed' : 'pointer' }}
+                className="flex h-6 items-center gap-1 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
                   <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
@@ -258,7 +263,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 type="button"
                 onClick={() => { setPanelDock(isRightDock ? 'bottom' : 'right') }}
                 title={isRightDock ? 'Dock to bottom' : 'Dock to right'}
-                className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+                style={{ cursor: 'pointer' }}
+                className="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
               >
                 {isRightDock ? (
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -274,7 +280,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             <button
               type="button"
               onClick={togglePanel}
-              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+              style={{ cursor: 'pointer' }}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                 {isRightDock ? (

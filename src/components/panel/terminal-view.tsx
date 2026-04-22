@@ -75,12 +75,17 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
 
     void Promise.all(listenerPromises).then(() => {
       if (disposed) return
-      void ensurePtySession(taskId, workingDir, 80, 24).catch((err: unknown) => {
-        if (!disposed) {
-          const message = err instanceof Error ? err.message : String(err)
-          appendOutput(`\nFailed to start terminal: ${message}\n`)
-        }
-      })
+      void ensurePtySession(taskId, workingDir, 80, 24)
+        .then((session) => {
+          if (disposed || !session.scrollback) return
+          appendOutput(decodePtyData(session.scrollback))
+        })
+        .catch((err: unknown) => {
+          if (!disposed) {
+            const message = err instanceof Error ? err.message : String(err)
+            appendOutput(`\nFailed to start terminal: ${message}\n`)
+          }
+        })
     })
 
     return () => {
