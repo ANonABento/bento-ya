@@ -18,6 +18,8 @@ type ColumnProps = {
   column: ColumnType
   columnIndex: number
   columnCount: number
+  autoOpenConfig?: boolean
+  onConfigOpened?: () => void
 }
 
 type BatchQueueLocalState = {
@@ -27,7 +29,13 @@ type BatchQueueLocalState = {
   queuedTaskIds: string[]
 }
 
-export const Column = memo(function Column({ column, columnIndex, columnCount }: ColumnProps) {
+export const Column = memo(function Column({
+  column,
+  columnIndex,
+  columnCount,
+  autoOpenConfig = false,
+  onConfigOpened,
+}: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
@@ -152,6 +160,12 @@ export const Column = memo(function Column({ column, columnIndex, columnCount }:
     }
   }, [showAddTask])
 
+  useEffect(() => {
+    if (!autoOpenConfig) return
+    setShowConfigDialog(true)
+    onConfigOpened?.()
+  }, [autoOpenConfig, onConfigOpened])
+
   const handleConfigure = useCallback(() => {
     setShowConfigDialog(true)
   }, [])
@@ -196,7 +210,11 @@ export const Column = memo(function Column({ column, columnIndex, columnCount }:
           isDragging ? 'opacity-50' : ''
         }`}
       >
-        <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
+        <div
+          {...attributes}
+          {...listeners}
+          style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+        >
           <ColumnHeader
             name={column.name}
             icon={column.icon || 'list'}

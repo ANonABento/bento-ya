@@ -35,11 +35,14 @@ export function Board() {
   const loadTasks = useTaskStore((s) => s.load)
   const tasks = useTaskStore((s) => s.tasks)
   const loadScripts = useScriptStore((s) => s.load)
+  const [newColumnId, setNewColumnId] = useState<string | null>(null)
 
   const handleAddColumn = useCallback(() => {
     if (!activeWorkspaceId) return
     const name = `Column ${String(columns.length + 1)}`
-    void addColumn(activeWorkspaceId, name)
+    void addColumn(activeWorkspaceId, name).then((column) => {
+      setNewColumnId(column.id)
+    })
   }, [activeWorkspaceId, columns.length, addColumn])
 
   const { registerCard, positions } = useCardPositionProvider()
@@ -113,6 +116,10 @@ export function Board() {
                     column={col}
                     columnIndex={index}
                     columnCount={sortedColumns.length}
+                    autoOpenConfig={col.id === newColumnId}
+                    onConfigOpened={() => {
+                      setNewColumnId((currentId) => (currentId === col.id ? null : currentId))
+                    }}
                   />
                 ))}
               </SortableContext>

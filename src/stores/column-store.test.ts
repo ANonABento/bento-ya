@@ -77,11 +77,12 @@ describe('column-store', () => {
       mockIpc.createColumn.mockResolvedValueOnce(newColumn)
       refreshWorkspace.mockResolvedValueOnce(undefined)
 
-      await useColumnStore.getState().add('ws-1', 'New Column')
+      const result = await useColumnStore.getState().add('ws-1', 'New Column')
 
       const state = useColumnStore.getState()
       expect(state.columns).toHaveLength(1)
       expect(state.columns[0]!.name).toBe('New Column')
+      expect(result).toEqual(newColumn)
       expect(mockIpc.createColumn).toHaveBeenCalledWith('ws-1', 'New Column', 0)
       expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
     })
@@ -254,6 +255,22 @@ describe('column-store', () => {
       const state = useColumnStore.getState()
       expect(state.columns[0]!.icon).toBe('check')
       expect(state.columns[0]!.name).toBe('Name')
+    })
+
+    it('should ignore invalid trigger JSON during optimistic update', async () => {
+      const original = createMockColumn({ id: 'col-1' })
+      useColumnStore.setState({
+        columns: [original],
+        loaded: true,
+      })
+      mockIpc.updateColumn.mockResolvedValueOnce(original)
+
+      await expect(
+        useColumnStore.getState().updateColumnAsync('col-1', { triggers: '{invalid-json' }),
+      ).resolves.toBeUndefined()
+
+      expect(useColumnStore.getState().columns[0]!.triggers).toEqual(original.triggers)
+      expect(mockIpc.updateColumn).toHaveBeenCalledWith('col-1', { triggers: '{invalid-json' })
     })
   })
 })
