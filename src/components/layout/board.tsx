@@ -117,6 +117,10 @@ export function Board() {
                     column={col}
                     columnIndex={index}
                     columnCount={sortedColumns.length}
+                    autoOpenConfig={col.id === newColumnId}
+                    onConfigOpened={() => {
+                      setNewColumnId((current) => (current === col.id ? null : current))
+                    }}
                   />
                 ))}
               </SortableContext>
