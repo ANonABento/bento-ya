@@ -27,11 +27,10 @@ export const TaskQuickActions = memo(function TaskQuickActions({
   onShowMenu,
 }: TaskQuickActionsProps) {
   const isRunning = task.agentStatus === 'running'
-  const isIdle = !isRunning
   const hasError = !!task.pipelineError
 
   // Play is only meaningful when the column has a trigger; Stop is always allowed.
-  const showPlay = isIdle && columnHasTrigger
+  const showPlay = !isRunning && columnHasTrigger
   const showStop = isRunning
 
   return (
@@ -77,7 +76,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       {/* Retry - visible when task has pipeline error */}
       {hasError && (
         <button
-          onClick={(e) => { e.stopPropagation(); onRetry(); }}
+          onClick={onRetry}
           className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-warning/20 hover:text-warning transition-colors"
           title="Retry pipeline (R)"
         >
@@ -90,7 +89,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       {/* Move to next column */}
       {hasNextColumn && (
         <button
-          onClick={(e) => { e.stopPropagation(); onMoveNext(); }}
+          onClick={onMoveNext}
           className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-accent transition-colors"
           title="Move to next column (→)"
         >
@@ -102,7 +101,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
 
       {/* Delete — confirm state lives in parent so mouse + keyboard share one timer */}
       <button
-        onClick={(e) => { e.stopPropagation(); onRequestDelete(); }}
+        onClick={onRequestDelete}
         className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
           isDeleteConfirmPending
             ? 'text-error bg-error/20'

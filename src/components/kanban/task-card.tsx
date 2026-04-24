@@ -56,7 +56,6 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   }, [columns, task.columnId])
 
   const isQualityGate = columnTriggers?.type === 'manual_approval'
-  const reviewStatus = task.reviewStatus
 
   // Live agent streaming data
   const agentStream = useAgentStreamingStore((s) => s.streams.get(task.id))
@@ -117,13 +116,8 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     }
   }
 
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setContextMenu({ x: e.clientX, y: e.clientY })
-  }, [])
-
-  const handleShowMenu = useCallback((e: React.MouseEvent) => {
+  // Right-click and the "More" button open the same menu at the cursor.
+  const openContextMenuAt = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setContextMenu({ x: e.clientX, y: e.clientY })
@@ -233,7 +227,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         transition: 'transform 200ms ease, opacity 200ms ease',
       }}
       onClick={handleClick}
-      onContextMenu={handleContextMenu}
+      onContextMenu={openContextMenuAt}
       onKeyDown={(e) => {
         if (e.metaKey || e.ctrlKey || e.altKey) return
         switch (e.key) {
@@ -249,7 +243,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           case 'R':
             e.preventDefault()
             if (task.pipelineError) {
-              void actions.handleRetryPipeline()
+              handleRetry()
             }
             break
           case 'ArrowRight':
@@ -309,7 +303,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           onRetry={handleRetry}
           onMoveNext={handleMoveNext}
           onRequestDelete={handleDeleteWithConfirm}
-          onShowMenu={handleShowMenu}
+          onShowMenu={openContextMenuAt}
         />
       )}
 
@@ -336,8 +330,8 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         {/* Status banners */}
         {needsAttention && attention && <AttentionBanner attention={attention} />}
         {task.blocked && <BlockedBanner blockerInfo={blockerInfo} />}
-        {isQualityGate && !hasPipelineError && <QualityGateBanner reviewStatus={reviewStatus} />}
-        {hasPipelineError && <PipelineErrorBanner task={task} onRetry={() => { void actions.handleRetryPipeline() }} />}
+        {isQualityGate && !hasPipelineError && <QualityGateBanner reviewStatus={task.reviewStatus} />}
+        {hasPipelineError && <PipelineErrorBanner task={task} onRetry={handleRetry} />}
 
         {/* Agent activity preview */}
         {!needsAttention && !hasPipelineError && (
