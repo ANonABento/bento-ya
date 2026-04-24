@@ -52,8 +52,9 @@ export function useModels(provider?: string): UseModelsResult {
         filtered = filtered.filter((m) => m.provider === provider)
       }
       setModels(filtered)
-      setLastFetched(cache.lastFetched || null)
-      setSource(cache.source ?? 'built-in')
+      const fetchedAt = cache.lastFetched.trim()
+      setLastFetched(fetchedAt === '' ? null : fetchedAt)
+      setSource(cache.source)
     },
     [provider],
   )

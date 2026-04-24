@@ -26,18 +26,13 @@ import type { Workspace } from '@/types'
 import { AddWorkspaceDialog } from './add-workspace-dialog'
 import { useTabBarNavigation } from './use-tab-bar-navigation'
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 type TabProps = {
   workspace: Workspace
   isActive: boolean
   activeTaskCount?: number
   notificationCount?: number
   onSelect: () => void
-  onClose: () => void
 }
-
-// ─── SortableTab ────────────────────────────────────────────────────────────
 
 function SortableTab({
   workspace,
@@ -45,7 +40,7 @@ function SortableTab({
   activeTaskCount = 0,
   notificationCount = 0,
   onSelect,
-}: Omit<TabProps, 'onClose'>) {
+}: TabProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: workspace.id,
   })
@@ -73,10 +68,13 @@ function SortableTab({
         tabIndex={0}
         onClick={onSelect}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') onSelect()
+          if (e.key === 'Enter' || e.key === ' ') {
+            onSelect()
+          }
         }}
+        style={{ cursor: 'pointer' }}
         className={`
-          group flex h-8 cursor-pointer items-center justify-center px-3 text-sm
+          group flex h-8 items-center justify-center px-3 text-sm
           transition-colors duration-150
           ${
             isActive
@@ -94,7 +92,6 @@ function SortableTab({
           )}
         </span>
 
-        {/* Notification badge */}
         {notificationCount > 0 && (
           <span className="ml-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-attention px-1 text-[10px] font-bold text-bg">
             {notificationCount > 9 ? '9+' : notificationCount}
@@ -102,7 +99,6 @@ function SortableTab({
         )}
       </div>
 
-      {/* Active indicator */}
       {isActive && (
         <motion.div
           layoutId="tab-indicator"
@@ -114,8 +110,6 @@ function SortableTab({
   )
 }
 
-// ─── Tab overlay (shown while dragging) ─────────────────────────────────────
-
 function TabOverlay({ workspace }: { workspace: Workspace }) {
   return (
     <div className="flex h-8 items-center gap-2 rounded-lg bg-surface-hover px-3 text-sm font-medium text-text-primary shadow-lg">
@@ -123,8 +117,6 @@ function TabOverlay({ workspace }: { workspace: Workspace }) {
     </div>
   )
 }
-
-// ─── AddTabButton ───────────────────────────────────────────────────────────
 
 function AddTabButton({ onClick }: { onClick: () => void }) {
   return (
@@ -135,7 +127,6 @@ function AddTabButton({ onClick }: { onClick: () => void }) {
         whileTap={{ scale: 0.95 }}
         className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
       >
-        {/* Folder plus icon */}
         <svg
           xmlns="http://www.w3.org/2000/svg"
           viewBox="0 0 20 20"
@@ -152,8 +143,6 @@ function AddTabButton({ onClick }: { onClick: () => void }) {
     </Tooltip>
   )
 }
-
-// ─── SettingsButton ─────────────────────────────────────────────────────────
 
 function SettingsButton() {
   const openSettings = useSettingsStore((s) => s.openSettings)
@@ -182,8 +171,6 @@ function SettingsButton() {
     </Tooltip>
   )
 }
-
-// ─── ChecklistButton ─────────────────────────────────────────────────────────
 
 function ChecklistButton() {
   const openChecklist = useChecklistStore((s) => s.openChecklist)
@@ -228,15 +215,12 @@ function ChecklistButton() {
   )
 }
 
-// ─── TabBar ─────────────────────────────────────────────────────────────────
-
 export function TabBar() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const setActive = useWorkspaceStore((s) => s.setActive)
   const reorder = useWorkspaceStore((s) => s.reorder)
   const remove = useWorkspaceStore((s) => s.remove)
-
   const getUnviewedCount = useAttentionStore((s) => s.getUnviewedCount)
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -251,108 +235,36 @@ export function TabBar() {
     }),
   )
 
-  // ─── Tab Navigation ─────────────────────────────────────────────────────────
+  useTabBarNavigation({
+    sortedWorkspaces,
+    activeWorkspaceId,
+    setActive,
+    remove,
+    openAddDialog: () => { setShowAddDialog(true) },
+  })
 
-  const selectByIndex = useCallback(
-    (index: number) => {
-      const workspace = sortedWorkspaces[index]
-      if (workspace) {
-        setActive(workspace.id)
-      }
-    },
-    [sortedWorkspaces, setActive],
-  )
-
-  const selectPrev = useCallback(() => {
-    const currentIndex = sortedWorkspaces.findIndex((w) => w.id === activeWorkspaceId)
-    const newIndex = currentIndex > 0 ? currentIndex - 1 : sortedWorkspaces.length - 1
-    selectByIndex(newIndex)
-  }, [sortedWorkspaces, activeWorkspaceId, selectByIndex])
-
-  const selectNext = useCallback(() => {
-    const currentIndex = sortedWorkspaces.findIndex((w) => w.id === activeWorkspaceId)
-    const newIndex = currentIndex < sortedWorkspaces.length - 1 ? currentIndex + 1 : 0
-    selectByIndex(newIndex)
-  }, [sortedWorkspaces, activeWorkspaceId, selectByIndex])
-
-  const closeCurrentTab = useCallback(() => {
-    if (activeWorkspaceId && sortedWorkspaces.length > 1) {
-      void remove(activeWorkspaceId)
-    }
-  }, [activeWorkspaceId, sortedWorkspaces.length, remove])
-
-  // ─── Swipe Navigation ───────────────────────────────────────────────────────
-
-  useSwipeNavigation(selectPrev, selectNext, sortedWorkspaces.length > 1)
-
-  // ─── Keyboard Shortcuts ─────────────────────────────────────────────────────
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const isMod = e.metaKey || e.ctrlKey
-
-      if (isMod && !e.shiftKey) {
-        // Cmd+1-9: Switch to tab by index
-        if (e.key >= '1' && e.key <= '9') {
-          e.preventDefault()
-          const index = parseInt(e.key, 10) - 1
-          selectByIndex(index)
-          return
-        }
-
-        // Cmd+T: New tab
-        if (e.key === 't') {
-          e.preventDefault()
-          setShowAddDialog(true)
-          return
-        }
-
-        // Cmd+W: Close current tab
-        if (e.key === 'w') {
-          e.preventDefault()
-          closeCurrentTab()
-          return
-        }
-      }
-
-      // Ctrl+Tab / Ctrl+Shift+Tab: Next/Prev tab
-      if (e.ctrlKey && e.key === 'Tab') {
-        e.preventDefault()
-        if (e.shiftKey) {
-          selectPrev()
-        } else {
-          selectNext()
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [selectByIndex, selectPrev, selectNext, closeCurrentTab])
-
-  // ─── Drag Handlers ──────────────────────────────────────────────────────────
-
-  const handleDragStart = (e: DragStartEvent) => {
-    setDraggingId(e.active.id as string)
+  const handleDragStart = (event: DragStartEvent) => {
+    setDraggingId(String(event.active.id))
   }
 
-  const handleDragEnd = (e: DragEndEvent) => {
+  const handleDragEnd = (event: DragEndEvent) => {
     setDraggingId(null)
 
-    const { active, over } = e
+    const { active, over } = event
     if (!over || active.id === over.id) return
 
-    const oldIndex = workspaceIds.indexOf(active.id as string)
-    const newIndex = workspaceIds.indexOf(over.id as string)
+    const oldIndex = workspaceIds.indexOf(String(active.id))
+    const newIndex = workspaceIds.indexOf(String(over.id))
+    if (oldIndex < 0 || newIndex < 0) return
+
     const newOrder = arrayMove(workspaceIds, oldIndex, newIndex)
     void reorder(newOrder)
   }
 
-  const draggingWorkspace = draggingId ? sortedWorkspaces.find((w) => w.id === draggingId) : null
+  const draggingWorkspace = draggingId
+    ? sortedWorkspaces.find((workspace) => workspace.id === draggingId) ?? null
+    : null
 
-  // Only show tabs if there are workspaces
   if (sortedWorkspaces.length === 0) {
     return (
       <header className="flex h-10 shrink-0 items-center justify-center border-b border-border-default bg-surface">
@@ -364,7 +276,6 @@ export function TabBar() {
   return (
     <>
       <header className="relative flex h-10 shrink-0 items-center bg-surface px-2 shadow-sm">
-        {/* Center: tabs - absolutely positioned for true centering */}
         <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1">
           <DndContext
             sensors={sensors}
@@ -381,9 +292,7 @@ export function TabBar() {
                     isActive={workspace.id === activeWorkspaceId}
                     activeTaskCount={workspace.activeTaskCount}
                     notificationCount={getUnviewedCount(workspace.id)}
-                    onSelect={() => {
-                      setActive(workspace.id)
-                    }}
+                    onSelect={() => { setActive(workspace.id) }}
                   />
                 ))}
               </AnimatePresence>
@@ -395,125 +304,16 @@ export function TabBar() {
           </DndContext>
         </div>
 
-        {/* Right: add workspace + checklist + settings */}
         <div className="ml-auto flex items-center gap-1">
-          <AddTabButton
-            onClick={() => {
-              setShowAddDialog(true)
-            }}
-          />
+          <AddTabButton onClick={() => { setShowAddDialog(true) }} />
           <ChecklistButton />
           <SettingsButton />
         </div>
       </header>
 
-      {/* Add workspace dialog - simple placeholder for now */}
       {showAddDialog && (
-        <AddWorkspaceDialog
-          onClose={() => {
-            setShowAddDialog(false)
-          }}
-        />
+        <AddWorkspaceDialog onClose={() => { setShowAddDialog(false) }} />
       )}
     </>
-  )
-}
-
-// ─── AddWorkspaceDialog ─────────────────────────────────────────────────────
-
-function AddWorkspaceDialog({ onClose }: { onClose: () => void }) {
-  const add = useWorkspaceStore((s) => s.add)
-  const [name, setName] = useState('')
-  const [repoPath, setRepoPath] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
-
-  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    if (!name.trim() || !repoPath.trim() || isSubmitting) return
-
-    setIsSubmitting(true)
-    try {
-      await add(name.trim(), repoPath.trim())
-      onClose()
-    } catch (err) {
-      console.error('Failed to add workspace:', err)
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        onClick={(e) => {
-          e.stopPropagation()
-        }}
-        className="w-full max-w-md rounded-xl border border-border-default bg-surface p-6 shadow-xl"
-      >
-        <h2 className="mb-4 text-lg font-semibold text-text-primary">Add Workspace</h2>
-
-        <form
-          onSubmit={(e) => {
-            void handleSubmit(e)
-          }}
-          className="space-y-4"
-        >
-          <div>
-            <label className="mb-1 block text-sm text-text-secondary">Name</label>
-            <input
-              ref={inputRef}
-              type="text"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value)
-              }}
-              placeholder="My Project"
-              className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm text-text-secondary">Repository Path</label>
-            <input
-              type="text"
-              value={repoPath}
-              onChange={(e) => {
-                setRepoPath(e.target.value)
-              }}
-              placeholder="/path/to/repo"
-              className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!name.trim() || !repoPath.trim() || isSubmitting}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg disabled:opacity-50"
-            >
-              {isSubmitting ? 'Adding...' : 'Add'}
-            </button>
-          </div>
-        </form>
-      </motion.div>
-    </div>
   )
 }

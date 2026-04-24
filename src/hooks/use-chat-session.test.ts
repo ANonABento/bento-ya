@@ -90,51 +90,66 @@ describe('useChatSession', () => {
   })
 
   describe('canSend', () => {
-    it('should return canSend=true when agent mode has taskId', () => {
+    it('should return canSend=true when agent mode has taskId', async () => {
       const config: ChatSessionConfig = {
         mode: 'agent',
         taskId: 'task-1',
         workingDir: '/tmp',
       }
       const { result } = renderHook(() => useChatSession(config))
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
       expect(result.current.canSend).toBe(true)
     })
 
-    it('should return canSend=false when agent mode has no taskId', () => {
+    it('should return canSend=false when agent mode has no taskId', async () => {
       const config: ChatSessionConfig = {
         mode: 'agent',
         workingDir: '/tmp',
       }
       const { result } = renderHook(() => useChatSession(config))
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
       expect(result.current.canSend).toBe(false)
     })
 
-    it('should return canSend=true when orchestrator mode has workspaceId and sessionId', () => {
+    it('should return canSend=true when orchestrator mode has workspaceId and sessionId', async () => {
       const config: ChatSessionConfig = {
         mode: 'orchestrator',
         workspaceId: 'ws-1',
         sessionId: 'session-1',
       }
       const { result } = renderHook(() => useChatSession(config))
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
       expect(result.current.canSend).toBe(true)
     })
 
-    it('should return canSend=false when orchestrator mode is missing sessionId', () => {
+    it('should return canSend=false when orchestrator mode is missing sessionId', async () => {
       const config: ChatSessionConfig = {
         mode: 'orchestrator',
         workspaceId: 'ws-1',
         // sessionId is undefined
       }
       const { result } = renderHook(() => useChatSession(config))
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
       expect(result.current.canSend).toBe(false)
     })
 
-    it('should return canSend=false when orchestrator mode is missing workspaceId', () => {
+    it('should return canSend=false when orchestrator mode is missing workspaceId', async () => {
       const config: ChatSessionConfig = {
         mode: 'orchestrator',
         sessionId: 'session-1',
       }
       const { result } = renderHook(() => useChatSession(config))
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
       expect(result.current.canSend).toBe(false)
     })
   })
@@ -534,13 +549,16 @@ describe('useChatSession', () => {
       })
     })
 
-    it('should initialize with empty streaming content', () => {
+    it('should initialize with empty streaming content', async () => {
       const config: ChatSessionConfig = {
         mode: 'agent',
         taskId: 'task-1',
         workingDir: '/tmp',
       }
       const { result } = renderHook(() => useChatSession(config))
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
 
       // Stream handler is set up, content starts empty
       expect(result.current.streaming.content).toBe('')
@@ -601,7 +619,7 @@ describe('useChatSession', () => {
       await new Promise((resolve) => setTimeout(resolve, 50))
 
       expect(mockIpc.getAgentMessages).not.toHaveBeenCalled()
-      expect(result.current.isLoading).toBe(true) // Still loading since it never completed
+      expect(result.current.isLoading).toBe(false)
     })
   })
 })

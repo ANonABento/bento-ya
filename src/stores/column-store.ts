@@ -54,6 +54,7 @@ export const useColumnStore = create<ColumnState>()(
         const column = await ipc.createColumn(workspaceId, name, position)
         set((s) => ({ columns: [...s.columns, column] }))
         await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+        return column
       },
 
       remove: async (id) => {
@@ -96,9 +97,8 @@ export const useColumnStore = create<ColumnState>()(
 
       updateColumnAsync: async (id, updates) => {
         const prev = get().columns
-        const parsedTriggers = updates.triggers !== undefined
-          ? parseTriggersSafely(updates.triggers)
-          : undefined
+        const parsedTriggers =
+          updates.triggers !== undefined ? parseTriggersSafely(updates.triggers) : undefined
         // Optimistically update
         set((s) => ({
           columns: s.columns.map((c) =>
@@ -109,9 +109,7 @@ export const useColumnStore = create<ColumnState>()(
                   ...(updates.icon !== undefined && { icon: updates.icon }),
                   ...(updates.color !== undefined && { color: updates.color ?? '' }),
                   ...(updates.visible !== undefined && { visible: updates.visible }),
-                  ...(updates.triggers !== undefined && {
-                    triggers: JSON.parse(updates.triggers) as import('@/types').ColumnTriggers,
-                  }),
+                  ...(parsedTriggers !== undefined && { triggers: parsedTriggers }),
                 }
               : c,
           ),

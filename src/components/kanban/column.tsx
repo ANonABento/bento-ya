@@ -20,19 +20,32 @@ type ColumnProps = {
   columnCount: number
 }
 
-export const Column = memo(function Column({ column, columnIndex, columnCount }: ColumnProps) {
+type BatchQueueLocalState = {
+  isQueuing: boolean
+  total: number
+  completed: number
+  queuedTaskIds: string[]
+}
+
+export const Column = memo(function Column({
+  column,
+  columnIndex,
+  columnCount,
+}: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
   const getScriptName = useScriptStore((s) => s.getScriptName)
+  const isBacklog = columnIndex === 0
 
   // Memoize filtered tasks to prevent infinite loops
   const tasks = useMemo(
-    () => allTasks
-      .filter((t) => t.columnId === column.id)
-      .sort((a, b) => a.position - b.position),
-    [allTasks, column.id]
+    () =>
+      allTasks
+        .filter((t) => t.columnId === column.id)
+        .sort((a, b) => a.position - b.position),
+    [allTasks, column.id],
   )
   const taskIds = useMemo(() => tasks.map((t) => t.id), [tasks])
 
@@ -140,14 +153,6 @@ export const Column = memo(function Column({ column, columnIndex, columnCount }:
     }
   }, [showAddTask])
 
-  // Auto-open config dialog for newly created columns
-  useEffect(() => {
-    if (autoOpenConfig) {
-      setShowConfigDialog(true)
-      onConfigOpened?.()
-    }
-  }, [autoOpenConfig, onConfigOpened])
-
   const handleConfigure = useCallback(() => {
     setShowConfigDialog(true)
   }, [])
@@ -192,7 +197,11 @@ export const Column = memo(function Column({ column, columnIndex, columnCount }:
           isDragging ? 'opacity-50' : ''
         }`}
       >
-        <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
+        <div
+          {...attributes}
+          {...listeners}
+          style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+        >
           <ColumnHeader
             name={column.name}
             icon={column.icon || 'list'}

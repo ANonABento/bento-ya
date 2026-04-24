@@ -19,4 +19,4 @@ export const updateScript = (
   invoke<Script>('update_script', { id, ...updates })
 
 export const deleteScript = (id: string): Promise<void> =>
-  invoke('delete_script', { id })
+  invoke('delete_script', { id }).then(() => undefined)

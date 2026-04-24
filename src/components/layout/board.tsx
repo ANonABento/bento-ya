@@ -36,14 +36,10 @@ export function Board() {
   const tasks = useTaskStore((s) => s.tasks)
   const loadScripts = useScriptStore((s) => s.load)
 
-  const [newColumnId, setNewColumnId] = useState<string | null>(null)
-
   const handleAddColumn = useCallback(() => {
     if (!activeWorkspaceId) return
     const name = `Column ${String(columns.length + 1)}`
-    void addColumn(activeWorkspaceId, name).then((col) => {
-      setNewColumnId(col.id)
-    })
+    void addColumn(activeWorkspaceId, name)
   }, [activeWorkspaceId, columns.length, addColumn])
 
   const { registerCard, positions } = useCardPositionProvider()
