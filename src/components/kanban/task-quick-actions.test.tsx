@@ -203,4 +203,18 @@ describe('TaskQuickActions', () => {
     expect(handlers.onRequestDelete).toHaveBeenCalledTimes(1)
     expect(cardClick).not.toHaveBeenCalled()
   })
+
+  it('always renders Open and More buttons', () => {
+    render(
+      <TaskQuickActions
+        task={makeTask()}
+        hasNextColumn={false}
+        columnHasTrigger={false}
+        isDeleteConfirmPending={false}
+        {...makeHandlers()}
+      />
+    )
+    expect(screen.getByTitle(/Open task/)).toBeInTheDocument()
+    expect(screen.getByTitle(/More actions/)).toBeInTheDocument()
+  })
 })
