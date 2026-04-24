@@ -4,16 +4,33 @@
 
 use crate::db::{Column, Task, Workspace};
 use serde_json::json;
+use std::collections::HashMap;
+
+fn ordered_columns(columns: &[Column]) -> Vec<&Column> {
+    let mut ordered_columns = columns.iter().collect::<Vec<_>>();
+    ordered_columns.sort_by(|left, right| {
+        left.position
+            .cmp(&right.position)
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    ordered_columns
+}
 
 /// Build the system prompt for the orchestrator (API mode with native tools)
-pub fn build_system_prompt(workspace: &Workspace, columns: &[Column]) -> String {
-    let column_names: Vec<&str> = columns.iter().map(|c| c.name.as_str()).collect();
+pub fn build_system_prompt(workspace: &Workspace, columns: &[Column], tasks: &[Task]) -> String {
+    let ordered_columns = ordered_columns(columns);
+    let column_names: Vec<&str> = ordered_columns.iter().map(|c| c.name.as_str()).collect();
     let columns_str = column_names.join(", ");
+    let tasks_str = format_task_snapshot(&ordered_columns, tasks);
 
     format!(
         r#"You are the orchestrator for "{workspace_name}", a Kanban board.
 
 Columns: {columns}
+
+Current tasks:
+{tasks}
 
 ## Style
 - Be concise. Short answers.
@@ -25,19 +42,29 @@ Use the provided tools to modify the board. Briefly confirm actions taken.
 
 You can also configure column automation triggers using the configure_triggers tool."#,
         workspace_name = workspace.name,
-        columns = columns_str
+        columns = columns_str,
+        tasks = tasks_str
     )
 }
 
 /// Build the system prompt for CLI mode (with embedded action blocks)
-pub fn build_cli_system_prompt(workspace: &Workspace, columns: &[Column]) -> String {
-    let column_names: Vec<&str> = columns.iter().map(|c| c.name.as_str()).collect();
+pub fn build_cli_system_prompt(
+    workspace: &Workspace,
+    columns: &[Column],
+    tasks: &[Task],
+) -> String {
+    let ordered_columns = ordered_columns(columns);
+    let column_names: Vec<&str> = ordered_columns.iter().map(|c| c.name.as_str()).collect();
     let columns_str = column_names.join(", ");
+    let tasks_str = format_task_snapshot(&ordered_columns, tasks);
 
     format!(
         r#"You are the orchestrator for "{workspace_name}", a Kanban board.
 
 Columns: {columns}
+
+Current tasks:
+{tasks}
 
 ## Style
 - Be concise. Short answers.
@@ -69,7 +96,8 @@ Use `"__LAST__"` as task_id to reference the last created task (e.g. create_task
 Put all actions in a SINGLE action block — do not output multiple blocks.
 Briefly confirm actions taken."#,
         workspace_name = workspace.name,
-        columns = columns_str
+        columns = columns_str,
+        tasks = tasks_str
     )
 }
 
@@ -121,6 +149,60 @@ pub fn format_board_context_message(context: &serde_json::Value) -> String {
         "Current board state:\n```json\n{}\n```",
         serde_json::to_string_pretty(context).unwrap_or_else(|_| "{}".to_string())
     )
+}
+
+fn format_task_snapshot(columns: &[&Column], tasks: &[Task]) -> String {
+    if tasks.is_empty() {
+        return "- No tasks on the board.".to_string();
+    }
+
+    let mut tasks_by_column: HashMap<&str, Vec<&Task>> = HashMap::new();
+    for task in tasks {
+        tasks_by_column
+            .entry(task.column_id.as_str())
+            .or_default()
+            .push(task);
+    }
+
+    let mut lines = Vec::new();
+    for column in columns {
+        lines.push(format!("- {}:", column.name));
+        match tasks_by_column.get(column.id.as_str()) {
+            Some(column_tasks) if !column_tasks.is_empty() => {
+                let mut ordered_tasks = column_tasks.clone();
+                ordered_tasks.sort_by(|left, right| {
+                    left.position
+                        .cmp(&right.position)
+                        .then_with(|| left.title.cmp(&right.title))
+                        .then_with(|| left.id.cmp(&right.id))
+                });
+
+                for task in ordered_tasks {
+                    let description = task
+                        .description
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|d| !d.is_empty());
+                    let detail = description
+                        .map(|d| truncate_for_prompt(d, 120))
+                        .map(|d| format!(" - {}", d))
+                        .unwrap_or_default();
+                    lines.push(format!("  - [{}] {}{}", task.id, task.title, detail));
+                }
+            }
+            _ => lines.push("  - (empty)".to_string()),
+        }
+    }
+
+    lines.join("\n")
+}
+
+fn truncate_for_prompt(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+
+    value.chars().take(max_chars).collect::<String>() + "..."
 }
 
 #[cfg(test)]
@@ -188,66 +270,66 @@ mod tests {
     }
 
     fn mock_tasks() -> Vec<Task> {
-        vec![
-            Task {
-                id: "task-1".to_string(),
-                workspace_id: "ws-1".to_string(),
-                column_id: "col-1".to_string(),
-                title: "Fix login bug".to_string(),
-                description: Some("Users can't log in".to_string()),
-                position: 0,
-                priority: "medium".to_string(),
-                agent_mode: None,
-                branch_name: None,
-                files_touched: "[]".to_string(),
-                checklist: None,
-                pipeline_state: "idle".to_string(),
-                pipeline_triggered_at: None,
-                pipeline_error: None,
-                retry_count: 0,
-                model: None,
-                agent_session_id: None,
-                last_script_exit_code: None,
-                review_status: None,
-                pr_number: None,
-                pr_url: None,
-                siege_iteration: 0,
-                siege_active: false,
-                siege_max_iterations: 5,
-                siege_last_checked: None,
-                pr_mergeable: None,
-                pr_ci_status: None,
-                pr_review_decision: None,
-                pr_comment_count: 0,
-                pr_is_draft: false,
-                pr_labels: "[]".to_string(),
-                pr_last_fetched: None,
-                pr_head_sha: None,
-                notify_stakeholders: None,
-                notification_sent_at: None,
-                trigger_overrides: None,
-                trigger_prompt: None,
-                last_output: None,
-                dependencies: None,
-                blocked: false,
-                worktree_path: None,
-                agent_status: None,
-                queued_at: None,
-                created_at: "2024-01-01".to_string(),
-                updated_at: "2024-01-01".to_string(),
-            },
-        ]
+        vec![Task {
+            id: "task-1".to_string(),
+            workspace_id: "ws-1".to_string(),
+            column_id: "col-1".to_string(),
+            title: "Fix login bug".to_string(),
+            description: Some("Users can't log in".to_string()),
+            position: 0,
+            priority: "medium".to_string(),
+            agent_mode: None,
+            branch_name: None,
+            files_touched: "[]".to_string(),
+            checklist: None,
+            pipeline_state: "idle".to_string(),
+            pipeline_triggered_at: None,
+            pipeline_error: None,
+            retry_count: 0,
+            model: None,
+            agent_session_id: None,
+            last_script_exit_code: None,
+            review_status: None,
+            pr_number: None,
+            pr_url: None,
+            siege_iteration: 0,
+            siege_active: false,
+            siege_max_iterations: 5,
+            siege_last_checked: None,
+            pr_mergeable: None,
+            pr_ci_status: None,
+            pr_review_decision: None,
+            pr_comment_count: 0,
+            pr_is_draft: false,
+            pr_labels: "[]".to_string(),
+            pr_last_fetched: None,
+            pr_head_sha: None,
+            notify_stakeholders: None,
+            notification_sent_at: None,
+            trigger_overrides: None,
+            trigger_prompt: None,
+            last_output: None,
+            dependencies: None,
+            blocked: false,
+            worktree_path: None,
+            agent_status: None,
+            queued_at: None,
+            created_at: "2024-01-01".to_string(),
+            updated_at: "2024-01-01".to_string(),
+        }]
     }
 
     #[test]
     fn test_build_system_prompt() {
         let workspace = mock_workspace();
         let columns = mock_columns();
-        let prompt = build_system_prompt(&workspace, &columns);
+        let tasks = mock_tasks();
+        let prompt = build_system_prompt(&workspace, &columns, &tasks);
 
         assert!(prompt.contains("Test Project"));
         assert!(prompt.contains("Backlog, In Progress, Done"));
         assert!(prompt.contains("orchestrator"));
+        assert!(prompt.contains("[task-1] Fix login bug"));
     }
 
     #[test]
@@ -275,8 +357,14 @@ mod tests {
 
         let col_with_triggers = &context["columns"][1];
         assert_eq!(col_with_triggers["name"], "In Progress");
-        assert_eq!(col_with_triggers["triggers"]["on_entry"]["type"], "spawn_cli");
-        assert_eq!(col_with_triggers["triggers"]["exit_criteria"]["auto_advance"], true);
+        assert_eq!(
+            col_with_triggers["triggers"]["on_entry"]["type"],
+            "spawn_cli"
+        );
+        assert_eq!(
+            col_with_triggers["triggers"]["exit_criteria"]["auto_advance"],
+            true
+        );
 
         // Column without triggers should not have triggers field
         assert!(context["columns"][0]["triggers"].is_null());
@@ -286,11 +374,44 @@ mod tests {
     fn test_system_prompt_mentions_configure_triggers() {
         let workspace = mock_workspace();
         let columns = mock_columns();
+        let tasks = mock_tasks();
 
-        let api_prompt = build_system_prompt(&workspace, &columns);
+        let api_prompt = build_system_prompt(&workspace, &columns, &tasks);
         assert!(api_prompt.contains("configure_triggers"));
 
-        let cli_prompt = build_cli_system_prompt(&workspace, &columns);
+        let cli_prompt = build_cli_system_prompt(&workspace, &columns, &tasks);
         assert!(cli_prompt.contains("configure_triggers"));
+    }
+
+    #[test]
+    fn test_task_snapshot_is_ordered_by_column_and_position() {
+        let workspace = mock_workspace();
+        let mut columns = mock_columns();
+        columns.swap(0, 1);
+
+        let mut tasks = vec![
+            Task {
+                id: "task-2".to_string(),
+                title: "Second task".to_string(),
+                position: 2,
+                ..mock_tasks()[0].clone()
+            },
+            Task {
+                id: "task-0".to_string(),
+                title: "First task".to_string(),
+                position: 0,
+                ..mock_tasks()[0].clone()
+            },
+        ];
+        tasks[1].description = Some("Needs sorting".to_string());
+
+        let prompt = build_system_prompt(&workspace, &columns, &tasks);
+        let backlog_index = prompt.find("- Backlog:").unwrap();
+        let in_progress_index = prompt.find("- In Progress:").unwrap();
+        let first_task_index = prompt.find("[task-0] First task - Needs sorting").unwrap();
+        let second_task_index = prompt.find("[task-2] Second task").unwrap();
+
+        assert!(backlog_index < in_progress_index);
+        assert!(first_task_index < second_task_index);
     }
 }

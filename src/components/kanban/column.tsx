@@ -18,6 +18,8 @@ type ColumnProps = {
   column: ColumnType
   columnIndex: number
   columnCount: number
+  autoOpenConfig?: boolean
+  onConfigOpened?: () => void
 }
 
 type BatchQueueLocalState = {
@@ -31,13 +33,15 @@ export const Column = memo(function Column({
   column,
   columnIndex,
   columnCount,
+  autoOpenConfig = false,
+  onConfigOpened,
 }: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
   const getScriptName = useScriptStore((s) => s.getScriptName)
-  const isBacklog = columnIndex === 0
+  const isBacklog = columnIndex === 0 || column.name.toLowerCase() === 'backlog'
 
   // Memoize filtered tasks to prevent infinite loops
   const tasks = useMemo(

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
-import type { Column, ColumnTriggers } from '@/types'
+import type { Column } from '@/types'
+import { parseColumnTriggers } from '@/types/column'
 import * as ipc from '@/lib/ipc'
 import { useWorkspaceStore } from './workspace-store'
 
@@ -28,14 +29,6 @@ type ColumnState = {
   reorder: (workspaceId: string, ids: string[]) => Promise<void>
   updateColumn: (id: string, updates: Partial<Column>) => void
   updateColumnAsync: (id: string, updates: ColumnUpdates) => Promise<void>
-}
-
-function parseTriggersSafely(triggers: string): ColumnTriggers | undefined {
-  try {
-    return JSON.parse(triggers) as ColumnTriggers
-  } catch {
-    return undefined
-  }
 }
 
 export const useColumnStore = create<ColumnState>()(
@@ -97,8 +90,11 @@ export const useColumnStore = create<ColumnState>()(
 
       updateColumnAsync: async (id, updates) => {
         const prev = get().columns
-        const parsedTriggers =
-          updates.triggers !== undefined ? parseTriggersSafely(updates.triggers) : undefined
+        const optimisticTriggers =
+          updates.triggers !== undefined
+            ? parseColumnTriggers(updates.triggers as Column['triggers'])
+            : undefined
+
         // Optimistically update
         set((s) => ({
           columns: s.columns.map((c) =>
@@ -109,7 +105,7 @@ export const useColumnStore = create<ColumnState>()(
                   ...(updates.icon !== undefined && { icon: updates.icon }),
                   ...(updates.color !== undefined && { color: updates.color ?? '' }),
                   ...(updates.visible !== undefined && { visible: updates.visible }),
-                  ...(parsedTriggers !== undefined && { triggers: parsedTriggers }),
+                  ...(optimisticTriggers && { triggers: optimisticTriggers }),
                 }
               : c,
           ),

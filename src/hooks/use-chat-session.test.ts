@@ -620,6 +620,7 @@ describe('useChatSession', () => {
 
       expect(mockIpc.getAgentMessages).not.toHaveBeenCalled()
       expect(result.current.isLoading).toBe(false)
+      expect(result.current.messages).toEqual([])
     })
   })
 })
