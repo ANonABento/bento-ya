@@ -42,6 +42,17 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     return triggers.exit_criteria ?? null
   }, [columns, task.columnId])
 
+  // Whether this column defines any on_entry/on_exit trigger. Used to decide
+  // if the Run button means anything here — a manual-only column has nothing
+  // to spawn, so showing Play would be misleading.
+  const columnHasTrigger = useMemo(() => {
+    const col = columns.find(c => c.id === task.columnId)
+    if (!col) return false
+    const t = getColumnTriggers(col)
+    return (t.on_entry?.type ?? 'none') !== 'none'
+        || (t.on_exit?.type ?? 'none') !== 'none'
+  }, [columns, task.columnId])
+
   const isQualityGate = columnTriggers?.type === 'manual_approval'
   const reviewStatus = task.reviewStatus
 
@@ -269,11 +280,13 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         <TaskQuickActions
           task={task}
           hasNextColumn={!!nextColumnId}
+          columnHasTrigger={columnHasTrigger}
+          isDeleteConfirmPending={deleteConfirmPending}
           onOpen={handleClick}
           onToggleAgent={actions.handleToggleAgent}
           onRetry={handleRetry}
           onMoveNext={handleMoveNext}
-          onDelete={actions.handleDeleteTask}
+          onRequestDelete={handleDeleteWithConfirm}
           onShowMenu={handleShowMenu}
         />
       )}
