@@ -204,6 +204,36 @@ describe('TaskQuickActions', () => {
     expect(cardClick).not.toHaveBeenCalled()
   })
 
+  it('two-click confirm-to-delete: first click arms, second click fires', () => {
+    const handlers = makeHandlers()
+    const { rerender } = render(
+      <TaskQuickActions
+        task={makeTask()}
+        hasNextColumn={false}
+        columnHasTrigger={false}
+        isDeleteConfirmPending={false}
+        {...handlers}
+      />
+    )
+    // First click — parent would arm confirmation
+    fireEvent.click(screen.getByTitle(/Delete task/))
+    expect(handlers.onRequestDelete).toHaveBeenCalledTimes(1)
+
+    // Parent rerenders in armed state
+    rerender(
+      <TaskQuickActions
+        task={makeTask()}
+        hasNextColumn={false}
+        columnHasTrigger={false}
+        isDeleteConfirmPending={true}
+        {...handlers}
+      />
+    )
+    // Second click on the armed button — parent would fire the actual delete
+    fireEvent.click(screen.getByTitle(/Click again to confirm/))
+    expect(handlers.onRequestDelete).toHaveBeenCalledTimes(2)
+  })
+
   it('always renders Open and More buttons', () => {
     render(
       <TaskQuickActions
