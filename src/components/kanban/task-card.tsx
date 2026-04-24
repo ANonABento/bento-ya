@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, useCallback, useEffect } from 'react'
+import { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { Task } from '@/types'
@@ -20,6 +20,8 @@ import { PrStatusIndicator, SiegeBadge } from './task-card-badges'
 import { useTaskCardActions } from './use-task-card-actions'
 import { AttentionBanner, BlockedBanner, QualityGateBanner, PipelineErrorBanner } from './task-card-status'
 import { AgentActivityPreview } from './task-card-activity'
+
+const DELETE_CONFIRM_TIMEOUT_MS = 2000
 
 export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const openTask = useUIStore((s) => s.openTask)
@@ -156,14 +158,34 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const handleRetry = useCallback(() => { void actions.handleRetryPipeline() }, [actions])
 
   const [deleteConfirmPending, setDeleteConfirmPending] = useState(false)
+  const deleteConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Clear any pending confirm-timer on unmount — the confirming click deletes
+  // the task, which unmounts this card while the first click's timer is still
+  // scheduled. Without this the timer would setState on an unmounted node.
+  useEffect(() => {
+    return () => {
+      if (deleteConfirmTimerRef.current !== null) {
+        clearTimeout(deleteConfirmTimerRef.current)
+        deleteConfirmTimerRef.current = null
+      }
+    }
+  }, [])
 
   const handleDeleteWithConfirm = useCallback(() => {
+    if (deleteConfirmTimerRef.current !== null) {
+      clearTimeout(deleteConfirmTimerRef.current)
+      deleteConfirmTimerRef.current = null
+    }
     if (deleteConfirmPending) {
       actions.handleDeleteTask()
       setDeleteConfirmPending(false)
     } else {
       setDeleteConfirmPending(true)
-      setTimeout(() => { setDeleteConfirmPending(false) }, 2000)
+      deleteConfirmTimerRef.current = setTimeout(() => {
+        setDeleteConfirmPending(false)
+        deleteConfirmTimerRef.current = null
+      }, DELETE_CONFIRM_TIMEOUT_MS)
     }
   }, [deleteConfirmPending, actions])
 
