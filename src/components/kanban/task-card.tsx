@@ -26,6 +26,7 @@ import { getColumnShortcutIndex, getVisibleColumnsForShortcuts } from './column-
 
 export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const expandTask = useUIStore((s) => s.expandTask)
+  const focusTask = useUIStore((s) => s.focusTask)
   const expandedTaskId = useUIStore((s) => s.expandedTaskId)
   const isExpanded = expandedTaskId === task.id
   const hasAttention = useAttentionStore((s) => s.hasAttention(task.id))
@@ -108,6 +109,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const openChat = useUIStore((s) => s.openChat)
   const closeChat = useUIStore((s) => s.closeChat)
   const collapseTask = useUIStore((s) => s.collapseTask)
+  const setPanelView = useUIStore((s) => s.setPanelView)
 
   function handleClick() {
     if (hasAttention) {
@@ -307,6 +309,13 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
             e.preventDefault()
             setSettingsTab('dependencies')
             setShowSettings(true)
+            break
+          case 'i':
+          case 'I':
+            e.preventDefault()
+            focusTask(task.id)
+            openChat(task.id)
+            setPanelView('detail')
             break
         }
       }}

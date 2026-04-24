@@ -11,9 +11,10 @@ import { TerminalView } from './terminal-view'
 type AgentPanelProps = {
   task: Task
   onClose?: () => void
+  onSwitchToDetail?: () => void
 }
 
-export function AgentPanel({ task, onClose }: AgentPanelProps) {
+export function AgentPanel({ task, onClose, onSwitchToDetail }: AgentPanelProps) {
   const workspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === task.workspaceId)
   )
@@ -43,6 +44,16 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
             {task.title}
           </span>
         </div>
+        {onSwitchToDetail && (
+          <button
+            type="button"
+            onClick={onSwitchToDetail}
+            className="rounded border border-border-default px-2 py-1 text-[10px] font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+            title="Switch to task detail (⌘I)"
+          >
+            Detail
+          </button>
+        )}
       </div>
 
       {/* Terminal */}
