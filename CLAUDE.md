@@ -49,7 +49,12 @@ Unified hook serving both agent (per-task) and orchestrator (workspace-level) ch
 
 Columns define `on_entry`/`on_exit` triggers. Tasks can override. See `.tickets/_docs/TRIGGERS.md`.
 
-- `mod.rs` — `fire_trigger()` routes V2 triggers (JSON). V1 legacy removed.
+- `mod.rs` — Thin facade that re-exports the pipeline API
+- `engine.rs` — `fire_trigger()` routing + `try_auto_advance()`
+- `completion.rs` — completion/retry/error handling
+- `exit.rs` — exit criteria parsing + evaluation
+- `events.rs` — typed backend-to-frontend pipeline events
+- `state.rs` — shared pipeline state + completion decisions
 - `triggers.rs` — V2 trigger types + execution
 - `template.rs` — Prompt variable interpolation (`{task.title}`, `{workspace.path}`, etc.)
 - `dependencies.rs` — Task dependency resolution, `on_met` actions
@@ -162,7 +167,7 @@ Unified automation layer for task lifecycle. Columns define `on_entry`/`on_exit`
 - `src/components/kanban/column-config-dialog.tsx` — Column trigger config UI
 - `src/components/kanban/task-settings-modal.tsx` — Task-level overrides
 
-**How triggers route:** `fire_trigger()` in `pipeline/mod.rs` checks `column.triggers` JSON (V2 only). Legacy V1 trigger_config/exit_config columns have been dropped from the DB.
+**How triggers route:** `fire_trigger()` is re-exported from `pipeline/mod.rs` and implemented in `pipeline/engine.rs`. It checks `column.triggers` JSON (V2 only). Legacy V1 trigger_config/exit_config columns have been dropped from the DB.
 
 **Dependencies (DAG):** Tasks can depend on other tasks with cycle detection (DFS). Visual SVG bezier lines on the board show dependency relationships. Conditions: `completed`, `moved_to_column`, `agent_complete`. When a blocker completes, `check_dependents()` finds dependents, checks if ALL deps met, executes `on_met` actions. Interactive editor in task settings modal (L key shortcut). Blocked cards show "Waiting for: Task A".
 

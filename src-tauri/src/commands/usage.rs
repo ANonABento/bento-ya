@@ -1,10 +1,9 @@
-use tauri::State;
-use crate::db::{
-    self, AppState, UsageRecord, UsageSummary,
-};
+use crate::db::{self, AppState, UsageRecord, UsageSummary};
 use crate::error::AppError;
+use tauri::State;
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn record_usage(
     state: State<AppState>,
     workspace_id: String,
@@ -16,7 +15,10 @@ pub fn record_usage(
     output_tokens: i64,
     cost_usd: f64,
 ) -> Result<UsageRecord, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::insert_usage_record(
         &conn,
         &workspace_id,
@@ -37,7 +39,10 @@ pub fn get_workspace_usage(
     workspace_id: String,
     limit: Option<i64>,
 ) -> Result<Vec<UsageRecord>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::list_usage_records(&conn, &workspace_id, limit).map_err(AppError::from)
 }
 
@@ -46,7 +51,10 @@ pub fn get_task_usage(
     state: State<AppState>,
     task_id: String,
 ) -> Result<Vec<UsageRecord>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::list_task_usage(&conn, &task_id).map_err(AppError::from)
 }
 
@@ -55,7 +63,10 @@ pub fn get_workspace_usage_summary(
     state: State<AppState>,
     workspace_id: String,
 ) -> Result<UsageSummary, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::get_workspace_usage_summary(&conn, &workspace_id).map_err(AppError::from)
 }
 
@@ -64,15 +75,18 @@ pub fn get_task_usage_summary(
     state: State<AppState>,
     task_id: String,
 ) -> Result<UsageSummary, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::get_task_usage_summary(&conn, &task_id).map_err(AppError::from)
 }
 
 #[tauri::command]
-pub fn clear_workspace_usage(
-    state: State<AppState>,
-    workspace_id: String,
-) -> Result<(), AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+pub fn clear_workspace_usage(state: State<AppState>, workspace_id: String) -> Result<(), AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::delete_workspace_usage(&conn, &workspace_id).map_err(AppError::from)
 }

@@ -18,8 +18,10 @@ fn map_agent_message_row(row: &rusqlite::Row) -> rusqlite::Result<AgentMessage> 
     })
 }
 
-const AGENT_MESSAGE_COLUMNS: &str = "id, task_id, role, content, model, effort_level, tool_calls, thinking_content, created_at";
+const AGENT_MESSAGE_COLUMNS: &str =
+    "id, task_id, role, content, model, effort_level, tool_calls, thinking_content, created_at";
 
+#[allow(clippy::too_many_arguments)]
 pub fn insert_agent_message(
     conn: &Connection,
     task_id: &str,
@@ -33,29 +35,49 @@ pub fn insert_agent_message(
     let id = new_id();
     let ts = now();
     conn.execute(
-        &format!("INSERT INTO agent_messages ({}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", AGENT_MESSAGE_COLUMNS),
-        params![id, task_id, role, content, model, effort_level, tool_calls, thinking_content, ts],
+        &format!(
+            "INSERT INTO agent_messages ({}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            AGENT_MESSAGE_COLUMNS
+        ),
+        params![
+            id,
+            task_id,
+            role,
+            content,
+            model,
+            effort_level,
+            tool_calls,
+            thinking_content,
+            ts
+        ],
     )?;
     get_agent_message(conn, &id)
 }
 
 pub fn get_agent_message(conn: &Connection, id: &str) -> SqlResult<AgentMessage> {
     conn.query_row(
-        &format!("SELECT {} FROM agent_messages WHERE id = ?1", AGENT_MESSAGE_COLUMNS),
+        &format!(
+            "SELECT {} FROM agent_messages WHERE id = ?1",
+            AGENT_MESSAGE_COLUMNS
+        ),
         params![id],
         map_agent_message_row,
     )
 }
 
 pub fn list_agent_messages(conn: &Connection, task_id: &str) -> SqlResult<Vec<AgentMessage>> {
-    let mut stmt = conn.prepare(
-        &format!("SELECT {} FROM agent_messages WHERE task_id = ?1 ORDER BY created_at ASC", AGENT_MESSAGE_COLUMNS),
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM agent_messages WHERE task_id = ?1 ORDER BY created_at ASC",
+        AGENT_MESSAGE_COLUMNS
+    ))?;
     let rows = stmt.query_map(params![task_id], map_agent_message_row)?;
     rows.collect()
 }
 
 pub fn clear_agent_messages(conn: &Connection, task_id: &str) -> SqlResult<()> {
-    conn.execute("DELETE FROM agent_messages WHERE task_id = ?1", params![task_id])?;
+    conn.execute(
+        "DELETE FROM agent_messages WHERE task_id = ?1",
+        params![task_id],
+    )?;
     Ok(())
 }

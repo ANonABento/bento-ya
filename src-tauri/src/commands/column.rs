@@ -11,26 +11,39 @@ pub fn create_column(
     position: i64,
 ) -> Result<Column, AppError> {
     if name.trim().is_empty() {
-        return Err(AppError::InvalidInput("Column name cannot be empty".to_string()));
+        return Err(AppError::InvalidInput(
+            "Column name cannot be empty".to_string(),
+        ));
     }
     if position < 0 {
-        return Err(AppError::InvalidInput("Position must be non-negative".to_string()));
+        return Err(AppError::InvalidInput(
+            "Position must be non-negative".to_string(),
+        ));
     }
 
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    Ok(db::insert_column(&conn, &workspace_id, name.trim(), position)?)
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::insert_column(
+        &conn,
+        &workspace_id,
+        name.trim(),
+        position,
+    )?)
 }
 
 #[tauri::command]
-pub fn list_columns(
-    state: State<AppState>,
-    workspace_id: String,
-) -> Result<Vec<Column>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+pub fn list_columns(state: State<AppState>, workspace_id: String) -> Result<Vec<Column>, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::list_columns(&conn, &workspace_id)?)
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn update_column(
     state: State<AppState>,
     id: String,
@@ -43,12 +56,16 @@ pub fn update_column(
 ) -> Result<Column, AppError> {
     if let Some(ref n) = name {
         if n.trim().is_empty() {
-            return Err(AppError::InvalidInput("Column name cannot be empty".to_string()));
+            return Err(AppError::InvalidInput(
+                "Column name cannot be empty".to_string(),
+            ));
         }
     }
     if let Some(pos) = position {
         if pos < 0 {
-            return Err(AppError::InvalidInput("Position must be non-negative".to_string()));
+            return Err(AppError::InvalidInput(
+                "Position must be non-negative".to_string(),
+            ));
         }
     }
 
@@ -67,7 +84,10 @@ pub fn update_column(
         }
     }
 
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     let color_ref = color.as_ref().map(|c| c.as_deref());
     Ok(db::update_column(
         &conn,
@@ -87,20 +107,29 @@ pub fn reorder_columns(
     workspace_id: String,
     column_ids: Vec<String>,
 ) -> Result<Vec<Column>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    let tx = conn.unchecked_transaction().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     for (i, col_id) in column_ids.iter().enumerate() {
         db::update_column(&conn, col_id, None, None, Some(i as i64), None, None, None)?;
     }
 
-    tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    tx.commit()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::list_columns(&conn, &workspace_id)?)
 }
 
 #[tauri::command]
 pub fn delete_column(state: State<AppState>, id: String) -> Result<(), AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     // Check if column has tasks
     let task_count: i64 = conn

@@ -45,16 +45,20 @@ pub fn insert_agent_session(
 
 pub fn get_agent_session(conn: &Connection, id: &str) -> SqlResult<AgentSession> {
     conn.query_row(
-        &format!("SELECT {} FROM agent_sessions WHERE id = ?1", AGENT_SESSION_COLUMNS),
+        &format!(
+            "SELECT {} FROM agent_sessions WHERE id = ?1",
+            AGENT_SESSION_COLUMNS
+        ),
         params![id],
         map_agent_session_row,
     )
 }
 
 pub fn list_agent_sessions(conn: &Connection, task_id: &str) -> SqlResult<Vec<AgentSession>> {
-    let mut stmt = conn.prepare(
-        &format!("SELECT {} FROM agent_sessions WHERE task_id = ?1 ORDER BY created_at DESC", AGENT_SESSION_COLUMNS),
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM agent_sessions WHERE task_id = ?1 ORDER BY created_at DESC",
+        AGENT_SESSION_COLUMNS
+    ))?;
     let rows = stmt.query_map(params![task_id], map_agent_session_row)?;
     rows.collect()
 }
@@ -68,6 +72,7 @@ pub fn list_resumable_sessions(conn: &Connection, task_id: &str) -> SqlResult<Ve
     rows.collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn update_agent_session(
     conn: &Connection,
     id: &str,
