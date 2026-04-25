@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 use super::triggers::{self, TriggerActionV2};
-use super::{emit_pipeline, PipelineState, EVT_UNBLOCKED, EVT_DEP_MOVED};
+use super::{emit_pipeline, fire_trigger, PipelineState, EVT_DEP_MOVED, EVT_UNBLOCKED};
 
 /// A dependency from one task to another.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,7 +24,10 @@ pub struct TaskDependency {
 }
 
 /// Find all tasks whose `dependencies` JSON mentions the given task_id.
-pub fn find_dependents(conn: &Connection, task_id: &str) -> Result<Vec<(Task, Vec<TaskDependency>)>, AppError> {
+pub fn find_dependents(
+    conn: &Connection,
+    task_id: &str,
+) -> Result<Vec<(Task, Vec<TaskDependency>)>, AppError> {
     // Use LIKE to find tasks that reference this task_id in their dependencies JSON
     let mut stmt = conn
         .prepare(
@@ -56,7 +59,11 @@ pub fn find_dependents(conn: &Connection, task_id: &str) -> Result<Vec<(Task, Ve
 }
 
 /// Check if a dependency condition is met based on the source task's state.
-pub fn check_condition(dep: &TaskDependency, source_task: &Task, conn: &Connection) -> Result<bool, AppError> {
+pub fn check_condition(
+    dep: &TaskDependency,
+    source_task: &Task,
+    conn: &Connection,
+) -> Result<bool, AppError> {
     match dep.condition.as_str() {
         "completed" => {
             // Task is "completed" if it's in the last column (no next column)
@@ -129,7 +136,17 @@ pub fn check_dependents(
         if all_met && dependent_task.blocked {
             update_blocked(conn, &dependent_task.id, false)?;
 
-            emit_pipeline(app, EVT_UNBLOCKED, &dependent_task.id, &dependent_task.column_id, PipelineState::Idle, Some(format!("All dependencies met, unblocked by {}", source_task.title)));
+            emit_pipeline(
+                app,
+                EVT_UNBLOCKED,
+                &dependent_task.id,
+                &dependent_task.column_id,
+                PipelineState::Idle,
+                Some(format!(
+                    "All dependencies met, unblocked by {}",
+                    source_task.title
+                )),
+            );
         }
     }
 
@@ -164,17 +181,24 @@ fn execute_on_met(
                 )
                 .map_err(AppError::from)?;
 
-                emit_pipeline(app, EVT_DEP_MOVED, &dependent_task.id, &col.id, PipelineState::Idle, Some(format!("Moved to {} by dependency", col.name)));
+                emit_pipeline(
+                    app,
+                    EVT_DEP_MOVED,
+                    &dependent_task.id,
+                    &col.id,
+                    PipelineState::Idle,
+                    Some(format!("Moved to {} by dependency", col.name)),
+                );
 
                 // Fire on_entry trigger for the new column
                 let updated_task = db::get_task(conn, &dependent_task.id)?;
-                let _ = super::fire_trigger(conn, app, &updated_task, &col);
+                let _ = fire_trigger(conn, app, &updated_task, &col);
             }
         }
         TriggerActionV2::SpawnCli { .. } => {
             // For spawn_cli on_met, fire the trigger on the task's current column
             let col = db::get_column(conn, &dependent_task.column_id)?;
-            let _ = super::fire_trigger(conn, app, dependent_task, &col);
+            let _ = fire_trigger(conn, app, dependent_task, &col);
         }
         TriggerActionV2::None => {}
         _ => {}
@@ -203,7 +227,7 @@ pub fn validate_dependencies(
     for dep in new_deps {
         if dep.task_id == task_id {
             return Err(AppError::InvalidInput(
-                "Task cannot depend on itself".to_string()
+                "Task cannot depend on itself".to_string(),
             ));
         }
     }
@@ -219,13 +243,17 @@ pub fn validate_dependencies(
     let task = db::get_task(conn, task_id)?;
     let all_tasks = db::list_tasks(conn, &task.workspace_id)?;
 
-    let mut graph: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut graph: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
 
     for t in &all_tasks {
         if let Some(ref deps_json) = t.dependencies {
             if let Ok(deps) = serde_json::from_str::<Vec<TaskDependency>>(deps_json) {
                 for d in &deps {
-                    graph.entry(t.id.clone()).or_default().push(d.task_id.clone());
+                    graph
+                        .entry(t.id.clone())
+                        .or_default()
+                        .push(d.task_id.clone());
                 }
             }
         }
@@ -233,7 +261,10 @@ pub fn validate_dependencies(
 
     // 4. Add proposed new deps to graph
     for dep in new_deps {
-        graph.entry(task_id.to_string()).or_default().push(dep.task_id.clone());
+        graph
+            .entry(task_id.to_string())
+            .or_default()
+            .push(dep.task_id.clone());
     }
 
     // 5. DFS cycle detection from task_id
@@ -270,7 +301,7 @@ pub fn validate_dependencies(
 
     if has_cycle(task_id, &graph, &mut visited, &mut stack) {
         return Err(AppError::InvalidInput(
-            "Adding this dependency would create a cycle".to_string()
+            "Adding this dependency would create a cycle".to_string(),
         ));
     }
 
@@ -348,11 +379,13 @@ mod tests {
             condition: "completed".to_string(),
             target_column: None,
             on_met: TriggerActionV2::None,
-        }]).unwrap();
+        }])
+        .unwrap();
         conn.execute(
             "UPDATE tasks SET dependencies = ?1 WHERE id = ?2",
             rusqlite::params![b_deps, task_b.id],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Now try to make A depend on B — should be cycle
         let deps = vec![TaskDependency {
@@ -401,11 +434,13 @@ mod tests {
             condition: "completed".to_string(),
             target_column: None,
             on_met: TriggerActionV2::None,
-        }]).unwrap();
+        }])
+        .unwrap();
         conn.execute(
             "UPDATE tasks SET dependencies = ?1 WHERE id = ?2",
             rusqlite::params![a_deps, task_a.id],
-        ).unwrap();
+        )
+        .unwrap();
 
         // B → C (B depends on C)
         let b_deps = serde_json::to_string(&vec![TaskDependency {
@@ -413,11 +448,13 @@ mod tests {
             condition: "completed".to_string(),
             target_column: None,
             on_met: TriggerActionV2::None,
-        }]).unwrap();
+        }])
+        .unwrap();
         conn.execute(
             "UPDATE tasks SET dependencies = ?1 WHERE id = ?2",
             rusqlite::params![b_deps, task_b.id],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Try C → A — should detect transitive cycle (C→A→B→C)
         let deps = vec![TaskDependency {
@@ -449,8 +486,13 @@ mod tests {
             condition: "completed".to_string(),
             target_column: None,
             on_met: TriggerActionV2::None,
-        }]).unwrap();
-        conn.execute("UPDATE tasks SET dependencies = ?1 WHERE id = ?2", rusqlite::params![a_deps, task_a.id]).unwrap();
+        }])
+        .unwrap();
+        conn.execute(
+            "UPDATE tasks SET dependencies = ?1 WHERE id = ?2",
+            rusqlite::params![a_deps, task_a.id],
+        )
+        .unwrap();
 
         // B depends on C
         let b_deps = serde_json::to_string(&vec![TaskDependency {
@@ -458,8 +500,13 @@ mod tests {
             condition: "completed".to_string(),
             target_column: None,
             on_met: TriggerActionV2::None,
-        }]).unwrap();
-        conn.execute("UPDATE tasks SET dependencies = ?1 WHERE id = ?2", rusqlite::params![b_deps, task_b.id]).unwrap();
+        }])
+        .unwrap();
+        conn.execute(
+            "UPDATE tasks SET dependencies = ?1 WHERE id = ?2",
+            rusqlite::params![b_deps, task_b.id],
+        )
+        .unwrap();
 
         // D depends on both A and B — should be fine (diamond, no cycle)
         let deps = vec![
@@ -495,8 +542,13 @@ mod tests {
             condition: "completed".to_string(),
             target_column: None,
             on_met: TriggerActionV2::None,
-        }]).unwrap();
-        conn.execute("UPDATE tasks SET dependencies = ?1 WHERE id = ?2", rusqlite::params![b_deps, task_b.id]).unwrap();
+        }])
+        .unwrap();
+        conn.execute(
+            "UPDATE tasks SET dependencies = ?1 WHERE id = ?2",
+            rusqlite::params![b_deps, task_b.id],
+        )
+        .unwrap();
 
         // C depends on A
         let c_deps = serde_json::to_string(&vec![TaskDependency {
@@ -504,8 +556,13 @@ mod tests {
             condition: "completed".to_string(),
             target_column: None,
             on_met: TriggerActionV2::None,
-        }]).unwrap();
-        conn.execute("UPDATE tasks SET dependencies = ?1 WHERE id = ?2", rusqlite::params![c_deps, task_c.id]).unwrap();
+        }])
+        .unwrap();
+        conn.execute(
+            "UPDATE tasks SET dependencies = ?1 WHERE id = ?2",
+            rusqlite::params![c_deps, task_c.id],
+        )
+        .unwrap();
 
         let dependents = find_dependents(&conn, &task_a.id).unwrap();
         assert_eq!(dependents.len(), 2);
@@ -654,7 +711,17 @@ mod tests {
         assert!(!check_condition(&dep, &task, &conn).unwrap());
 
         // Set session status to completed
-        db::update_agent_session(&conn, &session.id, None, Some("completed"), None, None, None, None).unwrap();
+        db::update_agent_session(
+            &conn,
+            &session.id,
+            None,
+            Some("completed"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         assert!(check_condition(&dep, &task, &conn).unwrap());
     }
 
