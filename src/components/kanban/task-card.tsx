@@ -133,7 +133,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     const sorted = [...columns].sort((a, b) => a.position - b.position)
     const idx = sorted.findIndex(c => c.id === task.columnId)
     if (idx === -1) return null
-    return idx < sorted.length - 1 ? (sorted[idx + 1]?.id ?? null) : null
+    return sorted[idx + 1]?.id ?? null
   }, [columns, task.columnId])
 
   const handleMoveNext = useCallback(() => {
