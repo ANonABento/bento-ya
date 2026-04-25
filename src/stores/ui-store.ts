@@ -4,6 +4,7 @@ import { devtools, persist } from 'zustand/middleware'
 type ViewMode = 'board' | 'chat'
 type PanelDock = 'bottom' | 'right'
 type AgentPanelDock = 'right' | 'left'
+type PanelView = 'chat' | 'detail'
 
 type ModalState = {
   type: string
@@ -62,6 +63,9 @@ type UIState = {
   // Agent chat panel state
   agentPanelWidth: number
   agentPanelDock: AgentPanelDock
+
+  // Panel view (terminal vs detail) — routed inside the agent side panel
+  panelView: PanelView
   setViewMode: (mode: ViewMode) => void
   expandTask: (taskId: string) => void
   focusTask: (taskId: string) => void
@@ -86,6 +90,10 @@ type UIState = {
   // Agent panel actions
   setAgentPanelWidth: (width: number) => void
   setAgentPanelDock: (dock: AgentPanelDock) => void
+
+  // Panel view actions
+  setPanelView: (view: PanelView) => void
+  togglePanelView: () => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -102,6 +110,7 @@ export const useUIStore = create<UIState>()(
         isPanelCollapsed: false,
         agentPanelWidth: DEFAULT_AGENT_PANEL_WIDTH,
         agentPanelDock: 'right' as AgentPanelDock,
+        panelView: 'chat' as PanelView,
 
         setViewMode: (mode) => {
           set({ viewMode: mode })
@@ -180,6 +189,14 @@ export const useUIStore = create<UIState>()(
         setAgentPanelDock: (dock) => {
           set({ agentPanelDock: dock })
         },
+
+        setPanelView: (view) => {
+          set({ panelView: view })
+        },
+
+        togglePanelView: () => {
+          set((state) => ({ panelView: state.panelView === 'chat' ? 'detail' : 'chat' }))
+        },
       }),
       {
         name: 'bento-ya-ui',
@@ -190,6 +207,7 @@ export const useUIStore = create<UIState>()(
           isPanelCollapsed: state.isPanelCollapsed,
           agentPanelWidth: state.agentPanelWidth,
           agentPanelDock: state.agentPanelDock,
+          panelView: state.panelView,
         }),
       },
     ),
@@ -200,4 +218,4 @@ export const useUIStore = create<UIState>()(
 export { MIN_PANEL_HEIGHT, MAX_PANEL_HEIGHT, DEFAULT_PANEL_HEIGHT, MIN_BOARD_HEIGHT }
 export { MIN_PANEL_WIDTH, MAX_PANEL_WIDTH, DEFAULT_PANEL_WIDTH, MIN_BOARD_WIDTH }
 export { MIN_AGENT_PANEL_WIDTH, MAX_AGENT_PANEL_WIDTH, DEFAULT_AGENT_PANEL_WIDTH }
-export type { PanelDock, AgentPanelDock }
+export type { PanelDock, AgentPanelDock, PanelView }
