@@ -3,9 +3,12 @@ use crate::db::{self, AppState};
 use crate::error::AppError;
 use tauri::{AppHandle, Emitter, State};
 
+use super::db_conn;
+use super::session_registry_key;
 use super::stream_api::stream_via_api;
 use super::stream_cli::stream_via_unified_cli;
 use super::types::{api_stream_key, ApiStreamRegistry, OrchestratorEvent};
+use super::{DEFAULT_API_KEY_ENV_VAR, DEFAULT_CLI_PATH, DEFAULT_MODEL};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn stream_orchestrator_chat(
@@ -22,13 +25,10 @@ pub(super) async fn stream_orchestrator_chat(
     model: Option<String>,
     cli_path: Option<String>,
 ) -> Result<(), AppError> {
-    let model = model.unwrap_or_else(|| "sonnet".to_string());
+    let model = model.unwrap_or_else(|| DEFAULT_MODEL.to_string());
 
     let (history, orch_session_id, actual_session_id, cli_session_id) = {
-        let conn = state
-            .db
-            .lock()
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = db_conn(&state)?;
 
         let chat_session = match db::get_chat_session(&conn, &session_id) {
             Ok(s) => s,
@@ -69,7 +69,9 @@ pub(super) async fn stream_orchestrator_chat(
 
     let result = match connection_mode.as_str() {
         "api" => {
-            let env_var_name = api_key_env_var.as_deref().unwrap_or("ANTHROPIC_API_KEY");
+            let env_var_name = api_key_env_var
+                .as_deref()
+                .unwrap_or(DEFAULT_API_KEY_ENV_VAR);
             let api_key = api_key
                 .or_else(|| std::env::var(env_var_name).ok())
                 .ok_or_else(|| {
@@ -93,7 +95,9 @@ pub(super) async fn stream_orchestrator_chat(
             .await
         }
         "cli" => {
-            let cli = cli_path.clone().unwrap_or_else(|| "claude".to_string());
+            let cli = cli_path
+                .clone()
+                .unwrap_or_else(|| DEFAULT_CLI_PATH.to_string());
             stream_via_unified_cli(
                 app.clone(),
                 state.clone(),
@@ -148,7 +152,7 @@ pub(super) async fn cancel_orchestrator_chat(
     workspace_id: String,
 ) -> Result<(), AppError> {
     {
-        let registry_key = format!("chef:{}:{}", workspace_id, session_id);
+        let registry_key = session_registry_key(&workspace_id, &session_id);
         let mut registry = session_registry.lock().await;
         if let Some(session) = registry.get_mut(&registry_key) {
             let _ = session.kill();
@@ -160,10 +164,7 @@ pub(super) async fn cancel_orchestrator_chat(
         .await;
 
     {
-        let conn = state
-            .db
-            .lock()
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = db_conn(&state)?;
         let session = db::get_or_create_orchestrator_session(&conn, &workspace_id)?;
         let _ = db::update_orchestrator_session(&conn, &session.id, Some("idle"), None);
     }

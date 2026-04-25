@@ -11,9 +11,12 @@ use crate::llm::{
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc;
 
-use super::types::{
-    api_stream_key, ApiStreamRegistry, OrchestratorEvent, StreamChunkPayload, ToolCallPayload,
-    ToolResultPayload, ToolUsePayload,
+use super::{
+    db_conn,
+    types::{
+        api_stream_key, ApiStreamRegistry, OrchestratorEvent, StreamChunkPayload, ToolCallPayload,
+        ToolResultPayload, ToolUsePayload,
+    },
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -41,10 +44,7 @@ pub(super) async fn stream_via_api(
     );
 
     let (workspace, columns, tasks) = {
-        let conn = state
-            .db
-            .lock()
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = db_conn(&state)?;
         let workspace = db::get_workspace(&conn, workspace_id)?;
         let columns = db::list_columns(&conn, workspace_id)?;
         let tasks = db::list_tasks(&conn, workspace_id)?;
@@ -159,10 +159,7 @@ pub(super) async fn stream_via_api(
             .collect();
 
         let execution_result = {
-            let conn = state
-                .db
-                .lock()
-                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            let conn = db_conn(&state)?;
             execute_tools(&conn, &app, workspace_id, &tool_uses, &columns)?
         };
 
@@ -211,10 +208,7 @@ pub(super) async fn stream_via_api(
     };
 
     {
-        let conn = state
-            .db
-            .lock()
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = db_conn(&state)?;
 
         let assistant_msg = db::insert_chat_message(
             &conn,

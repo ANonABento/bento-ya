@@ -13,7 +13,27 @@ pub use types::{
 use crate::chat::SharedSessionRegistry;
 use crate::db::{AppState, ChatMessage, ChatSession, OrchestratorSession};
 use crate::error::AppError;
+use rusqlite::Connection;
+use std::sync::MutexGuard;
 use tauri::{AppHandle, State};
+
+pub(super) const DEFAULT_API_KEY_ENV_VAR: &str = "ANTHROPIC_API_KEY";
+pub(super) const DEFAULT_CHAT_SESSION_TITLE: &str = "New Chat";
+pub(super) const DEFAULT_CLI_PATH: &str = "claude";
+pub(super) const DEFAULT_MODEL: &str = "sonnet";
+
+pub(super) fn db_conn<'a>(
+    state: &'a State<'_, AppState>,
+) -> Result<MutexGuard<'a, Connection>, AppError> {
+    state
+        .db
+        .lock()
+        .map_err(|err| AppError::DatabaseError(err.to_string()))
+}
+
+pub(super) fn session_registry_key(workspace_id: &str, session_id: &str) -> String {
+    format!("chef:{workspace_id}:{session_id}")
+}
 
 #[tauri::command]
 pub fn get_orchestrator_context(

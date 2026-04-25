@@ -7,8 +7,11 @@ use crate::error::AppError;
 use crate::llm::{execute_tools, parse_cli_action_blocks};
 use tauri::{AppHandle, Emitter, State};
 
-use super::types::{
-    OrchestratorEvent, StreamChunkPayload, ThinkingPayload, ToolCallPayload, ToolResultPayload,
+use super::{
+    db_conn, session_registry_key,
+    types::{
+        OrchestratorEvent, StreamChunkPayload, ThinkingPayload, ToolCallPayload, ToolResultPayload,
+    },
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -24,7 +27,7 @@ pub(super) async fn stream_via_unified_cli(
     message: &str,
     resume_id: Option<&str>,
 ) -> Result<(), AppError> {
-    let registry_key = format!("chef:{}:{}", workspace_id, session_id);
+    let registry_key = session_registry_key(workspace_id, session_id);
 
     let (full_response, captured_cli_session_id) = {
         let mut registry = session_registry.lock().await;
@@ -46,7 +49,11 @@ pub(super) async fn stream_via_unified_cli(
             registry.insert(&registry_key, session);
         }
 
-        let session = registry.get_mut(&registry_key).unwrap();
+        let session = registry.get_mut(&registry_key).ok_or_else(|| {
+            AppError::CommandError(format!(
+                "Failed to initialize orchestrator CLI session for {registry_key}"
+            ))
+        })?;
 
         let model_changed = session.model() != model;
         session.set_model(model.to_string());
@@ -58,10 +65,7 @@ pub(super) async fn stream_via_unified_cli(
         }
 
         let (workspace, columns, tasks) = {
-            let conn = state
-                .db
-                .lock()
-                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            let conn = db_conn(&state)?;
             let workspace = db::get_workspace(&conn, workspace_id)?;
             let columns = db::list_columns(&conn, workspace_id)?;
             let tasks = db::list_tasks(&conn, workspace_id)?;
@@ -90,10 +94,7 @@ pub(super) async fn stream_via_unified_cli(
                     session.set_resume_id(None);
 
                     {
-                        let conn = state
-                            .db
-                            .lock()
-                            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+                        let conn = db_conn(&state)?;
                         let _ = db::update_chat_session_cli_id(&conn, session_id, None);
                     }
 
@@ -126,18 +127,12 @@ pub(super) async fn stream_via_unified_cli(
     };
 
     if let Some(cli_sid) = &captured_cli_session_id {
-        let conn = state
-            .db
-            .lock()
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = db_conn(&state)?;
         let _ = db::update_chat_session_cli_id(&conn, session_id, Some(cli_sid));
     }
 
     {
-        let conn = state
-            .db
-            .lock()
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = db_conn(&state)?;
         let tool_uses = parse_cli_action_blocks(&full_response);
 
         if !tool_uses.is_empty() {
@@ -175,10 +170,7 @@ pub(super) async fn stream_via_unified_cli(
     }
 
     {
-        let conn = state
-            .db
-            .lock()
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = db_conn(&state)?;
         let assistant_msg =
             db::insert_chat_message(&conn, workspace_id, session_id, "assistant", &full_response)?;
         let _ = db::update_orchestrator_session(&conn, orch_session_id, Some("idle"), None);

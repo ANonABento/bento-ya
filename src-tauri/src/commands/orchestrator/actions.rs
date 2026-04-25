@@ -2,7 +2,10 @@ use crate::db::{self, AppState, OrchestratorSession};
 use crate::error::AppError;
 use tauri::{AppHandle, Emitter, State};
 
-use super::types::{OrchestratorAction, OrchestratorEvent, OrchestratorResponse};
+use super::{
+    db_conn,
+    types::{OrchestratorAction, OrchestratorEvent, OrchestratorResponse},
+};
 
 pub(super) fn process_orchestrator_response(
     app: AppHandle,
@@ -11,10 +14,7 @@ pub(super) fn process_orchestrator_response(
     response_text: String,
     actions: Vec<OrchestratorAction>,
 ) -> Result<OrchestratorResponse, AppError> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = db_conn(&state)?;
 
     let chat_session = db::get_or_create_active_session(&conn, &workspace_id)?;
 
@@ -85,10 +85,7 @@ pub(super) fn set_orchestrator_error(
     workspace_id: String,
     error_message: String,
 ) -> Result<OrchestratorSession, AppError> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = db_conn(&state)?;
 
     let session = db::get_or_create_orchestrator_session(&conn, &workspace_id)?;
     let updated = db::update_orchestrator_session(
