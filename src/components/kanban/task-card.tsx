@@ -288,6 +288,9 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         hasPipelineError ? 'border-l-4 border-l-error' : isPipelineActive ? `border-l-4 ${PIPELINE_COLORS[task.pipelineState]}` : ''
       }`}
       onPointerDownCapture={(e) => {
+        if (e.target instanceof Element && e.target.closest('[data-task-quick-actions="true"]')) {
+          return
+        }
         if (e.metaKey || e.ctrlKey) {
           onDepDragStart(e, task.id)
         }

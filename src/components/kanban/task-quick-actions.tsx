@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, type CSSProperties } from 'react'
 import type { Task } from '@/types'
 
 type TaskQuickActionsProps = {
@@ -13,6 +13,8 @@ type TaskQuickActionsProps = {
   onRequestDelete: () => void
   onShowMenu: (e: React.MouseEvent) => void
 }
+
+const buttonCursorStyle: CSSProperties = { cursor: 'pointer' }
 
 export const TaskQuickActions = memo(function TaskQuickActions({
   task,
@@ -35,6 +37,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
 
   return (
     <div
+      data-task-quick-actions="true"
       className="absolute right-1 top-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
       onClick={(e) => { e.stopPropagation(); }}
     >
@@ -42,6 +45,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       <button
         onClick={onOpen}
         className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+        style={buttonCursorStyle}
         title="Open task"
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -59,6 +63,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
               ? 'text-running hover:bg-running/20'
               : 'text-text-secondary hover:bg-surface-hover hover:text-success'
           }`}
+          style={buttonCursorStyle}
           title={isRunning ? 'Stop agent (Space)' : 'Run agent (Space)'}
         >
           {isRunning ? (
@@ -78,6 +83,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
         <button
           onClick={onRetry}
           className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-warning/20 hover:text-warning transition-colors"
+          style={buttonCursorStyle}
           title="Retry pipeline (R)"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -91,6 +97,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
         <button
           onClick={onMoveNext}
           className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-accent transition-colors"
+          style={buttonCursorStyle}
           title="Move to next column (→)"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -107,6 +114,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
             ? 'text-error bg-error/20'
             : 'text-text-secondary hover:bg-error/20 hover:text-error'
         }`}
+        style={buttonCursorStyle}
         title={isDeleteConfirmPending ? 'Click again to confirm' : 'Delete task (Del)'}
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -118,6 +126,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       <button
         onClick={onShowMenu}
         className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+        style={buttonCursorStyle}
         title="More actions"
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
