@@ -13,6 +13,7 @@ import { useOrchestratorTaskRefresh } from './use-orchestrator-task-refresh'
 import { ChatErrorBoundary } from './chat-error-boundary'
 import { ChatHistory } from './chat-history'
 import { OrchestratorPanelHeader } from './orchestrator-panel-header'
+import type { OrchestratorSidebarMode } from './orchestrator-panel-shared'
 import { PanelSidebar } from './panel-sidebar'
 import { PipelineDashboard } from './pipeline-dashboard'
 import {
@@ -29,8 +30,6 @@ type OrchestratorPanelProps = {
   workspaceId: string
 }
 
-type SidebarMode = 'history' | 'files' | 'dashboard' | null
-
 const COLLAPSED_HEIGHT = 40
 
 export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
@@ -41,7 +40,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const apiKeyEnvVar = anthropicProvider?.apiKeyEnvVar || 'ANTHROPIC_API_KEY'
   const apiKey = settings.agent.envVars[apiKeyEnvVar] || undefined
   const { cliPath, isDetecting: cliDetecting, detectionError: cliDetectionError } = useCliPath()
-  const [sidebarMode, setSidebarMode] = useState<SidebarMode>(null)
+  const [sidebarMode, setSidebarMode] = useState<OrchestratorSidebarMode | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
 
   const {
@@ -148,6 +147,10 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     }
   }, [deleteSession])
 
+  const handleToggleSidebar = useCallback((mode: OrchestratorSidebarMode) => {
+    setSidebarMode((currentMode) => (currentMode === mode ? null : mode))
+  }, [])
+
   return (
     <div className={`relative ${isRightDock ? 'flex h-full' : ''}`}>
       {!isPanelCollapsed && (
@@ -180,9 +183,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
           processingStartTime={chat.streaming.startTime}
           canCreateNewChat={historyMessages.length > 0}
           onHeaderClick={handleHeaderClick}
-          onToggleHistory={() => { setSidebarMode(sidebarMode === 'history' ? null : 'history') }}
-          onToggleFiles={() => { setSidebarMode(sidebarMode === 'files' ? null : 'files') }}
-          onToggleDashboard={() => { setSidebarMode(sidebarMode === 'dashboard' ? null : 'dashboard') }}
+          onToggleSidebar={handleToggleSidebar}
           onNewChat={() => { void handleNewChat() }}
           onToggleDock={() => { setPanelDock(isRightDock ? 'bottom' : 'right') }}
           onTogglePanel={togglePanel}

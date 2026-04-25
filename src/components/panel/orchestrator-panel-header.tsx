@@ -1,19 +1,19 @@
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { ProcessingIndicator } from './orchestrator-processing-indicator'
-
-type SidebarMode = 'history' | 'files' | 'dashboard' | null
+import type { OrchestratorSidebarMode } from './orchestrator-panel-shared'
 
 type OrchestratorPanelHeaderProps = {
   isPanelCollapsed: boolean
   isRightDock: boolean
-  sidebarMode: SidebarMode
+  sidebarMode: OrchestratorSidebarMode | null
   isProcessing: boolean
   processingStartTime: number | null
   canCreateNewChat: boolean
   onHeaderClick: (event: ReactMouseEvent<HTMLDivElement>) => void
-  onToggleHistory: () => void
-  onToggleFiles: () => void
-  onToggleDashboard: () => void
+  onToggleSidebar?: (mode: OrchestratorSidebarMode) => void
+  onToggleHistory?: () => void
+  onToggleFiles?: () => void
+  onToggleDashboard?: () => void
   onNewChat: () => void
   onToggleDock: () => void
   onTogglePanel: () => void
@@ -27,6 +27,7 @@ export function OrchestratorPanelHeader({
   processingStartTime,
   canCreateNewChat,
   onHeaderClick,
+  onToggleSidebar,
   onToggleHistory,
   onToggleFiles,
   onToggleDashboard,
@@ -34,6 +35,14 @@ export function OrchestratorPanelHeader({
   onToggleDock,
   onTogglePanel,
 }: OrchestratorPanelHeaderProps) {
+  const handleSidebarToggle = (mode: OrchestratorSidebarMode) => {
+    onToggleSidebar?.(mode)
+
+    if (mode === 'history') onToggleHistory?.()
+    if (mode === 'files') onToggleFiles?.()
+    if (mode === 'dashboard') onToggleDashboard?.()
+  }
+
   return (
     <div
       onClick={onHeaderClick}
@@ -45,7 +54,7 @@ export function OrchestratorPanelHeader({
           <>
             <SidebarToggleButton
               isActive={sidebarMode === 'history'}
-              onClick={onToggleHistory}
+              onClick={() => { handleSidebarToggle('history') }}
               label="History"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -54,7 +63,7 @@ export function OrchestratorPanelHeader({
             </SidebarToggleButton>
             <SidebarToggleButton
               isActive={sidebarMode === 'files'}
-              onClick={onToggleFiles}
+              onClick={() => { handleSidebarToggle('files') }}
               label="Files"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -64,7 +73,7 @@ export function OrchestratorPanelHeader({
             </SidebarToggleButton>
             <SidebarToggleButton
               isActive={sidebarMode === 'dashboard'}
-              onClick={onToggleDashboard}
+              onClick={() => { handleSidebarToggle('dashboard') }}
               label="Pipeline dashboard"
               title="Pipeline dashboard"
             >
@@ -83,29 +92,26 @@ export function OrchestratorPanelHeader({
 
       <div className="flex items-center gap-2">
         {!isPanelCollapsed && (
-          <button
-            type="button"
+          <HeaderActionButton
             onClick={onNewChat}
             disabled={!canCreateNewChat}
-            style={{ cursor: canCreateNewChat ? 'pointer' : 'not-allowed' }}
-            className="flex h-6 items-center gap-1 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+            cursor={canCreateNewChat ? 'pointer' : 'not-allowed'}
+            className="px-2 text-xs"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
               <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
             </svg>
             New
-          </button>
+          </HeaderActionButton>
         )}
         <span className="text-xs text-text-secondary">
           {isPanelCollapsed ? 'Cmd+J to expand' : 'Cmd+J'}
         </span>
         {!isPanelCollapsed && (
-          <button
-            type="button"
+          <HeaderActionButton
             onClick={onToggleDock}
             title={isRightDock ? 'Dock to bottom' : 'Dock to right'}
-            style={{ cursor: 'pointer' }}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+            className="w-6"
           >
             {isRightDock ? (
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -116,14 +122,9 @@ export function OrchestratorPanelHeader({
                 <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v11.5c0 .414.336.75.75.75h7.5V3.5H4.25Zm9 0v13h2.5a.75.75 0 0 0 .75-.75V4.25a.75.75 0 0 0-.75-.75h-2.5Z" clipRule="evenodd" />
               </svg>
             )}
-          </button>
+          </HeaderActionButton>
         )}
-        <button
-          type="button"
-          onClick={onTogglePanel}
-          style={{ cursor: 'pointer' }}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-        >
+        <HeaderActionButton onClick={onTogglePanel} className="w-6">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
             {isRightDock ? (
               <path
@@ -139,7 +140,7 @@ export function OrchestratorPanelHeader({
               />
             )}
           </svg>
-        </button>
+        </HeaderActionButton>
       </div>
     </div>
   )
@@ -161,17 +162,54 @@ function SidebarToggleButton({
   title,
 }: SidebarToggleButtonProps) {
   return (
-    <button
-      type="button"
+    <HeaderActionButton
       onClick={onClick}
       title={title}
       aria-label={label}
-      style={{ cursor: 'pointer' }}
+      aria-pressed={isActive}
       className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
         isActive
           ? 'bg-surface-hover text-text-primary'
           : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
       }`}
+    >
+      {children}
+    </HeaderActionButton>
+  )
+}
+
+type HeaderActionButtonProps = {
+  'aria-label'?: string
+  'aria-pressed'?: boolean
+  children: ReactNode
+  className?: string
+  cursor?: 'pointer' | 'not-allowed'
+  disabled?: boolean
+  onClick: () => void
+  title?: string
+}
+
+function HeaderActionButton({
+  'aria-label': ariaLabel,
+  'aria-pressed': ariaPressed,
+  children,
+  className = '',
+  cursor = 'pointer',
+  disabled = false,
+  onClick,
+  title,
+}: HeaderActionButtonProps) {
+  return (
+    <button
+      type="button"
+      data-orchestrator-header-action="true"
+      aria-label={ariaLabel}
+      aria-pressed={ariaPressed}
+      disabled={disabled}
+      onClick={onClick}
+      title={title}
+      style={{ cursor }}
+      className={`flex h-6 items-center justify-center gap-1 rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary ${className}`}
     >
       {children}
     </button>

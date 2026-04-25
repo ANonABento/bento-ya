@@ -5,6 +5,15 @@ import { useColumnTriggerGeneration } from './use-column-trigger-generation'
 
 // ─── Triggers Tab ───────────────────────────────────────────────────────────
 
+type TriggersTabProps = {
+  columnName: string
+  onEntry: TriggerAction
+  setOnEntry: (value: TriggerAction) => void
+  onExit: TriggerAction
+  setOnExit: (value: TriggerAction) => void
+  setExitCriteria: (value: ExitCriteria) => void
+}
+
 export function TriggersTab({
   columnName,
   onEntry,
@@ -12,14 +21,7 @@ export function TriggersTab({
   onExit,
   setOnExit,
   setExitCriteria,
-}: {
-  columnName: string
-  onEntry: TriggerAction
-  setOnEntry: (v: TriggerAction) => void
-  onExit: TriggerAction
-  setOnExit: (v: TriggerAction) => void
-  setExitCriteria: (v: ExitCriteria) => void
-}) {
+}: TriggersTabProps) {
   const {
     prompt,
     generating,

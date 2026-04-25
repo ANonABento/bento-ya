@@ -5,6 +5,7 @@ import { OrchestratorPanelHeader } from './orchestrator-panel-header'
 describe('OrchestratorPanelHeader', () => {
   it('keeps header background toggle behavior while button clicks stay scoped to their own actions', () => {
     const toggleFromBackground = vi.fn()
+    const onToggleSidebar = vi.fn()
     const onToggleHistory = vi.fn()
     const onNewChat = vi.fn()
 
@@ -21,6 +22,7 @@ describe('OrchestratorPanelHeader', () => {
             toggleFromBackground()
           }
         }}
+        onToggleSidebar={onToggleSidebar}
         onToggleHistory={onToggleHistory}
         onToggleFiles={vi.fn()}
         onToggleDashboard={vi.fn()}
@@ -34,6 +36,7 @@ describe('OrchestratorPanelHeader', () => {
     expect(toggleFromBackground).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole('button', { name: 'History' }))
+    expect(onToggleSidebar).toHaveBeenCalledWith('history')
     expect(onToggleHistory).toHaveBeenCalledTimes(1)
     expect(toggleFromBackground).toHaveBeenCalledTimes(1)
 
@@ -52,6 +55,7 @@ describe('OrchestratorPanelHeader', () => {
         processingStartTime={null}
         canCreateNewChat={false}
         onHeaderClick={vi.fn()}
+        onToggleSidebar={vi.fn()}
         onToggleHistory={vi.fn()}
         onToggleFiles={vi.fn()}
         onToggleDashboard={vi.fn()}
