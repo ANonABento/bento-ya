@@ -66,7 +66,8 @@ impl AudioRecorder {
             config.sample_format()
         );
 
-        self.input_sample_rate.store(actual_sample_rate, Ordering::SeqCst);
+        self.input_sample_rate
+            .store(actual_sample_rate, Ordering::SeqCst);
         self.transcribed_offset.store(0, Ordering::SeqCst);
 
         let samples = Arc::clone(&self.samples);
@@ -101,7 +102,11 @@ impl AudioRecorder {
                         if is_recording.load(Ordering::SeqCst) {
                             let mut samples = samples.lock().unwrap();
                             for chunk in data.chunks(channels) {
-                                let mono: f32 = chunk.iter().map(|&s| s as f32 / i16::MAX as f32).sum::<f32>() / channels as f32;
+                                let mono: f32 = chunk
+                                    .iter()
+                                    .map(|&s| s as f32 / i16::MAX as f32)
+                                    .sum::<f32>()
+                                    / channels as f32;
                                 samples.push(mono);
                             }
                         }
@@ -117,7 +122,11 @@ impl AudioRecorder {
                         if is_recording.load(Ordering::SeqCst) {
                             let mut samples = samples.lock().unwrap();
                             for chunk in data.chunks(channels) {
-                                let mono: f32 = chunk.iter().map(|&s| (s as f32 - 32768.0) / 32768.0).sum::<f32>() / channels as f32;
+                                let mono: f32 = chunk
+                                    .iter()
+                                    .map(|&s| (s as f32 - 32768.0) / 32768.0)
+                                    .sum::<f32>()
+                                    / channels as f32;
                                 samples.push(mono);
                             }
                         }
@@ -129,7 +138,9 @@ impl AudioRecorder {
             _ => return Err("Unsupported sample format".to_string()),
         };
 
-        stream.play().map_err(|e| format!("Failed to start recording: {}", e))?;
+        stream
+            .play()
+            .map_err(|e| format!("Failed to start recording: {}", e))?;
 
         // Store stream in struct to keep it alive while recording
         *self.stream.lock().unwrap() = Some(StreamHandle(stream));
@@ -160,13 +171,18 @@ impl AudioRecorder {
         let new_samples: Vec<f32> = samples[offset..].to_vec();
 
         // Update offset - no overlap, each chunk is independent
-        self.transcribed_offset.store(samples.len(), Ordering::SeqCst);
+        self.transcribed_offset
+            .store(samples.len(), Ordering::SeqCst);
 
         // Resample to 16kHz
         let input_rate = self.input_sample_rate.load(Ordering::SeqCst);
         let resampled = resample(&new_samples, input_rate, self.target_sample_rate);
 
-        log::info!("[Recorder] Got chunk: {} samples -> {} resampled", new_samples.len(), resampled.len());
+        log::info!(
+            "[Recorder] Got chunk: {} samples -> {} resampled",
+            new_samples.len(),
+            resampled.len()
+        );
 
         Some(resampled)
     }
@@ -189,7 +205,10 @@ impl AudioRecorder {
         // Drop the stream to stop recording
         *self.stream.lock().unwrap() = None;
 
-        log::info!("[Recorder] Stopped, total samples: {}", self.samples.lock().unwrap().len());
+        log::info!(
+            "[Recorder] Stopped, total samples: {}",
+            self.samples.lock().unwrap().len()
+        );
         Ok(())
     }
 
@@ -214,6 +233,12 @@ impl AudioRecorder {
             return 0.0;
         }
         samples.len() as f32 / input_rate as f32
+    }
+}
+
+impl Default for AudioRecorder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

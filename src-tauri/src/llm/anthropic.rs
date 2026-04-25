@@ -130,7 +130,8 @@ impl AnthropicClient {
                                 &mut tool_uses,
                                 &mut current_tool_use,
                                 &tx,
-                            ).await;
+                            )
+                            .await;
                         }
                         Err(e) => {
                             log::warn!("Failed to parse SSE event: {} - data: {}", e, data);
@@ -158,6 +159,7 @@ impl AnthropicClient {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn process_sse_event(
         &self,
         event: &Value,
@@ -184,8 +186,16 @@ impl AnthropicClient {
                 // Check if this is a tool_use block
                 if let Some(content_block) = event.get("content_block") {
                     if content_block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
-                        let id = content_block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let name = content_block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let id = content_block
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let name = content_block
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
                         *current_tool_use = Some((id, name, String::new()));
                     }
                 }
@@ -211,7 +221,9 @@ impl AnthropicClient {
                         "input_json_delta" => {
                             // Accumulate tool input JSON
                             if let Some((_, _, ref mut input_json)) = current_tool_use {
-                                if let Some(partial) = delta.get("partial_json").and_then(|v| v.as_str()) {
+                                if let Some(partial) =
+                                    delta.get("partial_json").and_then(|v| v.as_str())
+                                {
                                     input_json.push_str(partial);
                                 }
                             }
@@ -223,8 +235,8 @@ impl AnthropicClient {
             "content_block_stop" => {
                 // Finalize any pending tool_use block
                 if let Some((id, name, input_json)) = current_tool_use.take() {
-                    let input: serde_json::Value = serde_json::from_str(&input_json)
-                        .unwrap_or_else(|_| json!({}));
+                    let input: serde_json::Value =
+                        serde_json::from_str(&input_json).unwrap_or_else(|_| json!({}));
 
                     let tool_block = ToolUseBlock {
                         id: id.clone(),

@@ -17,11 +17,11 @@ pub mod pipeline;
 #[cfg(feature = "voice")]
 pub mod whisper;
 
+use chat::registry::{new_shared_session_registry, start_idle_sweep};
+use commands::orchestrator::ApiStreamRegistry;
 #[cfg(feature = "voice")]
 use commands::voice::RecorderState;
 use db::AppState;
-use chat::registry::{new_shared_session_registry, start_idle_sweep};
-use commands::orchestrator::ApiStreamRegistry;
 use tauri::Manager;
 #[cfg(feature = "voice")]
 use whisper::AudioRecorder;
@@ -38,7 +38,10 @@ pub fn run() {
         )
         .unwrap_or(0) as i64;
     if reset_count > 0 {
-        eprintln!("[startup] Reset {} task(s) with stale pipeline state to idle", reset_count);
+        eprintln!(
+            "[startup] Reset {} task(s) with stale pipeline state to idle",
+            reset_count
+        );
     }
 
     // Clear stale cli_session_id references (previous app sessions are dead)
@@ -49,7 +52,10 @@ pub fn run() {
         )
         .unwrap_or(0) as i64;
     if cli_reset > 0 {
-        eprintln!("[startup] Cleared {} stale CLI session reference(s)", cli_reset);
+        eprintln!(
+            "[startup] Cleared {} stale CLI session reference(s)",
+            cli_reset
+        );
     }
 
     // Seed built-in scripts (idempotent — skips if already present)
@@ -70,7 +76,7 @@ pub fn run() {
     let session_registry_for_shutdown = Arc::clone(&session_registry);
     let session_registry_for_sweep = Arc::clone(&session_registry);
 
-    let builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -303,7 +309,10 @@ fn recover_tmux_sessions(app: tauri::AppHandle) {
         return;
     }
 
-    eprintln!("[startup] Found {} existing tmux session(s)", existing.len());
+    eprintln!(
+        "[startup] Found {} existing tmux session(s)",
+        existing.len()
+    );
 
     let state: tauri::State<db::AppState> = app.state();
     let conn = match state.db.lock() {

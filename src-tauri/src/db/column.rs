@@ -4,7 +4,8 @@ use super::models::Column;
 use super::{new_id, now};
 
 /// Shared SELECT columns for columns.
-const COLUMN_COLUMNS: &str = "id, workspace_id, name, icon, position, color, visible, triggers, created_at, updated_at";
+const COLUMN_COLUMNS: &str =
+    "id, workspace_id, name, icon, position, color, visible, triggers, created_at, updated_at";
 
 /// Map a database row to a Column struct.
 fn map_column_row(row: &rusqlite::Row) -> rusqlite::Result<Column> {
@@ -12,7 +13,9 @@ fn map_column_row(row: &rusqlite::Row) -> rusqlite::Result<Column> {
         id: row.get(0)?,
         workspace_id: row.get(1)?,
         name: row.get(2)?,
-        icon: row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "list".to_string()),
+        icon: row
+            .get::<_, Option<String>>(3)?
+            .unwrap_or_else(|| "list".to_string()),
         position: row.get(4)?,
         color: row.get(5)?,
         visible: row.get::<_, i64>(6)? != 0,
@@ -57,13 +60,15 @@ pub fn get_column(conn: &Connection, id: &str) -> SqlResult<Column> {
 }
 
 pub fn list_columns(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Column>> {
-    let mut stmt = conn.prepare(
-        &format!("SELECT {} FROM columns WHERE workspace_id = ?1 ORDER BY position", COLUMN_COLUMNS),
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM columns WHERE workspace_id = ?1 ORDER BY position",
+        COLUMN_COLUMNS
+    ))?;
     let rows = stmt.query_map(params![workspace_id], map_column_row)?;
     rows.collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn update_column(
     conn: &Connection,
     id: &str,
@@ -106,7 +111,11 @@ pub fn delete_column(conn: &Connection, id: &str) -> SqlResult<()> {
 }
 
 /// Get next column in workspace by position
-pub fn get_next_column(conn: &Connection, workspace_id: &str, current_position: i64) -> SqlResult<Option<Column>> {
+pub fn get_next_column(
+    conn: &Connection,
+    workspace_id: &str,
+    current_position: i64,
+) -> SqlResult<Option<Column>> {
     let result = conn.query_row(
         &format!("SELECT {} FROM columns WHERE workspace_id = ?1 AND position > ?2 ORDER BY position LIMIT 1", COLUMN_COLUMNS),
         params![workspace_id, current_position],

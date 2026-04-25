@@ -3,9 +3,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{command, AppHandle, Manager, Runtime, State};
 
-use crate::whisper::{
-    self, AudioRecorder, WhisperModel, WhisperModelInfo, WhisperModelStatus,
-};
+use crate::whisper::{self, AudioRecorder, WhisperModel, WhisperModelInfo, WhisperModelStatus};
 
 /// Managed state for the audio recorder
 pub struct RecorderState(pub Mutex<AudioRecorder>);
@@ -39,11 +37,10 @@ pub async fn transcribe_audio<R: Runtime>(
 
     let model_size = model
         .as_deref()
-        .and_then(WhisperModel::from_str)
+        .and_then(WhisperModel::parse)
         .unwrap_or(WhisperModel::Tiny);
 
-    let model_path = whisper::get_whisper_models_dir(&app)?
-        .join(model_size.filename());
+    let model_path = whisper::get_whisper_models_dir(&app)?.join(model_size.filename());
 
     if !model_path.exists() {
         return Err(format!(
@@ -87,8 +84,7 @@ pub async fn save_audio_temp<R: Runtime>(
     let filename = format!("bento_voice_{}.webm", chrono::Utc::now().timestamp_millis());
     let path = temp_dir.join(filename);
 
-    std::fs::write(&path, audio_data)
-        .map_err(|e| format!("Failed to write audio file: {}", e))?;
+    std::fs::write(&path, audio_data).map_err(|e| format!("Failed to write audio file: {}", e))?;
 
     path.to_str()
         .map(String::from)
@@ -99,7 +95,9 @@ pub async fn save_audio_temp<R: Runtime>(
 #[command]
 pub fn is_voice_available<R: Runtime>(app: AppHandle<R>) -> bool {
     let models = whisper::list_whisper_models(&app);
-    models.iter().any(|m| m.status == WhisperModelStatus::Downloaded)
+    models
+        .iter()
+        .any(|m| m.status == WhisperModelStatus::Downloaded)
 }
 
 /// List all available whisper models and their status
@@ -114,8 +112,8 @@ pub async fn download_whisper_model<R: Runtime>(
     app: AppHandle<R>,
     model: String,
 ) -> Result<String, String> {
-    let model_size = WhisperModel::from_str(&model)
-        .ok_or_else(|| format!("Invalid model: {}", model))?;
+    let model_size =
+        WhisperModel::parse(&model).ok_or_else(|| format!("Invalid model: {}", model))?;
 
     let path = whisper::download_whisper_model(app, model_size).await?;
 
@@ -126,12 +124,9 @@ pub async fn download_whisper_model<R: Runtime>(
 
 /// Delete a downloaded whisper model
 #[command]
-pub fn delete_whisper_model<R: Runtime>(
-    app: AppHandle<R>,
-    model: String,
-) -> Result<(), String> {
-    let model_size = WhisperModel::from_str(&model)
-        .ok_or_else(|| format!("Invalid model: {}", model))?;
+pub fn delete_whisper_model<R: Runtime>(app: AppHandle<R>, model: String) -> Result<(), String> {
+    let model_size =
+        WhisperModel::parse(&model).ok_or_else(|| format!("Invalid model: {}", model))?;
 
     whisper::delete_whisper_model(&app, model_size)
 }
@@ -142,8 +137,8 @@ pub fn get_whisper_model_info<R: Runtime>(
     app: AppHandle<R>,
     model: String,
 ) -> Result<WhisperModelInfo, String> {
-    let model_size = WhisperModel::from_str(&model)
-        .ok_or_else(|| format!("Invalid model: {}", model))?;
+    let model_size =
+        WhisperModel::parse(&model).ok_or_else(|| format!("Invalid model: {}", model))?;
 
     Ok(whisper::get_model_info(&app, model_size))
 }
@@ -152,41 +147,45 @@ pub fn get_whisper_model_info<R: Runtime>(
 
 /// Start native audio recording (bypasses webview limitations)
 #[command]
-pub fn start_native_recording(
-    recorder_state: State<'_, RecorderState>,
-) -> Result<(), String> {
+pub fn start_native_recording(recorder_state: State<'_, RecorderState>) -> Result<(), String> {
     log::info!("[Voice] Starting native recording...");
-    let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let recorder = recorder_state
+        .0
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
     recorder.start()
 }
 
 /// Stop native recording
 #[command]
-pub fn stop_native_recording(
-    recorder_state: State<'_, RecorderState>,
-) -> Result<(), String> {
+pub fn stop_native_recording(recorder_state: State<'_, RecorderState>) -> Result<(), String> {
     log::info!("[Voice] Stopping native recording...");
-    let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let recorder = recorder_state
+        .0
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
     recorder.stop()
 }
 
 /// Cancel native recording without saving
 #[command]
-pub fn cancel_native_recording(
-    recorder_state: State<'_, RecorderState>,
-) -> Result<(), String> {
+pub fn cancel_native_recording(recorder_state: State<'_, RecorderState>) -> Result<(), String> {
     log::info!("[Voice] Cancelling native recording...");
-    let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let recorder = recorder_state
+        .0
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
     recorder.cancel();
     Ok(())
 }
 
 /// Check if currently recording
 #[command]
-pub fn is_native_recording(
-    recorder_state: State<'_, RecorderState>,
-) -> Result<bool, String> {
-    let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+pub fn is_native_recording(recorder_state: State<'_, RecorderState>) -> Result<bool, String> {
+    let recorder = recorder_state
+        .0
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
     Ok(recorder.is_recording())
 }
 
@@ -203,7 +202,10 @@ pub async fn transcribe_recording_chunk<R: Runtime>(
 ) -> Result<TranscriptionResult, String> {
     // Get the audio chunk
     let samples = {
-        let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let recorder = recorder_state
+            .0
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
         recorder.get_new_chunk()
     };
 
@@ -221,11 +223,10 @@ pub async fn transcribe_recording_chunk<R: Runtime>(
     // Get model path
     let model_size = model
         .as_deref()
-        .and_then(WhisperModel::from_str)
+        .and_then(WhisperModel::parse)
         .unwrap_or(WhisperModel::Tiny);
 
-    let model_path = whisper::get_whisper_models_dir(&app)?
-        .join(model_size.filename());
+    let model_path = whisper::get_whisper_models_dir(&app)?.join(model_size.filename());
 
     if !model_path.exists() {
         return Err(format!(
@@ -260,7 +261,10 @@ pub async fn transcribe_all_recording<R: Runtime>(
 ) -> Result<TranscriptionResult, String> {
     // Stop recording and get all samples
     let samples = {
-        let recorder = recorder_state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let recorder = recorder_state
+            .0
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
         recorder.stop()?;
         recorder.get_all_samples()
     };
@@ -276,11 +280,10 @@ pub async fn transcribe_all_recording<R: Runtime>(
     // Get model path
     let model_size = model
         .as_deref()
-        .and_then(WhisperModel::from_str)
+        .and_then(WhisperModel::parse)
         .unwrap_or(WhisperModel::Tiny);
 
-    let model_path = whisper::get_whisper_models_dir(&app)?
-        .join(model_size.filename());
+    let model_path = whisper::get_whisper_models_dir(&app)?.join(model_size.filename());
 
     if !model_path.exists() {
         return Err(format!(

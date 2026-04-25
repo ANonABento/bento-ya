@@ -1,10 +1,10 @@
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
+use crate::chat::events::{ChatEvent, ToolStatus};
 use crate::chat::registry::SharedSessionRegistry;
 use crate::chat::session::{SessionConfig, SessionState, TransportType, UnifiedChatSession};
-use crate::chat::events::{ChatEvent, ToolStatus};
-use crate::db::{self, AppState, AgentMessage};
+use crate::db::{self, AgentMessage, AppState};
 use crate::error::AppError;
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -96,9 +96,7 @@ pub async fn start_agent(
 
     // Start managed bridge via broadcast
     if let Some(rx) = session.resubscribe() {
-        let bridge = crate::chat::bridge::ManagedBridge::start(
-            app_handle, task_id.clone(), rx,
-        );
+        let bridge = crate::chat::bridge::ManagedBridge::start(app_handle, task_id.clone(), rx);
         registry.set_bridge(&task_id, bridge);
     }
 
@@ -186,6 +184,7 @@ pub async fn list_active_agents(
 // ─── Agent Message Commands ────────────────────────────────────────────────
 
 #[tauri::command(rename_all = "camelCase")]
+#[allow(clippy::too_many_arguments)]
 pub fn save_agent_message(
     state: State<AppState>,
     task_id: String,
@@ -196,7 +195,10 @@ pub fn save_agent_message(
     tool_calls: Option<String>,
     thinking_content: Option<String>,
 ) -> Result<AgentMessage, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::insert_agent_message(
         &conn,
         &task_id,
@@ -214,16 +216,19 @@ pub fn get_agent_messages(
     state: State<AppState>,
     task_id: String,
 ) -> Result<Vec<AgentMessage>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::list_agent_messages(&conn, &task_id)?)
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn clear_agent_messages(
-    state: State<AppState>,
-    task_id: String,
-) -> Result<(), AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+pub fn clear_agent_messages(state: State<AppState>, task_id: String) -> Result<(), AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::clear_agent_messages(&conn, &task_id)?;
     Ok(())
 }
@@ -234,6 +239,7 @@ pub fn clear_agent_messages(
 ///
 /// Uses `UnifiedChatSession` from the `SessionRegistry`.
 #[tauri::command(rename_all = "camelCase")]
+#[allow(clippy::too_many_arguments)]
 pub async fn stream_agent_chat(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -303,7 +309,9 @@ Be concise and helpful."#,
         } else {
             // Create new session (check capacity)
             if registry.is_at_capacity() {
-                return Err(AppError::InvalidInput("Maximum concurrent sessions reached".to_string()));
+                return Err(AppError::InvalidInput(
+                    "Maximum concurrent sessions reached".to_string(),
+                ));
             }
             UnifiedChatSession::new(config.clone(), TransportType::Pipe)
         };
@@ -325,7 +333,7 @@ Be concise and helpful."#,
             emit_agent_event(&app_for_events, &task_id_for_events, event);
         })
         .await
-        .map_err(|e| AppError::InvalidInput(e))?;
+        .map_err(AppError::InvalidInput)?;
 
     // Put session back into registry
     {
@@ -341,8 +349,12 @@ Be concise and helpful."#,
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
         if let Some(cli_sid) = &captured_cli_session_id {
-            let agent_session =
-                db::get_or_create_agent_session_for_task(&conn, &task_id, "claude", Some(&working_dir))?;
+            let agent_session = db::get_or_create_agent_session_for_task(
+                &conn,
+                &task_id,
+                "claude",
+                Some(&working_dir),
+            )?;
             db::update_agent_session_cli(
                 &conn,
                 &agent_session.id,
@@ -383,6 +395,7 @@ Be concise and helpful."#,
 /// If no session exists and switching to PTY: creates a new PTY session.
 /// Uses managed bridge for PTY event forwarding.
 #[tauri::command(rename_all = "camelCase")]
+#[allow(clippy::too_many_arguments)]
 pub async fn switch_agent_transport(
     app: AppHandle,
     session_registry: State<'_, SharedSessionRegistry>,
@@ -396,7 +409,12 @@ pub async fn switch_agent_transport(
     let target_type = match transport_type.as_str() {
         "pipe" => TransportType::Pipe,
         "pty" => TransportType::Pty,
-        _ => return Err(AppError::InvalidInput(format!("Invalid transport type: {}", transport_type))),
+        _ => {
+            return Err(AppError::InvalidInput(format!(
+                "Invalid transport type: {}",
+                transport_type
+            )))
+        }
     };
 
     let c = cols.unwrap_or(120);
@@ -417,17 +435,15 @@ pub async fn switch_agent_transport(
         registry.cancel_bridge(&task_id);
 
         let session = registry.get_mut(&task_id).unwrap();
-        session.suspend().map_err(|e| AppError::InvalidInput(e))?;
+        session.suspend().map_err(AppError::InvalidInput)?;
         session.set_transport_type(target_type);
 
         if target_type == TransportType::Pty {
-            let _mpsc_rx = session.start_pty(c, r).map_err(|e| AppError::InvalidInput(e))?;
+            let _mpsc_rx = session.start_pty(c, r).map_err(AppError::InvalidInput)?;
             let rx = session.resubscribe();
 
             if let Some(rx) = rx {
-                let bridge = crate::chat::bridge::ManagedBridge::start(
-                    app, task_id.clone(), rx,
-                );
+                let bridge = crate::chat::bridge::ManagedBridge::start(app, task_id.clone(), rx);
                 registry.set_bridge(&task_id, bridge);
             }
         }
@@ -443,14 +459,12 @@ pub async fn switch_agent_transport(
 
         let session = registry
             .get_or_create(&task_id, config, TransportType::Pty)
-            .map_err(|e| AppError::InvalidInput(e))?;
+            .map_err(AppError::InvalidInput)?;
 
-        let _mpsc_rx = session.start_pty(c, r).map_err(|e| AppError::InvalidInput(e))?;
+        let _mpsc_rx = session.start_pty(c, r).map_err(AppError::InvalidInput)?;
 
         if let Some(rx) = session.resubscribe() {
-            let bridge = crate::chat::bridge::ManagedBridge::start(
-                app, task_id.clone(), rx,
-            );
+            let bridge = crate::chat::bridge::ManagedBridge::start(app, task_id.clone(), rx);
             registry.set_bridge(&task_id, bridge);
         }
     }
@@ -476,7 +490,10 @@ pub async fn ensure_pty_session(
     let mut registry = session_registry.lock().await;
 
     // Case 1: Session is alive
-    let session_alive = registry.get(&task_id).map(|s| s.is_alive()).unwrap_or(false);
+    let session_alive = registry
+        .get(&task_id)
+        .map(|s| s.is_alive())
+        .unwrap_or(false);
     if session_alive {
         let needs_bridge = !registry.has_active_bridge(&task_id);
 
@@ -487,14 +504,17 @@ pub async fn ensure_pty_session(
             let _ = session.resize_pty(cols, rows);
             let scrollback = session.scrollback();
             let pid = session.pid();
-            let rx = if needs_bridge { session.resubscribe() } else { None };
+            let rx = if needs_bridge {
+                session.resubscribe()
+            } else {
+                None
+            };
             (scrollback, pid, rx)
         }; // session borrow ends
 
         if let Some(rx) = resubscribe_rx {
-            let bridge = crate::chat::bridge::ManagedBridge::start(
-                app.clone(), task_id.clone(), rx,
-            );
+            let bridge =
+                crate::chat::bridge::ManagedBridge::start(app.clone(), task_id.clone(), rx);
             registry.set_bridge(&task_id, bridge);
         }
 
@@ -504,7 +524,11 @@ pub async fn ensure_pty_session(
             status: "Running".to_string(),
             pid,
             working_dir,
-            scrollback: if scrollback.is_empty() { None } else { Some(scrollback) },
+            scrollback: if scrollback.is_empty() {
+                None
+            } else {
+                Some(scrollback)
+            },
         });
     }
 
@@ -531,9 +555,7 @@ pub async fn ensure_pty_session(
 
     // Start managed bridge via broadcast
     if let Some(rx) = session.resubscribe() {
-        let bridge = crate::chat::bridge::ManagedBridge::start(
-            app.clone(), task_id.clone(), rx,
-        );
+        let bridge = crate::chat::bridge::ManagedBridge::start(app.clone(), task_id.clone(), rx);
         registry.set_bridge(&task_id, bridge);
     }
 
@@ -543,7 +565,11 @@ pub async fn ensure_pty_session(
         status: "Running".to_string(),
         pid,
         working_dir,
-        scrollback: if cached_scrollback.is_empty() { None } else { Some(cached_scrollback) },
+        scrollback: if cached_scrollback.is_empty() {
+            None
+        } else {
+            Some(cached_scrollback)
+        },
     })
 }
 
@@ -600,7 +626,10 @@ pub fn queue_agent_tasks(
     state: State<AppState>,
     task_ids: Vec<String>,
 ) -> Result<Vec<db::Task>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     let queued_at = crate::db::now();
     let mut updated_tasks = Vec::new();
 
@@ -619,7 +648,10 @@ pub fn update_task_agent_status(
     agent_status: Option<String>,
     queued_at: Option<String>,
 ) -> Result<db::Task, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::update_task_agent_status(
         &conn,
         &task_id,
@@ -633,7 +665,10 @@ pub fn get_queue_status(
     state: State<AppState>,
     workspace_id: String,
 ) -> Result<QueueStatus, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     let queued_tasks = db::get_queued_tasks(&conn, &workspace_id)?;
     let running_count = db::get_running_agent_count(&conn, &workspace_id)?;
 
@@ -650,7 +685,10 @@ pub fn get_next_queued_task(
     state: State<AppState>,
     workspace_id: String,
 ) -> Result<Option<db::Task>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     let running_count = db::get_running_agent_count(&conn, &workspace_id)?;
 
     if running_count >= get_max_concurrent(&conn, &workspace_id) {
@@ -675,7 +713,10 @@ fn emit_agent_event(app: &AppHandle, task_id: &str, event: ChatEvent) {
                 },
             );
         }
-        ChatEvent::ThinkingContent { content, is_complete } => {
+        ChatEvent::ThinkingContent {
+            content,
+            is_complete,
+        } => {
             let _ = app.emit(
                 "agent:thinking",
                 &AgentThinkingPayload {
@@ -706,6 +747,9 @@ fn emit_agent_event(app: &AppHandle, task_id: &str, event: ChatEvent) {
                 },
             );
         }
-        ChatEvent::Complete | ChatEvent::SessionId(_) | ChatEvent::RawOutput(_) | ChatEvent::Unknown => {}
+        ChatEvent::Complete
+        | ChatEvent::SessionId(_)
+        | ChatEvent::RawOutput(_)
+        | ChatEvent::Unknown => {}
     }
 }

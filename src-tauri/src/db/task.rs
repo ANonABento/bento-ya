@@ -22,7 +22,9 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         branch_name: row.get(8)?,
         files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
         checklist: row.get(10)?,
-        pipeline_state: row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "idle".to_string()),
+        pipeline_state: row
+            .get::<_, Option<String>>(11)?
+            .unwrap_or_else(|| "idle".to_string()),
         pipeline_triggered_at: row.get(12)?,
         pipeline_error: row.get(13)?,
         retry_count: row.get::<_, Option<i64>>(42)?.unwrap_or(0),
@@ -41,7 +43,9 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         pr_review_decision: row.get(25)?,
         pr_comment_count: row.get::<_, Option<i64>>(26)?.unwrap_or(0),
         pr_is_draft: row.get::<_, Option<i64>>(27)?.unwrap_or(0) != 0,
-        pr_labels: row.get::<_, Option<String>>(28)?.unwrap_or_else(|| "[]".to_string()),
+        pr_labels: row
+            .get::<_, Option<String>>(28)?
+            .unwrap_or_else(|| "[]".to_string()),
         pr_last_fetched: row.get(29)?,
         pr_head_sha: row.get(30)?,
         notify_stakeholders: row.get(31)?,
@@ -90,13 +94,15 @@ pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
 }
 
 pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
-    let mut stmt = conn.prepare(
-        &format!("SELECT {} FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position", TASK_COLUMNS),
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM tasks WHERE workspace_id = ?1 ORDER BY column_id, position",
+        TASK_COLUMNS
+    ))?;
     let rows = stmt.query_map(params![workspace_id], map_task_row)?;
     rows.collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn update_task(
     conn: &Connection,
     id: &str,
@@ -140,9 +146,10 @@ pub fn delete_task(conn: &Connection, id: &str) -> SqlResult<()> {
 
 /// List tasks by column ID
 pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec<Task>> {
-    let mut stmt = conn.prepare(
-        &format!("SELECT {} FROM tasks WHERE column_id = ?1 ORDER BY position", TASK_COLUMNS),
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM tasks WHERE column_id = ?1 ORDER BY position",
+        TASK_COLUMNS
+    ))?;
     let rows = stmt.query_map(params![column_id], map_task_row)?;
     rows.collect()
 }
@@ -282,6 +289,7 @@ pub fn update_task_pr_info(
 }
 
 /// Update PR/CI status fields for a task (from GitHub API)
+#[allow(clippy::too_many_arguments)]
 pub fn update_task_pr_status(
     conn: &Connection,
     id: &str,
@@ -313,11 +321,7 @@ pub fn update_task_pr_status(
 }
 
 /// Start or update siege loop for a task
-pub fn start_siege(
-    conn: &Connection,
-    id: &str,
-    max_iterations: Option<i64>,
-) -> SqlResult<Task> {
+pub fn start_siege(conn: &Connection, id: &str, max_iterations: Option<i64>) -> SqlResult<Task> {
     let ts = now();
     let max_iter = max_iterations.unwrap_or(5);
     conn.execute(

@@ -34,20 +34,30 @@ impl WhisperModel {
     /// Hugging Face download URL
     pub fn download_url(&self) -> &'static str {
         match self {
-            WhisperModel::Tiny => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
-            WhisperModel::Base => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
-            WhisperModel::Small => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
-            WhisperModel::Medium => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
-            WhisperModel::Large => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
+            WhisperModel::Tiny => {
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"
+            }
+            WhisperModel::Base => {
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
+            }
+            WhisperModel::Small => {
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"
+            }
+            WhisperModel::Medium => {
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin"
+            }
+            WhisperModel::Large => {
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin"
+            }
         }
     }
 
     /// Approximate download size in bytes
     pub fn size_bytes(&self) -> u64 {
         match self {
-            WhisperModel::Tiny => 75_000_000,    // ~75 MB
-            WhisperModel::Base => 142_000_000,   // ~142 MB
-            WhisperModel::Small => 466_000_000,  // ~466 MB
+            WhisperModel::Tiny => 75_000_000,      // ~75 MB
+            WhisperModel::Base => 142_000_000,     // ~142 MB
+            WhisperModel::Small => 466_000_000,    // ~466 MB
             WhisperModel::Medium => 1_500_000_000, // ~1.5 GB
             WhisperModel::Large => 3_100_000_000,  // ~3.1 GB
         }
@@ -76,7 +86,7 @@ impl WhisperModel {
     }
 
     /// Parse from string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "tiny" => Some(WhisperModel::Tiny),
             "base" => Some(WhisperModel::Base),
@@ -114,10 +124,10 @@ pub struct WhisperModelInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WhisperModelStatus {
-    Available,    // Not downloaded
-    Downloading,  // Currently downloading
-    Downloaded,   // Ready to use
-    Error,        // Download failed
+    Available,   // Not downloaded
+    Downloading, // Currently downloading
+    Downloaded,  // Ready to use
+    Error,       // Download failed
 }
 
 /// Download progress event payload
@@ -222,12 +232,10 @@ pub async fn download_whisper_model<R: Runtime>(
         ));
     }
 
-    let total_size = response
-        .content_length()
-        .unwrap_or(model.size_bytes());
+    let total_size = response.content_length().unwrap_or(model.size_bytes());
 
-    let mut file = fs::File::create(&temp_path)
-        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+    let mut file =
+        fs::File::create(&temp_path).map_err(|e| format!("Failed to create temp file: {}", e))?;
 
     let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
@@ -278,8 +286,7 @@ pub fn delete_whisper_model<R: Runtime>(
     let model_path = models_dir.join(model.filename());
 
     if model_path.exists() {
-        fs::remove_file(&model_path)
-            .map_err(|e| format!("Failed to delete model: {}", e))?;
+        fs::remove_file(&model_path).map_err(|e| format!("Failed to delete model: {}", e))?;
         log::info!("Deleted whisper model: {:?}", model);
     }
 
@@ -300,8 +307,8 @@ mod tests {
 
     #[test]
     fn test_model_from_str() {
-        assert_eq!(WhisperModel::from_str("tiny"), Some(WhisperModel::Tiny));
-        assert_eq!(WhisperModel::from_str("LARGE"), Some(WhisperModel::Large));
-        assert_eq!(WhisperModel::from_str("invalid"), None);
+        assert_eq!(WhisperModel::parse("tiny"), Some(WhisperModel::Tiny));
+        assert_eq!(WhisperModel::parse("LARGE"), Some(WhisperModel::Large));
+        assert_eq!(WhisperModel::parse("invalid"), None);
     }
 }

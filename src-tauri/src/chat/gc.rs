@@ -36,7 +36,10 @@ pub fn collect(conn: &Connection) {
             Ok(t) => t,
             Err(_) => {
                 // Task doesn't exist — orphaned session
-                eprintln!("[gc] Killing orphaned tmux session: {} (task not in DB)", session_name);
+                eprintln!(
+                    "[gc] Killing orphaned tmux session: {} (task not in DB)",
+                    session_name
+                );
                 let _ = std::process::Command::new("tmux")
                     .args(["kill-session", "-t", session_name])
                     .output();
@@ -60,12 +63,16 @@ pub fn collect(conn: &Connection) {
                         .map(|dt| dt.with_timezone(&chrono::Utc))
                         .or_else(|_| {
                             chrono::NaiveDateTime::parse_from_str(
-                                &session.updated_at, "%Y-%m-%d %H:%M:%S%.f%:z"
-                            ).map(|ndt| ndt.and_utc())
+                                &session.updated_at,
+                                "%Y-%m-%d %H:%M:%S%.f%:z",
+                            )
+                            .map(|ndt| ndt.and_utc())
                             .or_else(|_| {
                                 chrono::NaiveDateTime::parse_from_str(
-                                    &session.updated_at, "%Y-%m-%d %H:%M:%S"
-                                ).map(|ndt| ndt.and_utc())
+                                    &session.updated_at,
+                                    "%Y-%m-%d %H:%M:%S",
+                                )
+                                .map(|ndt| ndt.and_utc())
                             })
                         });
 
@@ -96,9 +103,9 @@ pub fn collect(conn: &Connection) {
 
     // Also check for tasks marked "running" whose tmux session has died
     // (e.g., OOM kill, manual tmux kill-session)
-    if let Ok(mut stmt) = conn.prepare(
-        "SELECT id, agent_session_id FROM tasks WHERE agent_status = 'running'"
-    ) {
+    if let Ok(mut stmt) =
+        conn.prepare("SELECT id, agent_session_id FROM tasks WHERE agent_status = 'running'")
+    {
         let stale: Vec<(String, Option<String>)> = stmt
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
             .ok()
@@ -108,12 +115,24 @@ pub fn collect(conn: &Connection) {
         for (task_id, session_id) in stale {
             let session_name = tmux_transport::session_name(&task_id);
             // Check if tmux session actually exists
-            let session_exists = sessions.iter().any(|s| *s == session_name);
+            let session_exists = sessions.contains(&session_name);
             if !session_exists {
-                eprintln!("[gc] Task {} marked running but tmux session gone — marking failed", task_id);
+                eprintln!(
+                    "[gc] Task {} marked running but tmux session gone — marking failed",
+                    task_id
+                );
                 let _ = db::update_task_agent_status(conn, &task_id, Some("failed"), None);
                 if let Some(ref sid) = session_id {
-                    let _ = db::update_agent_session(conn, sid, None, Some("failed"), None, None, None, None);
+                    let _ = db::update_agent_session(
+                        conn,
+                        sid,
+                        None,
+                        Some("failed"),
+                        None,
+                        None,
+                        None,
+                        None,
+                    );
                 }
             }
         }

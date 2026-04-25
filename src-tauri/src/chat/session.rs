@@ -120,12 +120,17 @@ impl UnifiedChatSession {
 
     /// Get scrollback buffer from the transport (base64-encoded, PTY only).
     pub fn scrollback(&self) -> String {
-        self.transport.as_ref().map(|t| t.scrollback()).unwrap_or_default()
+        self.transport
+            .as_ref()
+            .map(|t| t.scrollback())
+            .unwrap_or_default()
     }
 
     /// Create a new event receiver for an existing PTY session (for bridge reconnection).
     /// Returns None if session has no transport or transport doesn't support resubscription.
-    pub fn resubscribe(&self) -> Option<tokio::sync::broadcast::Receiver<super::transport::TransportEvent>> {
+    pub fn resubscribe(
+        &self,
+    ) -> Option<tokio::sync::broadcast::Receiver<super::transport::TransportEvent>> {
         self.transport.as_ref().and_then(|t| t.resubscribe())
     }
 
@@ -179,11 +184,14 @@ impl UnifiedChatSession {
 
         // Create fresh pipe transport for this message
         let mut transport = PipeTransport::new();
-        let mut event_rx = transport.spawn(spawn_config).map_err(|e| {
-            self.is_busy = false;
-            self.state = SessionState::Idle;
-            e
-        })?;
+        let mut event_rx = match transport.spawn(spawn_config) {
+            Ok(event_rx) => event_rx,
+            Err(error) => {
+                self.is_busy = false;
+                self.state = SessionState::Idle;
+                return Err(error);
+            }
+        };
 
         // Store transport so kill() can cancel mid-message
         self.transport = Some(Box::new(transport));

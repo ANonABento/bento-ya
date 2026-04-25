@@ -440,6 +440,7 @@ fn ensure_task_worktree(
 
 // ─── Per-Action Handlers ──────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn execute_spawn_cli(
     conn: &Connection,
     app: &AppHandle,
@@ -663,6 +664,7 @@ fn execute_move_column(
     Ok(task.clone())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_trigger_task(
     conn: &Connection,
     app: &AppHandle,
@@ -1679,7 +1681,7 @@ mod tests {
 
         for steps_json in built_in_steps {
             let parsed: Vec<serde_json::Value> = serde_json::from_str(steps_json)
-                .expect(&format!("Failed to parse: {}", steps_json));
+                .unwrap_or_else(|_| panic!("Failed to parse: {}", steps_json));
             assert!(!parsed.is_empty());
             for step in &parsed {
                 let step_type = step.get("type").and_then(|v| v.as_str());
