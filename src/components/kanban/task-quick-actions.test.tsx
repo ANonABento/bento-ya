@@ -158,7 +158,7 @@ describe('TaskQuickActions', () => {
     expect(screen.getByTitle(/Move to next column/)).toBeInTheDocument()
   })
 
-  it('delete button title reflects isDeleteConfirmPending prop', () => {
+  it('delete button title and style reflect isDeleteConfirmPending prop', () => {
     const handlers = makeHandlers()
     const { rerender } = render(
       <TaskQuickActions
@@ -169,7 +169,7 @@ describe('TaskQuickActions', () => {
         {...handlers}
       />
     )
-    expect(screen.getByTitle(/Delete task/)).toBeInTheDocument()
+    expect(screen.getByTitle(/Delete task/)).not.toHaveClass('bg-error/20')
     expect(screen.queryByTitle(/Click again to confirm/)).not.toBeInTheDocument()
 
     rerender(
@@ -181,7 +181,7 @@ describe('TaskQuickActions', () => {
         {...handlers}
       />
     )
-    expect(screen.getByTitle(/Click again to confirm/)).toBeInTheDocument()
+    expect(screen.getByTitle(/Click again to confirm/)).toHaveClass('bg-error/20')
     expect(screen.queryByTitle(/^Delete task/)).not.toBeInTheDocument()
   })
 
@@ -246,5 +246,22 @@ describe('TaskQuickActions', () => {
     )
     expect(screen.getByTitle(/Open task/)).toBeInTheDocument()
     expect(screen.getByTitle(/More actions/)).toBeInTheDocument()
+  })
+
+  it('does not intercept card clicks while visually hidden', () => {
+    const { container } = render(
+      <TaskQuickActions
+        task={makeTask()}
+        hasNextColumn={true}
+        columnHasTrigger={true}
+        isDeleteConfirmPending={false}
+        {...makeHandlers()}
+      />
+    )
+
+    const actionStrip = container.querySelector('[data-task-quick-actions="true"]')
+    expect(actionStrip).toHaveClass('pointer-events-none')
+    expect(actionStrip).toHaveClass('group-hover:pointer-events-auto')
+    expect(actionStrip).toHaveClass('focus-within:pointer-events-auto')
   })
 })

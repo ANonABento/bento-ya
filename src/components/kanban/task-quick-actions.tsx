@@ -38,7 +38,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
   return (
     <div
       data-task-quick-actions="true"
-      className="absolute right-1 top-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+      className="pointer-events-none absolute right-1 top-1 z-10 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
       onClick={(e) => { e.stopPropagation(); }}
     >
       {/* Open in panel */}
