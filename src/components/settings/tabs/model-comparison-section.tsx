@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getWorkspaceUsage, type UsageRecord } from '@/lib/ipc/usage'
 import {
-  canonicalModelId,
+  canonicalModelUsageKey,
   formatModelLimit,
   formatModelPrice,
   getModelMetadata,
 } from '@/lib/model-metadata'
+import { aggregateUsageByModel, EMPTY_USAGE_STATS } from '@/lib/model-usage'
 import { formatUsageCost, formatUsageTokens } from '@/lib/usage-format'
 
 export type ComparableModel = {
@@ -15,39 +16,10 @@ export type ComparableModel = {
   modelId: string
 }
 
-export type ModelUsageStats = {
-  calls: number
-  inputTokens: number
-  outputTokens: number
-  totalTokens: number
-  costUsd: number
-}
-
 const STORAGE_KEY = 'agent-tab-model-comparison-collapsed'
-const EMPTY_STATS: ModelUsageStats = {
-  calls: 0,
-  inputTokens: 0,
-  outputTokens: 0,
-  totalTokens: 0,
-  costUsd: 0,
-}
 
 type Props = {
   models: ComparableModel[]
-}
-
-export function aggregateUsageByModel(records: UsageRecord[]): Record<string, ModelUsageStats> {
-  return records.reduce<Record<string, ModelUsageStats>>((stats, record) => {
-    const modelId = canonicalModelId(record.model, record.provider)
-    const existing = stats[modelId] ?? { ...EMPTY_STATS }
-    existing.calls += 1
-    existing.inputTokens += record.inputTokens
-    existing.outputTokens += record.outputTokens
-    existing.totalTokens += record.inputTokens + record.outputTokens
-    existing.costUsd += record.costUsd
-    stats[modelId] = existing
-    return stats
-  }, {})
 }
 
 export function ModelComparisonSection({ models }: Props) {
@@ -63,13 +35,25 @@ export function ModelComparisonSection({ models }: Props) {
   const [records, setRecords] = useState<UsageRecord[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [hasUsageError, setHasUsageError] = useState(false)
+  const modelCount = models.length
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, String(collapsed))
+    try {
+      localStorage.setItem(STORAGE_KEY, String(collapsed))
+    } catch {
+      // Ignore storage failures; the section still works without persistence.
+    }
   }, [collapsed])
 
   useEffect(() => {
     if (collapsed) return
+
+    if (modelCount === 0) {
+      setRecords([])
+      setIsLoading(false)
+      setHasUsageError(false)
+      return
+    }
 
     if (!activeWorkspaceId) {
       setRecords([])
@@ -99,16 +83,17 @@ export function ModelComparisonSection({ models }: Props) {
     return () => {
       cancelled = true
     }
-  }, [activeWorkspaceId, collapsed])
+  }, [activeWorkspaceId, collapsed, modelCount])
 
   const usageByModel = useMemo(() => aggregateUsageByModel(records), [records])
-  const modelCount = models.length
 
   return (
     <section className="border-t border-border-default pt-6">
       <button
         type="button"
-        onClick={() => { setCollapsed((value) => !value) }}
+        onClick={() => {
+          setCollapsed((value) => !value)
+        }}
         className="mb-4 flex w-full items-center justify-between text-left"
         style={{ cursor: 'pointer' }}
         aria-expanded={!collapsed}
@@ -170,18 +155,28 @@ export function ModelComparisonSection({ models }: Props) {
                   <tbody className="divide-y divide-border-default">
                     {models.map((model) => {
                       const metadata = getModelMetadata(model.modelId, model.providerId)
-                      const usage = usageByModel[metadata.id] ?? EMPTY_STATS
+                      const usage =
+                        usageByModel[canonicalModelUsageKey(model.modelId, model.providerId)] ??
+                        EMPTY_USAGE_STATS
 
                       return (
-                        <tr key={`${model.providerId}:${model.modelId}`} className="text-text-primary">
+                        <tr
+                          key={`${model.providerId}:${model.modelId}`}
+                          className="text-text-primary"
+                        >
                           <td className="px-3 py-3 text-text-secondary">{model.providerName}</td>
                           <td className="px-3 py-3">
                             <div className="font-medium">{metadata.displayName}</div>
-                            <div className="mt-0.5 max-w-48 truncate font-mono text-[11px] text-text-secondary" title={metadata.id}>
+                            <div
+                              className="mt-0.5 max-w-48 truncate font-mono text-[11px] text-text-secondary"
+                              title={metadata.id}
+                            >
                               {metadata.id}
                             </div>
                           </td>
-                          <td className="px-3 py-3 capitalize text-text-secondary">{metadata.tier}</td>
+                          <td className="px-3 py-3 capitalize text-text-secondary">
+                            {metadata.tier}
+                          </td>
                           <td className="px-3 py-3 text-right tabular-nums text-text-secondary">
                             {formatModelPrice(metadata.inputCostPerMillion)}
                           </td>
@@ -233,9 +228,7 @@ function UsageState({
 }) {
   if (!activeWorkspaceId) {
     return (
-      <p className="text-xs text-text-secondary">
-        Select a workspace to include usage totals.
-      </p>
+      <p className="text-xs text-text-secondary">Select a workspace to include usage totals.</p>
     )
   }
 

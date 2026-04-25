@@ -4,7 +4,7 @@ export type ModelTier = 'fast' | 'balanced' | 'powerful' | 'reasoning'
 
 export type ModelMetadata = {
   id: string
-  provider: 'anthropic' | 'openai' | string
+  provider: string
   displayName: string
   aliases?: string[]
   tier: ModelTier
@@ -88,6 +88,9 @@ const MODEL_METADATA: ModelMetadata[] = [
 ]
 
 const exactLookup = new Map(MODEL_METADATA.map((metadata) => [metadata.id, metadata]))
+const providerExactLookup = new Map(
+  MODEL_METADATA.map((metadata) => [`${metadata.provider}:${metadata.id}`, metadata]),
+)
 const aliasLookup = new Map(
   MODEL_METADATA.flatMap((metadata) =>
     (metadata.aliases ?? []).map((alias) => [`${metadata.provider}:${alias}`, metadata] as const),
@@ -99,16 +102,30 @@ export function getKnownModelMetadata(): ModelMetadata[] {
 }
 
 export function getModelMetadata(modelId: string, provider = 'unknown'): ModelMetadata {
-  return (
-    exactLookup.get(modelId) ??
-    aliasLookup.get(`${provider}:${modelId}`) ??
-    aliasLookup.get(`anthropic:${modelId}`) ??
-    createFallbackMetadata(modelId, provider)
-  )
+  const providerExactMatch = providerExactLookup.get(`${provider}:${modelId}`)
+  if (providerExactMatch) return providerExactMatch
+
+  const providerAliasMatch = aliasLookup.get(`${provider}:${modelId}`)
+  if (providerAliasMatch) return providerAliasMatch
+
+  if (provider === 'unknown') {
+    const exactMatch = exactLookup.get(modelId)
+    if (exactMatch) return exactMatch
+
+    const anthropicAliasMatch = aliasLookup.get(`anthropic:${modelId}`)
+    if (anthropicAliasMatch) return anthropicAliasMatch
+  }
+
+  return createFallbackMetadata(modelId, provider)
 }
 
 export function canonicalModelId(modelId: string, provider = 'unknown'): string {
   return getModelMetadata(modelId, provider).id
+}
+
+export function canonicalModelUsageKey(modelId: string, provider = 'unknown'): string {
+  const metadata = getModelMetadata(modelId, provider)
+  return `${metadata.provider}:${metadata.id}`
 }
 
 export function formatModelPrice(value: number | null): string {

@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getWorkspaceUsage } from '@/lib/ipc/usage'
-import { ModelComparisonSection, aggregateUsageByModel, type ComparableModel } from './model-comparison-section'
+import { aggregateUsageByModel } from '@/lib/model-usage'
+import { ModelComparisonSection, type ComparableModel } from './model-comparison-section'
 
 vi.mock('@/lib/ipc/usage', () => ({
   getWorkspaceUsage: vi.fn(),
@@ -140,12 +141,52 @@ describe('ModelComparisonSection', () => {
       },
     ])
 
-    expect(usage['claude-sonnet-4-6-20260217']).toMatchObject({
+    expect(usage['anthropic:claude-sonnet-4-6-20260217']).toMatchObject({
       calls: 1,
       inputTokens: 10,
       outputTokens: 5,
       totalTokens: 15,
       costUsd: 0.01,
     })
+  })
+
+  it('keeps usage for identical unknown model ids separate by provider', () => {
+    const usage = aggregateUsageByModel([
+      {
+        id: 'usage-1',
+        workspaceId: 'ws-1',
+        taskId: null,
+        sessionId: null,
+        provider: 'openai',
+        model: 'shared-model',
+        inputTokens: 10,
+        outputTokens: 5,
+        costUsd: 0.01,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'usage-2',
+        workspaceId: 'ws-1',
+        taskId: null,
+        sessionId: null,
+        provider: 'anthropic',
+        model: 'shared-model',
+        inputTokens: 20,
+        outputTokens: 10,
+        costUsd: 0.02,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ])
+
+    expect(usage['openai:shared-model']?.totalTokens).toBe(15)
+    expect(usage['anthropic:shared-model']?.totalTokens).toBe(30)
+  })
+
+  it('handles empty model lists without fetching usage', () => {
+    render(<ModelComparisonSection models={[]} />)
+    fireEvent.click(screen.getByRole('button', { name: /model comparison/i }))
+
+    expect(screen.getByText('Enable a provider to compare available models.')).toBeInTheDocument()
+    expect(getWorkspaceUsage).not.toHaveBeenCalled()
   })
 })

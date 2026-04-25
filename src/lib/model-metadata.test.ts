@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  canonicalModelUsageKey,
   canonicalModelId,
   formatModelLimit,
   formatModelPrice,
@@ -18,6 +19,17 @@ describe('model metadata', () => {
     expect(canonicalModelId('sonnet', 'anthropic')).toBe('claude-sonnet-4-6-20260217')
     expect(canonicalModelId('opus', 'anthropic')).toBe('claude-opus-4-6-20260217')
     expect(canonicalModelId('haiku', 'anthropic')).toBe('claude-haiku-4-5-20251115')
+  })
+
+  it('does not resolve aliases across provider boundaries', () => {
+    const metadata = getModelMetadata('sonnet', 'openai')
+
+    expect(metadata).toMatchObject({
+      id: 'sonnet',
+      provider: 'openai',
+      displayName: 'sonnet',
+    })
+    expect(canonicalModelUsageKey('sonnet', 'openai')).toBe('openai:sonnet')
   })
 
   it('returns fallback metadata for unknown model ids', () => {
