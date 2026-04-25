@@ -34,6 +34,13 @@ const mockListen = vi.mocked(listen)
 // Store event handlers for simulating events
 const eventHandlers: Map<string, ((event: unknown) => void)[]> = new Map()
 
+function emitEvent(eventName: string, payload: unknown) {
+  const handlers = eventHandlers.get(eventName) ?? []
+  for (const handler of handlers) {
+    handler({ payload })
+  }
+}
+
 describe('useChatSession', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -621,6 +628,62 @@ describe('useChatSession', () => {
       expect(mockIpc.getAgentMessages).not.toHaveBeenCalled()
       expect(result.current.isLoading).toBe(false)
       expect(result.current.messages).toEqual([])
+    })
+  })
+
+  describe('orchestrator session scoping', () => {
+    it('ignores orchestrator events for other sessions in the same workspace', async () => {
+      const config: ChatSessionConfig = {
+        mode: 'orchestrator',
+        workspaceId: 'ws-1',
+        sessionId: 'session-1',
+      }
+
+      const { result } = renderHook(() => useChatSession(config))
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
+
+      act(() => {
+        emitEvent('orchestrator:processing', {
+          workspaceId: 'ws-1',
+          sessionId: 'session-2',
+          eventType: 'processing',
+          message: 'wrong session',
+        })
+      })
+      expect(result.current.streaming.isStreaming).toBe(false)
+
+      act(() => {
+        emitEvent('orchestrator:processing', {
+          workspaceId: 'ws-1',
+          sessionId: 'session-1',
+          eventType: 'processing',
+          message: 'right session',
+        })
+      })
+      expect(result.current.streaming.isStreaming).toBe(true)
+
+      act(() => {
+        emitEvent('orchestrator:stream', {
+          workspaceId: 'ws-1',
+          sessionId: 'session-2',
+          delta: 'ignored',
+          finishReason: null,
+        })
+      })
+      expect(result.current.streaming.content).toBe('')
+
+      act(() => {
+        emitEvent('orchestrator:stream', {
+          workspaceId: 'ws-1',
+          sessionId: 'session-1',
+          delta: 'kept',
+          finishReason: null,
+        })
+      })
+      expect(result.current.streaming.content).toBe('kept')
     })
   })
 })

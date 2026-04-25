@@ -8,18 +8,10 @@
  */
 
 import type { UnifiedMessage } from '@/hooks/chat-session'
+import type { ToolCallData } from './tool-call-item'
 
 /** Tool call status as expected by ChatHistory */
 type ToolCallStatus = 'running' | 'complete' | 'error'
-
-/** Tool call format expected by ChatHistory */
-export type ChatToolCall = {
-  workspaceId: string
-  toolId: string
-  toolName: string
-  status: ToolCallStatus
-  input?: Record<string, unknown>
-}
 
 /** Streaming tool call from useChatSession */
 type StreamingToolCall = {
@@ -32,8 +24,7 @@ type StreamingToolCall = {
 /** Map streaming tool calls to the format ChatHistory expects */
 export function mapToolCalls(
   toolCalls: StreamingToolCall[],
-  workspaceId: string,
-): ChatToolCall[] {
+): ToolCallData[] {
   return toolCalls.map((tc) => {
     let parsedInput: Record<string, unknown> | undefined
     if (tc.input) {
@@ -50,7 +41,6 @@ export function mapToolCalls(
       tc.status
 
     return {
-      workspaceId,
       toolId: tc.id,
       toolName: tc.name,
       status,

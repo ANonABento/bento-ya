@@ -52,6 +52,7 @@ pub struct OrchestratorResponse {
 #[serde(rename_all = "camelCase")]
 pub struct OrchestratorEvent {
     pub workspace_id: String,
+    pub session_id: String,
     pub event_type: String,
     pub message: Option<String>,
 }
@@ -61,6 +62,7 @@ pub struct OrchestratorEvent {
 #[serde(rename_all = "camelCase")]
 pub struct StreamChunkPayload {
     pub workspace_id: String,
+    pub session_id: String,
     pub delta: String,
     pub finish_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -81,6 +83,7 @@ pub struct ToolUsePayload {
 #[serde(rename_all = "camelCase")]
 pub struct ToolResultPayload {
     pub workspace_id: String,
+    pub session_id: String,
     pub tool_use_id: String,
     pub result: String,
     pub is_error: bool,
@@ -91,6 +94,7 @@ pub struct ToolResultPayload {
 #[serde(rename_all = "camelCase")]
 pub struct ThinkingPayload {
     pub workspace_id: String,
+    pub session_id: String,
     pub content: String,
     pub is_complete: bool,
 }
@@ -100,6 +104,7 @@ pub struct ThinkingPayload {
 #[serde(rename_all = "camelCase")]
 pub struct ToolCallPayload {
     pub workspace_id: String,
+    pub session_id: String,
     pub tool_id: String,
     pub tool_name: String,
     pub status: String, // "running" | "complete" | "error"
@@ -401,6 +406,7 @@ pub fn process_orchestrator_response(
         "orchestrator:complete",
         &OrchestratorEvent {
             workspace_id: workspace_id.clone(),
+            session_id: chat_session.id.clone(),
             event_type: "complete".to_string(),
             message: Some(format!("Created {} task(s)", tasks_created.len())),
         },
@@ -427,6 +433,7 @@ pub fn set_orchestrator_error(
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     let session = db::get_or_create_orchestrator_session(&conn, &workspace_id)?;
+    let chat_session = db::get_or_create_active_session(&conn, &workspace_id)?;
     let updated = db::update_orchestrator_session(
         &conn,
         &session.id,
@@ -439,6 +446,7 @@ pub fn set_orchestrator_error(
         "orchestrator:error",
         &OrchestratorEvent {
             workspace_id,
+            session_id: chat_session.id,
             event_type: "error".to_string(),
             message: Some(error_message),
         },
@@ -514,6 +522,7 @@ pub async fn stream_orchestrator_chat(
         "orchestrator:processing",
         &OrchestratorEvent {
             workspace_id: workspace_id.clone(),
+            session_id: actual_session_id.clone(),
             event_type: "processing".to_string(),
             message: Some(message.clone()),
         },
@@ -584,6 +593,7 @@ pub async fn stream_orchestrator_chat(
             "orchestrator:error",
             &OrchestratorEvent {
                 workspace_id,
+                session_id: actual_session_id,
                 event_type: "error".to_string(),
                 message: Some(error_message),
             },
@@ -631,6 +641,7 @@ pub async fn cancel_orchestrator_chat(
         "orchestrator:complete",
         &OrchestratorEvent {
             workspace_id: workspace_id.clone(),
+            session_id: session_id.clone(),
             event_type: "cancelled".to_string(),
             message: Some("Request cancelled".to_string()),
         },
@@ -740,6 +751,7 @@ async fn stream_via_api(
                 "orchestrator:tool_call",
                 &ToolCallPayload {
                     workspace_id: workspace_id_clone.clone(),
+                    session_id: session_id.to_string(),
                     tool_id: tu.id.clone(),
                     tool_name: tu.name.clone(),
                     status: "running".to_string(),
@@ -759,6 +771,7 @@ async fn stream_via_api(
             "orchestrator:stream",
             &StreamChunkPayload {
                 workspace_id: workspace_id_clone.clone(),
+                session_id: session_id.to_string(),
                 delta: chunk.delta,
                 finish_reason: chunk.finish_reason.clone(),
                 tool_use: tool_use_payload,
@@ -811,6 +824,7 @@ async fn stream_via_api(
                 "orchestrator:tool_result",
                 &ToolResultPayload {
                     workspace_id: workspace_id.to_string(),
+                    session_id: session_id.to_string(),
                     tool_use_id: result.tool_use_id.clone(),
                     result: result.content.clone(),
                     is_error: result.is_error,
@@ -821,6 +835,7 @@ async fn stream_via_api(
                 "orchestrator:tool_call",
                 &ToolCallPayload {
                     workspace_id: workspace_id.to_string(),
+                    session_id: session_id.to_string(),
                     tool_id: result.tool_use_id.clone(),
                     tool_name,
                     status: if result.is_error { "error" } else { "complete" }.to_string(),
@@ -884,6 +899,7 @@ async fn stream_via_api(
             "orchestrator:complete",
             &OrchestratorEvent {
                 workspace_id: workspace_id.to_string(),
+                session_id: session_id.to_string(),
                 event_type: "complete".to_string(),
                 message: Some(assistant_msg.id),
             },
@@ -969,11 +985,12 @@ async fn stream_via_unified_cli(
 
         // Forward events to frontend
         let ws_id = workspace_id.to_string();
+        let session_id_for_events = session_id.to_string();
         let app_for_events = app.clone();
 
         let result = session
             .send_message(&full_message, move |event| {
-                emit_orchestrator_cli_event(&app_for_events, &ws_id, event);
+                emit_orchestrator_cli_event(&app_for_events, &ws_id, &session_id_for_events, event);
             })
             .await;
 
@@ -997,10 +1014,11 @@ async fn stream_via_unified_cli(
 
                     // Rebuild context and retry
                     let ws_id2 = workspace_id.to_string();
+                    let session_id2 = session_id.to_string();
                     let app_retry = app.clone();
                     session
                         .send_message(&full_message, move |event| {
-                            emit_orchestrator_cli_event(&app_retry, &ws_id2, event);
+                            emit_orchestrator_cli_event(&app_retry, &ws_id2, &session_id2, event);
                         })
                         .await
                         .map_err(AppError::InvalidInput)?
@@ -1014,10 +1032,11 @@ async fn stream_via_unified_cli(
                 session.set_resume_id(None);
 
                 let ws_id2 = workspace_id.to_string();
+                let session_id2 = session_id.to_string();
                 let app_retry = app.clone();
                 session
                     .send_message(&full_message, move |event| {
-                        emit_orchestrator_cli_event(&app_retry, &ws_id2, event);
+                        emit_orchestrator_cli_event(&app_retry, &ws_id2, &session_id2, event);
                     })
                     .await
                     .map_err(AppError::InvalidInput)?
@@ -1054,6 +1073,7 @@ async fn stream_via_unified_cli(
                             "orchestrator:tool_result",
                             &ToolResultPayload {
                                 workspace_id: workspace_id.to_string(),
+                                session_id: session_id.to_string(),
                                 tool_use_id: tool_result.tool_use_id.clone(),
                                 result: tool_result.content.clone(),
                                 is_error: tool_result.is_error,
@@ -1067,6 +1087,7 @@ async fn stream_via_unified_cli(
                         "orchestrator:error",
                         &OrchestratorEvent {
                             workspace_id: workspace_id.to_string(),
+                            session_id: session_id.to_string(),
                             event_type: "warning".to_string(),
                             message: Some(format!("Action execution failed: {}", e)),
                         },
@@ -1090,6 +1111,7 @@ async fn stream_via_unified_cli(
             "orchestrator:complete",
             &OrchestratorEvent {
                 workspace_id: workspace_id.to_string(),
+                session_id: session_id.to_string(),
                 event_type: "complete".to_string(),
                 message: Some(assistant_msg.id.clone()),
             },
@@ -1101,6 +1123,7 @@ async fn stream_via_unified_cli(
         "orchestrator:stream",
         &StreamChunkPayload {
             workspace_id: workspace_id.to_string(),
+            session_id: session_id.to_string(),
             delta: String::new(),
             finish_reason: Some("stop".to_string()),
             tool_use: None,
@@ -1111,13 +1134,19 @@ async fn stream_via_unified_cli(
 }
 
 /// Forward ChatEvent to orchestrator-specific Tauri events.
-fn emit_orchestrator_cli_event(app: &AppHandle, workspace_id: &str, event: ChatEvent) {
+fn emit_orchestrator_cli_event(
+    app: &AppHandle,
+    workspace_id: &str,
+    session_id: &str,
+    event: ChatEvent,
+) {
     match event {
         ChatEvent::TextContent(content) => {
             let _ = app.emit(
                 "orchestrator:stream",
                 &StreamChunkPayload {
                     workspace_id: workspace_id.to_string(),
+                    session_id: session_id.to_string(),
                     delta: content,
                     finish_reason: None,
                     tool_use: None,
@@ -1132,6 +1161,7 @@ fn emit_orchestrator_cli_event(app: &AppHandle, workspace_id: &str, event: ChatE
                 "orchestrator:thinking",
                 &ThinkingPayload {
                     workspace_id: workspace_id.to_string(),
+                    session_id: session_id.to_string(),
                     content,
                     is_complete,
                 },
@@ -1148,6 +1178,7 @@ fn emit_orchestrator_cli_event(app: &AppHandle, workspace_id: &str, event: ChatE
                 "orchestrator:tool_call",
                 &ToolCallPayload {
                     workspace_id: workspace_id.to_string(),
+                    session_id: session_id.to_string(),
                     tool_id: id,
                     tool_name: name,
                     status: status_str.to_string(),
