@@ -29,13 +29,8 @@ type BatchQueueLocalState = {
   queuedTaskIds: string[]
 }
 
-export const Column = memo(function Column({
-  column,
-  columnIndex,
-  columnCount,
-  autoOpenConfig = false,
-  onConfigOpened,
-}: ColumnProps) {
+export const Column = memo(function Column(props: ColumnProps) {
+  const { column, columnIndex, columnCount } = props
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
