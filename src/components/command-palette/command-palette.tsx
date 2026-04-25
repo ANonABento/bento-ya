@@ -315,9 +315,10 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
                         else itemRefs.current.delete(idx)
                       }}
                       onClick={() => { executeCommand(cmd) }}
-                      className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
                         isSelected ? 'bg-surface-hover text-text-primary' : 'text-text-primary hover:bg-surface-hover'
                       }`}
+                      style={{ cursor: 'pointer' }}
                     >
                       <span className="text-text-secondary">
                         {cmd.icon ?? CATEGORY_ICONS[cmd.category]}

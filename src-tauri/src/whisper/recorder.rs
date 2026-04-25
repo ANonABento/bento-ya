@@ -34,7 +34,15 @@ impl AudioRecorder {
             stream: Mutex::new(None),
         }
     }
+}
 
+impl Default for AudioRecorder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AudioRecorder {
     /// Start recording from the default input device
     pub fn start(&self) -> Result<(), String> {
         // If already recording, stop first (handles stuck state)

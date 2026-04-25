@@ -37,7 +37,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const columns = useColumnStore((s) => s.columns)
 
   // Resolve trigger info for this task's column once. `columnHasTrigger` decides
-  // whether the Run button is meaningful — a manual-only column has nothing to
+  // whether the Run button is meaningful - a manual-only column has nothing to
   // spawn, so showing Play would be misleading.
   const { exitCriteria, columnHasTrigger } = useMemo(() => {
     const col = columns.find(c => c.id === task.columnId)
@@ -154,7 +154,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const [deleteConfirmPending, setDeleteConfirmPending] = useState(false)
   const deleteConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Clear any pending confirm-timer on unmount — the confirming click deletes
+  // Clear any pending confirm-timer on unmount - the confirming click deletes
   // the task, which unmounts this card while the first click's timer is still
   // scheduled. Without this the timer would setState on an unmounted node.
   useEffect(() => {
@@ -199,7 +199,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const depCount = useMemo(() => parseDeps(task.dependencies).length, [task.dependencies])
 
   // Is this card connected to the hovered card? (for highlight/dim)
-  // Note: reads hovered task's deps via getState() — won't re-render if those change,
+  // Note: reads hovered task's deps via getState() - won't re-render if those change,
   // but hover is transient so staleness is acceptable.
   const isConnectedToHovered = useMemo(() => {
     if (!hoveredTaskId || hoveredTaskId === task.id) return false
@@ -397,7 +397,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
               </span>
             )}
             {depCount > 0 && (
-              <span className="inline-flex items-center gap-0.5 text-text-secondary/50" title={`${String(depCount)} dependency link${depCount > 1 ? 's' : ''} — hover to see`}>
+              <span className="inline-flex items-center gap-0.5 text-text-secondary/50" title={`${String(depCount)} dependency link${depCount > 1 ? 's' : ''} - hover to see`}>
                 <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <path d="M6 3L10 3M10 3L10 7M10 3L3 10" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>

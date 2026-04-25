@@ -2,13 +2,7 @@ import { useState } from 'react'
 import * as ipc from '@/lib/ipc'
 import { useTaskStore } from '@/stores/task-store'
 import { useColumnStore } from '@/stores/column-store'
-
-export type Dependency = {
-  task_id: string
-  condition: string
-  target_column?: string
-  on_met: { type: string; target?: string }
-}
+import type { Dependency } from './task-dependency-parsers'
 
 export function DependenciesTab({
   deps,

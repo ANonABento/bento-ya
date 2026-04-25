@@ -30,6 +30,19 @@ export const mockColumn = (overrides: Partial<Column> = {}): Column => ({
   ...overrides,
 })
 
+export const mockKanbanColumn = (overrides: Partial<Column> = {}): Column =>
+  mockColumn({
+    id: 'c1',
+    name: 'Todo',
+    icon: '',
+    triggers: {
+      on_entry: { type: 'spawn_cli' },
+      on_exit: { type: 'none' },
+      exit_criteria: { type: 'manual', auto_advance: false },
+    },
+    ...overrides,
+  })
+
 export const mockTask = (overrides: Partial<Task> = {}): Task => ({
   id: `task-${Math.random().toString(36).slice(2, 9)}`,
   workspaceId: 'ws-1',
@@ -76,6 +89,18 @@ export const mockTask = (overrides: Partial<Task> = {}): Task => ({
   updatedAt: new Date().toISOString(),
   ...overrides,
 })
+
+export const mockKanbanTask = (overrides: Partial<Task> = {}): Task =>
+  mockTask({
+    id: 't1',
+    columnId: 'c1',
+    title: 'Test task',
+    agentStatus: 'idle',
+    siegeMaxIterations: 3,
+    createdAt: '2024-01-01T00:00:00Z',
+    updatedAt: '2024-01-01T00:00:00Z',
+    ...overrides,
+  })
 
 // Helper to setup invoke mock with responses
 export async function setupInvokeMock(responses: Record<string, unknown>) {

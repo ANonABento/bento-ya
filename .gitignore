@@ -30,6 +30,7 @@ src-tauri/Frameworks/
 
 # Context (agent workspace)
 .context/
+.worktrees/
 .claude/worktrees/
 
 # Playwright
