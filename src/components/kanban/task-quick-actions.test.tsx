@@ -204,6 +204,24 @@ describe('TaskQuickActions', () => {
     expect(cardClick).not.toHaveBeenCalled()
   })
 
+  it('button keyboard events do not bubble to card shortcuts', () => {
+    const handlers = makeHandlers()
+    const cardKeyDown = vi.fn()
+    render(
+      <div onKeyDown={cardKeyDown}>
+        <TaskQuickActions
+          task={makeTask({ pipelineError: 'boom' })}
+          hasNextColumn={true}
+          columnHasTrigger={true}
+          isDeleteConfirmPending={false}
+          {...handlers}
+        />
+      </div>
+    )
+    fireEvent.keyDown(screen.getByTitle(/Delete task/), { key: 'Enter' })
+    expect(cardKeyDown).not.toHaveBeenCalled()
+  })
+
   it('two-click confirm-to-delete: first click arms, second click fires', () => {
     const handlers = makeHandlers()
     const { rerender } = render(

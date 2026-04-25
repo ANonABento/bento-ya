@@ -166,6 +166,14 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     }
   }, [])
 
+  useEffect(() => {
+    if (deleteConfirmTimerRef.current !== null) {
+      clearTimeout(deleteConfirmTimerRef.current)
+      deleteConfirmTimerRef.current = null
+    }
+    setDeleteConfirmPending(false)
+  }, [task.id])
+
   const handleDeleteWithConfirm = useCallback(() => {
     if (deleteConfirmTimerRef.current !== null) {
       clearTimeout(deleteConfirmTimerRef.current)
@@ -230,6 +238,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       onContextMenu={openContextMenuAt}
       onKeyDown={(e) => {
         if (e.metaKey || e.ctrlKey || e.altKey) return
+        if (e.target instanceof Element && e.target.closest('button, a, input, textarea, select')) return
         switch (e.key) {
           case 'Enter':
             e.preventDefault()

@@ -1,4 +1,4 @@
-import { memo, type CSSProperties } from 'react'
+import { memo, type CSSProperties, type MouseEvent } from 'react'
 import type { Task } from '@/types'
 
 type TaskQuickActionsProps = {
@@ -11,7 +11,7 @@ type TaskQuickActionsProps = {
   onRetry: () => void
   onMoveNext: () => void
   onRequestDelete: () => void
-  onShowMenu: (e: React.MouseEvent) => void
+  onShowMenu: (e: MouseEvent) => void
 }
 
 const buttonCursorStyle: CSSProperties = { cursor: 'pointer' }
@@ -39,10 +39,16 @@ export const TaskQuickActions = memo(function TaskQuickActions({
     <div
       data-task-quick-actions="true"
       className="pointer-events-none absolute right-1 top-1 z-10 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
-      onClick={(e) => { e.stopPropagation(); }}
+      onClick={(e) => {
+        e.stopPropagation()
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+      }}
     >
       {/* Open in panel */}
       <button
+        type="button"
         onClick={onOpen}
         className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
         style={buttonCursorStyle}
@@ -57,6 +63,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       {/* Run/Stop agent — Play requires a trigger column; Stop always allowed when running */}
       {(showPlay || showStop) && (
         <button
+          type="button"
           onClick={onToggleAgent}
           className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
             isRunning
@@ -81,6 +88,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       {/* Retry - visible when task has pipeline error */}
       {hasError && (
         <button
+          type="button"
           onClick={onRetry}
           className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-warning/20 hover:text-warning transition-colors"
           style={buttonCursorStyle}
@@ -95,6 +103,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       {/* Move to next column */}
       {hasNextColumn && (
         <button
+          type="button"
           onClick={onMoveNext}
           className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-accent transition-colors"
           style={buttonCursorStyle}
@@ -108,6 +117,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
 
       {/* Delete — confirm state lives in parent so mouse + keyboard share one timer */}
       <button
+        type="button"
         onClick={onRequestDelete}
         className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
           isDeleteConfirmPending
@@ -124,6 +134,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
 
       {/* More options */}
       <button
+        type="button"
         onClick={onShowMenu}
         className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
         style={buttonCursorStyle}
