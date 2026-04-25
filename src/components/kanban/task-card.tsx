@@ -135,7 +135,9 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
 
   // Find next column for "move right" action
   const nextColumnId = useMemo(() => {
-    const sorted = [...columns].sort((a, b) => a.position - b.position)
+    const sorted = columns
+      .filter((column) => column.visible)
+      .sort((a, b) => a.position - b.position)
     const idx = sorted.findIndex(c => c.id === task.columnId)
     if (idx === -1) return null
     return sorted[idx + 1]?.id ?? null
@@ -234,8 +236,10 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
             handleClick()
             break
           case ' ':
-            e.preventDefault()
-            actions.handleToggleAgent()
+            if (task.agentStatus === 'running' || columnHasTrigger) {
+              e.preventDefault()
+              actions.handleToggleAgent()
+            }
             break
           case 'r':
           case 'R':
