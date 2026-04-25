@@ -5,8 +5,7 @@ use tauri::State;
 
 use super::types::OrchestratorContext;
 
-#[tauri::command]
-pub fn get_orchestrator_context(
+pub(super) fn get_orchestrator_context(
     state: State<AppState>,
     workspace_id: String,
 ) -> Result<OrchestratorContext, AppError> {
@@ -29,8 +28,7 @@ pub fn get_orchestrator_context(
     })
 }
 
-#[tauri::command]
-pub fn get_orchestrator_session(
+pub(super) fn get_orchestrator_session(
     state: State<AppState>,
     workspace_id: String,
 ) -> Result<OrchestratorSession, AppError> {
@@ -44,8 +42,7 @@ pub fn get_orchestrator_session(
     )?)
 }
 
-#[tauri::command]
-pub fn list_chat_sessions(
+pub(super) fn list_chat_sessions(
     state: State<AppState>,
     workspace_id: String,
 ) -> Result<Vec<ChatSession>, AppError> {
@@ -56,8 +53,7 @@ pub fn list_chat_sessions(
     Ok(db::list_chat_sessions(&conn, &workspace_id)?)
 }
 
-#[tauri::command]
-pub fn get_active_chat_session(
+pub(super) fn get_active_chat_session(
     state: State<AppState>,
     workspace_id: String,
 ) -> Result<ChatSession, AppError> {
@@ -68,8 +64,7 @@ pub fn get_active_chat_session(
     Ok(db::get_or_create_active_session(&conn, &workspace_id)?)
 }
 
-#[tauri::command]
-pub fn create_chat_session(
+pub(super) fn create_chat_session(
     state: State<AppState>,
     workspace_id: String,
     title: Option<String>,
@@ -82,8 +77,7 @@ pub fn create_chat_session(
     Ok(db::create_chat_session(&conn, &workspace_id, &title)?)
 }
 
-#[tauri::command(rename_all = "camelCase")]
-pub async fn delete_chat_session(
+pub(super) async fn delete_chat_session(
     state: State<'_, AppState>,
     session_registry: State<'_, SharedSessionRegistry>,
     session_id: String,
@@ -112,8 +106,7 @@ pub async fn delete_chat_session(
     Ok(())
 }
 
-#[tauri::command]
-pub fn get_chat_history(
+pub(super) fn get_chat_history(
     state: State<AppState>,
     session_id: String,
     limit: Option<i64>,
@@ -125,8 +118,10 @@ pub fn get_chat_history(
     Ok(db::list_chat_messages(&conn, &session_id, limit)?)
 }
 
-#[tauri::command]
-pub fn clear_chat_history(state: State<AppState>, session_id: String) -> Result<(), AppError> {
+pub(super) fn clear_chat_history(
+    state: State<AppState>,
+    session_id: String,
+) -> Result<(), AppError> {
     let conn = state
         .db
         .lock()
@@ -135,8 +130,7 @@ pub fn clear_chat_history(state: State<AppState>, session_id: String) -> Result<
     Ok(())
 }
 
-#[tauri::command(rename_all = "camelCase")]
-pub async fn reset_cli_session(
+pub(super) async fn reset_cli_session(
     state: State<'_, AppState>,
     session_registry: State<'_, SharedSessionRegistry>,
     session_id: String,

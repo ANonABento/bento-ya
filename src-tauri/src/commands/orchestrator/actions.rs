@@ -4,8 +4,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use super::types::{OrchestratorAction, OrchestratorEvent, OrchestratorResponse};
 
-#[tauri::command]
-pub fn process_orchestrator_response(
+pub(super) fn process_orchestrator_response(
     app: AppHandle,
     state: State<AppState>,
     workspace_id: String,
@@ -80,8 +79,7 @@ pub fn process_orchestrator_response(
     })
 }
 
-#[tauri::command]
-pub fn set_orchestrator_error(
+pub(super) fn set_orchestrator_error(
     app: AppHandle,
     state: State<AppState>,
     workspace_id: String,

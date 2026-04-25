@@ -8,8 +8,7 @@ use super::stream_cli::stream_via_unified_cli;
 use super::types::{api_stream_key, ApiStreamRegistry, OrchestratorEvent};
 
 #[allow(clippy::too_many_arguments)]
-#[tauri::command(rename_all = "camelCase")]
-pub async fn stream_orchestrator_chat(
+pub(super) async fn stream_orchestrator_chat(
     app: AppHandle,
     state: State<'_, AppState>,
     session_registry: State<'_, SharedSessionRegistry>,
@@ -140,8 +139,7 @@ pub async fn stream_orchestrator_chat(
     result
 }
 
-#[tauri::command(rename_all = "camelCase")]
-pub async fn cancel_orchestrator_chat(
+pub(super) async fn cancel_orchestrator_chat(
     app: AppHandle,
     state: State<'_, AppState>,
     session_registry: State<'_, SharedSessionRegistry>,
