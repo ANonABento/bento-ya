@@ -85,7 +85,7 @@ impl WhisperModel {
         }
     }
 
-    /// Parse from string
+    /// Parse from string.
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "tiny" => Some(WhisperModel::Tiny),

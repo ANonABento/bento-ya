@@ -6,17 +6,13 @@
 use crate::chat::bridge;
 use crate::db::{self, Column, Task};
 use crate::error::AppError;
-use crate::git::branch_manager;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter};
 
 use super::template::{self, TemplateContext};
-use super::{
-    emit_pipeline, emit_tasks_changed, fire_trigger, handle_trigger_failure, mark_complete,
-    PipelineEvent, PipelineState, EVT_ADVANCED, EVT_RUNNING, EVT_TRIGGERED,
-};
+use super::{emit_pipeline, PipelineState, EVT_ADVANCED, EVT_RUNNING, EVT_TRIGGERED};
 
 // ─── V2 Trigger Types ─────────────────────────────────────────────────────
 
@@ -45,7 +41,7 @@ pub enum TriggerActionV2 {
     },
     TriggerTask {
         target_task: String,
-        action: TriggerTaskActionTypeV2,
+        action: String,
         #[serde(default)]
         target_column: Option<String>,
         #[serde(default)]
@@ -61,45 +57,8 @@ pub enum TriggerActionV2 {
     None,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum TriggerTaskActionTypeV2 {
-    MoveColumn,
-    Start,
-    Unblock,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ExitCriteriaTypeV2 {
-    #[default]
-    Manual,
-    AgentComplete,
-    ScriptSuccess,
-    ChecklistDone,
-    TimeElapsed,
-    PrApproved,
-    ManualApproval,
-    NotificationSent,
-}
-
-impl ExitCriteriaTypeV2 {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ExitCriteriaTypeV2::Manual => "manual",
-            ExitCriteriaTypeV2::AgentComplete => "agent_complete",
-            ExitCriteriaTypeV2::ScriptSuccess => "script_success",
-            ExitCriteriaTypeV2::ChecklistDone => "checklist_done",
-            ExitCriteriaTypeV2::TimeElapsed => "time_elapsed",
-            ExitCriteriaTypeV2::PrApproved => "pr_approved",
-            ExitCriteriaTypeV2::ManualApproval => "manual_approval",
-            ExitCriteriaTypeV2::NotificationSent => "notification_sent",
-        }
-    }
-}
-
 /// Column-level triggers configuration (V2).
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColumnTriggersV2 {
     pub on_entry: Option<TriggerActionV2>,
     pub on_exit: Option<TriggerActionV2>,
@@ -109,8 +68,8 @@ pub struct ColumnTriggersV2 {
 /// Exit criteria (V2 format).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExitCriteriaV2 {
-    #[serde(rename = "type", default)]
-    pub criteria_type: ExitCriteriaTypeV2,
+    #[serde(rename = "type")]
+    pub criteria_type: String,
     #[serde(default)]
     pub auto_advance: bool,
     #[serde(default)]
@@ -128,12 +87,6 @@ pub struct TaskTriggerOverrides {
     pub on_exit: Option<serde_json::Value>,
     #[serde(default)]
     pub skip_triggers: Option<bool>,
-}
-
-pub fn parse_column_triggers(triggers_json: Option<&str>) -> ColumnTriggersV2 {
-    triggers_json
-        .and_then(|json| serde_json::from_str::<ColumnTriggersV2>(json).ok())
-        .unwrap_or_default()
 }
 
 // ─── Resolved Script Steps (owned data for async execution) ───────────────
@@ -288,7 +241,15 @@ pub fn fire_on_exit(
     next_column: Option<&Column>,
 ) -> Result<(), AppError> {
     // Parse V2 triggers
-    let triggers = parse_column_triggers(column.triggers.as_deref());
+    let triggers: ColumnTriggersV2 = column
+        .triggers
+        .as_deref()
+        .and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or(ColumnTriggersV2 {
+            on_entry: Option::None,
+            on_exit: Option::None,
+            exit_criteria: Option::None,
+        });
 
     let action = match resolve_trigger(&triggers, task, "on_exit") {
         Some(a) => a,
@@ -370,77 +331,8 @@ fn resolve_working_dir(task: &Task, workspace_repo_path: &str) -> String {
     workspace_repo_path.to_string()
 }
 
-/// Auto-create a branch + worktree for a task if missing.
-/// Returns the updated task with `branch_name` and `worktree_path` set.
-fn ensure_task_worktree(
-    conn: &Connection,
-    app: &AppHandle,
-    task: &Task,
-    repo_path: &str,
-) -> Result<Task, AppError> {
-    let mut task = task.clone();
-
-    // Step 1: Ensure task has a branch
-    if task.branch_name.as_deref().unwrap_or("").is_empty() {
-        let slug = branch_manager::slugify(&task.title);
-        match branch_manager::create_task_branch(repo_path, &slug, None) {
-            Ok(branch_name) => {
-                task = db::update_task_branch(conn, &task.id, Some(&branch_name))?;
-                log::info!(
-                    "[triggers] Auto-created branch '{}' for task {}",
-                    branch_name,
-                    task.id
-                );
-            }
-            Err(e) => {
-                // Branch may already exist (e.g. from a previous attempt)
-                let branch_name = format!("bentoya/{}", slug);
-                log::warn!(
-                    "[triggers] Branch creation failed ({}), trying existing '{}'",
-                    e,
-                    branch_name
-                );
-                task = db::update_task_branch(conn, &task.id, Some(&branch_name))?;
-            }
-        }
-    }
-
-    let branch_name = task.branch_name.as_deref().unwrap_or("");
-    if branch_name.is_empty() {
-        log::warn!(
-            "[triggers] Could not determine branch for task {}, skipping worktree",
-            task.id
-        );
-        return Ok(task);
-    }
-
-    // Step 2: Create worktree
-    match branch_manager::create_task_worktree(repo_path, branch_name, &task.id) {
-        Ok(wt_path) => {
-            task = db::update_task_worktree_path(conn, &task.id, Some(&wt_path))?;
-            emit_tasks_changed(app, &task.workspace_id, "worktree_auto_created");
-            log::info!(
-                "[triggers] Auto-created worktree at '{}' for task {}",
-                wt_path,
-                task.id
-            );
-        }
-        Err(e) => {
-            log::error!(
-                "[triggers] Failed to create worktree for task {}: {}",
-                task.id,
-                e
-            );
-            // Continue without worktree — agent falls back to repo root
-        }
-    }
-
-    Ok(task)
-}
-
 // ─── Per-Action Handlers ──────────────────────────────────────────────────
 
-#[allow(clippy::too_many_arguments)]
 fn execute_spawn_cli(
     conn: &Connection,
     app: &AppHandle,
@@ -455,15 +347,7 @@ fn execute_spawn_cli(
     model: Option<&str>,
 ) -> Result<Task, AppError> {
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
-
-    // Auto-create worktree for trigger-spawned agents to sandbox them
-    let task = if task.worktree_path.is_none() && !workspace.repo_path.is_empty() {
-        ensure_task_worktree(conn, app, task, &workspace.repo_path)?
-    } else {
-        task.clone()
-    };
-
-    let working_dir = resolve_working_dir(&task, &workspace.repo_path);
+    let working_dir = resolve_working_dir(task, &workspace.repo_path);
 
     if !working_dir.is_empty() && !std::path::Path::new(&working_dir).exists() {
         log::warn!(
@@ -472,49 +356,8 @@ fn execute_spawn_cli(
         );
     }
 
-    // Write .task.md to worktree — agent reads this instead of getting full spec in prompt
-    if !working_dir.is_empty() {
-        let task_md_path = std::path::Path::new(&working_dir).join(".task.md");
-        let checklist_section = task
-            .checklist
-            .as_deref()
-            .filter(|c| !c.is_empty() && *c != "[]")
-            .map(|c| format!("\n## Checklist\n{}\n", c))
-            .unwrap_or_default();
-
-        let task_md = format!(
-            "# {}\n\n{}\n{}\n## Context\n- Workspace: {}\n- Branch: {}\n- Working dir: {}\n",
-            task.title,
-            task.description.as_deref().unwrap_or(""),
-            checklist_section,
-            workspace.name,
-            task.branch_name.as_deref().unwrap_or("(none)"),
-            working_dir,
-        );
-
-        if let Err(e) = std::fs::write(&task_md_path, &task_md) {
-            log::warn!("Failed to write .task.md for task {}: {}", task.id, e);
-        }
-
-        // Exclude .task.md from git (avoid agent committing it)
-        let exclude_path = std::path::Path::new(&working_dir)
-            .join(".git")
-            .join("info")
-            .join("exclude");
-        if exclude_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&exclude_path) {
-                if !content.contains(".task.md") {
-                    let _ = std::fs::write(
-                        &exclude_path,
-                        format!("{}\n.task.md\n.task-handoff.md\n", content.trim_end()),
-                    );
-                }
-            }
-        }
-    }
-
     let ctx = TemplateContext {
-        task: &task,
+        task,
         column,
         workspace: &workspace,
         prev_column: other_column,
@@ -522,28 +365,30 @@ fn execute_spawn_cli(
         dep_tasks: HashMap::new(),
     };
 
-    // Resolve prompt: direct prompt > template > .task.md pointer (token-optimized default)
+    // Resolve prompt: direct prompt wins over template
     let resolved_prompt = if let Some(p) = prompt {
         if !p.is_empty() {
             template::interpolate(p, &ctx)
         } else if let Some(tmpl) = prompt_template {
             template::interpolate(tmpl, &ctx)
         } else {
-            format!("{}\n\nSee .task.md for full spec.", task.title)
+            format!(
+                "{}\n\n{}",
+                task.title,
+                task.description.as_deref().unwrap_or("")
+            )
         }
     } else if let Some(tmpl) = prompt_template {
         template::interpolate(tmpl, &ctx)
     } else {
-        format!("{}\n\nSee .task.md for full spec.", task.title)
+        format!(
+            "{}\n\n{}",
+            task.title,
+            task.description.as_deref().unwrap_or("")
+        )
     };
 
-    // Resolve CLI: trigger config > workspace config > global settings
-    let cli_type = cli.map(|c| c.to_string()).unwrap_or_else(|| {
-        let settings = crate::config::AppSettings::load();
-        settings
-            .resolve_with_workspace(Some(&workspace.config), "default_agent_cli")
-            .unwrap_or_else(|| settings.default_agent_cli.clone())
-    });
+    let cli_type = cli.unwrap_or("claude").to_string();
 
     // Prepend slash command if provided
     let initial_prompt = match command {
@@ -589,23 +434,8 @@ fn execute_spawn_cli(
         Some(format!("CLI trigger: {}", cli_type)),
     );
 
-    // Resolve model: task override > trigger config > workspace config > global settings
-    let resolved_model = task
-        .model
-        .as_deref()
-        .or(model)
-        .map(|m| m.to_string())
-        .or_else(|| {
-            let settings = crate::config::AppSettings::load();
-            let m = settings
-                .resolve_with_workspace(Some(&workspace.config), "default_model")
-                .unwrap_or_else(|| settings.default_model.clone());
-            if m.is_empty() {
-                None
-            } else {
-                Some(m)
-            }
-        });
+    // Resolve model: task override > trigger config > none
+    let resolved_model = task.model.as_deref().or(model).map(|m| m.to_string());
     let mut cli_args = Vec::new();
     if let Some(ref m) = resolved_model {
         cli_args.push("--model".to_string());
@@ -657,27 +487,26 @@ fn execute_move_column(
         );
 
         let moved_task = db::get_task(conn, &task.id)?;
-        emit_tasks_changed(app, &task.workspace_id, "trigger_move_column");
-        let _ = fire_trigger(conn, app, &moved_task, &col);
+        super::emit_tasks_changed(app, &task.workspace_id, "trigger_move_column");
+        let _ = super::fire_trigger(conn, app, &moved_task, &col);
         return Ok(db::get_task(conn, &task.id)?);
     }
     Ok(task.clone())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn execute_trigger_task(
     conn: &Connection,
     app: &AppHandle,
     task: &Task,
     column: &Column,
     target_task_id: &str,
-    task_action: &TriggerTaskActionTypeV2,
+    task_action: &str,
     target_column: Option<&str>,
     inject_prompt: Option<&str>,
 ) -> Result<Task, AppError> {
     if let Ok(target) = db::get_task(conn, target_task_id) {
         match task_action {
-            TriggerTaskActionTypeV2::MoveColumn => {
+            "move_column" => {
                 if let Some(col_target) = target_column {
                     if let Some(col) = resolve_column_target(conn, &target, col_target)? {
                         let ts = db::now();
@@ -694,17 +523,18 @@ fn execute_trigger_task(
                     }
                 }
             }
-            TriggerTaskActionTypeV2::Unblock => {
+            "unblock" => {
                 conn.execute(
                     "UPDATE tasks SET blocked = 0, updated_at = ?1 WHERE id = ?2",
                     rusqlite::params![db::now(), target.id],
                 )
                 .map_err(AppError::from)?;
             }
-            TriggerTaskActionTypeV2::Start => {
+            "start" => {
                 let col = db::get_column(conn, &target.column_id)?;
-                let _ = fire_trigger(conn, app, &target, &col);
+                let _ = super::fire_trigger(conn, app, &target, &col);
             }
+            _ => {}
         }
 
         // Inject prompt if specified
@@ -741,7 +571,7 @@ fn execute_create_pr(
     let branch_name = match &task.branch_name {
         Some(b) if !b.is_empty() => b.clone(),
         _ => {
-            return handle_trigger_failure(
+            return super::handle_trigger_failure(
                 conn,
                 app,
                 task,
@@ -795,46 +625,6 @@ fn execute_create_pr(
 
     tokio::spawn(async move {
         let result = tokio::task::spawn_blocking(move || -> Result<(i64, String), String> {
-            // Push branch to remote first (gh pr create requires the branch to exist on remote)
-            let push_output = std::process::Command::new("git")
-                .args(["push", "-u", "origin", &branch_name])
-                .current_dir(&repo_path)
-                .output()
-                .map_err(|e| format!("Failed to push branch: {}", e))?;
-
-            if !push_output.status.success() {
-                let stderr = String::from_utf8_lossy(&push_output.stderr);
-                // "Everything up-to-date" is not an error
-                if !stderr.contains("up-to-date") && !stderr.contains("already exists") {
-                    // Fallback: force-push if regular push fails (e.g. stale remote branch)
-                    // Safety: only force-push bentoya/* branches, never main/master
-                    if branch_name.starts_with("bentoya/") {
-                        log::warn!(
-                            "[pipeline] Regular push failed, trying force-push: {}",
-                            stderr.trim()
-                        );
-                        let force_output = std::process::Command::new("git")
-                            .args(["push", "-u", "origin", &branch_name, "--force"])
-                            .current_dir(&repo_path)
-                            .output()
-                            .map_err(|e| format!("Failed to force-push branch: {}", e))?;
-                        if !force_output.status.success() {
-                            let force_stderr = String::from_utf8_lossy(&force_output.stderr);
-                            return Err(format!(
-                                "git push --force failed: {}",
-                                force_stderr.trim()
-                            ));
-                        }
-                    } else {
-                        return Err(format!(
-                            "git push failed (force-push not allowed on '{}'): {}",
-                            branch_name,
-                            stderr.trim()
-                        ));
-                    }
-                }
-            }
-
             let output = std::process::Command::new("gh")
                 .args([
                     "pr",
@@ -898,7 +688,7 @@ fn execute_create_pr(
                 log::error!("[create_pr] Failed for task {}: {}", task_id, e);
                 let _ = app_handle.emit(
                     "pipeline:error",
-                    &PipelineEvent {
+                    &super::PipelineEvent {
                         task_id: task_id.clone(),
                         column_id: column_id.clone(),
                         event_type: "error".to_string(),
@@ -916,7 +706,7 @@ fn execute_create_pr(
 
         // Mark complete so pipeline can advance (also emits tasks:changed)
         if let Some(conn) = conn {
-            if let Err(e) = mark_complete(&conn, &app_handle, &task_id, success) {
+            if let Err(e) = super::mark_complete(&conn, &app_handle, &task_id, success) {
                 log::error!("[create_pr] mark_complete failed: {}", e);
             }
         }
@@ -1182,7 +972,7 @@ fn execute_run_script(
         match rusqlite::Connection::open(&db_path) {
             Ok(conn) => {
                 let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-                if let Err(e) = mark_complete(&conn, &app_handle, &task_id, success) {
+                if let Err(e) = super::mark_complete(&conn, &app_handle, &task_id, success) {
                     log::error!("[script:{}] mark_complete failed: {}", task_id, e);
                 }
             }
@@ -1450,7 +1240,7 @@ mod tests {
 
     #[test]
     fn test_resolve_column_target_next() {
-        let (conn, ws, _, col2, _) = setup();
+        let (conn, ws, _, col2, _col3) = setup();
         let task = db::insert_task(&conn, &ws.id, &col2.id, "Task", None).unwrap();
 
         let result = resolve_column_target(&conn, &task, "next").unwrap();
@@ -1460,7 +1250,7 @@ mod tests {
 
     #[test]
     fn test_resolve_column_target_previous() {
-        let (conn, ws, _, col2, _) = setup();
+        let (conn, ws, _col1, col2, _) = setup();
         let task = db::insert_task(&conn, &ws.id, &col2.id, "Task", None).unwrap();
 
         let result = resolve_column_target(&conn, &task, "previous").unwrap();
@@ -1529,9 +1319,7 @@ mod tests {
         let variants = vec![
             r#"{"type":"spawn_cli","cli":"claude","command":"/start-task"}"#,
             r#"{"type":"move_column","target":"next"}"#,
-            r#"{"type":"trigger_task","target_task":"task-123","action":"unblock"}"#,
             r#"{"type":"run_script","script_id":"test-1"}"#,
-            r#"{"type":"create_pr","base_branch":"main"}"#,
             r#"{"type":"none"}"#,
         ];
         for json in variants {
@@ -1566,31 +1354,9 @@ mod tests {
         ));
         assert!(triggers.exit_criteria.is_some());
         let exit = triggers.exit_criteria.unwrap();
-        assert_eq!(exit.criteria_type, ExitCriteriaTypeV2::AgentComplete);
+        assert_eq!(exit.criteria_type, "agent_complete");
         assert!(exit.auto_advance);
         assert_eq!(exit.max_retries, Some(2));
-    }
-
-    #[test]
-    fn test_column_triggers_v2_shared_fixture_contract() {
-        let json = include_str!("../../../src/testing/fixtures/column-triggers-v2.json");
-        let triggers: ColumnTriggersV2 = serde_json::from_str(json).unwrap();
-
-        assert!(matches!(
-            triggers.on_entry,
-            Some(TriggerActionV2::TriggerTask {
-                action: TriggerTaskActionTypeV2::Unblock,
-                ..
-            })
-        ));
-        assert!(matches!(
-            triggers.on_exit,
-            Some(TriggerActionV2::SpawnCli { .. })
-        ));
-        assert_eq!(
-            triggers.exit_criteria.unwrap().criteria_type,
-            ExitCriteriaTypeV2::AgentComplete
-        );
     }
 
     // ─── ResolvedStep construction tests ──────────────────────────────

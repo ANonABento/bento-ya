@@ -5,7 +5,7 @@
 
 import type { DepDragState } from '@/hooks/use-dep-drag'
 import type { CardRect } from '@/hooks/use-card-positions'
-import { svgPath } from './dependency-path'
+import { buildSvgPath } from './dependency-path-utils'
 
 const COLOR_SNAPPED = '#4ade80'  // green — hovering valid target
 const COLOR_DRAGGING = '#a78bfa' // purple — free dragging
@@ -29,7 +29,7 @@ export function DepDragPreview({ dragState, positions }: Props) {
   }
 
   const midX = (sourceX + toX) / 2
-  const path = svgPath(sourceX, sourceY, midX, sourceY, midX, toY, toX, toY)
+  const path = buildSvgPath(sourceX, sourceY, midX, sourceY, midX, toY, toX, toY)
   const color = targetId ? COLOR_SNAPPED : COLOR_DRAGGING
 
   return (

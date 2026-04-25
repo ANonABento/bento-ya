@@ -1,55 +1,57 @@
-import { memo, useState, useCallback } from 'react'
+import { memo, type CSSProperties, type MouseEvent } from 'react'
 import type { Task } from '@/types'
-
-const CONFIRM_TIMEOUT_MS = 2000
 
 type TaskQuickActionsProps = {
   task: Task
   hasNextColumn: boolean
+  columnHasTrigger: boolean
+  isDeleteConfirmPending: boolean
   onOpen: () => void
   onToggleAgent: () => void
   onRetry: () => void
   onMoveNext: () => void
-  onDelete: () => void
-  onShowMenu: (e: React.MouseEvent) => void
+  onRequestDelete: () => void
+  onShowMenu: (e: MouseEvent) => void
 }
+
+const buttonCursorStyle: CSSProperties = { cursor: 'pointer' }
 
 export const TaskQuickActions = memo(function TaskQuickActions({
   task,
   hasNextColumn,
+  columnHasTrigger,
+  isDeleteConfirmPending,
   onOpen,
   onToggleAgent,
   onRetry,
   onMoveNext,
-  onDelete,
+  onRequestDelete,
   onShowMenu,
 }: TaskQuickActionsProps) {
   const isRunning = task.agentStatus === 'running'
   const hasError = !!task.pipelineError
 
-  const [confirmDelete, setConfirmDelete] = useState(false)
-
-  const handleDelete = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (confirmDelete) {
-      onDelete()
-      setConfirmDelete(false)
-    } else {
-      setConfirmDelete(true)
-      // Auto-dismiss after 2s
-      setTimeout(() => { setConfirmDelete(false) }, CONFIRM_TIMEOUT_MS)
-    }
-  }, [confirmDelete, onDelete])
+  // Play is only meaningful when the column has a trigger; Stop is always allowed.
+  const showPlay = !isRunning && columnHasTrigger
+  const showStop = isRunning
 
   return (
     <div
-      className="absolute right-1 top-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-      onClick={(e) => { e.stopPropagation(); }}
+      data-task-quick-actions="true"
+      className="pointer-events-none absolute right-1 top-1 z-10 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
+      onClick={(e) => {
+        e.stopPropagation()
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+      }}
     >
       {/* Open in panel */}
       <button
+        type="button"
         onClick={onOpen}
         className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+        style={buttonCursorStyle}
         title="Open task"
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -58,32 +60,38 @@ export const TaskQuickActions = memo(function TaskQuickActions({
         </svg>
       </button>
 
-      {/* Run/Stop agent */}
-      <button
-        onClick={onToggleAgent}
-        className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
-          isRunning
-            ? 'text-running hover:bg-running/20'
-            : 'text-text-secondary hover:bg-surface-hover hover:text-success'
-        }`}
-        title={isRunning ? 'Stop agent (Space)' : 'Run agent (Space)'}
-      >
-        {isRunning ? (
-          <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M5.75 3A2.75 2.75 0 0 0 3 5.75v8.5A2.75 2.75 0 0 0 5.75 17h8.5A2.75 2.75 0 0 0 17 14.25v-8.5A2.75 2.75 0 0 0 14.25 3h-8.5Z" />
-          </svg>
-        ) : (
-          <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M6.3 2.84A1.5 1.5 0 0 0 4 4.11v11.78a1.5 1.5 0 0 0 2.3 1.27l9.344-5.891a1.5 1.5 0 0 0 0-2.538L6.3 2.841Z" />
-          </svg>
-        )}
-      </button>
+      {/* Run/Stop agent - Play requires a trigger column; Stop always allowed when running */}
+      {(showPlay || showStop) && (
+        <button
+          type="button"
+          onClick={onToggleAgent}
+          className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
+            isRunning
+              ? 'text-running hover:bg-running/20'
+              : 'text-text-secondary hover:bg-surface-hover hover:text-success'
+          }`}
+          style={buttonCursorStyle}
+          title={isRunning ? 'Stop agent (Space)' : 'Run agent (Space)'}
+        >
+          {isRunning ? (
+            <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M5.75 3A2.75 2.75 0 0 0 3 5.75v8.5A2.75 2.75 0 0 0 5.75 17h8.5A2.75 2.75 0 0 0 17 14.25v-8.5A2.75 2.75 0 0 0 14.25 3h-8.5Z" />
+            </svg>
+          ) : (
+            <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M6.3 2.84A1.5 1.5 0 0 0 4 4.11v11.78a1.5 1.5 0 0 0 2.3 1.27l9.344-5.891a1.5 1.5 0 0 0 0-2.538L6.3 2.841Z" />
+            </svg>
+          )}
+        </button>
+      )}
 
       {/* Retry - visible when task has pipeline error */}
       {hasError && (
         <button
-          onClick={(e) => { e.stopPropagation(); onRetry(); }}
+          type="button"
+          onClick={onRetry}
           className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-warning/20 hover:text-warning transition-colors"
+          style={buttonCursorStyle}
           title="Retry pipeline (R)"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -95,9 +103,11 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       {/* Move to next column */}
       {hasNextColumn && (
         <button
-          onClick={(e) => { e.stopPropagation(); onMoveNext(); }}
+          type="button"
+          onClick={onMoveNext}
           className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-accent transition-colors"
-          title="Move to next column (→)"
+          style={buttonCursorStyle}
+          title="Move to next column (Right Arrow)"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M3 10a.75.75 0 0 1 .75-.75h10.638l-3.96-4.158a.75.75 0 1 1 1.085-1.034l5.25 5.5a.75.75 0 0 1 0 1.034l-5.25 5.5a.75.75 0 1 1-1.085-1.034l3.96-4.158H3.75A.75.75 0 0 1 3 10Z" clipRule="evenodd" />
@@ -105,15 +115,17 @@ export const TaskQuickActions = memo(function TaskQuickActions({
         </button>
       )}
 
-      {/* Delete */}
+      {/* Delete - confirm state lives in parent so mouse + keyboard share one timer */}
       <button
-        onClick={handleDelete}
+        type="button"
+        onClick={onRequestDelete}
         className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
-          confirmDelete
+          isDeleteConfirmPending
             ? 'text-error bg-error/20'
             : 'text-text-secondary hover:bg-error/20 hover:text-error'
         }`}
-        title={confirmDelete ? 'Click again to confirm' : 'Delete task (Del)'}
+        style={buttonCursorStyle}
+        title={isDeleteConfirmPending ? 'Click again to confirm' : 'Delete task (Del)'}
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM7.5 3.75c0-.69.56-1.25 1.25-1.25h2.5c.69 0 1.25.56 1.25 1.25V4.1a40.3 40.3 0 0 0-5 0v-.35ZM9 7.75a.75.75 0 0 0-1.5 0v6.5a.75.75 0 0 0 1.5 0v-6.5Zm3.25-.75a.75.75 0 0 1 .75.75v6.5a.75.75 0 0 1-1.5 0v-6.5a.75.75 0 0 1 .75-.75Z" clipRule="evenodd" />
@@ -122,8 +134,10 @@ export const TaskQuickActions = memo(function TaskQuickActions({
 
       {/* More options */}
       <button
+        type="button"
         onClick={onShowMenu}
         className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+        style={buttonCursorStyle}
         title="More actions"
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">

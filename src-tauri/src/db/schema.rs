@@ -1,5 +1,5 @@
-// Schema definitions are the source of truth for the v0.1 data model.
-// Migration files should match these definitions.
+//! Schema definitions — source of truth for the v0.1 data model.
+//! Migration files should match these definitions.
 
 pub const CREATE_WORKSPACES: &str = "
 CREATE TABLE IF NOT EXISTS workspaces (

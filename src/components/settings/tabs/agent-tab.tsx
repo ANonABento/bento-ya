@@ -5,6 +5,7 @@ import { detectSingleCli, checkCliUpdate, type DetectedCli, type CliUpdateInfo }
 import { useModels } from '@/hooks/use-models'
 import { SettingSection, SettingRow, SettingInput, SettingSlider } from '@/components/shared/setting-components'
 import { Dropdown } from '@/components/shared/dropdown'
+import { ModelComparisonSection, type ComparableModel } from './model-comparison-section'
 
 const PROVIDER_INFO: Record<string, { name: string; description: string; cliId: string }> = {
   anthropic: {
@@ -79,6 +80,19 @@ export function AgentTab() {
   const availableModels = allModels
     .filter((entry) => enabledProviderIds.has(entry.provider) && !disabledModelIds.has(entry.id))
     .map((entry) => entry.id)
+
+  const comparisonModels = model.providers
+    .filter((p) => p.enabled)
+    .flatMap((provider): ComparableModel[] => {
+      const info = PROVIDER_INFO[provider.id]
+      const modelIds = Array.from(new Set([...(info?.models ?? []), provider.defaultModel].filter(Boolean)))
+
+      return modelIds.map((modelId) => ({
+        providerId: provider.id,
+        providerName: info?.name ?? provider.name,
+        modelId,
+      }))
+    })
 
   // Toggle provider enabled state
   const handleToggleProvider = (providerId: string, enabled: boolean) => {
@@ -521,6 +535,8 @@ export function AgentTab() {
           })}
         </div>
       </SettingSection>
+
+      <ModelComparisonSection models={comparisonModels} />
 
       {/* Coming Soon */}
       <SettingSection title="Coming Soon">

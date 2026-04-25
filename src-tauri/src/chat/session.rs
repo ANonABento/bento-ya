@@ -18,7 +18,7 @@ use tokio::sync::mpsc;
 
 use super::events::ChatEvent;
 use super::pipe_transport::PipeTransport;
-use super::tmux_transport::TmuxTransport;
+use super::pty_transport::PtyTransport;
 use super::transport::{ChatTransport, SpawnConfig, TransportEvent};
 
 /// Which transport type to use for this session.
@@ -65,8 +65,6 @@ pub struct UnifiedChatSession {
     is_busy: bool,
     /// Last activity timestamp for idle timeout
     last_activity: Instant,
-    /// Session name / task_id for tmux session naming
-    session_name: String,
 }
 
 impl UnifiedChatSession {
@@ -79,13 +77,7 @@ impl UnifiedChatSession {
             state: SessionState::Idle,
             is_busy: false,
             last_activity: Instant::now(),
-            session_name: String::new(),
         }
-    }
-
-    /// Set the session name (task_id) for tmux naming.
-    pub fn set_session_name(&mut self, name: String) {
-        self.session_name = name;
     }
 
     // -- Accessors --
@@ -118,22 +110,6 @@ impl UnifiedChatSession {
         self.transport.as_ref().and_then(|t| t.pid())
     }
 
-    /// Get scrollback buffer from the transport (base64-encoded, PTY only).
-    pub fn scrollback(&self) -> String {
-        self.transport
-            .as_ref()
-            .map(|t| t.scrollback())
-            .unwrap_or_default()
-    }
-
-    /// Create a new event receiver for an existing PTY session (for bridge reconnection).
-    /// Returns None if session has no transport or transport doesn't support resubscription.
-    pub fn resubscribe(
-        &self,
-    ) -> Option<tokio::sync::broadcast::Receiver<super::transport::TransportEvent>> {
-        self.transport.as_ref().and_then(|t| t.resubscribe())
-    }
-
     /// Update the resume ID (e.g. from DB on session restore).
     pub fn set_resume_id(&mut self, id: Option<String>) {
         self.resume_id = id;
@@ -150,11 +126,6 @@ impl UnifiedChatSession {
     /// Update the system prompt.
     pub fn set_system_prompt(&mut self, prompt: String) {
         self.config.system_prompt = prompt;
-    }
-
-    /// Switch transport type. Must be called while session is idle or suspended.
-    pub fn set_transport_type(&mut self, transport_type: TransportType) {
-        self.transport_type = transport_type;
     }
 
     // -- Pipe mode: request-response --
@@ -184,14 +155,10 @@ impl UnifiedChatSession {
 
         // Create fresh pipe transport for this message
         let mut transport = PipeTransport::new();
-        let mut event_rx = match transport.spawn(spawn_config) {
-            Ok(event_rx) => event_rx,
-            Err(error) => {
-                self.is_busy = false;
-                self.state = SessionState::Idle;
-                return Err(error);
-            }
-        };
+        let mut event_rx = transport.spawn(spawn_config).inspect_err(|_| {
+            self.is_busy = false;
+            self.state = SessionState::Idle;
+        })?;
 
         // Store transport so kill() can cancel mid-message
         self.transport = Some(Box::new(transport));
@@ -239,7 +206,6 @@ impl UnifiedChatSession {
 
     /// Start an interactive PTY session. Returns a receiver for continuous events.
     /// Use `write_pty()` to send input.
-    /// If a resume ID exists, passes `--resume <id>` to preserve conversation context.
     pub fn start_pty(
         &mut self,
         cols: u16,
@@ -249,23 +215,16 @@ impl UnifiedChatSession {
             return Err("Session already running".to_string());
         }
 
-        // Include --resume if we have a saved session ID (e.g. switching from pipe mode)
-        let mut args = Vec::new();
-        if let Some(ref id) = self.resume_id {
-            args.push("--resume".to_string());
-            args.push(id.clone());
-        }
-
         let spawn_config = SpawnConfig {
             command: self.config.cli_path.clone(),
-            args,
+            args: Vec::new(), // PTY mode: no args, interactive
             working_dir: self.config.working_dir.clone(),
             env_vars: None,
             cols,
             rows,
         };
 
-        let mut transport = TmuxTransport::new(&self.session_name);
+        let mut transport = PtyTransport::new();
         let event_rx = transport.spawn(spawn_config)?;
 
         self.transport = Some(Box::new(transport));
