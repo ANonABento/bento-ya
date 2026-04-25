@@ -75,6 +75,7 @@ export const Column = memo(function Column({
   const [showAddTask, setShowAddTask] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const addTaskInputRef = useRef<HTMLInputElement>(null)
+  const hasAutoOpenedConfigRef = useRef(false)
 
   // Batch queue state
   const [batchQueueState, setBatchQueueState] = useState<BatchQueueLocalState>(
@@ -156,6 +157,19 @@ export const Column = memo(function Column({
       return () => { el.removeEventListener('input', handler) }
     }
   }, [showAddTask])
+
+  useEffect(() => {
+    if (!autoOpenConfig) {
+      hasAutoOpenedConfigRef.current = false
+      return
+    }
+
+    if (hasAutoOpenedConfigRef.current) return
+
+    hasAutoOpenedConfigRef.current = true
+    setShowConfigDialog(true)
+    onConfigOpened?.()
+  }, [autoOpenConfig, onConfigOpened])
 
   const handleConfigure = useCallback(() => {
     setShowConfigDialog(true)

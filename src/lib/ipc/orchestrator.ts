@@ -53,6 +53,7 @@ export type OrchestratorResponse = {
 
 export type OrchestratorEvent = {
   workspaceId: string
+  sessionId: string
   eventType: string
   message: string | null
 }
@@ -131,6 +132,7 @@ export type ToolUsePayload = {
 
 export type StreamChunkEvent = {
   workspaceId: string
+  sessionId: string
   delta: string
   finishReason: string | null
   toolUse?: ToolUsePayload
@@ -138,6 +140,7 @@ export type StreamChunkEvent = {
 
 export type ToolResultEvent = {
   workspaceId: string
+  sessionId: string
   toolUseId: string
   result: string
   isError: boolean
@@ -145,12 +148,14 @@ export type ToolResultEvent = {
 
 export type ThinkingEvent = {
   workspaceId: string
+  sessionId: string
   content: string
   isComplete: boolean
 }
 
 export type ToolCallEvent = {
   workspaceId: string
+  sessionId: string
   toolId: string
   toolName: string
   status: 'running' | 'complete' | 'error'

@@ -100,7 +100,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const historyMessages = activeSession
     ? mapMessages(chat.messages, workspaceId, activeSession.id)
     : []
-  const toolCalls = mapToolCalls(chat.streaming.toolCalls, workspaceId)
+  const toolCalls = mapToolCalls(chat.streaming.toolCalls)
 
   const clearDisplayedError = useCallback(() => {
     setLocalError(null)

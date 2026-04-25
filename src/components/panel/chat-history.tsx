@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, memo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import ReactMarkdown from 'react-markdown'
-import type { ChatMessage, ToolCallEvent } from '@/lib/ipc'
-import { ToolCallItem } from './shared'
+import type { ChatMessage } from '@/lib/ipc'
+import { ToolCallItem, type ToolCallData } from './shared'
 
 type QueuedMessage = {
   id: string
@@ -15,7 +15,7 @@ type ChatHistoryProps = {
   streamingContent?: string
   processingStartTime?: number | null
   thinkingContent?: string
-  toolCalls?: ToolCallEvent[]
+  toolCalls?: ToolCallData[]
   onCancel?: () => void
   queuedMessages?: QueuedMessage[]
   emptyState?: React.ReactNode
@@ -252,7 +252,7 @@ type StreamingBubbleProps = {
   content: string
   startTime?: number | null
   thinkingContent?: string
-  toolCalls?: ToolCallEvent[]
+  toolCalls?: ToolCallData[]
   onCancel?: () => void
   queueCount?: number
 }

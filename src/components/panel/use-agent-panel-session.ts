@@ -73,7 +73,7 @@ export function useAgentPanelSession(task: Task) {
     cliDetecting,
     error,
     chatMessages: mapMessages(chat.messages, task.workspaceId, task.id),
-    toolCalls: mapToolCalls(chat.streaming.toolCalls, task.workspaceId),
+    toolCalls: mapToolCalls(chat.streaming.toolCalls),
     handleAttachmentError,
     handleClearHistory,
     handleInputChange,
