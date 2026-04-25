@@ -48,6 +48,41 @@ pub fn check_tmux() -> Result<String, String> {
         })
 }
 
+/// Ensure the tmux server is running and configured for pipeline use.
+/// Auto-starts a detached default session if needed, and sets exit-empty off
+/// so the server survives when all sessions are killed (e.g. by GC).
+pub fn ensure_tmux_server() -> Result<(), String> {
+    // Check if server is running
+    let check = Command::new("tmux")
+        .arg("list-sessions")
+        .output()
+        .map_err(|e| format!("tmux not found: {}", e))?;
+
+    if !check.status.success() {
+        let stderr = String::from_utf8_lossy(&check.stderr);
+        if stderr.contains("no server running") {
+            eprintln!("[tmux] Server not running — auto-starting");
+            let start = Command::new("tmux")
+                .args(["new-session", "-d", "-s", "default"])
+                .output()
+                .map_err(|e| format!("tmux server could not be started: {}", e))?;
+            if !start.status.success() {
+                return Err(format!("tmux auto-start failed: {}", String::from_utf8_lossy(&start.stderr)));
+            }
+            eprintln!("[tmux] Server auto-started successfully");
+        } else {
+            return Err(format!("tmux error: {}", stderr.trim()));
+        }
+    }
+
+    // Set exit-empty off so server survives when GC kills all sessions
+    let _ = Command::new("tmux")
+        .args(["set-option", "-s", "exit-empty", "off"])
+        .output();
+
+    Ok(())
+}
+
 /// List existing bentoya tmux sessions.
 /// Returns session names (e.g., ["bentoya_task-123", "bentoya_task-456"]).
 pub fn list_sessions() -> Vec<String> {
@@ -76,7 +111,7 @@ pub fn session_name(task_id: &str) -> String {
 }
 
 /// Check if a tmux session exists.
-fn has_session(task_id: &str) -> bool {
+pub fn has_session(task_id: &str) -> bool {
     Command::new("tmux")
         .args(["has-session", "-t", &session_name(task_id)])
         .output()
@@ -84,8 +119,12 @@ fn has_session(task_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Kill a tmux session.
-fn kill_session(task_id: &str) -> Result<(), String> {
+/// Kill a tmux session by task id.
+pub fn kill_session(task_id: &str) -> Result<(), String> {
+    // Log the caller's stack context
+    eprintln!("[tmux] kill_session called for task {} (session: {})", task_id, session_name(task_id));
+    // Capture backtrace for debugging
+    eprintln!("[tmux] kill_session backtrace: {:?}", std::backtrace::Backtrace::force_capture());
     let output = Command::new("tmux")
         .args(["kill-session", "-t", &session_name(task_id)])
         .output()
@@ -438,15 +477,18 @@ impl ChatTransport for TmuxTransport {
     }
 
     fn kill(&mut self) -> Result<(), String> {
+        eprintln!("[tmux-transport] kill() called for task {} (owns_session={})", self.task_id, self.owns_session);
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.try_send(());
         }
         // Kill the attach process
         if let Some(pid) = self.attach_pid {
+            eprintln!("[tmux-transport] Killing attach PID {} for task {}", pid, self.task_id);
             unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM); }
         }
         // Kill the tmux session if we own it
         if self.owns_session {
+            eprintln!("[tmux-transport] Killing owned session for task {}", self.task_id);
             let _ = kill_session(&self.task_id);
         }
         self.pty = None;

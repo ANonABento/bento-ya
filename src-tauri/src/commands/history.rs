@@ -1,9 +1,10 @@
-use crate::db::{self, AppState, SessionSnapshot};
+use tauri::{State, Emitter};
+use crate::db::{
+    self, AppState, SessionSnapshot,
+};
 use crate::error::AppError;
-use tauri::{Emitter, State};
 
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
 pub fn create_snapshot(
     state: State<AppState>,
     session_id: String,
@@ -15,10 +16,7 @@ pub fn create_snapshot(
     files_modified: String,
     duration_ms: i64,
 ) -> Result<SessionSnapshot, AppError> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::insert_session_snapshot(
         &conn,
         &session_id,
@@ -34,11 +32,11 @@ pub fn create_snapshot(
 }
 
 #[tauri::command]
-pub fn get_snapshot(state: State<AppState>, id: String) -> Result<SessionSnapshot, AppError> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+pub fn get_snapshot(
+    state: State<AppState>,
+    id: String,
+) -> Result<SessionSnapshot, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::get_session_snapshot(&conn, &id).map_err(AppError::from)
 }
 
@@ -47,10 +45,7 @@ pub fn get_session_history(
     state: State<AppState>,
     session_id: String,
 ) -> Result<Vec<SessionSnapshot>, AppError> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::list_session_snapshots(&conn, &session_id).map_err(AppError::from)
 }
 
@@ -60,10 +55,7 @@ pub fn get_workspace_history(
     workspace_id: String,
     limit: Option<i64>,
 ) -> Result<Vec<SessionSnapshot>, AppError> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::list_workspace_history(&conn, &workspace_id, limit).map_err(AppError::from)
 }
 
@@ -72,19 +64,16 @@ pub fn get_task_history(
     state: State<AppState>,
     task_id: String,
 ) -> Result<Vec<SessionSnapshot>, AppError> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::list_task_history(&conn, &task_id).map_err(AppError::from)
 }
 
 #[tauri::command]
-pub fn clear_session_history(state: State<AppState>, session_id: String) -> Result<(), AppError> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+pub fn clear_session_history(
+    state: State<AppState>,
+    session_id: String,
+) -> Result<(), AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::delete_session_snapshots(&conn, &session_id).map_err(AppError::from)
 }
 
@@ -108,7 +97,6 @@ struct RestoreEventPayload {
 
 /// Restore a snapshot - creates a backup first, restores scrollback to session, returns result
 #[tauri::command(rename_all = "camelCase")]
-#[allow(clippy::too_many_arguments)]
 pub fn restore_snapshot(
     state: State<AppState>,
     app: tauri::AppHandle,
@@ -121,10 +109,7 @@ pub fn restore_snapshot(
     current_files_modified: String,
     current_duration_ms: i64,
 ) -> Result<RestoreResult, AppError> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     // First, create a backup snapshot of current state
     let backup = db::insert_session_snapshot(
@@ -137,8 +122,7 @@ pub fn restore_snapshot(
         &current_command_history,
         &current_files_modified,
         current_duration_ms,
-    )
-    .map_err(AppError::from)?;
+    ).map_err(AppError::from)?;
 
     // Emit event with backup ID so frontend can notify user
     let _ = app.emit("history:backup-created", &backup.id);
@@ -152,19 +136,17 @@ pub fn restore_snapshot(
         let _ = db::update_agent_session(
             &conn,
             &session.id,
-            None,                                          // pid
-            Some("idle"),                                  // status
-            None,                                          // exit_code
-            None,                                          // last_output
+            None, // pid
+            Some("idle"), // status
+            None, // exit_code
+            None, // last_output
             Some(snapshot.scrollback_snapshot.as_deref()), // scrollback
-            Some(true),                                    // resumable
+            Some(true), // resumable
         );
         true
     } else if let Some(ref task_id) = snapshot.task_id {
         // Original session gone, try to create/update session for the task
-        if let Ok(session) =
-            db::get_or_create_agent_session_for_task(&conn, task_id, "claude", None)
-        {
+        if let Ok(session) = db::get_or_create_agent_session_for_task(&conn, task_id, "claude", None) {
             let _ = db::update_agent_session(
                 &conn,
                 &session.id,
@@ -184,15 +166,12 @@ pub fn restore_snapshot(
     };
 
     // Emit restore complete event
-    let _ = app.emit(
-        "history:restored",
-        RestoreEventPayload {
-            snapshot_id: snapshot.id.clone(),
-            session_id: snapshot.session_id.clone(),
-            task_id: snapshot.task_id.clone(),
-            session_updated,
-        },
-    );
+    let _ = app.emit("history:restored", RestoreEventPayload {
+        snapshot_id: snapshot.id.clone(),
+        session_id: snapshot.session_id.clone(),
+        task_id: snapshot.task_id.clone(),
+        session_updated,
+    });
 
     Ok(RestoreResult {
         snapshot,

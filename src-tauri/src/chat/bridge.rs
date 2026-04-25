@@ -200,11 +200,26 @@ async fn handle_bridge_event(
 /// Build the CLI command string for a trigger, handling CLI-specific prompt flags.
 fn build_trigger_command(cli_command: &str, args: &[String], initial_prompt: &str) -> String {
     let mut cmd_parts = vec![cli_command.to_string()];
+
+    // Add permission bypass flags and non-interactive mode per CLI
+    let cli_name = cli_command.rsplit('/').next().unwrap_or(cli_command);
+    match cli_name {
+        "claude" => {
+            cmd_parts.push("--dangerously-skip-permissions".to_string());
+        }
+        "codex" => {
+            // codex needs `exec` subcommand for non-interactive mode
+            cmd_parts.push("exec".to_string());
+            cmd_parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
+            cmd_parts.push("--skip-git-repo-check".to_string());
+        }
+        _ => {}
+    }
+
     cmd_parts.extend(args.iter().cloned());
     if !initial_prompt.is_empty() {
         let escaped = initial_prompt.replace('\'', "'\\''");
-        // claude CLI uses -p for prompt; codex/others take prompt as positional arg
-        let cli_name = cli_command.rsplit('/').next().unwrap_or(cli_command);
+        // claude CLI uses -p for prompt; codex exec takes prompt as positional arg
         if cli_name == "claude" {
             cmd_parts.push("-p".to_string());
         }
@@ -273,135 +288,69 @@ pub fn spawn_cli_trigger_task(
     tokio::spawn(async move {
         let start_time = std::time::Instant::now();
         let full_cmd = build_trigger_command(&cli_command, &args, &initial_prompt);
-        let nonce = gen_nonce();
-        let wait_channel = format!("bywait_{}", nonce);
-        let exit_file = {
-            let data_dir = crate::db::data_dir();
-            format!("{}/exit_{}", data_dir.display(), nonce)
-        };
-        let tmux_name = tmux_session_name(&task_id);
+        let log_file = format!("{}/trigger_{}.log", crate::db::data_dir().display(), gen_nonce());
 
         let result: Result<(), String> = async {
-            let registry: SharedSessionRegistry = app.state::<SharedSessionRegistry>().inner().clone();
+            // ── Direct process execution (no tmux) ─────────────────────
+            // Pipeline triggers run as direct child processes. No tmux,
+            // no PTY bridge, no attach process. This eliminates SIGHUP
+            // from terminal disconnects and idle sweep kills.
 
-            // Ensure a tmux-backed PTY session exists
-            {
-                let mut reg = registry.lock().await;
-                let session_alive = reg.get(&task_id).map(|s| s.is_alive()).unwrap_or(false);
+            eprintln!("[bridge] Spawning direct process for task {}", task_id);
+            eprintln!("[bridge] CLI command: {}", full_cmd);
+            eprintln!("[bridge] Working dir: {}", working_dir);
 
-                if !session_alive {
-                    // Spawn a fresh tmux session
-                    reg.remove(&task_id);
+            // Open log file for stdout/stderr capture
+            let log_out = std::fs::File::create(&log_file)
+                .map_err(|e| format!("Failed to create log file: {}", e))?;
+            let log_err = log_out.try_clone()
+                .map_err(|e| format!("Failed to clone log file: {}", e))?;
 
-                    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-                    let config = SessionConfig {
-                        cli_path: shell,
-                        model: String::new(),
-                        system_prompt: String::new(),
-                        working_dir: Some(working_dir.clone()),
-                        effort_level: None,
-                    };
+            // Build the command — use shell to handle the full command string
+            // (which includes pipes, semicolons, quotes from build_trigger_command)
+            let mut child = tokio::process::Command::new("bash")
+                .args(["-c", &full_cmd])
+                .current_dir(&working_dir)
+                .stdout(log_out)
+                .stderr(log_err)
+                .stdin(std::process::Stdio::null())
+                .spawn()
+                .map_err(|e| format!("Failed to spawn CLI process: {}", e))?;
 
-                    let session = reg
-                        .get_or_create(&task_id, config, TransportType::Pty)
-                        .map_err(|e| e.to_string())?;
+            let child_pid = child.id().unwrap_or(0);
+            eprintln!("[bridge] Process spawned for task {}: PID {}", task_id, child_pid);
 
-                    let _mpsc_rx = session.start_pty(120, 40)?;
-
-                    // Start managed bridge
-                    if let Some(rx) = session.resubscribe() {
-                        let bridge = ManagedBridge::start(app.clone(), task_id.clone(), rx);
-                        reg.set_bridge(&task_id, bridge);
-                    }
-                }
-
-                // Ensure bridge is running for existing sessions too
-                let needs_bridge = !reg.has_active_bridge(&task_id);
-                if needs_bridge {
-                    let rx = reg.get(&task_id).and_then(|s| s.resubscribe());
-                    if let Some(rx) = rx {
-                        let bridge = ManagedBridge::start(app.clone(), task_id.clone(), rx);
-                        reg.set_bridge(&task_id, bridge);
-                    }
-                }
-
-                // Update PID in agent session record
-                if let Some(ref sid) = session_id {
-                    if let Some(pid) = reg.get(&task_id).and_then(|s| s.pid()) {
-                        if let Ok(conn) = Connection::open(db::db_path()) {
-                            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-                            let _ = db::update_agent_session(
-                                &conn, sid,
-                                Some(Some(pid as i64)), None, None, None, None, None,
-                            );
-                        }
-                    }
+            // Update PID in agent session record
+            if let Some(ref sid) = session_id {
+                if let Ok(conn) = Connection::open(db::db_path()) {
+                    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                    let _ = db::update_agent_session(
+                        &conn, sid,
+                        Some(Some(child_pid as i64)), None, None, None, None, None,
+                    );
                 }
             }
-            // Registry lock released
 
-            // Inject command via tmux send-keys with wait-for completion
-            // Format: {command}; echo $? > {exit_file}; tmux wait-for -S {channel}
-            let wrapped_cmd = format!(
-                "{}; echo $? > {}; tmux wait-for -S {}",
-                full_cmd, exit_file, wait_channel
-            );
-
-            eprintln!("[bridge] Injecting via tmux send-keys for task {}: {}", task_id, full_cmd);
-
-            let send_output = tokio::process::Command::new("tmux")
-                .args(["send-keys", "-t", &tmux_name, "-l", &wrapped_cmd])
-                .output()
-                .await
-                .map_err(|e| format!("tmux send-keys failed: {}", e))?;
-
-            if !send_output.status.success() {
-                let stderr = String::from_utf8_lossy(&send_output.stderr);
-                return Err(format!("tmux send-keys error: {}", stderr.trim()));
-            }
-
-            // Send Enter separately (not literal)
-            let enter_output = tokio::process::Command::new("tmux")
-                .args(["send-keys", "-t", &tmux_name, "Enter"])
-                .output()
-                .await
-                .map_err(|e| format!("tmux send-keys failed: {}", e))?;
-
-            if !enter_output.status.success() {
-                let stderr = String::from_utf8_lossy(&enter_output.stderr);
-                return Err(format!("tmux send-keys Enter error: {}", stderr.trim()));
-            }
-
-            // Wait for command completion via tmux wait-for (blocks until signaled)
-            // Timeout after 2 hours to prevent permanently stuck tasks
-            eprintln!("[bridge] Waiting for completion via tmux wait-for: {}", wait_channel);
-
-            let wait_future = tokio::process::Command::new("tmux")
-                .args(["wait-for", &wait_channel])
-                .output();
-
-            let wait_output = tokio::time::timeout(
-                std::time::Duration::from_secs(7200), // 2 hour max
-                wait_future,
+            // Wait for process to complete with 2-hour timeout
+            let status = tokio::time::timeout(
+                std::time::Duration::from_secs(7200),
+                child.wait(),
             )
             .await
-            .map_err(|_| format!("Trigger timed out after 2 hours for task {}", task_id))?
-            .map_err(|e| format!("tmux wait-for failed: {}", e))?;
+            .map_err(|_| {
+                // Kill the process on timeout
+                let _ = child.start_kill();
+                format!("Trigger timed out after 2 hours for task {}", task_id)
+            })?
+            .map_err(|e| format!("Process wait failed: {}", e))?;
 
-            if !wait_output.status.success() {
-                let stderr = String::from_utf8_lossy(&wait_output.stderr);
-                return Err(format!("tmux wait-for error: {}", stderr.trim()));
+            let exit_code = status.code().unwrap_or(1);
+            // Keep log file on failure for debugging; clean up on success
+            if exit_code == 0 {
+                let _ = tokio::fs::remove_file(&log_file).await;
+            } else {
+                eprintln!("[bridge] Keeping log file for failed task {}: {}", task_id, log_file);
             }
-
-            // Read exit code from temp file
-            let exit_code = tokio::fs::read_to_string(&exit_file)
-                .await
-                .ok()
-                .and_then(|s| s.trim().parse::<i32>().ok())
-                .unwrap_or(1); // Default to failure if can't read
-
-            // Clean up temp file
-            let _ = tokio::fs::remove_file(&exit_file).await;
 
             let success = exit_code == 0;
             eprintln!("[bridge] Trigger completed for task {}: exit_code={}, success={}", task_id, exit_code, success);
@@ -443,6 +392,7 @@ pub fn spawn_cli_trigger_task(
                             &conn, &task.workspace_id,
                             Some(&task_id), session_id.as_deref(),
                             "anthropic", model_name, 0, 0, 0.0,
+                            Some(&column_name), duration_secs,
                         );
                         eprintln!("[bridge] Usage recorded: task={} column={} model={} duration={}s",
                             &task_id[..8], column_name, model_name, duration_secs);
@@ -490,8 +440,8 @@ pub fn spawn_cli_trigger_task(
             }
             pipeline::emit_tasks_changed(&app, "", "trigger_failed");
 
-            // Clean up temp file on error too
-            let _ = tokio::fs::remove_file(&exit_file).await;
+            // Clean up log file on error too
+            let _ = tokio::fs::remove_file(&log_file).await;
         }
     });
 }

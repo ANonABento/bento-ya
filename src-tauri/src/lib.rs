@@ -1,7 +1,4 @@
 #![deny(clippy::all)]
-// Tauri command and DB update entrypoints mirror IPC/SQL field lists.
-// Grouping them just to satisfy this lint would churn public call sites.
-#![allow(clippy::too_many_arguments)]
 
 use std::sync::{Arc, Mutex};
 
@@ -15,17 +12,16 @@ pub mod error;
 pub mod events;
 pub mod git;
 pub mod llm;
+pub mod models;
 pub mod pipeline;
-pub mod process;
 #[cfg(feature = "voice")]
 pub mod whisper;
 
-use chat::registry::new_shared_session_registry;
 #[cfg(feature = "voice")]
 use commands::voice::RecorderState;
 use db::AppState;
-use process::agent_runner::AgentRunner;
-use process::pty_manager::PtyManager;
+use chat::registry::{new_shared_session_registry, start_idle_sweep};
+use tauri::Manager;
 #[cfg(feature = "voice")]
 use whisper::AudioRecorder;
 
@@ -41,10 +37,7 @@ pub fn run() {
         )
         .unwrap_or(0) as i64;
     if reset_count > 0 {
-        eprintln!(
-            "[startup] Reset {} task(s) with stale pipeline state to idle",
-            reset_count
-        );
+        eprintln!("[startup] Reset {} task(s) with stale pipeline state to idle", reset_count);
     }
 
     // Clear stale cli_session_id references (previous app sessions are dead)
@@ -55,10 +48,7 @@ pub fn run() {
         )
         .unwrap_or(0) as i64;
     if cli_reset > 0 {
-        eprintln!(
-            "[startup] Cleared {} stale CLI session reference(s)",
-            cli_reset
-        );
+        eprintln!("[startup] Cleared {} stale CLI session reference(s)", cli_reset);
     }
 
     // Seed built-in scripts (idempotent — skips if already present)
@@ -70,47 +60,40 @@ pub fn run() {
         db: Mutex::new(conn),
     };
 
-    let pty_manager = Arc::new(Mutex::new(PtyManager::new()));
-    let agent_runner = Arc::new(Mutex::new(AgentRunner::new(Arc::clone(&pty_manager))));
     let session_registry = new_shared_session_registry();
     #[cfg(feature = "voice")]
     let recorder_state = RecorderState(Mutex::new(AudioRecorder::new()));
 
-    // Clone for shutdown handler
-    let pty_for_shutdown = Arc::clone(&pty_manager);
-    let agent_runner_for_shutdown = Arc::clone(&agent_runner);
+    // Clone for shutdown handler + idle sweep
     let session_registry_for_shutdown = Arc::clone(&session_registry);
+    let session_registry_for_sweep = Arc::clone(&session_registry);
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(state)
-        .manage(pty_manager)
-        .manage(agent_runner)
         .manage(session_registry);
 
     #[cfg(feature = "webdriver")]
-    let builder = builder.plugin(tauri_plugin_webdriver_automation::init());
+    {
+        builder = builder.plugin(tauri_plugin_webdriver_automation::init());
+    }
 
     #[cfg(feature = "voice")]
-    let builder = builder.manage(recorder_state);
+    {
+        builder = builder.manage(recorder_state);
+    }
 
     builder
         .on_window_event(move |_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
-                // Kill all sessions and processes on window close
-                let pty = Arc::clone(&pty_for_shutdown);
-                let runner = Arc::clone(&agent_runner_for_shutdown);
+                // Kill all sessions on window close
                 let registry = Arc::clone(&session_registry_for_shutdown);
                 tauri::async_runtime::block_on(async {
                     let mut reg = registry.lock().await;
                     reg.kill_all();
                 });
-                // Kill PTY-managed processes (agents, scripts)
-                let _ = pty.lock().map(|mut pty_mgr| pty_mgr.shutdown_all());
-                // Clean up agent runner sessions
-                let _ = runner.lock().map(|mut ar| ar.cleanup_all());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -147,7 +130,9 @@ pub fn run() {
             commands::task::clear_task_notification_sent,
             commands::task::generate_test_checklist,
             commands::task::retry_pipeline,
+            commands::task::retry_from_start,
             commands::task::validate_task_dependencies,
+            commands::task::queue_backlog,
             commands::task::create_task_worktree,
             commands::task::remove_task_worktree,
             // Git commands
@@ -174,6 +159,8 @@ pub fn run() {
             commands::agent::clear_agent_messages,
             commands::agent::stream_agent_chat,
             commands::agent::cancel_agent_chat,
+            commands::agent::switch_agent_transport,
+            commands::agent::ensure_pty_session,
             commands::agent::queue_agent_tasks,
             commands::agent::update_task_agent_status,
             commands::agent::get_queue_status,
@@ -184,6 +171,8 @@ pub fn run() {
             commands::pipeline::try_advance_task,
             commands::pipeline::set_pipeline_error,
             commands::pipeline::update_script_exit_code,
+            commands::pipeline::get_pipeline_timing,
+            commands::pipeline::get_average_pipeline_timing,
             // Siege loop commands
             commands::siege::start_siege,
             commands::siege::stop_siege,
@@ -193,7 +182,6 @@ pub fn run() {
             // Orchestrator commands
             commands::orchestrator::get_orchestrator_context,
             commands::orchestrator::get_orchestrator_session,
-            commands::orchestrator::send_orchestrator_message,
             commands::orchestrator::list_chat_sessions,
             commands::orchestrator::get_active_chat_session,
             commands::orchestrator::create_chat_session,
@@ -241,6 +229,7 @@ pub fn run() {
             commands::cli_detect::detect_single_cli,
             commands::cli_detect::verify_cli_path,
             commands::cli_detect::get_cli_capabilities,
+            commands::cli_detect::check_cli_update,
             // Checklist commands
             commands::checklist::get_workspace_checklist,
             commands::checklist::update_checklist_item,
@@ -264,10 +253,22 @@ pub fn run() {
             commands::github::fetch_pr_status,
             commands::github::fetch_pr_status_batch,
             commands::github::should_refresh_pr_status,
+            // Dynamic model discovery
+            models::get_available_models,
+            models::refresh_models,
         ])
         .setup(|app| {
             // Start HTTP API server for external MCP control
             api::start(app.handle().clone());
+            // Start periodic idle session sweep (every 60s)
+            start_idle_sweep(session_registry_for_sweep);
+
+            // Recover tmux sessions from previous app instance
+            recover_tmux_sessions(app.handle().clone());
+
+            // Start garbage collector for tmux sessions + agent resources
+            chat::gc::start_gc();
+
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -275,4 +276,80 @@ pub fn run() {
 
     // Cleanup port file on exit
     api::cleanup();
+}
+
+/// Recover tmux sessions from a previous app instance.
+///
+/// On startup, discovers any `bentoya_*` tmux sessions still running.
+/// For sessions whose task_id exists in the DB with agent_status="running",
+/// re-registers them in the SessionRegistry so they can be reattached
+/// when the user opens the terminal panel.
+/// Orphaned sessions (task not in DB or not running) are killed.
+fn recover_tmux_sessions(app: tauri::AppHandle) {
+    use chat::tmux_transport;
+
+    // Check tmux availability and ensure server is configured
+    match tmux_transport::check_tmux() {
+        Ok(version) => {
+            eprintln!("[startup] tmux available: {}", version);
+            // Ensure tmux server won't die when all sessions are killed
+            if let Err(e) = tmux_transport::ensure_tmux_server() {
+                eprintln!("[startup] tmux server setup failed: {}", e);
+            }
+        }
+        Err(e) => {
+            eprintln!("[startup] {}", e);
+            return;
+        }
+    }
+
+    let existing = tmux_transport::list_sessions();
+    if existing.is_empty() {
+        return;
+    }
+
+    eprintln!("[startup] Found {} existing tmux session(s)", existing.len());
+
+    let state: tauri::State<db::AppState> = app.state();
+    let conn = match state.db.lock() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let mut recovered = 0;
+    let mut cleaned = 0;
+
+    for session_name in &existing {
+        let task_id = match tmux_transport::session_name_to_task_id(session_name) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        // Check if task exists and was running
+        let should_recover = db::get_task(&conn, task_id)
+            .ok()
+            .map(|t| t.agent_status.as_deref() == Some("running"))
+            .unwrap_or(false);
+
+        if should_recover {
+            eprintln!("[startup] Recovering tmux session for task: {}", task_id);
+            // Don't attach yet — just note it exists. When the user opens the
+            // terminal panel, ensure_pty_session will call TmuxTransport::reconnect()
+            // and attach.
+            recovered += 1;
+        } else {
+            eprintln!("[startup] Cleaning orphaned tmux session: {}", session_name);
+            let _ = std::process::Command::new("tmux")
+                .args(["kill-session", "-t", session_name])
+                .output();
+            cleaned += 1;
+        }
+    }
+
+    if recovered > 0 || cleaned > 0 {
+        eprintln!(
+            "[startup] tmux recovery: {} recovered, {} cleaned up",
+            recovered, cleaned
+        );
+    }
 }

@@ -246,6 +246,7 @@ fn emit_orchestrator_cli_event(app: &AppHandle, workspace_id: &str, event: ChatE
         ChatEvent::Complete
         | ChatEvent::SessionId(_)
         | ChatEvent::RawOutput(_)
+        | ChatEvent::Result(_)
         | ChatEvent::Unknown => {}
     }
 }

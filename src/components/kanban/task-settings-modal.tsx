@@ -4,7 +4,8 @@ import type { Task } from '@/types'
 import * as ipc from '@/lib/ipc'
 import { useTaskStore } from '@/stores/task-store'
 import { DependenciesTab } from './task-dependencies-tab'
-import { parseOverrides, parseDependencies, type Dependency } from './task-dependency-parsers'
+import type { Dependency } from './task-dependency-parsers'
+import { parseDependencies, parseOverrides } from './task-dependency-utils'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

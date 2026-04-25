@@ -5,6 +5,7 @@
 
 import { useState, useCallback, type ReactNode } from 'react'
 import { SelectorDropdown, SelectorOption, SelectorButton } from './selector-dropdown'
+import type { PermissionMode } from './permission-utils'
 
 // SVG icons for permission modes
 const LockIcon = () => (
@@ -30,8 +31,6 @@ const PERMISSION_MODES: PermissionModeConfig[] = [
   { id: 'plan', label: 'Plan', description: 'Read-only, safe mode', icon: <LockIcon /> },
   { id: 'full', label: 'Full', description: 'All permissions', icon: <BoltIcon /> },
 ]
-
-export type PermissionMode = PermissionModeConfig['id']
 
 interface PermissionSelectorProps {
   value: PermissionMode

@@ -26,13 +26,18 @@ import type { Workspace } from '@/types'
 import { AddWorkspaceDialog } from './add-workspace-dialog'
 import { useTabBarNavigation } from './use-tab-bar-navigation'
 
+// ─── Types ──────────────────────────────────────────────────────────────────
+
 type TabProps = {
   workspace: Workspace
   isActive: boolean
   activeTaskCount?: number
   notificationCount?: number
   onSelect: () => void
+  onClose: () => void
 }
+
+// ─── SortableTab ────────────────────────────────────────────────────────────
 
 function SortableTab({
   workspace,
@@ -40,7 +45,7 @@ function SortableTab({
   activeTaskCount = 0,
   notificationCount = 0,
   onSelect,
-}: TabProps) {
+}: Omit<TabProps, 'onClose'>) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: workspace.id,
   })
@@ -68,13 +73,10 @@ function SortableTab({
         tabIndex={0}
         onClick={onSelect}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            onSelect()
-          }
+          if (e.key === 'Enter' || e.key === ' ') onSelect()
         }}
-        style={{ cursor: 'pointer' }}
         className={`
-          group flex h-8 items-center justify-center px-3 text-sm
+          group flex h-8 cursor-pointer items-center justify-center px-3 text-sm
           transition-colors duration-150
           ${
             isActive
@@ -92,6 +94,7 @@ function SortableTab({
           )}
         </span>
 
+        {/* Notification badge */}
         {notificationCount > 0 && (
           <span className="ml-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-attention px-1 text-[10px] font-bold text-bg">
             {notificationCount > 9 ? '9+' : notificationCount}
@@ -99,6 +102,7 @@ function SortableTab({
         )}
       </div>
 
+      {/* Active indicator */}
       {isActive && (
         <motion.div
           layoutId="tab-indicator"
@@ -110,6 +114,8 @@ function SortableTab({
   )
 }
 
+// ─── Tab overlay (shown while dragging) ─────────────────────────────────────
+
 function TabOverlay({ workspace }: { workspace: Workspace }) {
   return (
     <div className="flex h-8 items-center gap-2 rounded-lg bg-surface-hover px-3 text-sm font-medium text-text-primary shadow-lg">
@@ -117,6 +123,8 @@ function TabOverlay({ workspace }: { workspace: Workspace }) {
     </div>
   )
 }
+
+// ─── AddTabButton ───────────────────────────────────────────────────────────
 
 function AddTabButton({ onClick }: { onClick: () => void }) {
   return (
@@ -127,6 +135,7 @@ function AddTabButton({ onClick }: { onClick: () => void }) {
         whileTap={{ scale: 0.95 }}
         className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
       >
+        {/* Folder plus icon */}
         <svg
           xmlns="http://www.w3.org/2000/svg"
           viewBox="0 0 20 20"
@@ -143,6 +152,8 @@ function AddTabButton({ onClick }: { onClick: () => void }) {
     </Tooltip>
   )
 }
+
+// ─── SettingsButton ─────────────────────────────────────────────────────────
 
 function SettingsButton() {
   const openSettings = useSettingsStore((s) => s.openSettings)
@@ -171,6 +182,8 @@ function SettingsButton() {
     </Tooltip>
   )
 }
+
+// ─── ChecklistButton ─────────────────────────────────────────────────────────
 
 function ChecklistButton() {
   const openChecklist = useChecklistStore((s) => s.openChecklist)
@@ -215,12 +228,15 @@ function ChecklistButton() {
   )
 }
 
+// ─── TabBar ─────────────────────────────────────────────────────────────────
+
 export function TabBar() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const setActive = useWorkspaceStore((s) => s.setActive)
   const reorder = useWorkspaceStore((s) => s.reorder)
   const remove = useWorkspaceStore((s) => s.remove)
+
   const getUnviewedCount = useAttentionStore((s) => s.getUnviewedCount)
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -243,28 +259,27 @@ export function TabBar() {
     openAddDialog: () => { setShowAddDialog(true) },
   })
 
-  const handleDragStart = (event: DragStartEvent) => {
-    setDraggingId(String(event.active.id))
+  // ─── Drag Handlers ──────────────────────────────────────────────────────────
+
+  const handleDragStart = (e: DragStartEvent) => {
+    setDraggingId(e.active.id as string)
   }
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = (e: DragEndEvent) => {
     setDraggingId(null)
 
-    const { active, over } = event
+    const { active, over } = e
     if (!over || active.id === over.id) return
 
-    const oldIndex = workspaceIds.indexOf(String(active.id))
-    const newIndex = workspaceIds.indexOf(String(over.id))
-    if (oldIndex < 0 || newIndex < 0) return
-
+    const oldIndex = workspaceIds.indexOf(active.id as string)
+    const newIndex = workspaceIds.indexOf(over.id as string)
     const newOrder = arrayMove(workspaceIds, oldIndex, newIndex)
     void reorder(newOrder)
   }
 
-  const draggingWorkspace = draggingId
-    ? sortedWorkspaces.find((workspace) => workspace.id === draggingId) ?? null
-    : null
+  const draggingWorkspace = draggingId ? sortedWorkspaces.find((w) => w.id === draggingId) : null
 
+  // Only show tabs if there are workspaces
   if (sortedWorkspaces.length === 0) {
     return (
       <header className="flex h-10 shrink-0 items-center justify-center border-b border-border-default bg-surface">
@@ -276,6 +291,7 @@ export function TabBar() {
   return (
     <>
       <header className="relative flex h-10 shrink-0 items-center bg-surface px-2 shadow-sm">
+        {/* Center: tabs - absolutely positioned for true centering */}
         <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1">
           <DndContext
             sensors={sensors}
@@ -292,7 +308,9 @@ export function TabBar() {
                     isActive={workspace.id === activeWorkspaceId}
                     activeTaskCount={workspace.activeTaskCount}
                     notificationCount={getUnviewedCount(workspace.id)}
-                    onSelect={() => { setActive(workspace.id) }}
+                    onSelect={() => {
+                      setActive(workspace.id)
+                    }}
                   />
                 ))}
               </AnimatePresence>
@@ -304,16 +322,27 @@ export function TabBar() {
           </DndContext>
         </div>
 
+        {/* Right: add workspace + checklist + settings */}
         <div className="ml-auto flex items-center gap-1">
-          <AddTabButton onClick={() => { setShowAddDialog(true) }} />
+          <AddTabButton
+            onClick={() => {
+              setShowAddDialog(true)
+            }}
+          />
           <ChecklistButton />
           <SettingsButton />
         </div>
       </header>
 
+      {/* Add workspace dialog - simple placeholder for now */}
       {showAddDialog && (
-        <AddWorkspaceDialog onClose={() => { setShowAddDialog(false) }} />
+        <AddWorkspaceDialog
+          onClose={() => {
+            setShowAddDialog(false)
+          }}
+        />
       )}
     </>
   )
 }
+

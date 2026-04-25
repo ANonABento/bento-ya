@@ -5,7 +5,6 @@ import { detectSingleCli, checkCliUpdate, type DetectedCli, type CliUpdateInfo }
 import { useModels } from '@/hooks/use-models'
 import { SettingSection, SettingRow, SettingInput, SettingSlider } from '@/components/shared/setting-components'
 import { Dropdown } from '@/components/shared/dropdown'
-import { ModelComparisonSection, type ComparableModel } from './model-comparison-section'
 
 const PROVIDER_INFO: Record<string, { name: string; description: string; cliId: string }> = {
   anthropic: {
@@ -76,23 +75,10 @@ export function AgentTab() {
 
   // Get all available models from enabled providers, excluding disabled ones
   const enabledProviderIds = new Set(model.providers.filter((p) => p.enabled).map((p) => p.id))
-  const disabledModelIds = new Set(model.disabledModels)
+  const disabledModelIds = new Set(model.disabledModels ?? [])
   const availableModels = allModels
-    .filter((entry) => enabledProviderIds.has(entry.provider) && !disabledModelIds.has(entry.id))
-    .map((entry) => entry.id)
-
-  const comparisonModels = model.providers
-    .filter((p) => p.enabled)
-    .flatMap((provider): ComparableModel[] => {
-      const info = PROVIDER_INFO[provider.id]
-      const modelIds = Array.from(new Set([...(info?.models ?? []), provider.defaultModel].filter(Boolean)))
-
-      return modelIds.map((modelId) => ({
-        providerId: provider.id,
-        providerName: info?.name ?? provider.name,
-        modelId,
-      }))
-    })
+    .filter((m) => enabledProviderIds.has(m.provider) && !disabledModelIds.has(m.id))
+    .map((m) => m.id)
 
   // Toggle provider enabled state
   const handleToggleProvider = (providerId: string, enabled: boolean) => {
@@ -163,7 +149,7 @@ export function AgentTab() {
             <span className="text-xs text-text-secondary">
               {allModels.length} models ·{' '}
               {modelSource === 'api'
-                ? `From API${lastFetched ? ` · ${new Date(lastFetched).toLocaleDateString()}` : ''}`
+                ? `From API · ${new Date(lastFetched!).toLocaleDateString()}`
                 : modelSource === 'cli'
                   ? 'From CLI'
                   : 'Built-in list'}
@@ -175,8 +161,8 @@ export function AgentTab() {
                 void refreshModels().then((result) => {
                   if (result.success) {
                     const msg = result.newModels.length > 0
-                      ? `Found ${String(result.newModels.length)} new: ${result.newModels.join(', ')}`
-                      : `${String(result.modelCount)} models up to date`
+                      ? `Found ${result.newModels.length} new: ${result.newModels.join(', ')}`
+                      : `${result.modelCount} models up to date`
                     setRefreshStatus({ message: msg, type: 'success' })
                   } else {
                     setRefreshStatus({
@@ -383,9 +369,7 @@ export function AgentTab() {
                                       {update.updateCommand && (
                                         <button
                                           onClick={() => {
-                                            const updateCommand = update.updateCommand
-                                            if (!updateCommand) return
-                                            void navigator.clipboard.writeText(updateCommand)
+                                            void navigator.clipboard.writeText(update.updateCommand!)
                                             setCopiedCmd(provider.id)
                                             setTimeout(() => { setCopiedCmd(null) }, 2000)
                                           }}
@@ -436,13 +420,13 @@ export function AgentTab() {
 
                     {/* Available Models with toggles */}
                     {providerModels.length > 0 && (() => {
-                      const disabledSet = new Set(model.disabledModels)
+                      const disabledSet = new Set(model.disabledModels ?? [])
                       const enabledCount = providerModels.filter((m) => !disabledSet.has(m.id)).length
                       const allEnabled = enabledCount === providerModels.length
                       const noneEnabled = enabledCount === 0
 
                       const toggleModel = (modelId: string) => {
-                        const current = new Set(model.disabledModels)
+                        const current = new Set(model.disabledModels ?? [])
                         if (current.has(modelId)) {
                           current.delete(modelId)
                         } else {
@@ -454,12 +438,12 @@ export function AgentTab() {
                       const toggleAll = (enable: boolean) => {
                         if (enable) {
                           // Remove all this provider's models from disabled
-                          const current = new Set(model.disabledModels)
+                          const current = new Set(model.disabledModels ?? [])
                           for (const m of providerModels) current.delete(m.id)
                           updateGlobal('model', { ...model, disabledModels: [...current] })
                         } else {
                           // Add all this provider's models to disabled
-                          const current = new Set(model.disabledModels)
+                          const current = new Set(model.disabledModels ?? [])
                           for (const m of providerModels) current.add(m.id)
                           updateGlobal('model', { ...model, disabledModels: [...current] })
                         }
@@ -519,7 +503,7 @@ export function AgentTab() {
                                     )}
                                   </div>
                                   <span className="text-[10px] text-text-secondary">
-                                    {`${String(Math.round(m.contextWindow / 1000))}k`}
+                                    {Math.round(m.contextWindow / 1000)}k
                                   </span>
                                 </div>
                               )
@@ -535,8 +519,6 @@ export function AgentTab() {
           })}
         </div>
       </SettingSection>
-
-      <ModelComparisonSection models={comparisonModels} />
 
       {/* Coming Soon */}
       <SettingSection title="Coming Soon">

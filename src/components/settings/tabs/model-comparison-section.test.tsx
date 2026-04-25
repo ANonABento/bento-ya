@@ -80,6 +80,8 @@ describe('ModelComparisonSection', () => {
         inputTokens: 1_000,
         outputTokens: 500,
         costUsd: 0.01,
+        columnName: null,
+        durationSeconds: 0,
         createdAt: '2026-01-01T00:00:00Z',
       },
       {
@@ -92,6 +94,8 @@ describe('ModelComparisonSection', () => {
         inputTokens: 500,
         outputTokens: 1_000,
         costUsd: 0.02,
+        columnName: null,
+        durationSeconds: 0,
         createdAt: '2026-01-01T00:00:00Z',
       },
     ])
@@ -137,6 +141,8 @@ describe('ModelComparisonSection', () => {
         inputTokens: 10,
         outputTokens: 5,
         costUsd: 0.01,
+        columnName: null,
+        durationSeconds: 0,
         createdAt: '2026-01-01T00:00:00Z',
       },
     ])
@@ -162,6 +168,8 @@ describe('ModelComparisonSection', () => {
         inputTokens: 10,
         outputTokens: 5,
         costUsd: 0.01,
+        columnName: null,
+        durationSeconds: 0,
         createdAt: '2026-01-01T00:00:00Z',
       },
       {
@@ -174,6 +182,8 @@ describe('ModelComparisonSection', () => {
         inputTokens: 20,
         outputTokens: 10,
         costUsd: 0.02,
+        columnName: null,
+        durationSeconds: 0,
         createdAt: '2026-01-01T00:00:00Z',
       },
     ])

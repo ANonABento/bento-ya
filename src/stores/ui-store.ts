@@ -4,14 +4,11 @@ import { devtools, persist } from 'zustand/middleware'
 type ViewMode = 'board' | 'chat'
 type PanelDock = 'bottom' | 'right'
 type AgentPanelDock = 'right' | 'left'
-type PanelView = 'chat' | 'detail'
 
 type ModalState = {
   type: string
   props?: Record<string, unknown>
 } | null
-
-type ChatPanelState = Pick<UIState, 'activeTaskId' | 'viewMode'>
 
 // Panel constants
 const DEFAULT_PANEL_HEIGHT = 300
@@ -29,18 +26,6 @@ const MIN_BOARD_WIDTH = 400
 const DEFAULT_AGENT_PANEL_WIDTH = 500
 const MIN_AGENT_PANEL_WIDTH = 300
 const MAX_AGENT_PANEL_WIDTH = 900
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
-}
-
-function openChatState(taskId: string): ChatPanelState {
-  return { viewMode: 'chat', activeTaskId: taskId }
-}
-
-function closeChatState(): ChatPanelState {
-  return { viewMode: 'board', activeTaskId: null }
-}
 
 function getMaxAgentPanelWidth(): number {
   if (typeof window === 'undefined') return MAX_AGENT_PANEL_WIDTH
@@ -77,9 +62,6 @@ type UIState = {
   // Agent chat panel state
   agentPanelWidth: number
   agentPanelDock: AgentPanelDock
-
-  // Panel view (terminal vs detail) — routed inside the agent side panel
-  panelView: PanelView
   setViewMode: (mode: ViewMode) => void
   expandTask: (taskId: string) => void
   focusTask: (taskId: string) => void
@@ -104,10 +86,6 @@ type UIState = {
   // Agent panel actions
   setAgentPanelWidth: (width: number) => void
   setAgentPanelDock: (dock: AgentPanelDock) => void
-
-  // Panel view actions
-  setPanelView: (view: PanelView) => void
-  togglePanelView: () => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -120,11 +98,10 @@ export const useUIStore = create<UIState>()(
         modal: null,
         panelHeight: DEFAULT_PANEL_HEIGHT,
         panelWidth: DEFAULT_PANEL_WIDTH,
-        panelDock: 'bottom',
+        panelDock: 'bottom' as PanelDock,
         isPanelCollapsed: false,
         agentPanelWidth: DEFAULT_AGENT_PANEL_WIDTH,
         agentPanelDock: 'right' as AgentPanelDock,
-        panelView: 'chat' as PanelView,
 
         setViewMode: (mode) => {
           set({ viewMode: mode })
@@ -147,16 +124,16 @@ export const useUIStore = create<UIState>()(
 
         // Chat panel (right slide-in)
         openChat: (taskId) => {
-          set(openChatState(taskId))
+          set({ viewMode: 'chat', activeTaskId: taskId })
         },
 
         closeChat: () => {
-          set(closeChatState())
+          set({ viewMode: 'board', activeTaskId: null })
         },
 
         // Deprecated aliases
-        openTask: (taskId) => { set(openChatState(taskId)) },
-        closeTask: () => { set(closeChatState()) },
+        openTask: (taskId) => { set({ viewMode: 'chat', activeTaskId: taskId }) },
+        closeTask: () => { set({ viewMode: 'board', activeTaskId: null }) },
 
         openModal: (type, props) => {
           set({ modal: { type, props } })
@@ -168,12 +145,14 @@ export const useUIStore = create<UIState>()(
 
         setPanelHeight: (height) => {
           const max = getMaxPanelHeight()
-          set({ panelHeight: clamp(height, MIN_PANEL_HEIGHT, max) })
+          const clamped = Math.min(Math.max(height, MIN_PANEL_HEIGHT), max)
+          set({ panelHeight: clamped })
         },
 
         setPanelWidth: (width) => {
           const max = getMaxPanelWidth()
-          set({ panelWidth: clamp(width, MIN_PANEL_WIDTH, max) })
+          const clamped = Math.min(Math.max(width, MIN_PANEL_WIDTH), max)
+          set({ panelWidth: clamped })
         },
 
         setPanelDock: (dock) => {
@@ -194,19 +173,12 @@ export const useUIStore = create<UIState>()(
 
         setAgentPanelWidth: (width) => {
           const max = getMaxAgentPanelWidth()
-          set({ agentPanelWidth: clamp(width, MIN_AGENT_PANEL_WIDTH, max) })
+          const clamped = Math.min(Math.max(width, MIN_AGENT_PANEL_WIDTH), max)
+          set({ agentPanelWidth: clamped })
         },
 
         setAgentPanelDock: (dock) => {
           set({ agentPanelDock: dock })
-        },
-
-        setPanelView: (view) => {
-          set({ panelView: view })
-        },
-
-        togglePanelView: () => {
-          set((state) => ({ panelView: state.panelView === 'chat' ? 'detail' : 'chat' }))
         },
       }),
       {
@@ -218,7 +190,6 @@ export const useUIStore = create<UIState>()(
           isPanelCollapsed: state.isPanelCollapsed,
           agentPanelWidth: state.agentPanelWidth,
           agentPanelDock: state.agentPanelDock,
-          panelView: state.panelView,
         }),
       },
     ),
@@ -229,4 +200,4 @@ export const useUIStore = create<UIState>()(
 export { MIN_PANEL_HEIGHT, MAX_PANEL_HEIGHT, DEFAULT_PANEL_HEIGHT, MIN_BOARD_HEIGHT }
 export { MIN_PANEL_WIDTH, MAX_PANEL_WIDTH, DEFAULT_PANEL_WIDTH, MIN_BOARD_WIDTH }
 export { MIN_AGENT_PANEL_WIDTH, MAX_AGENT_PANEL_WIDTH, DEFAULT_AGENT_PANEL_WIDTH }
-export type { PanelDock, AgentPanelDock, PanelView }
+export type { PanelDock, AgentPanelDock }

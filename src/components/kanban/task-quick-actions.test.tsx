@@ -9,7 +9,7 @@ function makeHandlers() {
     onToggleAgent: vi.fn(),
     onRetry: vi.fn(),
     onMoveNext: vi.fn(),
-    onRequestDelete: vi.fn(),
+    onDelete: vi.fn(),
     onShowMenu: vi.fn(),
   }
 }
@@ -19,40 +19,22 @@ describe('TaskQuickActions', () => {
     vi.clearAllMocks()
   })
 
-  it('shows Play when task is idle and column has a trigger', () => {
+  it('shows Play when task is idle', () => {
     render(
       <TaskQuickActions
         task={mockKanbanTask({ agentStatus: 'idle' })}
         hasNextColumn={false}
-        columnHasTrigger={true}
-        isDeleteConfirmPending={false}
         {...makeHandlers()}
       />
     )
     expect(screen.getByTitle(/Run agent/)).toBeInTheDocument()
   })
 
-  it('hides Play when column has no trigger and task is idle', () => {
-    render(
-      <TaskQuickActions
-        task={mockKanbanTask({ agentStatus: 'idle' })}
-        hasNextColumn={false}
-        columnHasTrigger={false}
-        isDeleteConfirmPending={false}
-        {...makeHandlers()}
-      />
-    )
-    expect(screen.queryByTitle(/Run agent/)).not.toBeInTheDocument()
-    expect(screen.queryByTitle(/Stop agent/)).not.toBeInTheDocument()
-  })
-
-  it('shows Stop whenever task is running, regardless of trigger', () => {
+  it('shows Stop when task is running', () => {
     render(
       <TaskQuickActions
         task={mockKanbanTask({ agentStatus: 'running' })}
         hasNextColumn={false}
-        columnHasTrigger={false}
-        isDeleteConfirmPending={false}
         {...makeHandlers()}
       />
     )
@@ -65,8 +47,6 @@ describe('TaskQuickActions', () => {
       <TaskQuickActions
         task={mockKanbanTask({ pipelineError: null })}
         hasNextColumn={false}
-        columnHasTrigger={false}
-        isDeleteConfirmPending={false}
         {...handlers}
       />
     )
@@ -76,8 +56,6 @@ describe('TaskQuickActions', () => {
       <TaskQuickActions
         task={mockKanbanTask({ pipelineError: 'boom' })}
         hasNextColumn={false}
-        columnHasTrigger={false}
-        isDeleteConfirmPending={false}
         {...handlers}
       />
     )
@@ -90,8 +68,6 @@ describe('TaskQuickActions', () => {
       <TaskQuickActions
         task={mockKanbanTask()}
         hasNextColumn={false}
-        columnHasTrigger={false}
-        isDeleteConfirmPending={false}
         {...handlers}
       />
     )
@@ -101,106 +77,29 @@ describe('TaskQuickActions', () => {
       <TaskQuickActions
         task={mockKanbanTask()}
         hasNextColumn={true}
-        columnHasTrigger={false}
-        isDeleteConfirmPending={false}
         {...handlers}
       />
     )
     expect(screen.getByTitle(/Move to next column/)).toBeInTheDocument()
   })
 
-  it('delete button title and style reflect isDeleteConfirmPending prop', () => {
+  it('delete button has two-click confirm behavior', () => {
     const handlers = makeHandlers()
-    const { rerender } = render(
-      <TaskQuickActions
-        task={mockKanbanTask()}
-        hasNextColumn={false}
-        columnHasTrigger={false}
-        isDeleteConfirmPending={false}
-        {...handlers}
-      />
-    )
-    expect(screen.getByTitle(/Delete task/)).not.toHaveClass('bg-error/20')
-    expect(screen.queryByTitle(/Click again to confirm/)).not.toBeInTheDocument()
-
-    rerender(
-      <TaskQuickActions
-        task={mockKanbanTask()}
-        hasNextColumn={false}
-        columnHasTrigger={false}
-        isDeleteConfirmPending={true}
-        {...handlers}
-      />
-    )
-    expect(screen.getByTitle(/Click again to confirm/)).toHaveClass('bg-error/20')
-    expect(screen.queryByTitle(/^Delete task/)).not.toBeInTheDocument()
-  })
-
-  it('delete button calls onRequestDelete and stops propagation', () => {
-    const handlers = makeHandlers()
-    const cardClick = vi.fn()
     render(
-      <div onClick={cardClick}>
-        <TaskQuickActions
-          task={mockKanbanTask()}
-          hasNextColumn={false}
-          columnHasTrigger={false}
-          isDeleteConfirmPending={false}
-          {...handlers}
-        />
-      </div>
-    )
-    fireEvent.click(screen.getByTitle(/Delete task/))
-    expect(handlers.onRequestDelete).toHaveBeenCalledTimes(1)
-    expect(cardClick).not.toHaveBeenCalled()
-  })
-
-  it('button keyboard events do not bubble to card shortcuts', () => {
-    const handlers = makeHandlers()
-    const cardKeyDown = vi.fn()
-    render(
-      <div onKeyDown={cardKeyDown}>
-        <TaskQuickActions
-          task={mockKanbanTask({ pipelineError: 'boom' })}
-          hasNextColumn={true}
-          columnHasTrigger={true}
-          isDeleteConfirmPending={false}
-          {...handlers}
-        />
-      </div>
-    )
-    fireEvent.keyDown(screen.getByTitle(/Delete task/), { key: 'Enter' })
-    expect(cardKeyDown).not.toHaveBeenCalled()
-  })
-
-  it('two-click confirm-to-delete: first click arms, second click fires', () => {
-    const handlers = makeHandlers()
-    const { rerender } = render(
       <TaskQuickActions
         task={mockKanbanTask()}
         hasNextColumn={false}
-        columnHasTrigger={false}
-        isDeleteConfirmPending={false}
         {...handlers}
       />
     )
-    // First click - parent would arm confirmation
+    // First click arms confirmation (internal state)
     fireEvent.click(screen.getByTitle(/Delete task/))
-    expect(handlers.onRequestDelete).toHaveBeenCalledTimes(1)
+    // After first click, button should show confirm state
+    expect(screen.getByTitle(/Click again to confirm/)).toBeInTheDocument()
 
-    // Parent rerenders in armed state
-    rerender(
-      <TaskQuickActions
-        task={mockKanbanTask()}
-        hasNextColumn={false}
-        columnHasTrigger={false}
-        isDeleteConfirmPending={true}
-        {...handlers}
-      />
-    )
-    // Second click on the armed button - parent would fire the actual delete
+    // Second click fires the actual delete
     fireEvent.click(screen.getByTitle(/Click again to confirm/))
-    expect(handlers.onRequestDelete).toHaveBeenCalledTimes(2)
+    expect(handlers.onDelete).toHaveBeenCalledTimes(1)
   })
 
   it('always renders Open and More buttons', () => {
@@ -208,29 +107,10 @@ describe('TaskQuickActions', () => {
       <TaskQuickActions
         task={mockKanbanTask()}
         hasNextColumn={false}
-        columnHasTrigger={false}
-        isDeleteConfirmPending={false}
         {...makeHandlers()}
       />
     )
     expect(screen.getByTitle(/Open task/)).toBeInTheDocument()
     expect(screen.getByTitle(/More actions/)).toBeInTheDocument()
-  })
-
-  it('does not intercept card clicks while visually hidden', () => {
-    const { container } = render(
-      <TaskQuickActions
-        task={mockKanbanTask()}
-        hasNextColumn={true}
-        columnHasTrigger={true}
-        isDeleteConfirmPending={false}
-        {...makeHandlers()}
-      />
-    )
-
-    const actionStrip = container.querySelector('[data-task-quick-actions="true"]')
-    expect(actionStrip).toHaveClass('pointer-events-none')
-    expect(actionStrip).toHaveClass('group-hover:pointer-events-auto')
-    expect(actionStrip).toHaveClass('focus-within:pointer-events-auto')
   })
 })

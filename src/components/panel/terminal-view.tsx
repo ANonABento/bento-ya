@@ -1,263 +1,200 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+/**
+ * Terminal View — Embedded xterm.js terminal backed by a lazy PTY session.
+ * On mount: ensures a PTY session exists (bare shell in working dir).
+ * Listens for pty:{taskId}:output events and renders raw terminal output.
+ * Sends user input via write_to_pty, resizes via resize_pty.
+ */
+
+import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
+
 import { listen, type UnlistenFn } from '@/lib/ipc'
 import { writeToPty, resizePty, ensurePtySession } from '@/lib/ipc/terminal'
-import { EventChannels, type PtyOutputPayload, type PtyExitPayload } from '@/types/events'
+import { EventChannels, type PtyExitPayload } from '@/types/events'
 import { getXtermTheme } from '@/lib/xterm-theme'
 import { getTheme } from '@/lib/theme'
-import { AgentOutput } from './agent-output'
-
-type ViewMode = 'structured' | 'raw'
 
 type TerminalViewProps = {
   taskId: string
   workingDir: string
 }
 
-function decodePtyData(data: string): string {
-  try {
-    const binary = atob(data)
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i)
-    }
-    return new TextDecoder().decode(bytes)
-  } catch {
-    return data
-  }
-}
-
 export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
-  const [viewMode, setViewMode] = useState<ViewMode>('structured')
-  const [rawText, setRawText] = useState('')
-  const [isAlive, setIsAlive] = useState(true)
-  const [exitCode, setExitCode] = useState<number | null>(null)
-
   const containerRef = useRef<HTMLDivElement>(null)
-  const terminalRef = useRef<Terminal | null>(null)
-  const rawTextRef = useRef(rawText)
-  rawTextRef.current = rawText
-
-  const theme = getTheme()
-
-  const appendOutput = useCallback((nextChunk: string) => {
-    setRawText((prev) => prev + nextChunk)
-    terminalRef.current?.write(nextChunk)
-  }, [])
 
   useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
     let disposed = false
+
+    // Create terminal
+    const term = new Terminal({
+      theme: getXtermTheme(getTheme()),
+      fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", Menlo, monospace',
+      fontSize: 13,
+      lineHeight: 1.3,
+      cursorBlink: true,
+      cursorStyle: 'bar',
+      scrollback: 10000,
+      allowProposedApi: true,
+      macOptionIsMeta: true,
+      macOptionClickForcesSelection: true,
+    })
+
+    // Addons
+    const fitAddon = new FitAddon()
+    const searchAddon = new SearchAddon()
+    const unicode11 = new Unicode11Addon()
+
+    term.loadAddon(fitAddon)
+    term.loadAddon(searchAddon)
+    term.loadAddon(unicode11)
+    term.unicode.activeVersion = '11'
+
+    // Open terminal into DOM
+    term.open(container)
+
+    // Try WebGL renderer (falls back to canvas if unavailable)
+    try {
+      const webgl = new WebglAddon()
+      webgl.onContextLoss(() => { webgl.dispose() })
+      term.loadAddon(webgl)
+    } catch {
+      // WebGL not available, canvas renderer is fine
+    }
+
+    fitAddon.fit()
+
+    // User input → PTY
+    const dataDisposable = term.onData((data) => {
+      void writeToPty(taskId, data)
+    })
+
+    // Binary input (paste with special chars)
+    const binaryDisposable = term.onBinary((data) => {
+      void writeToPty(taskId, data)
+    })
+
+    // Listen for PTY output events BEFORE spawning session (avoid race condition)
     const listenerPromises: Promise<UnlistenFn>[] = []
 
     listenerPromises.push(
-      listen<PtyOutputPayload>(EventChannels.ptyOutput(taskId), (payload) => {
+      listen<string>(EventChannels.ptyOutput(taskId), (data) => {
         if (disposed) return
-        appendOutput(decodePtyData(payload.data))
+        // data is a base64-encoded string emitted directly from bridge.rs
+        try {
+          const binary = atob(data)
+          const bytes = new Uint8Array(binary.length)
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i)
+          }
+          term.write(bytes)
+        } catch {
+          // Fallback: write as plain text if not valid base64
+          term.write(data)
+        }
       }),
     )
 
     listenerPromises.push(
       listen<PtyExitPayload>(EventChannels.ptyExit(taskId), (payload) => {
         if (disposed) return
-        setIsAlive(false)
-        setExitCode(payload.exit_code)
-        terminalRef.current?.write(
-          `\r\n\x1b[90m--- Process exited (code ${String(payload.exit_code ?? 0)}) ---\x1b[0m\r\n`,
-        )
+        const code = String(payload.exit_code ?? 0)
+        term.write(`\r\n\x1b[90m--- Process exited (code ${code}) ---\x1b[0m\r\n`)
       }),
     )
 
+    // Wait for listeners to be registered, then wait a frame for layout,
+    // THEN spawn PTY session with accurate dimensions
     void Promise.all(listenerPromises).then(() => {
       if (disposed) return
-      void ensurePtySession(taskId, workingDir, 80, 24)
-        .then((session) => {
-          if (disposed || !session.scrollback) return
-          appendOutput(decodePtyData(session.scrollback))
+      return new Promise<void>((resolve) => {
+        // Wait for the container to have real dimensions (panel animation)
+        requestAnimationFrame(() => {
+          if (disposed) { resolve(); return }
+          try { fitAddon.fit() } catch { /* ignore */ }
+          // Ensure minimum sensible dimensions
+          const cols = Math.max(term.cols, 80)
+          const rows = Math.max(term.rows, 24)
+          ensurePtySession(taskId, workingDir, cols, rows)
+            .then((info) => {
+              // Restore cached scrollback from previous session
+              if (info.scrollback) {
+                try {
+                  const binary = atob(info.scrollback)
+                  const bytes = new Uint8Array(binary.length)
+                  for (let i = 0; i < binary.length; i++) {
+                    bytes[i] = binary.charCodeAt(i)
+                  }
+                  term.write(bytes)
+                } catch { /* ignore decode errors */ }
+              }
+              resolve()
+            })
+            .catch((err: unknown) => {
+              if (!disposed) {
+                const msg = err instanceof Error ? err.message : String(err)
+                term.write(`\x1b[31mFailed to start terminal: ${msg}\x1b[0m\r\n`)
+              }
+              resolve()
+            })
         })
-        .catch((err: unknown) => {
-          if (!disposed) {
-            const message = err instanceof Error ? err.message : String(err)
-            appendOutput(`\nFailed to start terminal: ${message}\n`)
-          }
-        })
-    })
-
-    return () => {
-      disposed = true
-      void Promise.all(listenerPromises).then((unlisteners) => {
-        for (const unlisten of unlisteners) {
-          unlisten()
-        }
       })
-    }
-  }, [appendOutput, taskId, workingDir])
-
-  useEffect(() => {
-    if (terminalRef.current) {
-      terminalRef.current.options.cursorBlink = isAlive
-    }
-  }, [isAlive])
-
-  useEffect(() => {
-    if (viewMode !== 'raw' || !containerRef.current) return
-
-    const terminal = new Terminal({
-      theme: getXtermTheme(theme),
-      fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", Menlo, monospace',
-      fontSize: 13,
-      lineHeight: 1.3,
-      cursorBlink: isAlive,
-      cursorStyle: 'bar',
-      scrollback: 10000,
-      allowProposedApi: true,
-      macOptionIsMeta: true,
-      macOptionClickForcesSelection: true,
-      convertEol: true,
     })
 
-    const fitAddon = new FitAddon()
-    const searchAddon = new SearchAddon()
-    const unicode11 = new Unicode11Addon()
-
-    terminal.loadAddon(fitAddon)
-    terminal.loadAddon(searchAddon)
-    terminal.loadAddon(unicode11)
-    terminal.unicode.activeVersion = '11'
-
-    terminal.open(containerRef.current)
-
-    try {
-      const webgl = new WebglAddon()
-      webgl.onContextLoss(() => {
-        webgl.dispose()
-      })
-      terminal.loadAddon(webgl)
-    } catch {
-      // Canvas renderer fallback is acceptable.
-    }
-
-    try {
-      fitAddon.fit()
-    } catch {
-      // Container may still be animating in.
-    }
-
-    if (rawTextRef.current) {
-      terminal.write(rawTextRef.current)
-    }
-
-    const dataDisposable = terminal.onData((data) => {
-      void writeToPty(taskId, data)
-    })
-
-    const binaryDisposable = terminal.onBinary((data) => {
-      void writeToPty(taskId, data)
-    })
-
+    // Observe container resize
     const resizeObserver = new ResizeObserver(() => {
       requestAnimationFrame(() => {
+        if (disposed) return
         try {
           fitAddon.fit()
-          if (terminal.cols > 0 && terminal.rows > 0) {
-            void resizePty(taskId, terminal.cols, terminal.rows)
+          if (term.cols > 0 && term.rows > 0) {
+            void resizePty(taskId, term.cols, term.rows)
           }
         } catch {
-          // Ignore zero-sized containers during transitions.
+          // fit() can throw if container has zero dimensions
         }
       })
     })
-    resizeObserver.observe(containerRef.current)
+    resizeObserver.observe(container)
 
+    // Theme observer — react to data-theme changes on <html>
     const themeObserver = new MutationObserver(() => {
-      terminal.options.theme = getXtermTheme(getTheme())
+      if (disposed) return
+      term.options.theme = getXtermTheme(getTheme())
     })
     themeObserver.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['data-theme'],
     })
 
-    requestAnimationFrame(() => {
-      try {
-        fitAddon.fit()
-        if (terminal.cols > 0 && terminal.rows > 0) {
-          void resizePty(taskId, terminal.cols, terminal.rows)
-        }
-      } catch {
-        // Ignore initial zero-sized layout.
-      }
-    })
-    terminalRef.current = terminal
-
+    // Cleanup
     return () => {
-      resizeObserver.disconnect()
-      themeObserver.disconnect()
+      disposed = true
       dataDisposable.dispose()
       binaryDisposable.dispose()
-      terminal.dispose()
-      terminalRef.current = null
+      resizeObserver.disconnect()
+      themeObserver.disconnect()
+      void Promise.all(listenerPromises).then((unlisteners) => {
+        for (const unlisten of unlisteners) unlisten()
+      })
+      term.dispose()
     }
-  }, [isAlive, taskId, theme, viewMode])
+  }, [taskId, workingDir])
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border-default px-3 py-1.5">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-text-primary">Terminal</span>
-          {!isAlive && (
-            <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                exitCode === 0 ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
-              }`}
-            >
-              {exitCode === 0 ? 'Done' : `Exit ${String(exitCode ?? '?')}`}
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center rounded-md border border-border-default bg-surface text-[10px]">
-          <button
-            type="button"
-            onClick={() => {
-              setViewMode('structured')
-            }}
-            className={`rounded-l-md px-2 py-0.5 transition-colors ${
-              viewMode === 'structured'
-                ? 'bg-accent/10 font-medium text-accent'
-                : 'text-text-secondary hover:text-text-primary'
-            }`}
-          >
-            Structured
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setViewMode('raw')
-            }}
-            className={`rounded-r-md px-2 py-0.5 transition-colors ${
-              viewMode === 'raw'
-                ? 'bg-accent/10 font-medium text-accent'
-                : 'text-text-secondary hover:text-text-primary'
-            }`}
-          >
-            Raw
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-hidden">
-        {viewMode === 'structured' ? (
-          <div className="h-full overflow-y-auto">
-            <AgentOutput rawOutput={rawText} />
-          </div>
-        ) : (
-          <div ref={containerRef} className="h-full w-full" style={{ padding: '4px 0 4px 4px' }} />
-        )}
-      </div>
+      <div
+        ref={containerRef}
+        className="min-h-0 flex-1"
+        style={{ padding: '4px 0 4px 4px' }}
+      />
     </div>
   )
 }

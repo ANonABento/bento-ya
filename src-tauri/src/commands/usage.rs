@@ -14,6 +14,8 @@ pub fn record_usage(
     input_tokens: i64,
     output_tokens: i64,
     cost_usd: f64,
+    column_name: Option<String>,
+    duration_seconds: Option<i64>,
 ) -> Result<UsageRecord, AppError> {
     let conn = state
         .db
@@ -29,6 +31,8 @@ pub fn record_usage(
         input_tokens,
         output_tokens,
         cost_usd,
+        column_name.as_deref(),
+        duration_seconds.unwrap_or(0),
     )
     .map_err(AppError::from)
 }

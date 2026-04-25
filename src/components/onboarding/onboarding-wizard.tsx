@@ -5,6 +5,7 @@ import type { DetectedCli } from '@/lib/ipc/cli'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { PathPicker } from '@/components/shared/path-picker'
 import { BUILT_IN_TEMPLATES } from '@/types/templates'
+import { useNativeInput } from '@/hooks/use-native-input'
 
 type OnboardingWizardProps = {
   onComplete: () => void
@@ -24,6 +25,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
   const addWorkspace = useWorkspaceStore((s) => s.add)
   const setActive = useWorkspaceStore((s) => s.setActive)
+
+  const nameInput = useNativeInput(setName)
 
   // Detect CLIs on mount
   useEffect(() => {
@@ -118,11 +121,13 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               Workspace Name
             </label>
             <input
+              ref={nameInput.ref}
               id="onboard-name"
               type="text"
               value={name}
-              onChange={(e) => { setName(e.target.value) }}
+              onChange={nameInput.handleChange}
               placeholder="My Project"
+              data-testid="onboard-name"
               className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
             />
           </div>
@@ -154,62 +159,60 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             )}
           </div>
 
-          {/* Template selector */}
-          <div>
-            <label htmlFor="onboard-template" className="mb-1 block text-xs font-medium text-text-secondary">
-              Template
-            </label>
-            <select
-              id="onboard-template"
-              value={template}
-              onChange={(e) => { setTemplate(e.target.value) }}
-              className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
-            >
-              {BUILT_IN_TEMPLATES.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.columns.length} columns)
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Agent selector */}
-          <div>
-            <label htmlFor="onboard-cli" className="mb-1 block text-xs font-medium text-text-secondary">
-              Agent
-            </label>
-            {detectedClis.length > 0 ? (
-              <div className="space-y-1.5">
-                {detectedClis.map((cli) => (
-                  <label
-                    key={cli.id}
-                    className="flex items-center gap-3 rounded-lg border border-border-default bg-bg px-3 py-2 hover:bg-surface-hover transition-colors"
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedClis.has(cli.id)}
-                      onChange={() => {
-                        setSelectedClis(prev => {
-                          const next = new Set(prev)
-                          if (next.has(cli.id)) { next.delete(cli.id) } else { next.add(cli.id) }
-                          return next
-                        })
-                      }}
-                      className="rounded border-border-default accent-accent"
-                    />
-                    <div className="flex-1">
-                      <span className="text-sm text-text-primary">{cli.name}</span>
-                      {cli.version && <span className="ml-2 text-xs text-text-secondary">{cli.version}</span>}
-                    </div>
-                  </label>
+          {/* Template & Agent — grouped */}
+          <div className="space-y-3 rounded-lg border border-border-default bg-bg p-3">
+            <div>
+              <label htmlFor="onboard-template" className="mb-1 block text-xs font-medium text-text-secondary">
+                Template
+              </label>
+              <select
+                id="onboard-template"
+                value={template}
+                onChange={(e) => { setTemplate(e.target.value) }}
+                className="w-full rounded-md border border-border-default bg-surface px-3 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+              >
+                {BUILT_IN_TEMPLATES.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} ({t.columns.length} columns)
+                  </option>
                 ))}
-              </div>
-            ) : (
-              <p className="rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-secondary">
-                No agent CLIs detected. You can configure one later in Settings.
-              </p>
-            )}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-text-secondary">
+                Agent
+              </label>
+              {detectedClis.length > 0 ? (
+                <div className="space-y-1.5">
+                  {detectedClis.map((cli) => (
+                    <label
+                      key={cli.id}
+                      className="flex items-center gap-3 rounded-md border border-border-default bg-surface px-3 py-1.5 cursor-pointer hover:bg-surface-hover transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedClis.has(cli.id)}
+                        onChange={() => {
+                          setSelectedClis(prev => {
+                            const next = new Set(prev)
+                            if (next.has(cli.id)) { next.delete(cli.id) } else { next.add(cli.id) }
+                            return next
+                          })
+                        }}
+                        className="rounded border-border-default accent-accent"
+                      />
+                      <span className="text-sm text-text-primary">{cli.name}</span>
+                      {cli.version && <span className="ml-auto text-xs text-text-secondary">{cli.version}</span>}
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-md border border-border-default bg-surface px-3 py-1.5 text-sm text-text-secondary">
+                  No agent CLIs detected. You can configure one later in Settings.
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Error */}
@@ -222,8 +225,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             type="button"
             onClick={() => { void handleCreate() }}
             disabled={!canCreate}
-            className="mt-2 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
-            style={{ cursor: canCreate ? 'pointer' : 'not-allowed' }}
+            className="mt-2 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isCreating ? 'Creating workspace...' : 'Create Workspace'}
           </button>

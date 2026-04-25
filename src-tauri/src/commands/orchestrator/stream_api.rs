@@ -229,6 +229,8 @@ pub(super) async fn stream_via_api(
             response.usage.input_tokens,
             response.usage.output_tokens,
             cost,
+            None,
+            0,
         );
 
         let _ = db::update_orchestrator_session(&conn, orch_session_id, Some("idle"), None);

@@ -16,7 +16,7 @@ export const EventChannels = {
 
 export interface PtyOutputPayload {
   task_id: string
-  data: string // base64-encoded raw PTY bytes
+  data: string  // base64-encoded raw PTY bytes
 }
 
 export interface PtyExitPayload {
@@ -53,15 +53,6 @@ export interface GitChangesPayload {
 export interface WorkspaceUpdatedPayload {
   workspace_id: string
   name?: string | null
-}
-
-export interface WorkspaceScopedEventPayload {
-  workspaceId?: string
-  workspace_id?: string
-}
-
-export function getWorkspaceEventId(payload: WorkspaceScopedEventPayload): string | undefined {
-  return payload.workspaceId ?? payload.workspace_id
 }
 
 // ─── Discriminated union for all events ────────────────────────────────────

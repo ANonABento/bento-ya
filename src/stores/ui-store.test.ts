@@ -3,24 +3,19 @@ import { useUIStore } from './ui-store'
 
 describe('ui-store', () => {
   beforeEach(() => {
-    useUIStore.setState({ panelView: 'chat' })
+    useUIStore.setState({ isPanelCollapsed: false })
   })
 
-  describe('panelView', () => {
-    it('defaults to chat', () => {
-      expect(useUIStore.getState().panelView).toBe('chat')
+  describe('togglePanel', () => {
+    it('defaults to not collapsed', () => {
+      expect(useUIStore.getState().isPanelCollapsed).toBe(false)
     })
 
-    it('setPanelView switches to detail', () => {
-      useUIStore.getState().setPanelView('detail')
-      expect(useUIStore.getState().panelView).toBe('detail')
-    })
-
-    it('togglePanelView flips chat <-> detail', () => {
-      useUIStore.getState().togglePanelView()
-      expect(useUIStore.getState().panelView).toBe('detail')
-      useUIStore.getState().togglePanelView()
-      expect(useUIStore.getState().panelView).toBe('chat')
+    it('togglePanel collapses and expands', () => {
+      useUIStore.getState().togglePanel()
+      expect(useUIStore.getState().isPanelCollapsed).toBe(true)
+      useUIStore.getState().togglePanel()
+      expect(useUIStore.getState().isPanelCollapsed).toBe(false)
     })
   })
 })

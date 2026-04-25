@@ -6,9 +6,16 @@
 
 import { useState, useCallback } from 'react'
 import { SelectorDropdown, SelectorButton } from './selector-dropdown'
-import { LEVEL_ORDER, THINKING_LEVELS, type ThinkingLevel } from './thinking-utils'
+import type { ThinkingLevel } from './thinking-utils'
 
-export type { ThinkingLevel } from './thinking-utils'
+const THINKING_LEVELS = [
+  { id: 'none', label: 'None', description: 'No extended thinking', cliValue: undefined },
+  { id: 'low', label: 'Low', description: 'Brief reasoning', cliValue: 'low' },
+  { id: 'medium', label: 'Medium', description: 'Moderate depth', cliValue: 'medium' },
+  { id: 'high', label: 'High', description: 'Deep analysis', cliValue: 'high' },
+] as const
+
+const LEVEL_ORDER = ['none', 'low', 'medium', 'high'] as const
 
 interface ThinkingSelectorProps {
   value: ThinkingLevel

@@ -14,14 +14,6 @@ import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
 
-type ColumnProps = {
-  column: ColumnType
-  columnIndex: number
-  columnCount: number
-  autoOpenConfig?: boolean
-  onConfigOpened?: () => void
-}
-
 type BatchQueueLocalState = {
   isQueuing: boolean
   total: number
@@ -29,19 +21,25 @@ type BatchQueueLocalState = {
   queuedTaskIds: string[]
 }
 
-export const Column = memo(function Column(props: ColumnProps) {
-  const { column, columnIndex, columnCount } = props
+type ColumnProps = {
+  column: ColumnType
+  autoOpenConfig?: boolean
+  onConfigOpened?: () => void
+}
+
+export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpened }: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
   const getScriptName = useScriptStore((s) => s.getScriptName)
-  const isBacklog = columnIndex === 0 || column.name.toLowerCase() === 'backlog'
 
   // Memoize filtered tasks to prevent infinite loops
   const tasks = useMemo(
-    () => allTasks.filter((t) => t.columnId === column.id).sort((a, b) => a.position - b.position),
-    [allTasks, column.id],
+    () => allTasks
+      .filter((t) => t.columnId === column.id)
+      .sort((a, b) => a.position - b.position),
+    [allTasks, column.id]
   )
   const taskIds = useMemo(() => tasks.map((t) => t.id), [tasks])
 
@@ -57,12 +55,8 @@ export const Column = memo(function Column(props: ColumnProps) {
     const scriptName = getScriptName(scriptId)
     if (!scriptName) return undefined
 
-    const event =
-      entryIsScript && exitIsScript
-        ? ('both' as const)
-        : entryIsScript
-          ? ('entry' as const)
-          : ('exit' as const)
+    const event = entryIsScript && exitIsScript ? 'both' as const
+      : entryIsScript ? 'entry' as const : 'exit' as const
     return { scriptName, event }
   }, [column, getScriptName])
 
@@ -71,36 +65,28 @@ export const Column = memo(function Column(props: ColumnProps) {
   const [showAddTask, setShowAddTask] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const addTaskInputRef = useRef<HTMLInputElement>(null)
-  const hasAutoOpenedConfigRef = useRef(false)
 
   // Batch queue state
-  const [batchQueueState, setBatchQueueState] = useState<BatchQueueLocalState>({
-    isQueuing: false,
-    total: 0,
-    completed: 0,
-    queuedTaskIds: [],
-  })
+  const [batchQueueState, setBatchQueueState] = useState<BatchQueueLocalState>(
+    { isQueuing: false, total: 0, completed: 0, queuedTaskIds: [] }
+  )
 
   // Track completed tasks when batch queue is active
   useEffect(() => {
     if (!batchQueueState.isQueuing || batchQueueState.queuedTaskIds.length === 0) return
-    const completedCount = batchQueueState.queuedTaskIds.filter((id) => {
-      const task = allTasks.find((t) => t.id === id)
-      return task && task.agentStatus !== 'queued'
-    }).length
+    const completedCount = batchQueueState.queuedTaskIds.filter(
+      (id) => {
+        const task = allTasks.find((t) => t.id === id)
+        return task && task.agentStatus !== 'queued'
+      }
+    ).length
     if (completedCount !== batchQueueState.completed) {
       setBatchQueueState((prev) => ({ ...prev, completed: completedCount }))
     }
     if (completedCount === batchQueueState.total) {
       setBatchQueueState({ isQueuing: false, total: 0, completed: 0, queuedTaskIds: [] })
     }
-  }, [
-    allTasks,
-    batchQueueState.isQueuing,
-    batchQueueState.queuedTaskIds,
-    batchQueueState.total,
-    batchQueueState.completed,
-  ])
+  }, [allTasks, batchQueueState.isQueuing, batchQueueState.queuedTaskIds, batchQueueState.total, batchQueueState.completed])
 
   const handleRunAll = useCallback(async () => {
     const ids = tasks.map((t) => t.id)
@@ -126,7 +112,14 @@ export const Column = memo(function Column(props: ColumnProps) {
     setBatchQueueState({ isQueuing: false, total: 0, completed: 0, queuedTaskIds: [] })
   }, [batchQueueState.queuedTaskIds, allTasks])
 
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
     id: column.id,
     data: { type: 'column' },
   })
@@ -148,27 +141,18 @@ export const Column = memo(function Column(props: ColumnProps) {
       addTaskInputRef.current?.focus()
       const el = addTaskInputRef.current
       if (!el) return
-      const handler = () => {
-        setNewTaskTitle(el.value)
-      }
+      const handler = () => { setNewTaskTitle(el.value) }
       el.addEventListener('input', handler)
-      return () => {
-        el.removeEventListener('input', handler)
-      }
+      return () => { el.removeEventListener('input', handler) }
     }
   }, [showAddTask])
 
+  // Auto-open config dialog for newly created columns
   useEffect(() => {
-    if (!autoOpenConfig) {
-      hasAutoOpenedConfigRef.current = false
-      return
+    if (autoOpenConfig) {
+      setShowConfigDialog(true)
+      onConfigOpened?.()
     }
-
-    if (hasAutoOpenedConfigRef.current) return
-
-    hasAutoOpenedConfigRef.current = true
-    setShowConfigDialog(true)
-    onConfigOpened?.()
   }, [autoOpenConfig, onConfigOpened])
 
   const handleConfigure = useCallback(() => {
@@ -215,30 +199,20 @@ export const Column = memo(function Column(props: ColumnProps) {
           isDragging ? 'opacity-50' : ''
         }`}
       >
-        <div {...attributes} {...listeners} style={{ cursor: isDragging ? 'grabbing' : 'grab' }}>
+        <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
           <ColumnHeader
             name={column.name}
             icon={column.icon || 'list'}
-            columnIndex={columnIndex}
-            columnCount={columnCount}
             taskCount={tasks.length}
             color={column.color}
             scriptTrigger={scriptTrigger}
-            isBacklog={isBacklog}
-            batchQueue={
-              batchQueueState.isQueuing
-                ? { total: batchQueueState.total, completed: batchQueueState.completed }
-                : undefined
-            }
+            isBacklog={column.position === 0}
+            batchQueue={batchQueueState.isQueuing ? { total: batchQueueState.total, completed: batchQueueState.completed } : undefined}
             onConfigure={handleConfigure}
             onDelete={handleDelete}
             onAddTask={handleAddTask}
-            onRunAll={() => {
-              void handleRunAll()
-            }}
-            onCancelQueue={() => {
-              void handleCancelQueue()
-            }}
+            onRunAll={() => { void handleRunAll(); }}
+            onCancelQueue={() => { void handleCancelQueue(); }}
           />
         </div>
 
@@ -263,9 +237,7 @@ export const Column = memo(function Column(props: ColumnProps) {
                       ref={addTaskInputRef}
                       type="text"
                       value={newTaskTitle}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                        setNewTaskTitle(e.target.value)
-                      }}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => { setNewTaskTitle(e.target.value); }}
                       data-testid="add-task-input"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') void handleSubmitTask()
@@ -296,9 +268,7 @@ export const Column = memo(function Column(props: ColumnProps) {
 
             {tasks.length === 0 && !showAddTask ? (
               <div className="flex flex-1 items-center justify-center min-h-[100px]">
-                <p
-                  className={`text-xs transition-colors ${isOver ? 'text-accent' : 'text-text-secondary/50'}`}
-                >
+                <p className={`text-xs transition-colors ${isOver ? 'text-accent' : 'text-text-secondary/50'}`}>
                   {isOver ? 'Drop here' : 'No tasks yet'}
                 </p>
               </div>
@@ -313,9 +283,7 @@ export const Column = memo(function Column(props: ColumnProps) {
       {showConfigDialog && (
         <ColumnConfigDialog
           column={column}
-          onClose={() => {
-            setShowConfigDialog(false)
-          }}
+          onClose={() => { setShowConfigDialog(false); }}
         />
       )}
 
@@ -323,27 +291,23 @@ export const Column = memo(function Column(props: ColumnProps) {
       {showDeleteConfirm && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={() => {
-            setShowDeleteConfirm(false)
-          }}
+          onClick={() => { setShowDeleteConfirm(false); }}
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            onClick={(e) => {
-              e.stopPropagation()
-            }}
+            onClick={(e) => { e.stopPropagation(); }}
             className="w-full max-w-sm rounded border border-border-default bg-surface p-6 shadow-xl"
           >
-            <h3 className="mb-2 text-lg font-semibold text-text-primary">Delete Column?</h3>
+            <h3 className="mb-2 text-lg font-semibold text-text-primary">
+              Delete Column?
+            </h3>
             <p className="mb-4 text-sm text-text-secondary">
               This column has {tasks.length} task(s). Deleting it will also remove all tasks.
             </p>
             <div className="flex justify-end gap-2">
               <button
-                onClick={() => {
-                  setShowDeleteConfirm(false)
-                }}
+                onClick={() => { setShowDeleteConfirm(false); }}
                 className="rounded px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
               >
                 Cancel

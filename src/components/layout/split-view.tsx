@@ -4,7 +4,6 @@ import { useUIStore } from '@/stores/ui-store'
 import { useResizablePanel } from '@/hooks/use-resizable-panel'
 import { ResizeHandle } from '@/components/shared/resize-handle'
 import { AgentPanel } from '@/components/panel/agent-panel'
-import { TaskDetailPanel } from '@/components/task-detail/task-detail-panel'
 
 const SPRING = { type: 'spring' as const, stiffness: 300, damping: 28 }
 
@@ -21,8 +20,6 @@ export function TaskSidePanel({
 
   const agentPanelWidth = useUIStore((s) => s.agentPanelWidth)
   const setAgentPanelWidth = useUIStore((s) => s.setAgentPanelWidth)
-  const panelView = useUIStore((s) => s.panelView)
-  const setPanelView = useUIStore((s) => s.setPanelView)
 
   const { handleMouseDown: handleResize, isDragging } = useResizablePanel({
     direction: 'horizontal',
@@ -47,19 +44,7 @@ export function TaskSidePanel({
             position="left"
             onMouseDown={handleResize}
           />
-          {panelView === 'detail' ? (
-            <TaskDetailPanel
-              task={task}
-              onClose={onClose}
-              onSwitchToTerminal={() => { setPanelView('chat') }}
-            />
-          ) : (
-            <AgentPanel
-              task={task}
-              onClose={onClose}
-              onSwitchToDetail={() => { setPanelView('detail') }}
-            />
-          )}
+          <AgentPanel task={task} onClose={onClose} />
         </motion.div>
       )}
     </AnimatePresence>

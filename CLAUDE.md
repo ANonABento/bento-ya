@@ -49,12 +49,7 @@ Unified hook serving both agent (per-task) and orchestrator (workspace-level) ch
 
 Columns define `on_entry`/`on_exit` triggers. Tasks can override. See `.tickets/_docs/TRIGGERS.md`.
 
-- `mod.rs` — Thin facade that re-exports the pipeline API
-- `engine.rs` — `fire_trigger()` routing + `try_auto_advance()`
-- `completion.rs` — completion/retry/error handling
-- `exit.rs` — exit criteria parsing + evaluation
-- `events.rs` — typed backend-to-frontend pipeline events
-- `state.rs` — shared pipeline state + completion decisions
+- `mod.rs` — `fire_trigger()` routes V2 triggers (JSON). V1 legacy removed.
 - `triggers.rs` — V2 trigger types + execution
 - `template.rs` — Prompt variable interpolation (`{task.title}`, `{workspace.path}`, etc.)
 - `dependencies.rs` — Task dependency resolution, `on_met` actions
@@ -67,7 +62,7 @@ Columns define `on_entry`/`on_exit` triggers. Tasks can override. See `.tickets/
 
 **Auto-retry:** When `max_retries` is set on exit criteria, failed triggers automatically re-fire up to N times. Retry count tracked per-task, resets on success.
 
-**Trigger execution:** All trigger types execute directly in the backend via `chat::bridge::spawn_cli_trigger_task()`. No frontend round-trip.
+**Trigger execution:** `spawn_cli` triggers run CLI agents as **direct child processes** via `chat::bridge::spawn_cli_trigger_task()`. The CLI command is executed with `bash -c` as a `tokio::process::Command`, with stdout/stderr captured to a log file. No tmux, no PTY bridge — just process spawn + wait. Exit code determines success/failure. 2-hour timeout kills the process if it hangs. Concurrent limit: max 3 agents per workspace (see `DEFAULT_MAX_CONCURRENT_AGENTS` in triggers.rs).
 
 **Worktree-aware cwd:** `resolve_working_dir()` in triggers.rs picks `task.worktree_path` (if set and exists) over `workspace.repo_path`. Used by `spawn_cli`, `run_script`, and `create_pr` actions. Template variable: `{task.worktree_path}`.
 
@@ -93,9 +88,28 @@ Transport abstraction + session layer with tmux-managed terminal sessions:
 - `pipe_transport.rs` — `PipeTransport` (structured JSON streaming, chat bubbles)
 - `session.rs` — `UnifiedChatSession` (lifecycle: idle/running/suspended, resume ID tracking, pipe + PTY modes)
 - `registry.rs` — `SessionRegistry` (max 20 sessions configurable, LRU eviction, idle sweep, bridge tracking)
-- `bridge.rs` — `ManagedBridge` (single bridge per task, broadcast-based) + trigger runner (`spawn_cli_trigger_task` via tmux send-keys + wait-for)
-- `gc.rs` — Garbage collector (periodic tmux session cleanup, orphan detection, idle kill)
+- `bridge.rs` — `ManagedBridge` (single bridge per task, broadcast-based) + `spawn_cli_trigger_task` (direct process execution for pipeline triggers — no tmux)
+- `gc.rs` — Garbage collector (periodic tmux session cleanup for interactive sessions, orphan detection, idle kill; skips tasks with active pipelines)
 - `chef.rs` — ChefSession layer (orchestrator capabilities)
+
+### Agent Execution Modes
+
+Two distinct execution modes for running CLI agents:
+
+**Pipeline mode (automated triggers):**
+- Direct child process via `tokio::process::Command`
+- `bash -c "{cli_command}"` with stdout/stderr to log file
+- No tmux, no PTY, no terminal bridge
+- Process exit code determines success/failure
+- 2-hour timeout with process kill on expiry
+- Concurrent limit: max 3 per workspace (queued tasks auto-promote)
+- Used by: `spawn_cli` column triggers
+
+**Interactive mode (user opens terminal panel):**
+- tmux session + PTY attach + ManagedBridge
+- Live terminal output streamed to frontend via Tauri events
+- xterm.js rendering in the app's terminal panel
+- Used by: manual agent runs, terminal panel clicks
 
 ### Terminal View (tmux-backed)
 
@@ -167,7 +181,7 @@ Unified automation layer for task lifecycle. Columns define `on_entry`/`on_exit`
 - `src/components/kanban/column-config-dialog.tsx` — Column trigger config UI
 - `src/components/kanban/task-settings-modal.tsx` — Task-level overrides
 
-**How triggers route:** `fire_trigger()` is re-exported from `pipeline/mod.rs` and implemented in `pipeline/engine.rs`. It checks `column.triggers` JSON (V2 only). Legacy V1 trigger_config/exit_config columns have been dropped from the DB.
+**How triggers route:** `fire_trigger()` in `pipeline/mod.rs` checks `column.triggers` JSON (V2 only). Legacy V1 trigger_config/exit_config columns have been dropped from the DB.
 
 **Dependencies (DAG):** Tasks can depend on other tasks with cycle detection (DFS). Visual SVG bezier lines on the board show dependency relationships. Conditions: `completed`, `moved_to_column`, `agent_complete`. When a blocker completes, `check_dependents()` finds dependents, checks if ALL deps met, executes `on_met` actions. Interactive editor in task settings modal (L key shortcut). Blocked cards show "Waiting for: Task A".
 

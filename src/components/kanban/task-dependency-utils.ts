@@ -1,4 +1,4 @@
-import type { Dependency } from './task-dependencies-tab'
+import type { Dependency } from './task-dependency-parsers'
 
 export function parseOverrides(json: string | null): Record<string, unknown> {
   if (!json) return {}

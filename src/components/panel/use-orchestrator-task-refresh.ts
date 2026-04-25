@@ -1,6 +1,9 @@
 import { useEffect } from 'react'
-import { listen } from '@/lib/ipc'
-import { getWorkspaceEventId, type WorkspaceScopedEventPayload } from '@/types/events'
+import { listen } from '@tauri-apps/api/event'
+
+type TaskEventPayload = {
+  workspaceId?: string
+}
 
 export function useOrchestratorTaskRefresh(
   workspaceId: string,
@@ -10,28 +13,25 @@ export function useOrchestratorTaskRefresh(
     const unsubscribes: Array<() => void> = []
 
     const setupListeners = async () => {
-      const refreshIfMatches = (payload: WorkspaceScopedEventPayload) => {
-        if (getWorkspaceEventId(payload) === workspaceId) {
+      const refreshIfMatches = (payload: TaskEventPayload) => {
+        if (payload.workspaceId === workspaceId) {
           void refreshTasks(workspaceId)
         }
       }
 
-      const unsubTaskCreated = await listen<WorkspaceScopedEventPayload>(
-        'task:created',
-        refreshIfMatches,
-      )
+      const unsubTaskCreated = await listen('task:created', (event) => {
+        refreshIfMatches(event.payload as TaskEventPayload)
+      })
       unsubscribes.push(unsubTaskCreated)
 
-      const unsubTaskUpdated = await listen<WorkspaceScopedEventPayload>(
-        'task:updated',
-        refreshIfMatches,
-      )
+      const unsubTaskUpdated = await listen('task:updated', (event) => {
+        refreshIfMatches(event.payload as TaskEventPayload)
+      })
       unsubscribes.push(unsubTaskUpdated)
 
-      const unsubTaskDeleted = await listen<WorkspaceScopedEventPayload>(
-        'task:deleted',
-        refreshIfMatches,
-      )
+      const unsubTaskDeleted = await listen('task:deleted', (event) => {
+        refreshIfMatches(event.payload as TaskEventPayload)
+      })
       unsubscribes.push(unsubTaskDeleted)
     }
 

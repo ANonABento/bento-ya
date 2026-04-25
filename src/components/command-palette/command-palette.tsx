@@ -74,8 +74,8 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActive)
-  const openTask = useUIStore((s) => s.openTask)
-  const closeTask = useUIStore((s) => s.closeTask)
+  const focusTask = useUIStore((s) => s.focusTask)
+  const closeChat = useUIStore((s) => s.closeChat)
   const activeTaskId = useUIStore((s) => s.activeTaskId)
   const togglePanel = useUIStore((s) => s.togglePanel)
   const openSettings = useSettingsStore((s) => s.openSettings)
@@ -91,7 +91,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
         id: `nav-task-${task.id}`,
         label: `Go to task: ${task.title}`,
         category: 'Navigation',
-        action: () => { openTask(task.id) },
+        action: () => { focusTask(task.id) },
       })
     }
 
@@ -101,7 +101,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
       label: 'Go to board view',
       category: 'Navigation',
       shortcut: ['Esc'],
-      action: () => { closeTask() },
+      action: () => { closeChat() },
     })
 
     // Tasks: create new
@@ -188,7 +188,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
     }
 
     return cmds
-  }, [tasks, columns, workspaces, activeWorkspaceId, activeTaskId, search, openTask, closeTask, addTask, duplicateTask, setActiveWorkspace, togglePanel, openSettings, setActiveTab, onShowShortcuts])
+  }, [tasks, columns, workspaces, activeWorkspaceId, activeTaskId, search, focusTask, closeChat, addTask, duplicateTask, setActiveWorkspace, togglePanel, openSettings, setActiveTab, onShowShortcuts])
 
   // Filter commands
   const filtered = useMemo(() => {
@@ -315,10 +315,9 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
                         else itemRefs.current.delete(idx)
                       }}
                       onClick={() => { executeCommand(cmd) }}
-                      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                      className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
                         isSelected ? 'bg-surface-hover text-text-primary' : 'text-text-primary hover:bg-surface-hover'
                       }`}
-                      style={{ cursor: 'pointer' }}
                     >
                       <span className="text-text-secondary">
                         {cmd.icon ?? CATEGORY_ICONS[cmd.category]}
@@ -326,12 +325,12 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
                       <span className="flex-1 truncate">{cmd.label}</span>
                       {cmd.shortcut && (
                         <div className="flex items-center gap-0.5">
-                          {cmd.shortcut.map((key, j, arr) => (
+                          {cmd.shortcut.map((key, j) => (
                             <span key={j}>
                               <kbd className="rounded bg-bg px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
                                 {key}
                               </kbd>
-                              {j < arr.length - 1 && (
+                              {j < (cmd.shortcut?.length ?? 0) - 1 && (
                                 <span className="mx-0.5 text-[10px] text-text-secondary">+</span>
                               )}
                             </span>
