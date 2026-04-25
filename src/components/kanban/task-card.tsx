@@ -53,8 +53,11 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   // Live agent streaming data
   const agentStream = useAgentStreamingStore((s) => s.streams.get(task.id))
 
-  // All action handlers
+  // All action handlers. Destructure the ones we wrap in useCallbacks so their
+  // deps point at the stable inner refs rather than the actions object (which
+  // is a fresh literal each render and would defeat the TaskQuickActions memo).
   const actions = useTaskCardActions(task)
+  const { handleMoveToColumn, handleRetryPipeline, handleDeleteTask } = actions
 
   const { registerCard } = useCardPosition()
   const { onDepDragStart, setHoveredTaskId, hoveredTaskId } = useDepDragContext()
@@ -95,19 +98,21 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     }
   }, [task.prLabels])
 
-  function handleClick() {
+  // Stable refs so memoized children (TaskQuickActions) actually skip re-render
+  // when only hover/dim state changes on the parent card.
+  const handleClick = useCallback(() => {
     if (hasAttention) {
       markViewed(task.id)
     }
     openTask(task.id)
-  }
+  }, [hasAttention, markViewed, openTask, task.id])
 
-  function handlePrClick(e: React.MouseEvent) {
+  const handlePrClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     if (task.prUrl) {
       window.open(task.prUrl, '_blank')
     }
-  }
+  }, [task.prUrl])
 
   // Right-click and the "More" button open the same menu at the cursor.
   const openContextMenuAt = useCallback((e: React.MouseEvent) => {
@@ -138,11 +143,11 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
 
   const handleMoveNext = useCallback(() => {
     if (nextColumnId) {
-      actions.handleMoveToColumn(nextColumnId)
+      handleMoveToColumn(nextColumnId)
     }
-  }, [nextColumnId, actions])
+  }, [nextColumnId, handleMoveToColumn])
 
-  const handleRetry = useCallback(() => { void actions.handleRetryPipeline() }, [actions])
+  const handleRetry = useCallback(() => { void handleRetryPipeline() }, [handleRetryPipeline])
 
   const [deleteConfirmPending, setDeleteConfirmPending] = useState(false)
   const deleteConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -165,7 +170,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       deleteConfirmTimerRef.current = null
     }
     if (deleteConfirmPending) {
-      actions.handleDeleteTask()
+      handleDeleteTask()
       setDeleteConfirmPending(false)
     } else {
       setDeleteConfirmPending(true)
@@ -174,7 +179,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         deleteConfirmTimerRef.current = null
       }, DELETE_CONFIRM_TIMEOUT_MS)
     }
-  }, [deleteConfirmPending, actions])
+  }, [deleteConfirmPending, handleDeleteTask])
 
   const needsAttention = hasAttention || task.agentStatus === 'needs_attention'
   const isPipelineActive = task.pipelineState !== 'idle'
