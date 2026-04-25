@@ -36,26 +36,19 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const [settingsTab, setSettingsTab] = useState<'triggers' | 'dependencies'>('triggers')
   const columns = useColumnStore((s) => s.columns)
 
-  // Get exit criteria type for this task's column
-  const columnTriggers = useMemo(() => {
+  // Resolve trigger info for this task's column once. `columnHasTrigger` decides
+  // whether the Run button is meaningful — a manual-only column has nothing to
+  // spawn, so showing Play would be misleading.
+  const { exitCriteria, columnHasTrigger } = useMemo(() => {
     const col = columns.find(c => c.id === task.columnId)
-    if (!col) return null
-    const triggers = getColumnTriggers(col)
-    return triggers.exit_criteria ?? null
-  }, [columns, task.columnId])
-
-  // Whether this column defines any on_entry/on_exit trigger. Used to decide
-  // if the Run button means anything here — a manual-only column has nothing
-  // to spawn, so showing Play would be misleading.
-  const columnHasTrigger = useMemo(() => {
-    const col = columns.find(c => c.id === task.columnId)
-    if (!col) return false
+    if (!col) return { exitCriteria: null, columnHasTrigger: false }
     const t = getColumnTriggers(col)
-    return (t.on_entry?.type ?? 'none') !== 'none'
-        || (t.on_exit?.type ?? 'none') !== 'none'
+    const hasTrigger = (t.on_entry?.type ?? 'none') !== 'none'
+                    || (t.on_exit?.type ?? 'none') !== 'none'
+    return { exitCriteria: t.exit_criteria ?? null, columnHasTrigger: hasTrigger }
   }, [columns, task.columnId])
 
-  const isQualityGate = columnTriggers?.type === 'manual_approval'
+  const isQualityGate = exitCriteria?.type === 'manual_approval'
 
   // Live agent streaming data
   const agentStream = useAgentStreamingStore((s) => s.streams.get(task.id))
@@ -241,14 +234,16 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
             break
           case 'r':
           case 'R':
-            e.preventDefault()
             if (task.pipelineError) {
+              e.preventDefault()
               handleRetry()
             }
             break
           case 'ArrowRight':
-            e.preventDefault()
-            handleMoveNext()
+            if (nextColumnId) {
+              e.preventDefault()
+              handleMoveNext()
+            }
             break
           case 'Delete':
           case 'Backspace':
