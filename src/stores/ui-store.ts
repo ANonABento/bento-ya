@@ -11,6 +11,8 @@ type ModalState = {
   props?: Record<string, unknown>
 } | null
 
+type ChatPanelState = Pick<UIState, 'activeTaskId' | 'viewMode'>
+
 // Panel constants
 const DEFAULT_PANEL_HEIGHT = 300
 const MIN_PANEL_HEIGHT = 150
@@ -27,6 +29,18 @@ const MIN_BOARD_WIDTH = 400
 const DEFAULT_AGENT_PANEL_WIDTH = 500
 const MIN_AGENT_PANEL_WIDTH = 300
 const MAX_AGENT_PANEL_WIDTH = 900
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+function openChatState(taskId: string): ChatPanelState {
+  return { viewMode: 'chat', activeTaskId: taskId }
+}
+
+function closeChatState(): ChatPanelState {
+  return { viewMode: 'board', activeTaskId: null }
+}
 
 function getMaxAgentPanelWidth(): number {
   if (typeof window === 'undefined') return MAX_AGENT_PANEL_WIDTH
@@ -106,7 +120,7 @@ export const useUIStore = create<UIState>()(
         modal: null,
         panelHeight: DEFAULT_PANEL_HEIGHT,
         panelWidth: DEFAULT_PANEL_WIDTH,
-        panelDock: 'bottom' as PanelDock,
+        panelDock: 'bottom',
         isPanelCollapsed: false,
         agentPanelWidth: DEFAULT_AGENT_PANEL_WIDTH,
         agentPanelDock: 'right' as AgentPanelDock,
@@ -133,16 +147,16 @@ export const useUIStore = create<UIState>()(
 
         // Chat panel (right slide-in)
         openChat: (taskId) => {
-          set({ viewMode: 'chat', activeTaskId: taskId })
+          set(openChatState(taskId))
         },
 
         closeChat: () => {
-          set({ viewMode: 'board', activeTaskId: null })
+          set(closeChatState())
         },
 
         // Deprecated aliases
-        openTask: (taskId) => { set({ viewMode: 'chat', activeTaskId: taskId }) },
-        closeTask: () => { set({ viewMode: 'board', activeTaskId: null }) },
+        openTask: (taskId) => { set(openChatState(taskId)) },
+        closeTask: () => { set(closeChatState()) },
 
         openModal: (type, props) => {
           set({ modal: { type, props } })
@@ -154,14 +168,12 @@ export const useUIStore = create<UIState>()(
 
         setPanelHeight: (height) => {
           const max = getMaxPanelHeight()
-          const clamped = Math.min(Math.max(height, MIN_PANEL_HEIGHT), max)
-          set({ panelHeight: clamped })
+          set({ panelHeight: clamp(height, MIN_PANEL_HEIGHT, max) })
         },
 
         setPanelWidth: (width) => {
           const max = getMaxPanelWidth()
-          const clamped = Math.min(Math.max(width, MIN_PANEL_WIDTH), max)
-          set({ panelWidth: clamped })
+          set({ panelWidth: clamp(width, MIN_PANEL_WIDTH, max) })
         },
 
         setPanelDock: (dock) => {
@@ -182,8 +194,7 @@ export const useUIStore = create<UIState>()(
 
         setAgentPanelWidth: (width) => {
           const max = getMaxAgentPanelWidth()
-          const clamped = Math.min(Math.max(width, MIN_AGENT_PANEL_WIDTH), max)
-          set({ agentPanelWidth: clamped })
+          set({ agentPanelWidth: clamp(width, MIN_AGENT_PANEL_WIDTH, max) })
         },
 
         setAgentPanelDock: (dock) => {

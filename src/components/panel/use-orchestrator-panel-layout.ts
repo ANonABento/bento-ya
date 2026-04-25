@@ -29,7 +29,7 @@ export function useOrchestratorPanelLayout() {
   }, [isPanelCollapsed, isRightDock, panelHeight, panelWidth])
 
   const handleHeaderClick = useCallback((e: ReactMouseEvent) => {
-    if ((e.target as HTMLElement).closest('button')) return
+    if ((e.target as HTMLElement).closest('[data-orchestrator-header-action]')) return
     togglePanel()
   }, [togglePanel])
 

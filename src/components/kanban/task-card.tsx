@@ -198,14 +198,33 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const handleRetry = useCallback(() => { void actions.handleRetryPipeline() }, [actions])
 
   const [deleteConfirmPending, setDeleteConfirmPending] = useState(false)
+  const deleteConfirmTimeoutRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (deleteConfirmTimeoutRef.current !== null) {
+        window.clearTimeout(deleteConfirmTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const handleDeleteWithConfirm = useCallback(() => {
     if (deleteConfirmPending) {
+      if (deleteConfirmTimeoutRef.current !== null) {
+        window.clearTimeout(deleteConfirmTimeoutRef.current)
+        deleteConfirmTimeoutRef.current = null
+      }
       actions.handleDeleteTask()
       setDeleteConfirmPending(false)
     } else {
       setDeleteConfirmPending(true)
-      setTimeout(() => { setDeleteConfirmPending(false) }, 2000)
+      if (deleteConfirmTimeoutRef.current !== null) {
+        window.clearTimeout(deleteConfirmTimeoutRef.current)
+      }
+      deleteConfirmTimeoutRef.current = window.setTimeout(() => {
+        deleteConfirmTimeoutRef.current = null
+        setDeleteConfirmPending(false)
+      }, 2000)
     }
   }, [deleteConfirmPending, actions])
 
