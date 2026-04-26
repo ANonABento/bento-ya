@@ -1,4 +1,4 @@
-import { memo, useState, useCallback } from 'react'
+import { memo, useCallback, useState } from 'react'
 import type { Task } from '@/types'
 
 const CONFIRM_TIMEOUT_MS = 2000
@@ -6,6 +6,7 @@ const CONFIRM_TIMEOUT_MS = 2000
 type TaskQuickActionsProps = {
   task: Task
   hasNextColumn: boolean
+  deleteConfirmPending?: boolean
   onOpen: () => void
   onToggleAgent: () => void
   onRetry: () => void
@@ -17,6 +18,7 @@ type TaskQuickActionsProps = {
 export const TaskQuickActions = memo(function TaskQuickActions({
   task,
   hasNextColumn,
+  deleteConfirmPending,
   onOpen,
   onToggleAgent,
   onRetry,
@@ -26,20 +28,24 @@ export const TaskQuickActions = memo(function TaskQuickActions({
 }: TaskQuickActionsProps) {
   const isRunning = task.agentStatus === 'running'
   const hasError = !!task.pipelineError
-
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [internalConfirmDelete, setInternalConfirmDelete] = useState(false)
+  const isDeleteConfirmPending = deleteConfirmPending ?? internalConfirmDelete
 
   const handleDelete = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
-    if (confirmDelete) {
+    if (deleteConfirmPending !== undefined) {
       onDelete()
-      setConfirmDelete(false)
-    } else {
-      setConfirmDelete(true)
-      // Auto-dismiss after 2s
-      setTimeout(() => { setConfirmDelete(false) }, CONFIRM_TIMEOUT_MS)
+      return
     }
-  }, [confirmDelete, onDelete])
+
+    if (internalConfirmDelete) {
+      onDelete()
+      setInternalConfirmDelete(false)
+    } else {
+      setInternalConfirmDelete(true)
+      setTimeout(() => { setInternalConfirmDelete(false) }, CONFIRM_TIMEOUT_MS)
+    }
+  }, [deleteConfirmPending, internalConfirmDelete, onDelete])
 
   return (
     <div
@@ -109,11 +115,11 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       <button
         onClick={handleDelete}
         className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
-          confirmDelete
+          isDeleteConfirmPending
             ? 'text-error bg-error/20'
             : 'text-text-secondary hover:bg-error/20 hover:text-error'
         }`}
-        title={confirmDelete ? 'Click again to confirm' : 'Delete task (Del)'}
+        title={isDeleteConfirmPending ? 'Click again to confirm' : 'Delete task (Del)'}
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM7.5 3.75c0-.69.56-1.25 1.25-1.25h2.5c.69 0 1.25.56 1.25 1.25V4.1a40.3 40.3 0 0 0-5 0v-.35ZM9 7.75a.75.75 0 0 0-1.5 0v6.5a.75.75 0 0 0 1.5 0v-6.5Zm3.25-.75a.75.75 0 0 1 .75.75v6.5a.75.75 0 0 1-1.5 0v-6.5a.75.75 0 0 1 .75-.75Z" clipRule="evenodd" />

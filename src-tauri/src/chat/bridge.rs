@@ -475,7 +475,10 @@ mod tests {
     #[test]
     fn test_build_trigger_command_with_args() {
         let cmd = build_trigger_command("codex", &["--model".to_string(), "gpt-5".to_string()], "hello");
-        assert_eq!(cmd, "codex --model gpt-5 'hello'");
+        assert_eq!(
+            cmd,
+            "codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --model gpt-5 'hello'"
+        );
     }
 
     #[test]

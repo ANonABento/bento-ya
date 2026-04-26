@@ -194,15 +194,21 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         })
         listeners.push(unlistenComplete)
       } else if (mode === 'orchestrator' && workspaceId) {
+        const isCurrentOrchestratorSession = (payload: { workspaceId: string; sessionId?: string }) => {
+          if (payload.workspaceId !== workspaceId) return false
+          if (payload.sessionId && sessionId && payload.sessionId !== sessionId) return false
+          return true
+        }
+
         const unlistenProcessing = await listen<OrchestratorEvent>('orchestrator:processing', (event) => {
-          if (event.payload.workspaceId !== workspaceId) return
+          if (!isCurrentOrchestratorSession(event.payload)) return
           setStreaming((prev) => ({ ...prev, isStreaming: true, startTime: Date.now() }))
           setError(null)
         })
         listeners.push(unlistenProcessing)
 
         const unlistenStream = await listen<StreamChunkEvent>('orchestrator:stream', (event) => {
-          if (event.payload.workspaceId !== workspaceId) return
+          if (!isCurrentOrchestratorSession(event.payload)) return
           if (event.payload.finishReason) return
           if (event.payload.delta) {
             setStreaming((prev) => ({ ...prev, content: prev.content + event.payload.delta }))
@@ -211,7 +217,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         listeners.push(unlistenStream)
 
         const unlistenThinking = await listen<ThinkingEvent>('orchestrator:thinking', (event) => {
-          if (event.payload.workspaceId !== workspaceId) return
+          if (!isCurrentOrchestratorSession(event.payload)) return
           if (event.payload.isComplete) return
           if (event.payload.content) {
             setStreaming((prev) => ({ ...prev, thinkingContent: prev.thinkingContent + event.payload.content }))
@@ -220,7 +226,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         listeners.push(unlistenThinking)
 
         const unlistenToolCall = await listen<ToolCallEvent>('orchestrator:tool_call', (event) => {
-          if (event.payload.workspaceId !== workspaceId) return
+          if (!isCurrentOrchestratorSession(event.payload)) return
           const { toolId, toolName, status, input } = event.payload
           setStreaming((prev) => {
             const existing = prev.toolCalls.find((t) => t.id === toolId)
@@ -233,8 +239,8 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         })
         listeners.push(unlistenToolCall)
 
-        const unlistenToolResult = await listen<{ workspaceId: string; isError: boolean }>('orchestrator:tool_result', (event) => {
-          if (event.payload.workspaceId !== workspaceId) return
+        const unlistenToolResult = await listen<{ workspaceId: string; sessionId?: string; isError: boolean }>('orchestrator:tool_result', (event) => {
+          if (!isCurrentOrchestratorSession(event.payload)) return
           if (!event.payload.isError) {
             onToolResultRef.current?.()
           }
@@ -242,7 +248,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         listeners.push(unlistenToolResult)
 
         const unlistenComplete = await listen<OrchestratorEvent>('orchestrator:complete', (event) => {
-          if (event.payload.workspaceId !== workspaceId) return
+          if (!isCurrentOrchestratorSession(event.payload)) return
           isProcessingRef.current = false
           setStreaming(INITIAL_STREAMING_STATE)
           void loadMessagesRef.current().then(() => {
@@ -252,7 +258,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         listeners.push(unlistenComplete)
 
         const unlistenError = await listen<OrchestratorEvent>('orchestrator:error', (event) => {
-          if (event.payload.workspaceId !== workspaceId) return
+          if (!isCurrentOrchestratorSession(event.payload)) return
           isProcessingRef.current = false
           setStreaming(INITIAL_STREAMING_STATE)
           setError(event.payload.message ?? 'An error occurred')
