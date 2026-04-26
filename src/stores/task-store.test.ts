@@ -105,9 +105,10 @@ describe('task-store', () => {
       mockIpc.createTask.mockResolvedValueOnce(newTask)
       refreshWorkspace.mockResolvedValueOnce(undefined)
 
-      await useTaskStore.getState().add('ws-1', 'col-1', 'New Task', 'Description')
+      const created = await useTaskStore.getState().add('ws-1', 'col-1', 'New Task', 'Description')
 
       const state = useTaskStore.getState()
+      expect(created).toEqual(newTask)
       expect(state.tasks).toContainEqual(newTask)
       expect(mockIpc.createTask).toHaveBeenCalledWith('ws-1', 'col-1', 'New Task', 'Description')
       expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')

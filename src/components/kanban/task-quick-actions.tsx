@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useState, useCallback, useEffect, useRef } from 'react'
 import type { Task } from '@/types'
 
 const CONFIRM_TIMEOUT_MS = 2000
@@ -6,65 +6,71 @@ const CONFIRM_TIMEOUT_MS = 2000
 type TaskQuickActionsProps = {
   task: Task
   hasNextColumn: boolean
-  confirmDelete?: boolean
   onOpen: () => void
   onToggleAgent: () => void
   onRetry: () => void
   onMoveNext: () => void
   onDelete: () => void
   onShowMenu: (e: React.MouseEvent) => void
+  confirmDeletePending?: boolean
 }
 
 export const TaskQuickActions = memo(function TaskQuickActions({
   task,
   hasNextColumn,
-  confirmDelete,
   onOpen,
   onToggleAgent,
   onRetry,
   onMoveNext,
   onDelete,
   onShowMenu,
+  confirmDeletePending = false,
 }: TaskQuickActionsProps) {
   const isRunning = task.agentStatus === 'running'
   const hasError = !!task.pipelineError
-  const [internalConfirmDelete, setInternalConfirmDelete] = useState(false)
-  const internalConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isConfirmingDelete = confirmDelete ?? internalConfirmDelete
 
-  const clearInternalConfirmTimeout = useCallback(() => {
-    if (internalConfirmTimeoutRef.current) {
-      clearTimeout(internalConfirmTimeoutRef.current)
-      internalConfirmTimeoutRef.current = null
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const confirmDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isConfirmingDelete = confirmDelete || confirmDeletePending
+
+  useEffect(() => {
+    if (confirmDeleteTimerRef.current) {
+      clearTimeout(confirmDeleteTimerRef.current)
+      confirmDeleteTimerRef.current = null
     }
-  }, [])
+    setConfirmDelete(false)
 
-  useEffect(() => clearInternalConfirmTimeout, [clearInternalConfirmTimeout])
+    return () => {
+      if (confirmDeleteTimerRef.current) {
+        clearTimeout(confirmDeleteTimerRef.current)
+        confirmDeleteTimerRef.current = null
+      }
+    }
+  }, [task.id])
 
   const handleDelete = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
-    if (confirmDelete !== undefined) {
+    if (isConfirmingDelete) {
       onDelete()
-      return
+      setConfirmDelete(false)
+      if (confirmDeleteTimerRef.current) {
+        clearTimeout(confirmDeleteTimerRef.current)
+        confirmDeleteTimerRef.current = null
+      }
+    } else {
+      setConfirmDelete(true)
+      // Auto-dismiss after 2s
+      confirmDeleteTimerRef.current = setTimeout(() => {
+        setConfirmDelete(false)
+        confirmDeleteTimerRef.current = null
+      }, CONFIRM_TIMEOUT_MS)
     }
-    if (internalConfirmDelete) {
-      clearInternalConfirmTimeout()
-      onDelete()
-      setInternalConfirmDelete(false)
-      return
-    }
-    clearInternalConfirmTimeout()
-    setInternalConfirmDelete(true)
-    internalConfirmTimeoutRef.current = setTimeout(() => {
-      internalConfirmTimeoutRef.current = null
-      setInternalConfirmDelete(false)
-    }, CONFIRM_TIMEOUT_MS)
-  }, [clearInternalConfirmTimeout, confirmDelete, internalConfirmDelete, onDelete])
+  }, [isConfirmingDelete, onDelete])
+
   return (
     <div
       className="absolute right-1 top-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
       onClick={(e) => { e.stopPropagation(); }}
-      onKeyDown={(e) => { e.stopPropagation(); }}
     >
       {/* Open in panel */}
       <button

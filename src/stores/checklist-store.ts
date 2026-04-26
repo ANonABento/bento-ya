@@ -33,10 +33,7 @@ type ChecklistState = {
   toggleItem: (itemId: string, categoryId: string) => void
   toggleCategory: (categoryId: string) => void
   updateItemNotes: (itemId: string, categoryId: string, notes: string | null) => void
-  createChecklist: (
-    workspaceId: string,
-    template: ChecklistTemplate,
-  ) => Promise<void>
+  createChecklist: (workspaceId: string, template: ChecklistTemplate) => Promise<void>
   deleteChecklist: (workspaceId: string) => Promise<void>
   getProgress: () => { progress: number; total: number; percentage: number }
   getTemplates: () => ChecklistTemplate[]
@@ -58,10 +55,16 @@ export const useChecklistStore = create<ChecklistState>()(
         closeOtherPanels('checklist')
         set({ isOpen: true })
       },
-      closeChecklist: () => { set({ isOpen: false }); },
+      closeChecklist: () => {
+        set({ isOpen: false })
+      },
 
-      setChecklist: (checklist) => { set({ checklist }); },
-      setCategories: (categories) => { set({ categories }); },
+      setChecklist: (checklist) => {
+        set({ checklist })
+      },
+      setCategories: (categories) => {
+        set({ categories })
+      },
 
       setItems: (categoryId, items) => {
         set((state) => ({
@@ -140,7 +143,7 @@ export const useChecklistStore = create<ChecklistState>()(
         // Optimistic update
         set((s) => {
           const updatedItems = (s.items[categoryId] ?? []).map((i) =>
-            i.id === itemId ? { ...i, checked: newChecked } : i
+            i.id === itemId ? { ...i, checked: newChecked } : i,
           )
           return {
             items: { ...s.items, [categoryId]: updatedItems },
@@ -148,12 +151,12 @@ export const useChecklistStore = create<ChecklistState>()(
         })
 
         // Persist to backend
-        ipc.updateChecklistItem(itemId, newChecked, undefined).catch((error: unknown) => {
+        ipc.updateChecklistItem(itemId, { checked: newChecked }).catch((error: unknown) => {
           console.error('Failed to persist item toggle:', error)
           // Revert on error
           set((s) => {
             const revertedItems = (s.items[categoryId] ?? []).map((i) =>
-              i.id === itemId ? { ...i, checked: !newChecked } : i
+              i.id === itemId ? { ...i, checked: !newChecked } : i,
             )
             return {
               items: { ...s.items, [categoryId]: revertedItems },
@@ -172,7 +175,7 @@ export const useChecklistStore = create<ChecklistState>()(
         // Optimistic update
         set((s) => ({
           categories: s.categories.map((cat) =>
-            cat.id === categoryId ? { ...cat, collapsed: newCollapsed } : cat
+            cat.id === categoryId ? { ...cat, collapsed: newCollapsed } : cat,
           ),
         }))
 
@@ -182,7 +185,7 @@ export const useChecklistStore = create<ChecklistState>()(
           // Revert on error
           set((s) => ({
             categories: s.categories.map((cat) =>
-              cat.id === categoryId ? { ...cat, collapsed: !newCollapsed } : cat
+              cat.id === categoryId ? { ...cat, collapsed: !newCollapsed } : cat,
             ),
           }))
         })
@@ -193,7 +196,7 @@ export const useChecklistStore = create<ChecklistState>()(
         set((state) => {
           const categoryItems = state.items[categoryId] ?? []
           const updatedItems = categoryItems.map((item) =>
-            item.id === itemId ? { ...item, notes } : item
+            item.id === itemId ? { ...item, notes } : item,
           )
           return {
             items: { ...state.items, [categoryId]: updatedItems },
@@ -208,7 +211,7 @@ export const useChecklistStore = create<ChecklistState>()(
 
         notesDebounceTimers[timerKey] = setTimeout(() => {
           notesDebounceTimers[timerKey] = undefined
-          ipc.updateChecklistItem(itemId, undefined, notes).catch((error: unknown) => {
+          ipc.updateChecklistItem(itemId, { notes }).catch((error: unknown) => {
             console.error('Failed to persist item notes:', error)
           })
         }, NOTES_DEBOUNCE_MS)
@@ -283,11 +286,14 @@ export const useChecklistStore = create<ChecklistState>()(
       getTemplates: () => BUILT_IN_CHECKLIST_TEMPLATES,
 
       linkItemToTask: (itemId, categoryId, taskId) => {
+        const previousTaskId =
+          get().items[categoryId]?.find((item) => item.id === itemId)?.linkedTaskId ?? null
+
         // Optimistic update
         set((state) => {
           const categoryItems = state.items[categoryId] ?? []
           const updatedItems = categoryItems.map((item) =>
-            item.id === itemId ? { ...item, linkedTaskId: taskId } : item
+            item.id === itemId ? { ...item, linkedTaskId: taskId } : item,
           )
           return {
             items: { ...state.items, [categoryId]: updatedItems },
@@ -300,10 +306,8 @@ export const useChecklistStore = create<ChecklistState>()(
           // Revert on error
           set((state) => {
             const categoryItems = state.items[categoryId] ?? []
-            const item = categoryItems.find((i) => i.id === itemId)
-            const oldTaskId = item?.linkedTaskId
             const revertedItems = categoryItems.map((i) =>
-              i.id === itemId ? { ...i, linkedTaskId: oldTaskId ?? null } : i
+              i.id === itemId ? { ...i, linkedTaskId: previousTaskId } : i,
             )
             return {
               items: { ...state.items, [categoryId]: revertedItems },
@@ -327,7 +331,7 @@ export const useChecklistStore = create<ChecklistState>()(
                 updatedItems[categoryId] = categoryItems.map((item) =>
                   item.id === result.itemId
                     ? { ...item, autoDetected: result.detected, checked: result.detected }
-                    : item
+                    : item,
                 )
                 break
               }
@@ -345,4 +349,6 @@ export const useChecklistStore = create<ChecklistState>()(
 )
 
 // Register with panel coordination (no circular import)
-registerChecklistClose(() => { useChecklistStore.getState().closeChecklist() })
+registerChecklistClose(() => {
+  useChecklistStore.getState().closeChecklist()
+})

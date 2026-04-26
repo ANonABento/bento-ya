@@ -8,6 +8,7 @@ vi.mock('@/lib/ipc', () => ({
   updateChecklistCategory: vi.fn(),
   createWorkspaceChecklist: vi.fn(),
   deleteWorkspaceChecklist: vi.fn(),
+  linkChecklistItemToTask: vi.fn(),
   runChecklistDetection: vi.fn(),
 }))
 
@@ -143,7 +144,20 @@ describe('checklist-store', () => {
       useChecklistStore.setState({
         items: {
           'cat-1': [
-            { id: 'item-1', categoryId: 'cat-1', text: 'Item 1', checked: false, notes: null, position: 0, detectType: null, detectConfig: null, autoDetected: false, linkedTaskId: null, createdAt: '', updatedAt: '' },
+            {
+              id: 'item-1',
+              categoryId: 'cat-1',
+              text: 'Item 1',
+              checked: false,
+              notes: null,
+              position: 0,
+              detectType: null,
+              detectConfig: null,
+              autoDetected: false,
+              linkedTaskId: null,
+              createdAt: '',
+              updatedAt: '',
+            },
           ],
         },
       })
@@ -163,7 +177,7 @@ describe('checklist-store', () => {
 
       useChecklistStore.getState().toggleItem('item-1', 'cat-1')
 
-      expect(mockIpc.updateChecklistItem).toHaveBeenCalledWith('item-1', true, undefined)
+      expect(mockIpc.updateChecklistItem).toHaveBeenCalledWith('item-1', { checked: true })
     })
 
     it('should revert on IPC error', async () => {
@@ -188,7 +202,16 @@ describe('checklist-store', () => {
     beforeEach(() => {
       useChecklistStore.setState({
         categories: [
-          { id: 'cat-1', checklistId: 'cl-1', name: 'Cat 1', icon: '📋', position: 0, progress: 0, totalItems: 1, collapsed: false },
+          {
+            id: 'cat-1',
+            checklistId: 'cl-1',
+            name: 'Cat 1',
+            icon: '📋',
+            position: 0,
+            progress: 0,
+            totalItems: 1,
+            collapsed: false,
+          },
         ],
       })
     })
@@ -216,11 +239,50 @@ describe('checklist-store', () => {
       useChecklistStore.setState({
         items: {
           'cat-1': [
-            { id: 'i1', categoryId: 'cat-1', text: 'Item 1', checked: true, notes: null, position: 0, detectType: null, detectConfig: null, autoDetected: false, linkedTaskId: null, createdAt: '', updatedAt: '' },
-            { id: 'i2', categoryId: 'cat-1', text: 'Item 2', checked: false, notes: null, position: 1, detectType: null, detectConfig: null, autoDetected: false, linkedTaskId: null, createdAt: '', updatedAt: '' },
+            {
+              id: 'i1',
+              categoryId: 'cat-1',
+              text: 'Item 1',
+              checked: true,
+              notes: null,
+              position: 0,
+              detectType: null,
+              detectConfig: null,
+              autoDetected: false,
+              linkedTaskId: null,
+              createdAt: '',
+              updatedAt: '',
+            },
+            {
+              id: 'i2',
+              categoryId: 'cat-1',
+              text: 'Item 2',
+              checked: false,
+              notes: null,
+              position: 1,
+              detectType: null,
+              detectConfig: null,
+              autoDetected: false,
+              linkedTaskId: null,
+              createdAt: '',
+              updatedAt: '',
+            },
           ],
           'cat-2': [
-            { id: 'i3', categoryId: 'cat-2', text: 'Item 3', checked: true, notes: null, position: 0, detectType: null, detectConfig: null, autoDetected: false, linkedTaskId: null, createdAt: '', updatedAt: '' },
+            {
+              id: 'i3',
+              categoryId: 'cat-2',
+              text: 'Item 3',
+              checked: true,
+              notes: null,
+              position: 0,
+              detectType: null,
+              detectConfig: null,
+              autoDetected: false,
+              linkedTaskId: null,
+              createdAt: '',
+              updatedAt: '',
+            },
           ],
         },
       })
@@ -244,7 +306,16 @@ describe('checklist-store', () => {
   describe('createChecklist', () => {
     it('should create checklist via IPC and reload', async () => {
       const mockChecklistData = {
-        checklist: { id: 'cl-new', workspaceId: 'ws-1', name: 'New', description: null, progress: 0, totalItems: 2, createdAt: '', updatedAt: '' },
+        checklist: {
+          id: 'cl-new',
+          workspaceId: 'ws-1',
+          name: 'New',
+          description: null,
+          progress: 0,
+          totalItems: 2,
+          createdAt: '',
+          updatedAt: '',
+        },
         categories: [],
         items: {},
       }
@@ -267,7 +338,7 @@ describe('checklist-store', () => {
         'ws-1',
         'Test Template',
         'A template',
-        [{ name: 'Setup', icon: '⚙️', items: [{ text: 'Task 1' }, { text: 'Task 2' }] }]
+        [{ name: 'Setup', icon: '⚙️', items: [{ text: 'Task 1' }, { text: 'Task 2' }] }],
       )
     })
   })
@@ -275,8 +346,28 @@ describe('checklist-store', () => {
   describe('deleteChecklist', () => {
     it('should delete checklist and clear state', async () => {
       useChecklistStore.setState({
-        checklist: { id: 'cl-1', workspaceId: 'ws-1', name: 'Test', description: null, progress: 0, totalItems: 0, createdAt: '', updatedAt: '' },
-        categories: [{ id: 'cat-1', checklistId: 'cl-1', name: 'Cat', icon: '📋', position: 0, progress: 0, totalItems: 0, collapsed: false }],
+        checklist: {
+          id: 'cl-1',
+          workspaceId: 'ws-1',
+          name: 'Test',
+          description: null,
+          progress: 0,
+          totalItems: 0,
+          createdAt: '',
+          updatedAt: '',
+        },
+        categories: [
+          {
+            id: 'cat-1',
+            checklistId: 'cl-1',
+            name: 'Cat',
+            icon: '📋',
+            position: 0,
+            progress: 0,
+            totalItems: 0,
+            collapsed: false,
+          },
+        ],
         items: { 'cat-1': [] },
       })
 
@@ -291,6 +382,52 @@ describe('checklist-store', () => {
     })
   })
 
+  describe('linkItemToTask', () => {
+    beforeEach(() => {
+      useChecklistStore.setState({
+        items: {
+          'cat-1': [
+            {
+              id: 'item-1',
+              categoryId: 'cat-1',
+              text: 'Item 1',
+              checked: false,
+              notes: null,
+              position: 0,
+              detectType: null,
+              detectConfig: null,
+              autoDetected: false,
+              linkedTaskId: 'task-old',
+              createdAt: '',
+              updatedAt: '',
+            },
+          ],
+        },
+      })
+    })
+
+    it('should optimistically link item to task', () => {
+      mockIpc.linkChecklistItemToTask.mockResolvedValueOnce({} as never)
+
+      useChecklistStore.getState().linkItemToTask('item-1', 'cat-1', 'task-new')
+
+      const item = useChecklistStore.getState().items['cat-1']?.[0]
+      expect(item?.linkedTaskId).toBe('task-new')
+      expect(mockIpc.linkChecklistItemToTask).toHaveBeenCalledWith('item-1', 'task-new')
+    })
+
+    it('should restore previous linked task on IPC error', async () => {
+      mockIpc.linkChecklistItemToTask.mockRejectedValueOnce(new Error('Failed'))
+
+      useChecklistStore.getState().linkItemToTask('item-1', 'cat-1', 'task-new')
+
+      await vi.waitFor(() => {
+        const item = useChecklistStore.getState().items['cat-1']?.[0]
+        expect(item?.linkedTaskId).toBe('task-old')
+      })
+    })
+  })
+
   describe('getTemplates', () => {
     it('should return built-in templates', () => {
       const templates = useChecklistStore.getState().getTemplates()
@@ -302,12 +439,58 @@ describe('checklist-store', () => {
     it('should run detection and update items based on results', async () => {
       // Set up initial state with items that can be detected
       useChecklistStore.setState({
-        checklist: { id: 'cl-1', workspaceId: 'ws-1', name: 'Test', description: null, progress: 0, totalItems: 2, createdAt: '', updatedAt: '' },
-        categories: [{ id: 'cat-1', checklistId: 'cl-1', name: 'Setup', icon: '⚙️', position: 0, progress: 0, totalItems: 2, collapsed: false }],
+        checklist: {
+          id: 'cl-1',
+          workspaceId: 'ws-1',
+          name: 'Test',
+          description: null,
+          progress: 0,
+          totalItems: 2,
+          createdAt: '',
+          updatedAt: '',
+        },
+        categories: [
+          {
+            id: 'cat-1',
+            checklistId: 'cl-1',
+            name: 'Setup',
+            icon: '⚙️',
+            position: 0,
+            progress: 0,
+            totalItems: 2,
+            collapsed: false,
+          },
+        ],
         items: {
           'cat-1': [
-            { id: 'i1', categoryId: 'cat-1', text: 'Has README', checked: false, notes: null, position: 0, detectType: 'file-exists', detectConfig: '{"pattern": "README.md"}', autoDetected: false, linkedTaskId: null, createdAt: '', updatedAt: '' },
-            { id: 'i2', categoryId: 'cat-1', text: 'Has tests', checked: false, notes: null, position: 1, detectType: 'file-exists', detectConfig: '{"pattern": "**/*.test.ts"}', autoDetected: false, linkedTaskId: null, createdAt: '', updatedAt: '' },
+            {
+              id: 'i1',
+              categoryId: 'cat-1',
+              text: 'Has README',
+              checked: false,
+              notes: null,
+              position: 0,
+              detectType: 'file-exists',
+              detectConfig: '{"pattern": "README.md"}',
+              autoDetected: false,
+              linkedTaskId: null,
+              createdAt: '',
+              updatedAt: '',
+            },
+            {
+              id: 'i2',
+              categoryId: 'cat-1',
+              text: 'Has tests',
+              checked: false,
+              notes: null,
+              position: 1,
+              detectType: 'file-exists',
+              detectConfig: '{"pattern": "**/*.test.ts"}',
+              autoDetected: false,
+              linkedTaskId: null,
+              createdAt: '',
+              updatedAt: '',
+            },
           ],
         },
       })
@@ -323,18 +506,51 @@ describe('checklist-store', () => {
       expect(mockIpc.runChecklistDetection).toHaveBeenCalledWith('ws-1', '/path/to/repo')
 
       const items = useChecklistStore.getState().items['cat-1']
-      expect(items?.find(i => i.id === 'i1')?.checked).toBe(true)
-      expect(items?.find(i => i.id === 'i1')?.autoDetected).toBe(true)
-      expect(items?.find(i => i.id === 'i2')?.checked).toBe(false)
+      expect(items?.find((i) => i.id === 'i1')?.checked).toBe(true)
+      expect(items?.find((i) => i.id === 'i1')?.autoDetected).toBe(true)
+      expect(items?.find((i) => i.id === 'i2')?.checked).toBe(false)
     })
 
     it('should handle empty detection results', async () => {
       useChecklistStore.setState({
-        checklist: { id: 'cl-1', workspaceId: 'ws-1', name: 'Test', description: null, progress: 0, totalItems: 1, createdAt: '', updatedAt: '' },
-        categories: [{ id: 'cat-1', checklistId: 'cl-1', name: 'Setup', icon: '⚙️', position: 0, progress: 0, totalItems: 1, collapsed: false }],
+        checklist: {
+          id: 'cl-1',
+          workspaceId: 'ws-1',
+          name: 'Test',
+          description: null,
+          progress: 0,
+          totalItems: 1,
+          createdAt: '',
+          updatedAt: '',
+        },
+        categories: [
+          {
+            id: 'cat-1',
+            checklistId: 'cl-1',
+            name: 'Setup',
+            icon: '⚙️',
+            position: 0,
+            progress: 0,
+            totalItems: 1,
+            collapsed: false,
+          },
+        ],
         items: {
           'cat-1': [
-            { id: 'i1', categoryId: 'cat-1', text: 'Manual item', checked: false, notes: null, position: 0, detectType: null, detectConfig: null, autoDetected: false, linkedTaskId: null, createdAt: '', updatedAt: '' },
+            {
+              id: 'i1',
+              categoryId: 'cat-1',
+              text: 'Manual item',
+              checked: false,
+              notes: null,
+              position: 0,
+              detectType: null,
+              detectConfig: null,
+              autoDetected: false,
+              linkedTaskId: null,
+              createdAt: '',
+              updatedAt: '',
+            },
           ],
         },
       })
@@ -345,7 +561,7 @@ describe('checklist-store', () => {
 
       // Items should remain unchanged
       const items = useChecklistStore.getState().items['cat-1']
-      expect(items?.find(i => i.id === 'i1')?.checked).toBe(false)
+      expect(items?.find((i) => i.id === 'i1')?.checked).toBe(false)
     })
   })
 })

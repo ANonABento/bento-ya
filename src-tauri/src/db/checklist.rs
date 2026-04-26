@@ -35,7 +35,10 @@ pub fn get_checklist(conn: &Connection, id: &str) -> SqlResult<Checklist> {
     )
 }
 
-pub fn get_workspace_checklist(conn: &Connection, workspace_id: &str) -> SqlResult<Option<Checklist>> {
+pub fn get_workspace_checklist(
+    conn: &Connection,
+    workspace_id: &str,
+) -> SqlResult<Option<Checklist>> {
     match conn.query_row(
         "SELECT id, workspace_id, name, description, progress, total_items, created_at, updated_at FROM checklists WHERE workspace_id = ?1",
         params![workspace_id],
@@ -59,6 +62,28 @@ pub fn get_workspace_checklist(conn: &Connection, workspace_id: &str) -> SqlResu
 pub fn delete_checklist(conn: &Connection, id: &str) -> SqlResult<()> {
     conn.execute("DELETE FROM checklists WHERE id = ?1", params![id])?;
     Ok(())
+}
+
+pub fn update_checklist(
+    conn: &Connection,
+    id: &str,
+    name: Option<&str>,
+    description: Option<Option<&str>>,
+) -> SqlResult<Checklist> {
+    let current = get_checklist(conn, id)?;
+    let ts = now();
+    let new_name = name.unwrap_or(&current.name).to_string();
+    let new_description = match description {
+        Some(value) => value.map(str::to_string),
+        None => current.description,
+    };
+
+    conn.execute(
+        "UPDATE checklists SET name = ?1, description = ?2, updated_at = ?3 WHERE id = ?4",
+        params![new_name, new_description, ts, id],
+    )?;
+
+    get_checklist(conn, id)
 }
 
 pub fn insert_checklist_category(
@@ -95,7 +120,10 @@ pub fn get_checklist_category(conn: &Connection, id: &str) -> SqlResult<Checklis
     )
 }
 
-pub fn list_checklist_categories(conn: &Connection, checklist_id: &str) -> SqlResult<Vec<ChecklistCategory>> {
+pub fn list_checklist_categories(
+    conn: &Connection,
+    checklist_id: &str,
+) -> SqlResult<Vec<ChecklistCategory>> {
     let mut stmt = conn.prepare(
         "SELECT id, checklist_id, name, icon, position, progress, total_items, collapsed FROM checklist_categories WHERE checklist_id = ?1 ORDER BY position"
     )?;
@@ -114,18 +142,42 @@ pub fn list_checklist_categories(conn: &Connection, checklist_id: &str) -> SqlRe
     rows.collect()
 }
 
-pub fn update_checklist_category(
+pub fn update_checklist_category_details(
     conn: &Connection,
     id: &str,
+    name: Option<&str>,
+    icon: Option<&str>,
+    position: Option<i64>,
     collapsed: Option<bool>,
 ) -> SqlResult<ChecklistCategory> {
-    if let Some(c) = collapsed {
-        conn.execute(
-            "UPDATE checklist_categories SET collapsed = ?1 WHERE id = ?2",
-            params![if c { 1 } else { 0 }, id],
-        )?;
-    }
+    let current = get_checklist_category(conn, id)?;
+    let new_name = name.unwrap_or(&current.name).to_string();
+    let new_icon = icon.unwrap_or(&current.icon).to_string();
+    let new_position = position.unwrap_or(current.position);
+    let new_collapsed = collapsed.unwrap_or(current.collapsed);
+
+    conn.execute(
+        "UPDATE checklist_categories SET name = ?1, icon = ?2, position = ?3, collapsed = ?4 WHERE id = ?5",
+        params![
+            new_name,
+            new_icon,
+            new_position,
+            if new_collapsed { 1 } else { 0 },
+            id
+        ],
+    )?;
+
     get_checklist_category(conn, id)
+}
+
+pub fn delete_checklist_category(conn: &Connection, id: &str) -> SqlResult<()> {
+    let category = get_checklist_category(conn, id)?;
+    conn.execute(
+        "DELETE FROM checklist_categories WHERE id = ?1",
+        params![id],
+    )?;
+    recalculate_checklist_progress(conn, &category.checklist_id)?;
+    Ok(())
 }
 
 pub fn insert_checklist_item(
@@ -197,18 +249,72 @@ pub fn update_checklist_item(
     checked: Option<bool>,
     notes: Option<Option<&str>>,
 ) -> SqlResult<ChecklistItem> {
+    update_checklist_item_details(
+        conn,
+        id,
+        ChecklistItemUpdate {
+            checked,
+            notes,
+            ..ChecklistItemUpdate::default()
+        },
+    )
+}
+
+#[derive(Default)]
+pub struct ChecklistItemUpdate<'a> {
+    pub text: Option<&'a str>,
+    pub checked: Option<bool>,
+    pub notes: Option<Option<&'a str>>,
+    pub position: Option<i64>,
+    pub detect_type: Option<Option<&'a str>>,
+    pub detect_config: Option<Option<&'a str>>,
+    pub auto_detected: Option<bool>,
+    pub linked_task_id: Option<Option<&'a str>>,
+}
+
+pub fn update_checklist_item_details(
+    conn: &Connection,
+    id: &str,
+    update: ChecklistItemUpdate<'_>,
+) -> SqlResult<ChecklistItem> {
     let current = get_checklist_item(conn, id)?;
     let ts = now();
 
-    let new_checked = checked.unwrap_or(current.checked);
-    let new_notes = match notes {
+    let new_text = update.text.unwrap_or(&current.text).to_string();
+    let new_checked = update.checked.unwrap_or(current.checked);
+    let new_notes = match update.notes {
         Some(n) => n.map(|s| s.to_string()),
         None => current.notes.clone(),
     };
+    let new_position = update.position.unwrap_or(current.position);
+    let new_detect_type = match update.detect_type {
+        Some(value) => value.map(str::to_string),
+        None => current.detect_type.clone(),
+    };
+    let new_detect_config = match update.detect_config {
+        Some(value) => value.map(str::to_string),
+        None => current.detect_config.clone(),
+    };
+    let new_auto_detected = update.auto_detected.unwrap_or(current.auto_detected);
+    let new_linked_task_id = match update.linked_task_id {
+        Some(value) => value.map(str::to_string),
+        None => current.linked_task_id.clone(),
+    };
 
     conn.execute(
-        "UPDATE checklist_items SET checked = ?1, notes = ?2, updated_at = ?3 WHERE id = ?4",
-        params![if new_checked { 1 } else { 0 }, new_notes, ts, id],
+        "UPDATE checklist_items SET text = ?1, checked = ?2, notes = ?3, position = ?4, detect_type = ?5, detect_config = ?6, auto_detected = ?7, linked_task_id = ?8, updated_at = ?9 WHERE id = ?10",
+        params![
+            new_text,
+            if new_checked { 1 } else { 0 },
+            new_notes,
+            new_position,
+            new_detect_type,
+            new_detect_config,
+            if new_auto_detected { 1 } else { 0 },
+            new_linked_task_id,
+            ts,
+            id
+        ],
     )?;
 
     // Update category and checklist progress
@@ -217,6 +323,15 @@ pub fn update_checklist_item(
     recalculate_checklist_progress(conn, &cat.checklist_id)?;
 
     get_checklist_item(conn, id)
+}
+
+pub fn delete_checklist_item(conn: &Connection, id: &str) -> SqlResult<()> {
+    let item = get_checklist_item(conn, id)?;
+    let cat = get_checklist_category(conn, &item.category_id)?;
+    conn.execute("DELETE FROM checklist_items WHERE id = ?1", params![id])?;
+    recalculate_category_progress(conn, &item.category_id)?;
+    recalculate_checklist_progress(conn, &cat.checklist_id)?;
+    Ok(())
 }
 
 fn recalculate_category_progress(conn: &Connection, category_id: &str) -> SqlResult<()> {
@@ -312,4 +427,94 @@ pub fn link_checklist_item_to_task(
         params![task_id, ts, id],
     )?;
     get_checklist_item(conn, id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{init_test, insert_workspace};
+
+    #[test]
+    fn checklist_item_crud_recalculates_progress() {
+        let conn = init_test().unwrap();
+        let workspace = insert_workspace(&conn, "Test", "/tmp/test").unwrap();
+        let checklist = insert_checklist(&conn, &workspace.id, "Release", None).unwrap();
+        let category =
+            insert_checklist_category(&conn, &checklist.id, "Quality", "check", 0).unwrap();
+
+        let item = insert_checklist_item(&conn, &category.id, "Tests pass", 0).unwrap();
+        let category = get_checklist_category(&conn, &category.id).unwrap();
+        let checklist = get_checklist(&conn, &checklist.id).unwrap();
+        assert_eq!(category.total_items, 1);
+        assert_eq!(category.progress, 0);
+        assert_eq!(checklist.total_items, 1);
+        assert_eq!(checklist.progress, 0);
+
+        update_checklist_item(&conn, &item.id, Some(true), None).unwrap();
+        let category = get_checklist_category(&conn, &category.id).unwrap();
+        let checklist = get_checklist(&conn, &checklist.id).unwrap();
+        assert_eq!(category.progress, 1);
+        assert_eq!(checklist.progress, 1);
+
+        delete_checklist_item(&conn, &item.id).unwrap();
+        let category = get_checklist_category(&conn, &category.id).unwrap();
+        let checklist = get_checklist(&conn, &checklist.id).unwrap();
+        assert_eq!(category.total_items, 0);
+        assert_eq!(category.progress, 0);
+        assert_eq!(checklist.total_items, 0);
+        assert_eq!(checklist.progress, 0);
+    }
+
+    #[test]
+    fn checklist_item_details_preserve_unmentioned_nullable_fields() {
+        let conn = init_test().unwrap();
+        let workspace = insert_workspace(&conn, "Test", "/tmp/test").unwrap();
+        let checklist = insert_checklist(&conn, &workspace.id, "Release", Some("Before")).unwrap();
+        let category =
+            insert_checklist_category(&conn, &checklist.id, "Quality", "check", 0).unwrap();
+        let item = create_checklist_item_with_detect(
+            &conn,
+            &category.id,
+            "Tests pass",
+            0,
+            Some("file-exists"),
+            Some(r#"{"pattern":"README.md"}"#),
+        )
+        .unwrap();
+        link_checklist_item_to_task(&conn, &item.id, Some("task-1")).unwrap();
+
+        let updated = update_checklist_item_details(
+            &conn,
+            &item.id,
+            ChecklistItemUpdate {
+                text: Some("Tests pass now"),
+                ..ChecklistItemUpdate::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(updated.text, "Tests pass now");
+        assert_eq!(updated.detect_type.as_deref(), Some("file-exists"));
+        assert_eq!(
+            updated.detect_config.as_deref(),
+            Some(r#"{"pattern":"README.md"}"#)
+        );
+        assert_eq!(updated.linked_task_id.as_deref(), Some("task-1"));
+
+        let cleared = update_checklist_item_details(
+            &conn,
+            &item.id,
+            ChecklistItemUpdate {
+                notes: Some(Some("notes")),
+                detect_type: Some(None),
+                detect_config: Some(None),
+                linked_task_id: Some(None),
+                ..ChecklistItemUpdate::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(cleared.notes.as_deref(), Some("notes"));
+        assert_eq!(cleared.detect_type, None);
+        assert_eq!(cleared.detect_config, None);
+        assert_eq!(cleared.linked_task_id, None);
+    }
 }
