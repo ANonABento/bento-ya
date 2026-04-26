@@ -352,22 +352,27 @@ fn recover_tmux_sessions(app: tauri::AppHandle) {
     }
 }
 
-const STALE_PIPELINE_STATES: &[&str] = &["running", "triggered", "evaluating", "advancing"];
+const STALE_PIPELINE_STATES_SQL: &str = "'running', 'triggered', 'evaluating', 'advancing'";
 
 fn is_stale_pipeline_state(state: &str) -> bool {
-    STALE_PIPELINE_STATES.contains(&state)
+    pipeline::PipelineState::from_db_str(state) != pipeline::PipelineState::Idle
+}
+
+fn stale_pipeline_state_filter(column: &str) -> String {
+    format!("{column} IN ({STALE_PIPELINE_STATES_SQL})")
 }
 
 fn startup_resume_candidates(
     conn: &rusqlite::Connection,
 ) -> rusqlite::Result<Vec<(db::Task, db::Column)>> {
-    let mut stmt = conn.prepare(
+    let stale_pipeline_filter = stale_pipeline_state_filter("t.pipeline_state");
+    let mut stmt = conn.prepare(&format!(
         "SELECT t.id
          FROM tasks t
          JOIN columns c ON c.id = t.column_id
-         WHERE t.pipeline_state IN ('running', 'triggered', 'evaluating', 'advancing')
+         WHERE {stale_pipeline_filter}
          ORDER BY t.workspace_id, c.position, t.position",
-    )?;
+    ))?;
     let task_ids = stmt
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -386,19 +391,23 @@ fn startup_resume_candidates(
 
 fn reset_stale_pipeline_state(conn: &rusqlite::Connection) -> rusqlite::Result<usize> {
     let ts = db::now();
+    let task_stale_pipeline_filter = stale_pipeline_state_filter("pipeline_state");
     conn.execute(
-        "UPDATE agent_sessions
+        &format!(
+            "UPDATE agent_sessions
          SET status = 'failed', updated_at = ?1
          WHERE status = 'running'
            AND task_id IN (
                SELECT id FROM tasks
-               WHERE pipeline_state IN ('running', 'triggered', 'evaluating', 'advancing')
-           )",
+               WHERE {task_stale_pipeline_filter}
+           )"
+        ),
         rusqlite::params![ts],
     )?;
 
     conn.execute(
-        "UPDATE tasks
+        &format!(
+            "UPDATE tasks
          SET pipeline_state = 'idle',
              pipeline_triggered_at = NULL,
              pipeline_error = NULL,
@@ -406,7 +415,8 @@ fn reset_stale_pipeline_state(conn: &rusqlite::Connection) -> rusqlite::Result<u
              queued_at = NULL,
              agent_session_id = NULL,
              updated_at = ?1
-         WHERE pipeline_state IN ('running', 'triggered', 'evaluating', 'advancing')",
+         WHERE {task_stale_pipeline_filter}"
+        ),
         rusqlite::params![ts],
     )
 }

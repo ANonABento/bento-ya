@@ -235,6 +235,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   }, [deleteConfirmPending, actions])
 
   const needsAttention = hasAttention || task.agentStatus === 'needs_attention'
+  const canToggleAgent = canTriggerWork || task.agentStatus === 'running'
   const isPipelineActive = task.pipelineState !== 'idle'
   const hasPipelineError = !!task.pipelineError
 
@@ -298,7 +299,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
             break
           case ' ':
             e.preventDefault()
-            if (canTriggerWork || task.agentStatus === 'running') {
+            if (canToggleAgent) {
               actions.handleToggleAgent()
             }
             break
