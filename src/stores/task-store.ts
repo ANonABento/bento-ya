@@ -118,6 +118,7 @@ export const useTaskStore = create<TaskState>()(
           original.description,
         )
         set((s) => ({ tasks: [...s.tasks, task] }))
+        await refreshWorkspaceSummary(original.workspaceId)
         return task
       },
     }),

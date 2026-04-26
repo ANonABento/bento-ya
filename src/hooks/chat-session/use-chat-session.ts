@@ -194,10 +194,10 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         })
         listeners.push(unlistenComplete)
       } else if (mode === 'orchestrator' && workspaceId) {
-        const isCurrentOrchestratorSession = (payload: { workspaceId: string; sessionId?: string }) => {
+        const isCurrentOrchestratorSession = (payload: { workspaceId: string; sessionId: string }) => {
           if (payload.workspaceId !== workspaceId) return false
-          if (payload.sessionId && sessionId && payload.sessionId !== sessionId) return false
-          return true
+          if (!sessionId) return false
+          return payload.sessionId === sessionId
         }
 
         const unlistenProcessing = await listen<OrchestratorEvent>('orchestrator:processing', (event) => {
@@ -239,7 +239,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         })
         listeners.push(unlistenToolCall)
 
-        const unlistenToolResult = await listen<{ workspaceId: string; sessionId?: string; isError: boolean }>('orchestrator:tool_result', (event) => {
+        const unlistenToolResult = await listen<{ workspaceId: string; sessionId: string; isError: boolean }>('orchestrator:tool_result', (event) => {
           if (!isCurrentOrchestratorSession(event.payload)) return
           if (!event.payload.isError) {
             onToolResultRef.current?.()

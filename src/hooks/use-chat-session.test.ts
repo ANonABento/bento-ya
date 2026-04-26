@@ -678,6 +678,15 @@ describe('useChatSession', () => {
       act(() => {
         emitEvent('orchestrator:stream', {
           workspaceId: 'ws-1',
+          delta: 'missing session should be ignored',
+          finishReason: null,
+        })
+      })
+      expect(result.current.streaming.content).toBe('')
+
+      act(() => {
+        emitEvent('orchestrator:stream', {
+          workspaceId: 'ws-1',
           sessionId: 'session-1',
           delta: 'kept',
           finishReason: null,
