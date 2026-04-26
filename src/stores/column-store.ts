@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
-import type { Column } from '@/types'
+import type { Column, ColumnTriggers } from '@/types'
 import * as ipc from '@/lib/ipc'
-import { useWorkspaceStore } from './workspace-store'
+import { refreshWorkspaceSummary } from './workspace-refresh'
 
 type ColumnUpdates = {
   name?: string
@@ -30,21 +30,20 @@ type ColumnState = {
   updateColumnAsync: (id: string, updates: ColumnUpdates) => Promise<void>
 }
 
-async function refreshWorkspaceSummary(workspaceId: string | null | undefined) {
-  if (!workspaceId) return
+function parseOptimisticTriggers(
+  triggers: string,
+  fallback: Column['triggers'],
+): ColumnTriggers | undefined {
   try {
-    await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+    const parsed: unknown = JSON.parse(triggers)
+    if (parsed && typeof parsed === 'object') {
+      return parsed as ColumnTriggers
+    }
   } catch {
-    // Refresh is best-effort; the primary board operation has already succeeded.
+    return fallback
   }
-}
 
-function parseOptimisticTriggers(triggers: string): Column['triggers'] {
-  try {
-    return JSON.parse(triggers) as Column['triggers']
-  } catch {
-    return triggers as unknown as Column['triggers']
-  }
+  return fallback
 }
 
 export const useColumnStore = create<ColumnState>()(
@@ -114,9 +113,11 @@ export const useColumnStore = create<ColumnState>()(
                   ...(updates.icon !== undefined && { icon: updates.icon }),
                   ...(updates.color !== undefined && { color: updates.color ?? '' }),
                   ...(updates.visible !== undefined && { visible: updates.visible }),
-                  ...(updates.triggers !== undefined && { triggers: parseOptimisticTriggers(updates.triggers) }),
+                  ...(updates.triggers !== undefined && {
+                    triggers: parseOptimisticTriggers(updates.triggers, c.triggers),
+                  }),
                 }
-              : c
+              : c,
           ),
         }))
         try {

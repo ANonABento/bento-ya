@@ -3,7 +3,7 @@ import { devtools } from 'zustand/middleware'
 import type { Task } from '@/types'
 import * as ipc from '@/lib/ipc'
 import { useUIStore } from '@/stores/ui-store'
-import { useWorkspaceStore } from '@/stores/workspace-store'
+import { refreshWorkspaceSummary } from './workspace-refresh'
 
 type TaskState = {
   tasks: Task[]
@@ -17,15 +17,6 @@ type TaskState = {
   updateTask: (id: string, updates: Partial<Task>) => void
   getByColumn: (columnId: string) => Task[]
   duplicate: (id: string) => Promise<Task | null>
-}
-
-async function refreshWorkspaceSummary(workspaceId: string | null | undefined) {
-  if (!workspaceId) return
-  try {
-    await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
-  } catch {
-    // Refresh is best-effort; the primary board operation has already succeeded.
-  }
 }
 
 export const useTaskStore = create<TaskState>()(
