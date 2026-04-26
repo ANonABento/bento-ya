@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { Column, ColumnTriggers } from '@/types'
 import * as ipc from '@/lib/ipc'
-import { refreshWorkspaceSummary } from './workspace-refresh'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 
 type ColumnUpdates = {
   name?: string
@@ -30,20 +30,10 @@ type ColumnState = {
   updateColumnAsync: (id: string, updates: ColumnUpdates) => Promise<void>
 }
 
-function parseOptimisticTriggers(
-  triggers: string,
-  fallback: Column['triggers'],
-): ColumnTriggers | undefined {
-  try {
-    const parsed: unknown = JSON.parse(triggers)
-    if (parsed && typeof parsed === 'object') {
-      return parsed as ColumnTriggers
-    }
-  } catch {
-    return fallback
+async function refreshWorkspace(workspaceId: string | undefined) {
+  if (workspaceId) {
+    await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
   }
-
-  return fallback
 }
 
 export const useColumnStore = create<ColumnState>()(
@@ -61,17 +51,17 @@ export const useColumnStore = create<ColumnState>()(
         const position = get().columns.length
         const column = await ipc.createColumn(workspaceId, name, position)
         set((s) => ({ columns: [...s.columns, column] }))
-        await refreshWorkspaceSummary(workspaceId)
+        await refreshWorkspace(workspaceId)
         return column
       },
 
       remove: async (id) => {
         const prev = get().columns
-        const workspaceId = prev.find((c) => c.id === id)?.workspaceId
         set((s) => ({ columns: s.columns.filter((c) => c.id !== id) }))
         try {
           await ipc.deleteColumn(id)
-          await refreshWorkspaceSummary(workspaceId)
+          const workspaceId = prev.find((column) => column.id === id)?.workspaceId
+          await refreshWorkspace(workspaceId)
         } catch {
           set({ columns: prev })
         }
@@ -89,7 +79,7 @@ export const useColumnStore = create<ColumnState>()(
         }))
         try {
           await ipc.reorderColumns(workspaceId, ids)
-          await refreshWorkspaceSummary(workspaceId)
+          await refreshWorkspace(workspaceId)
         } catch {
           set({ columns: prev })
         }
@@ -103,6 +93,15 @@ export const useColumnStore = create<ColumnState>()(
 
       updateColumnAsync: async (id, updates) => {
         const prev = get().columns
+        let parsedTriggers: ColumnTriggers | undefined
+        if (updates.triggers !== undefined) {
+          try {
+            parsedTriggers = JSON.parse(updates.triggers) as ColumnTriggers
+          } catch {
+            parsedTriggers = undefined
+          }
+        }
+
         // Optimistically update
         set((s) => ({
           columns: s.columns.map((c) =>
@@ -113,11 +112,9 @@ export const useColumnStore = create<ColumnState>()(
                   ...(updates.icon !== undefined && { icon: updates.icon }),
                   ...(updates.color !== undefined && { color: updates.color ?? '' }),
                   ...(updates.visible !== undefined && { visible: updates.visible }),
-                  ...(updates.triggers !== undefined && {
-                    triggers: parseOptimisticTriggers(updates.triggers, c.triggers),
-                  }),
+                  ...(parsedTriggers !== undefined && { triggers: parsedTriggers }),
                 }
-              : c,
+              : c
           ),
         }))
         try {

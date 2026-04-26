@@ -31,6 +31,10 @@ import { INITIAL_STREAMING_STATE } from './types'
 import { getErrorMessage, toUnifiedMessage, buildContextPreamble } from './helpers'
 import { useAgentStreamingStore } from '@/stores/agent-streaming-store'
 
+function toStreamingToolCallStatus(status: ToolCallEvent['status']): ToolCall['status'] {
+  return status === 'complete' ? 'completed' : status
+}
+
 // ─── Hook Implementation ───────────────────────────────────────────────────
 
 export function useChatSession(config: ChatSessionConfig): ChatSessionState & ChatSessionActions {
@@ -228,13 +232,14 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         const unlistenToolCall = await listen<ToolCallEvent>('orchestrator:tool_call', (event) => {
           if (!isCurrentOrchestratorSession(event.payload)) return
           const { toolId, toolName, status, input } = event.payload
+          const nextStatus = toStreamingToolCallStatus(status)
           setStreaming((prev) => {
             const existing = prev.toolCalls.find((t) => t.id === toolId)
             const inputStr = input ? JSON.stringify(input) : ''
             if (existing) {
-              return { ...prev, toolCalls: prev.toolCalls.map((t) => t.id === toolId ? { ...t, status: status as ToolCall['status'] } : t) }
+              return { ...prev, toolCalls: prev.toolCalls.map((t) => t.id === toolId ? { ...t, status: nextStatus } : t) }
             }
-            return { ...prev, toolCalls: [...prev.toolCalls, { id: toolId, name: toolName, input: inputStr, status: status as ToolCall['status'] }] }
+            return { ...prev, toolCalls: [...prev.toolCalls, { id: toolId, name: toolName, input: inputStr, status: nextStatus }] }
           })
         })
         listeners.push(unlistenToolCall)
