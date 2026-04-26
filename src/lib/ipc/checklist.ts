@@ -49,13 +49,47 @@ export type ChecklistWithData = {
 export type TemplateItem = {
   text: string
   detectType?: string
-  detectConfig?: string  // JSON-encoded detection config
+  detectConfig?: string // JSON-encoded detection config
 }
 
 export type TemplateCategory = {
   name: string
   icon: string
   items: TemplateItem[]
+}
+
+export type UpdateChecklistItemInput = {
+  text?: string
+  position?: number
+  detectType?: string | null
+  detectConfig?: string | null
+  autoDetected?: boolean
+  linkedTaskId?: string | null
+}
+
+export type UpdateChecklistCategoryInput = {
+  name?: string
+  icon?: string
+  position?: number
+}
+
+export async function createChecklist(
+  workspaceId: string,
+  name: string,
+  description?: string | null,
+): Promise<ChecklistData> {
+  return invoke<ChecklistData>('create_checklist', { workspaceId, name, description })
+}
+
+export async function updateChecklist(
+  checklistId: string,
+  updates: { name?: string; description?: string | null },
+): Promise<ChecklistData> {
+  return invoke<ChecklistData>('update_checklist', { checklistId, ...updates })
+}
+
+export async function deleteChecklist(checklistId: string): Promise<void> {
+  return invoke('delete_checklist', { checklistId })
 }
 
 export async function getWorkspaceChecklist(workspaceId: string): Promise<ChecklistWithData> {
@@ -66,15 +100,59 @@ export async function updateChecklistItem(
   itemId: string,
   checked?: boolean,
   notes?: string | null,
+  updates: UpdateChecklistItemInput = {},
 ): Promise<ChecklistItem> {
-  return invoke<ChecklistItem>('update_checklist_item', { itemId, checked, notes })
+  return invoke<ChecklistItem>('update_checklist_item', { itemId, checked, notes, ...updates })
+}
+
+export async function createChecklistCategory(
+  checklistId: string,
+  name: string,
+  icon: string,
+  position?: number,
+): Promise<ChecklistCategory> {
+  return invoke<ChecklistCategory>('create_checklist_category', {
+    checklistId,
+    name,
+    icon,
+    position,
+  })
 }
 
 export async function updateChecklistCategory(
   categoryId: string,
-  collapsed: boolean,
+  collapsed?: boolean,
+  updates: UpdateChecklistCategoryInput = {},
 ): Promise<ChecklistCategory> {
-  return invoke<ChecklistCategory>('update_checklist_category', { categoryId, collapsed })
+  return invoke<ChecklistCategory>('update_checklist_category', {
+    categoryId,
+    collapsed,
+    ...updates,
+  })
+}
+
+export async function deleteChecklistCategory(categoryId: string): Promise<void> {
+  return invoke('delete_checklist_category', { categoryId })
+}
+
+export async function createChecklistItem(
+  categoryId: string,
+  text: string,
+  position?: number,
+  detectType?: string,
+  detectConfig?: string,
+): Promise<ChecklistItem> {
+  return invoke<ChecklistItem>('create_checklist_item', {
+    categoryId,
+    text,
+    position,
+    detectType,
+    detectConfig,
+  })
+}
+
+export async function deleteChecklistItem(itemId: string): Promise<void> {
+  return invoke('delete_checklist_item', { itemId })
 }
 
 export async function createWorkspaceChecklist(
@@ -100,7 +178,11 @@ export async function updateChecklistItemAutoDetect(
   autoDetected: boolean,
   checked: boolean,
 ): Promise<ChecklistItem> {
-  return invoke<ChecklistItem>('update_checklist_item_auto_detect', { itemId, autoDetected, checked })
+  return invoke<ChecklistItem>('update_checklist_item_auto_detect', {
+    itemId,
+    autoDetected,
+    checked,
+  })
 }
 
 export async function linkChecklistItemToTask(

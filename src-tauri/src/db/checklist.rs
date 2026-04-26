@@ -313,3 +313,98 @@ pub fn link_checklist_item_to_task(
     )?;
     get_checklist_item(conn, id)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{init_test, insert_workspace};
+
+    #[test]
+    fn checklist_item_crud_recalculates_progress() {
+        let conn = init_test().unwrap();
+        let workspace = insert_workspace(&conn, "Test", "/tmp/test").unwrap();
+        let checklist = insert_checklist(&conn, &workspace.id, "Release", None).unwrap();
+        let category =
+            insert_checklist_category(&conn, &checklist.id, "Quality", "check", 0).unwrap();
+
+        let item = insert_checklist_item(&conn, &category.id, "Tests pass", 0).unwrap();
+        let category = get_checklist_category(&conn, &category.id).unwrap();
+        let checklist = get_checklist(&conn, &checklist.id).unwrap();
+        assert_eq!(category.total_items, 1);
+        assert_eq!(category.progress, 0);
+        assert_eq!(checklist.total_items, 1);
+        assert_eq!(checklist.progress, 0);
+
+        update_checklist_item(&conn, &item.id, Some(true), None).unwrap();
+        let category = get_checklist_category(&conn, &category.id).unwrap();
+        let checklist = get_checklist(&conn, &checklist.id).unwrap();
+        assert_eq!(category.progress, 1);
+        assert_eq!(checklist.progress, 1);
+
+        delete_checklist_item(&conn, &item.id).unwrap();
+        let category = get_checklist_category(&conn, &category.id).unwrap();
+        let checklist = get_checklist(&conn, &checklist.id).unwrap();
+        assert_eq!(category.total_items, 0);
+        assert_eq!(category.progress, 0);
+        assert_eq!(checklist.total_items, 0);
+        assert_eq!(checklist.progress, 0);
+    }
+
+    #[test]
+    fn checklist_item_details_preserve_unmentioned_nullable_fields() {
+        let conn = init_test().unwrap();
+        let workspace = insert_workspace(&conn, "Test", "/tmp/test").unwrap();
+        let checklist = insert_checklist(&conn, &workspace.id, "Release", Some("Before")).unwrap();
+        let category =
+            insert_checklist_category(&conn, &checklist.id, "Quality", "check", 0).unwrap();
+        let item = create_checklist_item_with_detect(
+            &conn,
+            &category.id,
+            "Tests pass",
+            0,
+            Some("file-exists"),
+            Some(r#"{"pattern":"README.md"}"#),
+        )
+        .unwrap();
+        link_checklist_item_to_task(&conn, &item.id, Some("task-1")).unwrap();
+
+        let updated = update_checklist_item_details(
+            &conn,
+            &item.id,
+            Some("Tests pass now"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(updated.text, "Tests pass now");
+        assert_eq!(updated.detect_type.as_deref(), Some("file-exists"));
+        assert_eq!(
+            updated.detect_config.as_deref(),
+            Some(r#"{"pattern":"README.md"}"#)
+        );
+        assert_eq!(updated.linked_task_id.as_deref(), Some("task-1"));
+
+        let cleared = update_checklist_item_details(
+            &conn,
+            &item.id,
+            None,
+            None,
+            Some(Some("notes")),
+            None,
+            Some(None),
+            Some(None),
+            None,
+            Some(None),
+        )
+        .unwrap();
+        assert_eq!(cleared.notes.as_deref(), Some("notes"));
+        assert_eq!(cleared.detect_type, None);
+        assert_eq!(cleared.detect_config, None);
+        assert_eq!(cleared.linked_task_id, None);
+    }
+}
