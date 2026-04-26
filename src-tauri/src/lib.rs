@@ -358,13 +358,6 @@ fn is_stale_pipeline_state(state: &str) -> bool {
     STALE_PIPELINE_STATES.contains(&state)
 }
 
-fn has_on_entry_trigger(column: &db::Column) -> bool {
-    matches!(
-        pipeline::triggers::parse_column_triggers(column.triggers.as_deref()).on_entry,
-        Some(action) if !matches!(action, pipeline::triggers::TriggerActionV2::None)
-    )
-}
-
 fn startup_resume_candidates(
     conn: &rusqlite::Connection,
 ) -> rusqlite::Result<Vec<(db::Task, db::Column)>> {
@@ -383,7 +376,7 @@ fn startup_resume_candidates(
     for task_id in task_ids {
         let task = db::get_task(conn, &task_id)?;
         let column = db::get_column(conn, &task.column_id)?;
-        if has_on_entry_trigger(&column) {
+        if pipeline::triggers::has_effective_on_entry_trigger(&task, &column) {
             candidates.push((task, column));
         }
     }
@@ -563,6 +556,42 @@ mod startup_recovery_tests {
         db::update_task_pipeline_state(&conn, &task.id, "running", None, None).unwrap();
 
         assert!(startup_resume_candidates(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn startup_resume_candidates_respect_task_trigger_overrides() {
+        let conn = db::init_test().unwrap();
+        let workspace = db::insert_workspace(&conn, "Test", "/tmp/test").unwrap();
+        let column = db::insert_column(&conn, &workspace.id, "Plan", 0).unwrap();
+        db::update_column(
+            &conn,
+            &column.id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(r#"{"on_entry":{"type":"spawn_cli","cli":"codex"}}"#),
+        )
+        .unwrap();
+
+        let skipped = db::insert_task(&conn, &workspace.id, &column.id, "Skipped", None).unwrap();
+        let resumable = db::insert_task(&conn, &workspace.id, &column.id, "Resume", None).unwrap();
+
+        conn.execute(
+            "UPDATE tasks SET trigger_overrides = ?1 WHERE id = ?2",
+            rusqlite::params![r#"{"skip_triggers":true}"#, skipped.id],
+        )
+        .unwrap();
+
+        for task_id in [&skipped.id, &resumable.id] {
+            db::update_task_pipeline_state(&conn, task_id, "running", None, None).unwrap();
+        }
+
+        let candidates = startup_resume_candidates(&conn).unwrap();
+        let ids: Vec<_> = candidates.into_iter().map(|(task, _)| task.id).collect();
+
+        assert_eq!(ids, vec![resumable.id]);
     }
 
     #[test]

@@ -238,6 +238,13 @@ fn resolve_trigger(
     Some(base)
 }
 
+/// Return true when a task would actually run an on-entry trigger after
+/// task-level overrides are applied.
+pub(crate) fn has_effective_on_entry_trigger(task: &Task, column: &Column) -> bool {
+    let triggers = parse_column_triggers(column.triggers.as_deref());
+    resolve_trigger(&triggers, task, "on_entry").is_some()
+}
+
 // ─── Trigger Execution ─────────────────────────────────────────────────────
 
 /// Fire the on_entry trigger for a column (V2 format).
