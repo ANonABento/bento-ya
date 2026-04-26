@@ -46,7 +46,7 @@ impl PipelineState {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn from_db_str(s: &str) -> Self {
         match s {
             "triggered" => PipelineState::Triggered,
             "running" => PipelineState::Running,
@@ -95,21 +95,27 @@ pub fn emit_pipeline(
     state: PipelineState,
     message: Option<String>,
 ) {
-    let _ = app.emit(event_name, &PipelineEvent {
-        task_id: task_id.to_string(),
-        column_id: column_id.to_string(),
-        event_type: event_name.trim_start_matches("pipeline:").to_string(),
-        state: state.as_str().to_string(),
-        message,
-    });
+    let _ = app.emit(
+        event_name,
+        &PipelineEvent {
+            task_id: task_id.to_string(),
+            column_id: column_id.to_string(),
+            event_type: event_name.trim_start_matches("pipeline:").to_string(),
+            state: state.as_str().to_string(),
+            message,
+        },
+    );
 }
 
 /// Emit a global tasks:changed event so the frontend re-fetches.
 pub fn emit_tasks_changed(app: &AppHandle, workspace_id: &str, reason: &str) {
-    let _ = app.emit("tasks:changed", &TasksChangedEvent {
-        workspace_id: workspace_id.to_string(),
-        reason: reason.to_string(),
-    });
+    let _ = app.emit(
+        "tasks:changed",
+        &TasksChangedEvent {
+            workspace_id: workspace_id.to_string(),
+            reason: reason.to_string(),
+        },
+    );
 }
 
 /// Payload sent to webhook URLs
@@ -210,7 +216,10 @@ pub fn check_exit_met(task: &Task, exit_type: &str) -> Option<bool> {
         "agent_complete" => {
             // If no session ID, check pipeline state as fallback
             if task.agent_session_id.is_none() {
-                Some(task.pipeline_state == PipelineState::Running.as_str() || task.pipeline_state == "complete")
+                Some(
+                    task.pipeline_state == PipelineState::Running.as_str()
+                        || task.pipeline_state == "complete",
+                )
             } else {
                 None // Needs DB lookup — caller handles
             }
@@ -250,8 +259,7 @@ fn parse_trigger_field_u64(triggers_json: Option<&str>, field: &str) -> u64 {
 
 /// Parse an i64 field from exit_criteria in triggers JSON.
 fn parse_trigger_field_i64(triggers_json: Option<&str>, field: &str) -> Option<i64> {
-    get_exit_criteria_field(triggers_json, field)
-        .and_then(|v| v.as_i64())
+    get_exit_criteria_field(triggers_json, field).and_then(|v| v.as_i64())
 }
 
 /// Check if a siege retry has exceeded the time cap.
@@ -264,7 +272,8 @@ fn is_siege_timed_out(triggered_at: Option<&str>) -> bool {
     let Ok(started) = chrono::DateTime::parse_from_rfc3339(ts) else {
         return false;
     };
-    chrono::Utc::now().signed_duration_since(started) >= chrono::Duration::seconds(SIEGE_TIMEOUT_SECS)
+    chrono::Utc::now().signed_duration_since(started)
+        >= chrono::Duration::seconds(SIEGE_TIMEOUT_SECS)
 }
 
 // ─── Pipeline Engine ────────────────────────────────────────────────────────
@@ -280,19 +289,29 @@ pub fn fire_trigger(
 ) -> Result<Task, AppError> {
     // Verify column still exists (may have been deleted while trigger was queued)
     if db::get_column(conn, &column.id).is_err() {
-        log::warn!("Column {} deleted before trigger could fire for task {}", column.id, task.id);
+        log::warn!(
+            "Column {} deleted before trigger could fire for task {}",
+            column.id,
+            task.id
+        );
         return Ok(task.clone());
     }
 
     // Record timing: task entering this column
     if let Err(e) = db::insert_pipeline_timing(conn, &task.id, &column.id, &column.name) {
-        log::warn!("Failed to insert pipeline timing for task {}: {}", task.id, e);
+        log::warn!(
+            "Failed to insert pipeline timing for task {}: {}",
+            task.id,
+            e
+        );
     }
 
     // Check for V2 triggers
     if let Some(ref triggers_json) = column.triggers {
         if triggers_json != "{}" && !triggers_json.is_empty() {
-            if let Ok(col_triggers) = serde_json::from_str::<triggers::ColumnTriggersV2>(triggers_json) {
+            if let Ok(col_triggers) =
+                serde_json::from_str::<triggers::ColumnTriggersV2>(triggers_json)
+            {
                 if col_triggers.on_entry.is_some() {
                     return triggers::fire_on_entry(conn, app, task, column, &col_triggers, None);
                 }
@@ -319,11 +338,21 @@ pub fn evaluate_exit_criteria(
 
     // Set state to evaluating
     let _ = db::update_task_pipeline_state(
-        conn, &task.id, PipelineState::Evaluating.as_str(),
-        task.pipeline_triggered_at.as_deref(), None,
+        conn,
+        &task.id,
+        PipelineState::Evaluating.as_str(),
+        task.pipeline_triggered_at.as_deref(),
+        None,
     );
 
-    emit_pipeline(app, "pipeline:evaluating", &task.id, &column.id, PipelineState::Evaluating, Some(format!("Exit type: {}", exit_type.as_str())));
+    emit_pipeline(
+        app,
+        "pipeline:evaluating",
+        &task.id,
+        &column.id,
+        PipelineState::Evaluating,
+        Some(format!("Exit type: {}", exit_type.as_str())),
+    );
 
     // Try pure check first, fall back to external checks
     let exit_met = match check_exit_met(task, exit_type.as_str()) {
@@ -340,7 +369,8 @@ pub fn evaluate_exit_criteria(
                                     || (session.status == "stopped" && session.exit_code == Some(0))
                             }
                             Err(_) => {
-                                task.pipeline_state == PipelineState::Running.as_str() || task.pipeline_state == "complete"
+                                task.pipeline_state == PipelineState::Running.as_str()
+                                    || task.pipeline_state == "complete"
                             }
                         }
                     } else {
@@ -348,10 +378,13 @@ pub fn evaluate_exit_criteria(
                     }
                 }
                 triggers::ExitCriteriaTypeV2::TimeElapsed => {
-                    let timeout_secs = parse_trigger_field_u64(column.triggers.as_deref(), "timeout");
+                    let timeout_secs =
+                        parse_trigger_field_u64(column.triggers.as_deref(), "timeout");
                     let timeout_secs = if timeout_secs == 0 { 300 } else { timeout_secs };
                     if let Some(ref triggered_at) = task.pipeline_triggered_at {
-                        if let Ok(triggered_time) = chrono::DateTime::parse_from_rfc3339(triggered_at) {
+                        if let Ok(triggered_time) =
+                            chrono::DateTime::parse_from_rfc3339(triggered_at)
+                        {
                             let elapsed = chrono::Utc::now().signed_duration_since(triggered_time);
                             elapsed.num_seconds() >= timeout_secs as i64
                         } else {
@@ -365,21 +398,37 @@ pub fn evaluate_exit_criteria(
                     if let Some(pr_number) = task.pr_number {
                         if let Ok(workspace) = db::get_workspace(conn, &task.workspace_id) {
                             let output = std::process::Command::new("gh")
-                                .args(["pr", "view", &pr_number.to_string(), "--json", "reviewDecision"])
+                                .args([
+                                    "pr",
+                                    "view",
+                                    &pr_number.to_string(),
+                                    "--json",
+                                    "reviewDecision",
+                                ])
                                 .current_dir(&workspace.repo_path)
                                 .output();
                             if let Ok(output) = output {
                                 if output.status.success() {
                                     #[derive(serde::Deserialize)]
                                     #[serde(rename_all = "camelCase")]
-                                    struct PrReview { review_decision: Option<String> }
+                                    struct PrReview {
+                                        review_decision: Option<String>,
+                                    }
                                     serde_json::from_slice::<PrReview>(&output.stdout)
                                         .map(|pr| pr.review_decision.as_deref() == Some("APPROVED"))
                                         .unwrap_or(false)
-                                } else { false }
-                            } else { false }
-                        } else { false }
-                    } else { false }
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
                 }
                 _ => false,
             }
@@ -387,21 +436,31 @@ pub fn evaluate_exit_criteria(
     };
 
     if exit_met {
-        emit_pipeline(app, "pipeline:exit_met", &task.id, &column.id, PipelineState::Evaluating, Some(format!("Exit criteria met: {}", exit_type.as_str())));
+        emit_pipeline(
+            app,
+            "pipeline:exit_met",
+            &task.id,
+            &column.id,
+            PipelineState::Evaluating,
+            Some(format!("Exit criteria met: {}", exit_type.as_str())),
+        );
     }
 
     // Reset state to running or idle
     let new_state = if exit_met {
         PipelineState::Idle
-    } else if PipelineState::from_str(&task.pipeline_state) == PipelineState::Running {
+    } else if PipelineState::from_db_str(&task.pipeline_state) == PipelineState::Running {
         PipelineState::Running
     } else {
         PipelineState::Idle
     };
 
     let _ = db::update_task_pipeline_state(
-        conn, &task.id, new_state.as_str(),
-        task.pipeline_triggered_at.as_deref(), None,
+        conn,
+        &task.id,
+        new_state.as_str(),
+        task.pipeline_triggered_at.as_deref(),
+        None,
     );
 
     Ok(exit_met)
@@ -451,7 +510,14 @@ pub fn try_auto_advance(
                 None,
             );
 
-            emit_pipeline(app, "pipeline:advancing", &task.id, &current_column.id, PipelineState::Advancing, Some(format!("Moving to column: {}", next_col.name)));
+            emit_pipeline(
+                app,
+                "pipeline:advancing",
+                &task.id,
+                &current_column.id,
+                PipelineState::Advancing,
+                Some(format!("Moving to column: {}", next_col.name)),
+            );
 
             // Get next position in target column
             let max_pos: i64 = conn
@@ -471,7 +537,17 @@ pub fn try_auto_advance(
 
             let updated_task = db::get_task(conn, &task.id)?;
 
-            emit_pipeline(app, "pipeline:advanced", &updated_task.id, &next_col.id, PipelineState::Idle, Some(format!("Moved from {} to {}", current_column.name, next_col.name)));
+            emit_pipeline(
+                app,
+                "pipeline:advanced",
+                &updated_task.id,
+                &next_col.id,
+                PipelineState::Idle,
+                Some(format!(
+                    "Moved from {} to {}",
+                    current_column.name, next_col.name
+                )),
+            );
 
             // Notify frontend that tasks changed
             emit_tasks_changed(app, &task.workspace_id, "pipeline_advanced");
@@ -511,7 +587,14 @@ pub fn handle_trigger_failure(
         Some(error_message),
     )?;
 
-    emit_pipeline(app, "pipeline:error", &task.id, &column.id, PipelineState::Idle, Some(error_message.to_string()));
+    emit_pipeline(
+        app,
+        "pipeline:error",
+        &task.id,
+        &column.id,
+        PipelineState::Idle,
+        Some(error_message.to_string()),
+    );
 
     Ok(updated_task)
 }
@@ -521,7 +604,8 @@ fn increment_retry_count(conn: &Connection, task_id: &str) -> Result<(), AppErro
     conn.execute(
         "UPDATE tasks SET retry_count = retry_count + 1 WHERE id = ?1",
         rusqlite::params![task_id],
-    ).map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    )
+    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(())
 }
 
@@ -547,8 +631,14 @@ pub fn mark_complete_with_error(
     let column = db::get_column(conn, &task.column_id)?;
 
     // Record timing: task exiting this column
-    if let Err(e) = db::complete_pipeline_timing(conn, task_id, &column.id, success, task.retry_count) {
-        log::warn!("Failed to complete pipeline timing for task {}: {}", task_id, e);
+    if let Err(e) =
+        db::complete_pipeline_timing(conn, task_id, &column.id, success, task.retry_count)
+    {
+        log::warn!(
+            "Failed to complete pipeline timing for task {}: {}",
+            task_id,
+            e
+        );
     }
 
     let action = decide_completion(&task, column.triggers.as_deref(), success);
@@ -559,7 +649,8 @@ pub fn mark_complete_with_error(
             conn.execute(
                 "UPDATE tasks SET retry_count = 0 WHERE id = ?1",
                 rusqlite::params![task_id],
-            ).map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            )
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
             // Check dependents - tasks waiting on this one
             let _ = dependencies::check_dependents(conn, app, &task);
@@ -571,7 +662,11 @@ pub fn mark_complete_with_error(
 
             // Auto-advance not possible (no next column), fall through to complete
             let updated_task = db::update_task_pipeline_state(
-                conn, task_id, PipelineState::Idle.as_str(), None, None,
+                conn,
+                task_id,
+                PipelineState::Idle.as_str(),
+                None,
+                None,
             )?;
             emit_completion_event(app, task_id, &column.id, &task.workspace_id, true);
             Ok(updated_task)
@@ -581,13 +676,18 @@ pub fn mark_complete_with_error(
             conn.execute(
                 "UPDATE tasks SET retry_count = 0 WHERE id = ?1",
                 rusqlite::params![task_id],
-            ).map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            )
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
             // Check dependents
             let _ = dependencies::check_dependents(conn, app, &task);
 
             let updated_task = db::update_task_pipeline_state(
-                conn, task_id, PipelineState::Idle.as_str(), None, None,
+                conn,
+                task_id,
+                PipelineState::Idle.as_str(),
+                None,
+                None,
             )?;
             emit_completion_event(app, task_id, &column.id, &task.workspace_id, true);
             Ok(updated_task)
@@ -600,7 +700,14 @@ pub fn mark_complete_with_error(
             };
             log::info!("[pipeline] {}: {}", task_id, retry_msg);
 
-            emit_pipeline(app, "pipeline:error", task_id, &column.id, PipelineState::Idle, Some(retry_msg));
+            emit_pipeline(
+                app,
+                "pipeline:error",
+                task_id,
+                &column.id,
+                PipelineState::Idle,
+                Some(retry_msg),
+            );
             let msg = if max == -1 {
                 format!("Siege retry #{}", attempt)
             } else {
@@ -608,7 +715,14 @@ pub fn mark_complete_with_error(
             };
             log::info!("[pipeline] {} task {}", msg, task_id);
 
-            emit_pipeline(app, "pipeline:error", task_id, &column.id, PipelineState::Idle, Some(msg));
+            emit_pipeline(
+                app,
+                "pipeline:error",
+                task_id,
+                &column.id,
+                PipelineState::Idle,
+                Some(msg),
+            );
 
             let updated_task = db::get_task(conn, task_id)?;
             fire_trigger(conn, app, &updated_task, &column)
@@ -633,7 +747,11 @@ pub fn mark_complete_with_error(
 
             let error_msg = error_detail.unwrap_or("Execution failed");
             let updated_task = db::update_task_pipeline_state(
-                conn, task_id, PipelineState::Idle.as_str(), None, Some(error_msg),
+                conn,
+                task_id,
+                PipelineState::Idle.as_str(),
+                None,
+                Some(error_msg),
             )?;
             emit_completion_event(app, task_id, &column.id, &task.workspace_id, false);
             Ok(updated_task)
@@ -641,8 +759,21 @@ pub fn mark_complete_with_error(
     }
 }
 
-fn emit_completion_event(app: &AppHandle, task_id: &str, column_id: &str, workspace_id: &str, success: bool) {
-    emit_pipeline(app, "pipeline:complete", task_id, column_id, PipelineState::Idle, Some(if success { "Success" } else { "Failed" }.to_string()));
+fn emit_completion_event(
+    app: &AppHandle,
+    task_id: &str,
+    column_id: &str,
+    workspace_id: &str,
+    success: bool,
+) {
+    emit_pipeline(
+        app,
+        "pipeline:complete",
+        task_id,
+        column_id,
+        PipelineState::Idle,
+        Some(if success { "Success" } else { "Failed" }.to_string()),
+    );
     emit_tasks_changed(app, workspace_id, "pipeline_complete");
 
     // Promote queued tasks now that a slot may have opened up
@@ -676,7 +807,9 @@ fn promote_queued_tasks(app: &AppHandle, workspace_id: &str) {
     if let Some(next) = queued.first() {
         log::info!(
             "[pipeline] Promoting queued task {} (slot opened: {}/{})",
-            next.id, running, max
+            next.id,
+            running,
+            max
         );
         // Clear queued status so the trigger can fire
         let _ = db::update_task_agent_status(&conn, &next.id, Some("idle"), None);
@@ -684,9 +817,13 @@ fn promote_queued_tasks(app: &AppHandle, workspace_id: &str) {
         if let Ok(columns) = db::list_columns(&conn, workspace_id) {
             if let Some(col) = columns.iter().find(|c| c.id == next.column_id) {
                 let parsed_triggers = triggers::parse_column_triggers(col.triggers.as_deref());
-                match triggers::fire_on_entry(&conn, app, &next, col, &parsed_triggers, None) {
+                match triggers::fire_on_entry(&conn, app, next, col, &parsed_triggers, None) {
                     Ok(_) => log::info!("[pipeline] Queued task {} promoted successfully", next.id),
-                    Err(e) => log::warn!("[pipeline] Failed to promote queued task {}: {}", next.id, e),
+                    Err(e) => log::warn!(
+                        "[pipeline] Failed to promote queued task {}: {}",
+                        next.id,
+                        e
+                    ),
                 }
             }
         }
@@ -698,7 +835,6 @@ fn promote_queued_tasks(app: &AppHandle, workspace_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db;
 
     /// Create a minimal task for testing decision logic.
     fn make_task(retry_count: i64, pipeline_state: &str) -> Task {
@@ -758,7 +894,8 @@ mod tests {
                 "auto_advance": auto_advance,
                 "max_retries": max_retries
             }
-        }).to_string()
+        })
+        .to_string()
     }
 
     // ─── decide_completion tests ──────────────────────────────────────
@@ -835,28 +972,33 @@ mod tests {
                 "auto_advance": auto_advance,
                 "max_retries": -1
             }
-        }).to_string()
+        })
+        .to_string()
     }
 
     #[test]
     fn test_decide_siege_retries_when_recent() {
         let mut task = make_task(3, "running");
         // Started 5 minutes ago — well within 30-min cap
-        task.pipeline_triggered_at = Some(
-            (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339()
-        );
+        task.pipeline_triggered_at =
+            Some((chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339());
         let triggers = siege_triggers_json(true);
         let action = decide_completion(&task, Some(&triggers), false);
-        assert_eq!(action, CompletionAction::Retry { attempt: 4, max: -1 });
+        assert_eq!(
+            action,
+            CompletionAction::Retry {
+                attempt: 4,
+                max: -1
+            }
+        );
     }
 
     #[test]
     fn test_decide_siege_fails_when_timed_out() {
         let mut task = make_task(50, "running");
         // Started 31 minutes ago — past the 30-min cap
-        task.pipeline_triggered_at = Some(
-            (chrono::Utc::now() - chrono::Duration::minutes(31)).to_rfc3339()
-        );
+        task.pipeline_triggered_at =
+            Some((chrono::Utc::now() - chrono::Duration::minutes(31)).to_rfc3339());
         let triggers = siege_triggers_json(true);
         let action = decide_completion(&task, Some(&triggers), false);
         assert_eq!(action, CompletionAction::Failed);
@@ -868,7 +1010,13 @@ mod tests {
         task.pipeline_triggered_at = None; // No timestamp — allow retry
         let triggers = siege_triggers_json(false);
         let action = decide_completion(&task, Some(&triggers), false);
-        assert_eq!(action, CompletionAction::Retry { attempt: 6, max: -1 });
+        assert_eq!(
+            action,
+            CompletionAction::Retry {
+                attempt: 6,
+                max: -1
+            }
+        );
     }
 
     #[test]
@@ -1052,14 +1200,20 @@ mod tests {
 
     #[test]
     fn test_pipeline_state_roundtrip() {
-        for state in [PipelineState::Idle, PipelineState::Triggered, PipelineState::Running, PipelineState::Evaluating, PipelineState::Advancing] {
-            assert_eq!(PipelineState::from_str(state.as_str()), state);
+        for state in [
+            PipelineState::Idle,
+            PipelineState::Triggered,
+            PipelineState::Running,
+            PipelineState::Evaluating,
+            PipelineState::Advancing,
+        ] {
+            assert_eq!(PipelineState::from_db_str(state.as_str()), state);
         }
     }
 
     #[test]
     fn test_pipeline_state_unknown_defaults_idle() {
-        assert_eq!(PipelineState::from_str("garbage"), PipelineState::Idle);
-        assert_eq!(PipelineState::from_str(""), PipelineState::Idle);
+        assert_eq!(PipelineState::from_db_str("garbage"), PipelineState::Idle);
+        assert_eq!(PipelineState::from_db_str(""), PipelineState::Idle);
     }
 }

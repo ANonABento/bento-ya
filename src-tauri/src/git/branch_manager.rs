@@ -1,8 +1,8 @@
+use crate::config::{normalize_branch_prefix, DEFAULT_BRANCH_PREFIX};
 use git2::{BranchType, Repository, Signature, StashFlags, WorktreeAddOptions};
 use serde::Serialize;
 use std::path::PathBuf;
 
-const BRANCH_PREFIX: &str = "bentoya/";
 const AUTO_STASH_PREFIX: &str = "bentoya-auto-stash-";
 
 #[derive(Debug, Serialize)]
@@ -18,7 +18,13 @@ pub fn slugify(input: &str) -> String {
     let slug: String = input
         .to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     let collapsed: String = slug
         .split('-')
@@ -45,7 +51,7 @@ pub fn create_task_branch(
     task_slug: &str,
     base_branch: Option<&str>,
 ) -> Result<String, String> {
-    create_task_branch_with_prefix(repo_path, task_slug, base_branch, BRANCH_PREFIX)
+    create_task_branch_with_prefix(repo_path, task_slug, base_branch, DEFAULT_BRANCH_PREFIX)
 }
 
 /// Create a task branch using a caller-provided prefix.
@@ -63,24 +69,14 @@ pub fn create_task_branch_with_prefix(
     };
 
     let slug = slugify(task_slug);
-    let trimmed_prefix = branch_prefix.trim();
-    let prefix = if trimmed_prefix.is_empty() {
-        BRANCH_PREFIX.to_string()
-    } else if trimmed_prefix.ends_with('/') {
-        trimmed_prefix.to_string()
-    } else {
-        format!("{}/", trimmed_prefix)
-    };
+    let prefix = normalize_branch_prefix(branch_prefix);
     let branch_name = format!("{}{}", prefix, slug);
 
     let base_ref = repo
         .find_branch(&base, BranchType::Local)
         .map_err(|e| format!("Base branch '{}' not found: {}", base, e))?;
 
-    let commit = base_ref
-        .get()
-        .peel_to_commit()
-        .map_err(|e| e.to_string())?;
+    let commit = base_ref.get().peel_to_commit().map_err(|e| e.to_string())?;
 
     repo.branch(&branch_name, &commit, false)
         .map_err(|e| format!("Failed to create branch '{}': {}", branch_name, e))?;
@@ -170,9 +166,7 @@ pub fn list_task_branches(repo_path: &str) -> Result<Vec<BranchInfo>, String> {
         .map_err(|e| e.to_string())?;
 
     let head = repo.head().ok();
-    let head_name = head
-        .as_ref()
-        .and_then(|h| h.shorthand().map(String::from));
+    let head_name = head.as_ref().and_then(|h| h.shorthand().map(String::from));
 
     let mut result = Vec::new();
 
@@ -184,7 +178,7 @@ pub fn list_task_branches(repo_path: &str) -> Result<Vec<BranchInfo>, String> {
             .unwrap_or("")
             .to_string();
 
-        if name.starts_with(BRANCH_PREFIX) {
+        if name.starts_with(DEFAULT_BRANCH_PREFIX) {
             let upstream = branch
                 .upstream()
                 .ok()
@@ -240,7 +234,9 @@ fn worktree_name(task_id: &str) -> String {
 
 /// On-disk worktree path: `<repo>/.worktrees/bentoya-<task_id>/`.
 fn worktree_path(repo_path: &str, task_id: &str) -> PathBuf {
-    PathBuf::from(repo_path).join(".worktrees").join(worktree_name(task_id))
+    PathBuf::from(repo_path)
+        .join(".worktrees")
+        .join(worktree_name(task_id))
 }
 
 /// Create a git worktree for a task, checked out to the given branch.
@@ -384,8 +380,7 @@ pub fn clean_worktree(worktree_path: &str) -> Result<String, String> {
 
     let task_md = path.join(".task.md");
     let task_md_removed = if task_md.exists() {
-        std::fs::remove_file(&task_md)
-            .map_err(|e| format!("Failed to remove .task.md: {}", e))?;
+        std::fs::remove_file(&task_md).map_err(|e| format!("Failed to remove .task.md: {}", e))?;
         true
     } else {
         false
@@ -408,7 +403,8 @@ pub fn clean_worktree(worktree_path: &str) -> Result<String, String> {
 pub fn list_worktrees(repo_path: &str) -> Result<Vec<String>, String> {
     let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
 
-    let names = repo.worktrees()
+    let names = repo
+        .worktrees()
         .map_err(|e| format!("Failed to list worktrees: {}", e))?;
 
     Ok(names
@@ -453,13 +449,37 @@ mod tests {
     #[cfg(test)]
     fn init_test_repo(path: &std::path::Path) {
         use std::process::Command;
-        Command::new("git").args(["init", "-q"]).current_dir(path).output().unwrap();
-        Command::new("git").args(["config", "user.email", "test@example.com"]).current_dir(path).output().unwrap();
-        Command::new("git").args(["config", "user.name", "Test"]).current_dir(path).output().unwrap();
-        Command::new("git").args(["config", "commit.gpgsign", "false"]).current_dir(path).output().unwrap();
+        Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "commit.gpgsign", "false"])
+            .current_dir(path)
+            .output()
+            .unwrap();
         std::fs::write(path.join("README.md"), "baseline\n").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(path).output().unwrap();
-        Command::new("git").args(["commit", "-q", "-m", "init"]).current_dir(path).output().unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-q", "-m", "init"])
+            .current_dir(path)
+            .output()
+            .unwrap();
     }
 
     #[test]
@@ -480,7 +500,10 @@ mod tests {
         let summary = clean_worktree(tmp.to_str().unwrap()).expect("clean_worktree failed");
 
         // Tracked file restored
-        assert_eq!(std::fs::read_to_string(tmp.join("README.md")).unwrap(), "baseline\n");
+        assert_eq!(
+            std::fs::read_to_string(tmp.join("README.md")).unwrap(),
+            "baseline\n"
+        );
         // Untracked file and directory removed
         assert!(!tmp.join("scratch.txt").exists());
         assert!(!tmp.join("build").exists());
@@ -494,7 +517,8 @@ mod tests {
 
     #[test]
     fn test_create_task_branch_with_custom_prefix() {
-        let tmp = std::env::temp_dir().join(format!("bentoya-branch-prefix-test-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("bentoya-branch-prefix-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
@@ -526,7 +550,10 @@ mod tests {
 
         let summary = clean_worktree(tmp.to_str().unwrap()).expect("clean_worktree failed");
         assert!(summary.contains("no changes"));
-        assert_eq!(std::fs::read_to_string(tmp.join("README.md")).unwrap(), "baseline\n");
+        assert_eq!(
+            std::fs::read_to_string(tmp.join("README.md")).unwrap(),
+            "baseline\n"
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

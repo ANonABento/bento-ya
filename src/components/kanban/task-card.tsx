@@ -195,20 +195,36 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const handleRetry = useCallback(() => { void actions.handleRetryPipeline() }, [actions])
 
   const [deleteConfirmPending, setDeleteConfirmPending] = useState(false)
+  const deleteConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearDeleteConfirmTimeout = useCallback(() => {
+    if (deleteConfirmTimeoutRef.current) {
+      clearTimeout(deleteConfirmTimeoutRef.current)
+      deleteConfirmTimeoutRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
+    clearDeleteConfirmTimeout()
     setDeleteConfirmPending(false)
-  }, [task.id])
+  }, [clearDeleteConfirmTimeout, task.id])
+
+  useEffect(() => clearDeleteConfirmTimeout, [clearDeleteConfirmTimeout])
 
   const handleDeleteWithConfirm = useCallback(() => {
     if (deleteConfirmPending) {
+      clearDeleteConfirmTimeout()
       actions.handleDeleteTask()
       setDeleteConfirmPending(false)
     } else {
+      clearDeleteConfirmTimeout()
       setDeleteConfirmPending(true)
-      setTimeout(() => { setDeleteConfirmPending(false) }, 2000)
+      deleteConfirmTimeoutRef.current = setTimeout(() => {
+        deleteConfirmTimeoutRef.current = null
+        setDeleteConfirmPending(false)
+      }, 2000)
     }
-  }, [deleteConfirmPending, actions])
+  }, [clearDeleteConfirmTimeout, deleteConfirmPending, actions])
 
   const handleToggleAgent = useCallback(() => {
     if (task.agentStatus === 'running' || canTriggerWork) {

@@ -10,6 +10,9 @@ use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
+pub const DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS: i64 = 5;
+pub const DEFAULT_BRANCH_PREFIX: &str = "bentoya/";
+
 /// Global cached settings instance. Reloaded on save.
 static CACHED_SETTINGS: OnceLock<Mutex<AppSettings>> = OnceLock::new();
 
@@ -46,6 +49,130 @@ pub struct AppSettings {
     pub default_session_strategy: String,
     /// Default advance mode: "auto" or "manual"
     pub default_advance_mode: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectivePipelineSettings {
+    pub default_agent_cli: String,
+    pub default_model: Option<String>,
+    pub max_concurrent_agents: i64,
+    pub branch_prefix: String,
+}
+
+fn workspace_config_value<'a>(config: &'a Value, path: &[&str]) -> Option<&'a Value> {
+    let mut current = config;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    Some(current)
+}
+
+fn workspace_config_string(config: &Value, paths: &[&[&str]]) -> Option<String> {
+    paths.iter().find_map(|path| {
+        workspace_config_value(config, path)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string)
+    })
+}
+
+fn workspace_config_i64(config: &Value, paths: &[&[&str]]) -> Option<i64> {
+    paths.iter().find_map(|path| {
+        let value = workspace_config_value(config, path)?;
+        if let Some(n) = value.as_i64() {
+            return Some(n);
+        }
+        value.as_str()?.trim().parse::<i64>().ok()
+    })
+}
+
+pub(crate) fn normalize_branch_prefix(prefix: &str) -> String {
+    let trimmed = prefix.trim();
+    if trimmed.is_empty() {
+        DEFAULT_BRANCH_PREFIX.to_string()
+    } else if trimmed.ends_with('/') {
+        trimmed.to_string()
+    } else {
+        format!("{}/", trimmed)
+    }
+}
+
+fn effective_pipeline_settings_with_app_settings(
+    workspace_config_json: &str,
+    settings: &AppSettings,
+) -> EffectivePipelineSettings {
+    let workspace_config = serde_json::from_str::<Value>(workspace_config_json)
+        .unwrap_or_else(|_| Value::Object(Default::default()));
+
+    let default_agent_cli = workspace_config_string(
+        &workspace_config,
+        &[
+            &["defaultAgentCli"],
+            &["default_agent_cli"],
+            &["agent", "defaultAgentCli"],
+            &["agent", "default_agent_cli"],
+        ],
+    )
+    .unwrap_or_else(|| settings.default_agent_cli.clone());
+
+    let default_model = workspace_config_string(
+        &workspace_config,
+        &[
+            &["defaultModel"],
+            &["default_model"],
+            &["agent", "modelSelection"],
+            &["agent", "defaultModel"],
+            &["agent", "default_model"],
+        ],
+    )
+    .filter(|model| model != "auto")
+    .or_else(|| {
+        let model = settings.default_model.trim();
+        if model.is_empty() {
+            None
+        } else {
+            Some(model.to_string())
+        }
+    });
+
+    let max_concurrent_agents = workspace_config_i64(
+        &workspace_config,
+        &[
+            &["maxConcurrentAgents"],
+            &["max_concurrent_agents"],
+            &["agent", "maxConcurrentAgents"],
+            &["agent", "max_concurrent_agents"],
+        ],
+    )
+    .filter(|n| *n > 0)
+    .unwrap_or(DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS);
+
+    let branch_prefix = workspace_config_string(
+        &workspace_config,
+        &[
+            &["branchPrefix"],
+            &["branch_prefix"],
+            &["git", "branchPrefix"],
+            &["git", "branch_prefix"],
+            &["workspaceDefaults", "branchPrefix"],
+            &["workspace_defaults", "branch_prefix"],
+        ],
+    )
+    .map(|prefix| normalize_branch_prefix(&prefix))
+    .unwrap_or_else(|| DEFAULT_BRANCH_PREFIX.to_string());
+
+    EffectivePipelineSettings {
+        default_agent_cli,
+        default_model,
+        max_concurrent_agents,
+        branch_prefix,
+    }
+}
+
+pub fn effective_pipeline_settings(workspace_config_json: &str) -> EffectivePipelineSettings {
+    let settings = AppSettings::load();
+    effective_pipeline_settings_with_app_settings(workspace_config_json, &settings)
 }
 
 impl Default for AppSettings {
@@ -90,8 +217,7 @@ impl AppSettings {
         let path = Self::file_path();
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-        std::fs::write(&path, json)
-            .map_err(|e| format!("Failed to write settings: {}", e))?;
+        std::fs::write(&path, json).map_err(|e| format!("Failed to write settings: {}", e))?;
 
         // Update cache
         if let Ok(mut cache) = cached().lock() {
@@ -137,7 +263,11 @@ impl AppSettings {
 
     /// Resolve a setting value with workspace override.
     /// Workspace config takes precedence over global settings.
-    pub fn resolve_with_workspace<'a>(&'a self, workspace_config: Option<&'a str>, key: &str) -> Option<String> {
+    pub fn resolve_with_workspace<'a>(
+        &'a self,
+        workspace_config: Option<&'a str>,
+        key: &str,
+    ) -> Option<String> {
         // Check workspace override first
         if let Some(config_json) = workspace_config {
             if let Ok(config) = serde_json::from_str::<Value>(config_json) {
@@ -240,5 +370,67 @@ mod tests {
         let deserialized: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.max_agent_sessions, settings.max_agent_sessions);
         assert_eq!(deserialized.default_agent_cli, settings.default_agent_cli);
+    }
+
+    #[test]
+    fn test_effective_pipeline_settings_flat_workspace_config() {
+        let cfg = r#"{
+            "defaultAgentCli": "claude",
+            "defaultModel": "sonnet",
+            "maxConcurrentAgents": 7,
+            "branchPrefix": "work"
+        }"#;
+
+        let effective = effective_pipeline_settings_with_app_settings(cfg, &AppSettings::default());
+
+        assert_eq!(effective.default_agent_cli, "claude");
+        assert_eq!(effective.default_model.as_deref(), Some("sonnet"));
+        assert_eq!(effective.max_concurrent_agents, 7);
+        assert_eq!(effective.branch_prefix, "work/");
+    }
+
+    #[test]
+    fn test_effective_pipeline_settings_nested_workspace_config() {
+        let cfg = r#"{
+            "agent": {"modelSelection": "opus", "maxConcurrentAgents": 4},
+            "git": {"branchPrefix": "feature/"}
+        }"#;
+
+        let effective = effective_pipeline_settings_with_app_settings(cfg, &AppSettings::default());
+
+        assert_eq!(effective.default_model.as_deref(), Some("opus"));
+        assert_eq!(effective.max_concurrent_agents, 4);
+        assert_eq!(effective.branch_prefix, "feature/");
+    }
+
+    #[test]
+    fn test_effective_pipeline_settings_ignores_auto_model_and_bad_limit() {
+        let cfg = r#"{
+            "agent": {"modelSelection": "auto"},
+            "maxConcurrentAgents": 0,
+            "branchPrefix": ""
+        }"#;
+
+        let effective = effective_pipeline_settings_with_app_settings(cfg, &AppSettings::default());
+
+        assert_eq!(effective.default_model, None);
+        assert_eq!(
+            effective.max_concurrent_agents,
+            DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS
+        );
+        assert_eq!(effective.branch_prefix, DEFAULT_BRANCH_PREFIX);
+    }
+
+    #[test]
+    fn test_effective_pipeline_settings_auto_is_only_special_for_model() {
+        let cfg = r#"{
+            "defaultAgentCli": "auto",
+            "branchPrefix": "auto"
+        }"#;
+
+        let effective = effective_pipeline_settings_with_app_settings(cfg, &AppSettings::default());
+
+        assert_eq!(effective.default_agent_cli, "auto");
+        assert_eq!(effective.branch_prefix, "auto/");
     }
 }

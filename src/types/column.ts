@@ -132,7 +132,7 @@ export const DEFAULT_SPAWN_CLI: SpawnCliAction = {
   use_queue: true,
 }
 
-export function parseColumnTriggers(triggers: Column['triggers']): ColumnTriggers | null {
+export function parseColumnTriggers(triggers: Column['triggers'] | string): ColumnTriggers | null {
   if (!triggers) return null
 
   if (typeof triggers === 'string') {
