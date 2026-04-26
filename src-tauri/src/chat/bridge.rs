@@ -25,10 +25,12 @@ fn gen_nonce() -> String {
     use std::hash::{BuildHasher, Hasher};
     let s = RandomState::new();
     let mut h = s.build_hasher();
-    h.write_u64(std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64);
+    h.write_u64(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64,
+    );
     format!("{:016x}", h.finish())
 }
 
@@ -43,11 +45,7 @@ pub struct ManagedBridge {
 impl ManagedBridge {
     /// Start a new bridge that subscribes to the PTY broadcast channel and
     /// forwards events to the frontend via Tauri events.
-    pub fn start(
-        app: AppHandle,
-        task_id: String,
-        rx: broadcast::Receiver<TransportEvent>,
-    ) -> Self {
+    pub fn start(app: AppHandle, task_id: String, rx: broadcast::Receiver<TransportEvent>) -> Self {
         let handle = tokio::spawn(bridge_broadcast_to_tauri(app, task_id, rx));
         Self { handle }
     }
@@ -135,28 +133,45 @@ async fn handle_bridge_event(
         }
         TransportEvent::Chat(ChatEvent::TextContent(ref text)) => {
             accumulated_text.push_str(text);
-            let _ = app.emit("agent:stream", &serde_json::json!({
-                "taskId": task_id,
-                "content": text,
-            }));
+            let _ = app.emit(
+                "agent:stream",
+                &serde_json::json!({
+                    "taskId": task_id,
+                    "content": text,
+                }),
+            );
             false
         }
-        TransportEvent::Chat(ChatEvent::ThinkingContent { ref content, is_complete }) => {
-            let _ = app.emit("agent:thinking", &serde_json::json!({
-                "taskId": task_id,
-                "content": content,
-                "isComplete": is_complete,
-            }));
+        TransportEvent::Chat(ChatEvent::ThinkingContent {
+            ref content,
+            is_complete,
+        }) => {
+            let _ = app.emit(
+                "agent:thinking",
+                &serde_json::json!({
+                    "taskId": task_id,
+                    "content": content,
+                    "isComplete": is_complete,
+                }),
+            );
             false
         }
-        TransportEvent::Chat(ChatEvent::ToolUse { ref id, ref name, ref input, ref status }) => {
-            let _ = app.emit("agent:tool_call", &serde_json::json!({
-                "taskId": task_id,
-                "toolId": id,
-                "toolName": name,
-                "toolInput": input.clone().unwrap_or_default(),
-                "status": format!("{:?}", status).to_lowercase(),
-            }));
+        TransportEvent::Chat(ChatEvent::ToolUse {
+            ref id,
+            ref name,
+            ref input,
+            ref status,
+        }) => {
+            let _ = app.emit(
+                "agent:tool_call",
+                &serde_json::json!({
+                    "taskId": task_id,
+                    "toolId": id,
+                    "toolName": name,
+                    "toolInput": input.clone().unwrap_or_default(),
+                    "status": format!("{:?}", status).to_lowercase(),
+                }),
+            );
             false
         }
         TransportEvent::Chat(ChatEvent::Complete) => {
@@ -164,16 +179,25 @@ async fn handle_bridge_event(
                 if let Ok(conn) = Connection::open(db::db_path()) {
                     let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
                     let _ = db::insert_agent_message(
-                        &conn, task_id, "assistant", accumulated_text,
-                        None, None, None, None,
+                        &conn,
+                        task_id,
+                        "assistant",
+                        accumulated_text,
+                        None,
+                        None,
+                        None,
+                        None,
                     );
                 }
                 accumulated_text.clear();
             }
-            let _ = app.emit("agent:complete", &serde_json::json!({
-                "taskId": task_id,
-                "success": true,
-            }));
+            let _ = app.emit(
+                "agent:complete",
+                &serde_json::json!({
+                    "taskId": task_id,
+                    "success": true,
+                }),
+            );
             false
         }
         TransportEvent::Exited(exit_code) => {
@@ -181,8 +205,14 @@ async fn handle_bridge_event(
                 if let Ok(conn) = Connection::open(db::db_path()) {
                     let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
                     let _ = db::insert_agent_message(
-                        &conn, task_id, "assistant", accumulated_text,
-                        None, None, None, None,
+                        &conn,
+                        task_id,
+                        "assistant",
+                        accumulated_text,
+                        None,
+                        None,
+                        None,
+                        None,
                     );
                 }
             }
@@ -254,8 +284,14 @@ pub fn spawn_cli_trigger_task(
             match db::insert_agent_session(&conn, &task_id, &cli_command, Some(&working_dir)) {
                 Ok(session) => {
                     let _ = db::update_agent_session(
-                        &conn, &session.id,
-                        None, Some("running"), None, None, None, None,
+                        &conn,
+                        &session.id,
+                        None,
+                        Some("running"),
+                        None,
+                        None,
+                        None,
+                        None,
                     );
                     let _ = db::update_task_agent_status(&conn, &task_id, Some("running"), None);
                     let ts = db::now();
@@ -288,7 +324,11 @@ pub fn spawn_cli_trigger_task(
     tokio::spawn(async move {
         let start_time = std::time::Instant::now();
         let full_cmd = build_trigger_command(&cli_command, &args, &initial_prompt);
-        let log_file = format!("{}/trigger_{}.log", crate::db::data_dir().display(), gen_nonce());
+        let log_file = format!(
+            "{}/trigger_{}.log",
+            crate::db::data_dir().display(),
+            gen_nonce()
+        );
 
         let result: Result<(), String> = async {
             // ── Direct process execution (no tmux) ─────────────────────
@@ -303,7 +343,8 @@ pub fn spawn_cli_trigger_task(
             // Open log file for stdout/stderr capture
             let log_out = std::fs::File::create(&log_file)
                 .map_err(|e| format!("Failed to create log file: {}", e))?;
-            let log_err = log_out.try_clone()
+            let log_err = log_out
+                .try_clone()
                 .map_err(|e| format!("Failed to clone log file: {}", e))?;
 
             // Build the command — use shell to handle the full command string
@@ -318,42 +359,54 @@ pub fn spawn_cli_trigger_task(
                 .map_err(|e| format!("Failed to spawn CLI process: {}", e))?;
 
             let child_pid = child.id().unwrap_or(0);
-            eprintln!("[bridge] Process spawned for task {}: PID {}", task_id, child_pid);
+            eprintln!(
+                "[bridge] Process spawned for task {}: PID {}",
+                task_id, child_pid
+            );
 
             // Update PID in agent session record
             if let Some(ref sid) = session_id {
                 if let Ok(conn) = Connection::open(db::db_path()) {
                     let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
                     let _ = db::update_agent_session(
-                        &conn, sid,
-                        Some(Some(child_pid as i64)), None, None, None, None, None,
+                        &conn,
+                        sid,
+                        Some(Some(child_pid as i64)),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
                     );
                 }
             }
 
             // Wait for process to complete with 2-hour timeout
-            let status = tokio::time::timeout(
-                std::time::Duration::from_secs(7200),
-                child.wait(),
-            )
-            .await
-            .map_err(|_| {
-                // Kill the process on timeout
-                let _ = child.start_kill();
-                format!("Trigger timed out after 2 hours for task {}", task_id)
-            })?
-            .map_err(|e| format!("Process wait failed: {}", e))?;
+            let status = tokio::time::timeout(std::time::Duration::from_secs(7200), child.wait())
+                .await
+                .map_err(|_| {
+                    // Kill the process on timeout
+                    let _ = child.start_kill();
+                    format!("Trigger timed out after 2 hours for task {}", task_id)
+                })?
+                .map_err(|e| format!("Process wait failed: {}", e))?;
 
             let exit_code = status.code().unwrap_or(1);
             // Keep log file on failure for debugging; clean up on success
             if exit_code == 0 {
                 let _ = tokio::fs::remove_file(&log_file).await;
             } else {
-                eprintln!("[bridge] Keeping log file for failed task {}: {}", task_id, log_file);
+                eprintln!(
+                    "[bridge] Keeping log file for failed task {}: {}",
+                    task_id, log_file
+                );
             }
 
             let success = exit_code == 0;
-            eprintln!("[bridge] Trigger completed for task {}: exit_code={}, success={}", task_id, exit_code, success);
+            eprintln!(
+                "[bridge] Trigger completed for task {}: exit_code={}, success={}",
+                task_id, exit_code, success
+            );
 
             // Update agent session + task status — but only if task hasn't moved columns
             if let Ok(conn) = Connection::open(db::db_path()) {
@@ -366,7 +419,10 @@ pub fn spawn_cli_trigger_task(
                     .unwrap_or(false);
 
                 if !task_still_here {
-                    eprintln!("[bridge] Task {} moved columns during trigger — skipping mark_complete", task_id);
+                    eprintln!(
+                        "[bridge] Task {} moved columns during trigger — skipping mark_complete",
+                        task_id
+                    );
                 } else {
                     let status = if success { "completed" } else { "failed" };
                     let _ = db::update_task_agent_status(&conn, &task_id, Some(status), None);
@@ -375,8 +431,14 @@ pub fn spawn_cli_trigger_task(
                     if let Ok(task) = db::get_task(&conn, &task_id) {
                         if let Some(ref sid) = task.agent_session_id {
                             let _ = db::update_agent_session(
-                                &conn, sid,
-                                None, Some(status), Some(Some(exit_code as i64)), None, None, None,
+                                &conn,
+                                sid,
+                                None,
+                                Some(status),
+                                Some(Some(exit_code as i64)),
+                                None,
+                                None,
+                                None,
                             );
                         }
                     }
@@ -386,23 +448,42 @@ pub fn spawn_cli_trigger_task(
                     if let Ok(task) = db::get_task(&conn, &task_id) {
                         let model_name = task.model.as_deref().unwrap_or("unknown");
                         let column_name = db::get_column(&conn, &task.column_id)
-                            .map(|c| c.name).unwrap_or_default();
+                            .map(|c| c.name)
+                            .unwrap_or_default();
                         // Insert usage record with duration (tokens TBD — requires parsing CLI output)
                         let _ = db::insert_usage_record(
-                            &conn, &task.workspace_id,
-                            Some(&task_id), session_id.as_deref(),
-                            "anthropic", model_name, 0, 0, 0.0,
-                            Some(&column_name), duration_secs,
+                            &conn,
+                            &task.workspace_id,
+                            Some(&task_id),
+                            session_id.as_deref(),
+                            "anthropic",
+                            model_name,
+                            0,
+                            0,
+                            0.0,
+                            Some(&column_name),
+                            duration_secs,
                         );
-                        eprintln!("[bridge] Usage recorded: task={} column={} model={} duration={}s",
-                            &task_id[..8], column_name, model_name, duration_secs);
+                        eprintln!(
+                            "[bridge] Usage recorded: task={} column={} model={} duration={}s",
+                            &task_id[..8],
+                            column_name,
+                            model_name,
+                            duration_secs
+                        );
                     }
 
                     if success {
                         let _ = pipeline::mark_complete(&conn, &app, &task_id, true);
                     } else {
                         let detail = format!("Agent exited with code {}", exit_code);
-                        let _ = pipeline::mark_complete_with_error(&conn, &app, &task_id, false, Some(&detail));
+                        let _ = pipeline::mark_complete_with_error(
+                            &conn,
+                            &app,
+                            &task_id,
+                            false,
+                            Some(&detail),
+                        );
                     }
                 }
             }
@@ -413,7 +494,10 @@ pub fn spawn_cli_trigger_task(
         .await;
 
         if let Err(e) = result {
-            let error_detail = format!("CLI trigger '{}' failed for task {}: {}", cli_command, task_id, e);
+            let error_detail = format!(
+                "CLI trigger '{}' failed for task {}: {}",
+                cli_command, task_id, e
+            );
             eprintln!("[bridge] {}", error_detail);
             if let Ok(conn) = Connection::open(db::db_path()) {
                 let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
@@ -425,16 +509,27 @@ pub fn spawn_cli_trigger_task(
 
                 if let Some(ref sid) = session_id {
                     let _ = db::update_agent_session(
-                        &conn, sid,
-                        None, Some("failed"), Some(Some(1)), None, None, None,
+                        &conn,
+                        sid,
+                        None,
+                        Some("failed"),
+                        Some(Some(1)),
+                        None,
+                        None,
+                        None,
                     );
                     let _ = db::update_task_agent_status(&conn, &task_id, Some("failed"), None);
                 }
 
                 if let Ok(task) = db::get_task(&conn, &task_id) {
                     if let Ok(col) = db::get_column(&conn, &task.column_id) {
-                        let _ =
-                            pipeline::handle_trigger_failure(&conn, &app, &task, &col, &error_detail);
+                        let _ = pipeline::handle_trigger_failure(
+                            &conn,
+                            &app,
+                            &task,
+                            &col,
+                            &error_detail,
+                        );
                     }
                 }
             }
@@ -474,8 +569,15 @@ mod tests {
 
     #[test]
     fn test_build_trigger_command_with_args() {
-        let cmd = build_trigger_command("codex", &["--model".to_string(), "gpt-5".to_string()], "hello");
-        assert_eq!(cmd, "codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --model gpt-5 'hello'");
+        let cmd = build_trigger_command(
+            "codex",
+            &["--model".to_string(), "gpt-5".to_string()],
+            "hello",
+        );
+        assert_eq!(
+            cmd,
+            "codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --model gpt-5 'hello'"
+        );
     }
 
     #[test]

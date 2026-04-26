@@ -1,64 +1,70 @@
-import { memo, useState, useCallback } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import type { Task } from '@/types'
 
 const CONFIRM_TIMEOUT_MS = 2000
 
-type DeleteConfirmationProps =
-  | {
-      deleteConfirmPending: boolean
-      onDeleteConfirmPendingChange: (pending: boolean) => void
-    }
-  | {
-      deleteConfirmPending?: undefined
-      onDeleteConfirmPendingChange?: undefined
-    }
-
 type TaskQuickActionsProps = {
   task: Task
   hasNextColumn: boolean
+  confirmDelete?: boolean
   onOpen: () => void
   onToggleAgent: () => void
   onRetry: () => void
   onMoveNext: () => void
   onDelete: () => void
   onShowMenu: (e: React.MouseEvent) => void
-} & DeleteConfirmationProps
+}
 
 export const TaskQuickActions = memo(function TaskQuickActions({
   task,
   hasNextColumn,
+  confirmDelete,
   onOpen,
   onToggleAgent,
   onRetry,
   onMoveNext,
   onDelete,
   onShowMenu,
-  deleteConfirmPending,
-  onDeleteConfirmPendingChange,
 }: TaskQuickActionsProps) {
   const isRunning = task.agentStatus === 'running'
   const hasError = !!task.pipelineError
-
   const [internalConfirmDelete, setInternalConfirmDelete] = useState(false)
-  const confirmDelete = deleteConfirmPending ?? internalConfirmDelete
-  const setConfirmDelete = onDeleteConfirmPendingChange ?? setInternalConfirmDelete
+  const internalConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isConfirmingDelete = confirmDelete ?? internalConfirmDelete
+
+  const clearInternalConfirmTimeout = useCallback(() => {
+    if (internalConfirmTimeoutRef.current) {
+      clearTimeout(internalConfirmTimeoutRef.current)
+      internalConfirmTimeoutRef.current = null
+    }
+  }, [])
+
+  useEffect(() => clearInternalConfirmTimeout, [clearInternalConfirmTimeout])
 
   const handleDelete = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
-    if (confirmDelete) {
+    if (confirmDelete !== undefined) {
       onDelete()
-      setConfirmDelete(false)
-    } else {
-      setConfirmDelete(true)
-      // Auto-dismiss after 2s
-      setTimeout(() => { setConfirmDelete(false) }, CONFIRM_TIMEOUT_MS)
+      return
     }
-  }, [confirmDelete, onDelete, setConfirmDelete])
-
+    if (internalConfirmDelete) {
+      clearInternalConfirmTimeout()
+      onDelete()
+      setInternalConfirmDelete(false)
+      return
+    }
+    clearInternalConfirmTimeout()
+    setInternalConfirmDelete(true)
+    internalConfirmTimeoutRef.current = setTimeout(() => {
+      internalConfirmTimeoutRef.current = null
+      setInternalConfirmDelete(false)
+    }, CONFIRM_TIMEOUT_MS)
+  }, [clearInternalConfirmTimeout, confirmDelete, internalConfirmDelete, onDelete])
   return (
     <div
       className="absolute right-1 top-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
       onClick={(e) => { e.stopPropagation(); }}
+      onKeyDown={(e) => { e.stopPropagation(); }}
     >
       {/* Open in panel */}
       <button
@@ -123,11 +129,11 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       <button
         onClick={handleDelete}
         className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
-          confirmDelete
+          isConfirmingDelete
             ? 'text-error bg-error/20'
             : 'text-text-secondary hover:bg-error/20 hover:text-error'
         }`}
-        title={confirmDelete ? 'Click again to confirm' : 'Delete task (Del)'}
+        title={isConfirmingDelete ? 'Click again to confirm' : 'Delete task (Del)'}
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM7.5 3.75c0-.69.56-1.25 1.25-1.25h2.5c.69 0 1.25.56 1.25 1.25V4.1a40.3 40.3 0 0 0-5 0v-.35ZM9 7.75a.75.75 0 0 0-1.5 0v6.5a.75.75 0 0 0 1.5 0v-6.5Zm3.25-.75a.75.75 0 0 1 .75.75v6.5a.75.75 0 0 1-1.5 0v-6.5a.75.75 0 0 1 .75-.75Z" clipRule="evenodd" />
