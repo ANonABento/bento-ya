@@ -69,17 +69,17 @@ pub fn execute_tools(
     let mut tasks_created = Vec::new();
     let mut tasks_updated = Vec::new();
     let mut tasks_deleted = Vec::new();
-    let mut queued_task_count = 0usize;
-    let mut configured_trigger_count = 0usize;
 
     // Track the last created task ID for __LAST__ references
     let mut last_created_task_id: Option<String> = None;
 
     for tool_use in tool_uses {
         // Resolve __LAST__ placeholder in input (references last created task)
-        let resolved_input = resolve_last_placeholder(&tool_use.input, last_created_task_id.as_deref());
+        let resolved_input =
+            resolve_last_placeholder(&tool_use.input, last_created_task_id.as_deref());
 
-        let result = execute_single_tool(conn, workspace_id, &tool_use.name, &resolved_input, columns);
+        let result =
+            execute_single_tool(conn, workspace_id, &tool_use.name, &resolved_input, columns);
 
         match result {
             Ok(outcome) => {
@@ -100,14 +100,21 @@ pub fn execute_tools(
 
                         results.push(ToolResult {
                             tool_use_id: tool_use.id.clone(),
-                            content: format!("Created task: \"{}\" in {}", task.title, get_column_name(&task.column_id, columns)),
+                            content: format!(
+                                "Created task: \"{}\" in {}",
+                                task.title,
+                                get_column_name(&task.column_id, columns)
+                            ),
                             is_error: false,
                         });
                         // Emit event for frontend
-                        let _ = app.emit("task:created", TaskCreatedPayload {
-                            workspace_id: workspace_id.to_string(),
-                            task: task.clone(),
-                        });
+                        let _ = app.emit(
+                            "task:created",
+                            TaskCreatedPayload {
+                                workspace_id: workspace_id.to_string(),
+                                task: task.clone(),
+                            },
+                        );
                         // Emit tasks:changed so frontend refreshes
                         pipeline::emit_tasks_changed(app, workspace_id, "orchestrator_tool");
                         last_created_task_id = Some(task.id.clone());
@@ -119,10 +126,14 @@ pub fn execute_tools(
                             content: format!("Updated task: \"{}\"", task.title),
                             is_error: false,
                         });
-                        let _ = app.emit("task:updated", TaskUpdatedPayload {
-                            workspace_id: workspace_id.to_string(),
-                            task: task.clone(),
-                        });
+                        let _ = app.emit(
+                            "task:updated",
+                            TaskUpdatedPayload {
+                                workspace_id: workspace_id.to_string(),
+                                task: task.clone(),
+                            },
+                        );
+                        pipeline::emit_tasks_changed(app, workspace_id, "orchestrator_tool");
                         tasks_updated.push(task);
                     }
                     ToolOutcome::TaskMoved(task, from_col, to_col) => {
@@ -140,13 +151,19 @@ pub fn execute_tools(
 
                         results.push(ToolResult {
                             tool_use_id: tool_use.id.clone(),
-                            content: format!("Moved \"{}\" from {} to {}", task.title, from_col, to_col),
+                            content: format!(
+                                "Moved \"{}\" from {} to {}",
+                                task.title, from_col, to_col
+                            ),
                             is_error: false,
                         });
-                        let _ = app.emit("task:updated", TaskUpdatedPayload {
-                            workspace_id: workspace_id.to_string(),
-                            task: task.clone(),
-                        });
+                        let _ = app.emit(
+                            "task:updated",
+                            TaskUpdatedPayload {
+                                workspace_id: workspace_id.to_string(),
+                                task: task.clone(),
+                            },
+                        );
                         // Emit tasks:changed so frontend refreshes
                         pipeline::emit_tasks_changed(app, workspace_id, "orchestrator_tool");
                         tasks_updated.push(task);
@@ -157,37 +174,52 @@ pub fn execute_tools(
                             content: format!("Deleted task: \"{}\"", title),
                             is_error: false,
                         });
-                        let _ = app.emit("task:deleted", TaskDeletedPayload {
-                            workspace_id: workspace_id.to_string(),
-                            task_id: task_id.clone(),
-                        });
+                        let _ = app.emit(
+                            "task:deleted",
+                            TaskDeletedPayload {
+                                workspace_id: workspace_id.to_string(),
+                                task_id: task_id.clone(),
+                            },
+                        );
+                        pipeline::emit_tasks_changed(app, workspace_id, "orchestrator_tool");
                         tasks_deleted.push(task_id);
                     }
                     ToolOutcome::TasksQueued(task_ids, agent_type) => {
-                        queued_task_count += task_ids.len();
                         results.push(ToolResult {
                             tool_use_id: tool_use.id.clone(),
-                            content: format!("Queued {} task(s) for {} agent processing", task_ids.len(), agent_type),
+                            content: format!(
+                                "Queued {} task(s) for {} agent processing",
+                                task_ids.len(),
+                                agent_type
+                            ),
                             is_error: false,
                         });
                         // Emit event for frontend to handle batch agent spawning
-                        let _ = app.emit("queue:batch_requested", QueueBatchRequestedPayload {
-                            workspace_id: workspace_id.to_string(),
-                            task_ids: task_ids.clone(),
-                            agent_type: agent_type.clone(),
-                        });
+                        let _ = app.emit(
+                            "queue:batch_requested",
+                            QueueBatchRequestedPayload {
+                                workspace_id: workspace_id.to_string(),
+                                task_ids: task_ids.clone(),
+                                agent_type: agent_type.clone(),
+                            },
+                        );
                     }
                     ToolOutcome::TriggersConfigured(column_id, column_name, triggers_json) => {
-                        configured_trigger_count += 1;
                         results.push(ToolResult {
                             tool_use_id: tool_use.id.clone(),
-                            content: format!("Configured triggers for column \"{}\":\n{}", column_name, triggers_json),
+                            content: format!(
+                                "Configured triggers for column \"{}\":\n{}",
+                                column_name, triggers_json
+                            ),
                             is_error: false,
                         });
-                        let _ = app.emit("column:updated", ColumnUpdatedPayload {
-                            workspace_id: workspace_id.to_string(),
-                            column_id: column_id.clone(),
-                        });
+                        let _ = app.emit(
+                            "column:updated",
+                            ColumnUpdatedPayload {
+                                workspace_id: workspace_id.to_string(),
+                                column_id: column_id.clone(),
+                            },
+                        );
                     }
                 }
             }
@@ -212,15 +244,6 @@ pub fn execute_tools(
     if !tasks_deleted.is_empty() {
         summary_parts.push(format!("Deleted {} task(s)", tasks_deleted.len()));
     }
-    if queued_task_count > 0 {
-        summary_parts.push(format!("Queued {} task(s)", queued_task_count));
-    }
-    if configured_trigger_count > 0 {
-        summary_parts.push(format!(
-            "Configured triggers for {} column(s)",
-            configured_trigger_count
-        ));
-    }
     let summary = if summary_parts.is_empty() {
         "No changes made".to_string()
     } else {
@@ -239,7 +262,9 @@ pub fn execute_tools(
 /// Replace __LAST__ and PENDING placeholders in tool input with the actual task ID.
 /// This allows chained actions like: create_task → move_task with task_id: "__LAST__"
 fn resolve_last_placeholder(input: &serde_json::Value, last_id: Option<&str>) -> serde_json::Value {
-    let Some(id) = last_id else { return input.clone() };
+    let Some(id) = last_id else {
+        return input.clone();
+    };
 
     match input {
         serde_json::Value::String(s) => {
@@ -256,9 +281,11 @@ fn resolve_last_placeholder(input: &serde_json::Value, last_id: Option<&str>) ->
             }
             serde_json::Value::Object(new_map)
         }
-        serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(|v| resolve_last_placeholder(v, Some(id))).collect())
-        }
+        serde_json::Value::Array(arr) => serde_json::Value::Array(
+            arr.iter()
+                .map(|v| resolve_last_placeholder(v, Some(id)))
+                .collect(),
+        ),
         _ => input.clone(),
     }
 }
@@ -267,9 +294,9 @@ fn resolve_last_placeholder(input: &serde_json::Value, last_id: Option<&str>) ->
 enum ToolOutcome {
     TaskCreated(Task),
     TaskUpdated(Task),
-    TaskMoved(Task, String, String),          // task, from_column, to_column
-    TaskDeleted(String, String),              // task_id, title
-    TasksQueued(Vec<String>, String),         // task_ids, agent_type
+    TaskMoved(Task, String, String),  // task, from_column, to_column
+    TaskDeleted(String, String),      // task_id, title
+    TasksQueued(Vec<String>, String), // task_ids, agent_type
     TriggersConfigured(String, String, String), // column_id, column_name, triggers_json
 }
 
@@ -287,12 +314,24 @@ fn execute_single_tool(
                 .get("title")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| AppError::InvalidInput("Missing title".to_string()))?;
+            let title = title.trim();
+            if title.is_empty() {
+                return Err(AppError::InvalidInput(
+                    "Task title cannot be empty".to_string(),
+                ));
+            }
 
             let description = input.get("description").and_then(|v| v.as_str());
 
-            // Find column by name, or use first column
-            let column_name = input.get("column").and_then(|v| v.as_str());
-            let column_id = find_column_id(columns, column_name)?;
+            let column_id = if let Some(column_id) = input
+                .get("column_id")
+                .or_else(|| input.get("columnId"))
+                .and_then(|v| v.as_str())
+            {
+                resolve_column_id(columns, column_id)?
+            } else {
+                find_column_id(columns, input.get("column").and_then(|v| v.as_str()))?
+            };
 
             let task = db::insert_task(conn, workspace_id, &column_id, title, description)
                 .map_err(|e| AppError::DatabaseError(e.to_string()))?;
@@ -303,10 +342,24 @@ fn execute_single_tool(
         "update_task" => {
             let task_id = input
                 .get("task_id")
+                .or_else(|| input.get("taskId"))
+                .or_else(|| input.get("id"))
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| AppError::InvalidInput("Missing task_id".to_string()))?;
 
             let title = input.get("title").and_then(|v| v.as_str());
+            let title = title
+                .map(str::trim)
+                .map(|title| {
+                    if title.is_empty() {
+                        Err(AppError::InvalidInput(
+                            "Task title cannot be empty".to_string(),
+                        ))
+                    } else {
+                        Ok(title)
+                    }
+                })
+                .transpose()?;
             let description = input.get("description").and_then(|v| v.as_str());
 
             // Convert description to the expected Option<Option<&str>> format
@@ -330,43 +383,62 @@ fn execute_single_tool(
         "move_task" => {
             let task_id = input
                 .get("task_id")
+                .or_else(|| input.get("taskId"))
+                .or_else(|| input.get("id"))
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| AppError::InvalidInput("Missing task_id".to_string()))?;
 
-            let column_name = input
-                .get("column")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| AppError::InvalidInput("Missing column".to_string()))?;
-
             // Get current task to know the source column
-            let current_task = db::get_task(conn, task_id)
-                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            let current_task =
+                db::get_task(conn, task_id).map_err(|e| AppError::DatabaseError(e.to_string()))?;
             let from_column = get_column_name(&current_task.column_id, columns);
 
-            // Find target column
-            let target_column_id = find_column_id(columns, Some(column_name))?;
+            let target_column_id = if let Some(column_id) = input
+                .get("column_id")
+                .or_else(|| input.get("columnId"))
+                .or_else(|| input.get("target_column_id"))
+                .or_else(|| input.get("targetColumnId"))
+                .and_then(|v| v.as_str())
+            {
+                resolve_column_id(columns, column_id)?
+            } else {
+                let column_name = input
+                    .get("column")
+                    .or_else(|| input.get("target_column"))
+                    .or_else(|| input.get("targetColumn"))
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| AppError::InvalidInput("Missing column".to_string()))?;
+                find_column_id(columns, Some(column_name))?
+            };
             let to_column = get_column_name(&target_column_id, columns);
 
-            // Move to end of target column
-            let max_pos: i64 = conn
-                .query_row(
+            let position = if let Some(value) = input.get("position") {
+                let position = value.as_i64().ok_or_else(|| {
+                    AppError::InvalidInput("Position must be an integer".to_string())
+                })?;
+                if position < 0 {
+                    return Err(AppError::InvalidInput(
+                        "Position must be non-negative".to_string(),
+                    ));
+                }
+                position
+            } else {
+                conn.query_row(
                     "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
                     rusqlite::params![target_column_id],
-                    |row| row.get(0),
+                    |row| row.get::<_, i64>(0),
                 )
-                .unwrap_or(-1);
+                .map(|max_pos| max_pos + 1)
+                .unwrap_or(0)
+            };
 
-            let task = db::update_task(
+            let task = move_task_to_column(
                 conn,
                 task_id,
-                None,
-                None,
-                Some(&target_column_id),
-                Some(max_pos + 1),
-                None,
-                None,
-            )
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+                &current_task.column_id,
+                &target_column_id,
+                position,
+            )?;
 
             Ok(ToolOutcome::TaskMoved(task, from_column, to_column))
         }
@@ -374,16 +446,17 @@ fn execute_single_tool(
         "delete_task" => {
             let task_id = input
                 .get("task_id")
+                .or_else(|| input.get("taskId"))
+                .or_else(|| input.get("id"))
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| AppError::InvalidInput("Missing task_id".to_string()))?;
 
             // Get task title before deleting
-            let task = db::get_task(conn, task_id)
-                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            let task =
+                db::get_task(conn, task_id).map_err(|e| AppError::DatabaseError(e.to_string()))?;
             let title = task.title.clone();
 
-            db::delete_task(conn, task_id)
-                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            db::delete_task(conn, task_id).map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
             Ok(ToolOutcome::TaskDeleted(task_id.to_string(), title))
         }
@@ -398,7 +471,9 @@ fn execute_single_tool(
                 .collect::<Vec<_>>();
 
             if task_ids.is_empty() {
-                return Err(AppError::InvalidInput("task_ids array is empty".to_string()));
+                return Err(AppError::InvalidInput(
+                    "task_ids array is empty".to_string(),
+                ));
             }
 
             let agent_type = input
@@ -426,19 +501,28 @@ fn execute_single_tool(
                 "on_exit": input.get("on_exit").cloned().unwrap_or(json!(null)),
                 "exit_criteria": input.get("exit_criteria").cloned().unwrap_or(json!({"type": "manual", "auto_advance": false})),
             });
-            let triggers_json = serde_json::to_string(&triggers)
-                .map_err(|e| AppError::InvalidInput(format!("Failed to serialize triggers: {}", e)))?;
+            let triggers_json = serde_json::to_string(&triggers).map_err(|e| {
+                AppError::InvalidInput(format!("Failed to serialize triggers: {}", e))
+            })?;
 
             // Save to database
             db::update_column(
                 conn,
                 &column_id,
-                None, None, None, None, None,
+                None,
+                None,
+                None,
+                None,
+                None,
                 Some(&triggers_json),
             )
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-            Ok(ToolOutcome::TriggersConfigured(column_id, col_name, triggers_json))
+            Ok(ToolOutcome::TriggersConfigured(
+                column_id,
+                col_name,
+                triggers_json,
+            ))
         }
 
         _ => Err(AppError::InvalidInput(format!(
@@ -500,6 +584,39 @@ fn find_column_id(columns: &[Column], name: Option<&str>) -> Result<String, AppE
     )))
 }
 
+/// Resolve an explicit column ID, accepting a column name as a fallback.
+fn resolve_column_id(columns: &[Column], id_or_name: &str) -> Result<String, AppError> {
+    if let Some(col) = columns.iter().find(|c| c.id == id_or_name) {
+        return Ok(col.id.clone());
+    }
+
+    find_column_id(columns, Some(id_or_name))
+}
+
+fn move_task_to_column(
+    conn: &Connection,
+    task_id: &str,
+    old_column_id: &str,
+    target_column_id: &str,
+    position: i64,
+) -> Result<Task, AppError> {
+    let ts = db::now();
+    if old_column_id == target_column_id {
+        conn.execute(
+            "UPDATE tasks SET column_id = ?1, position = ?2, updated_at = ?3 WHERE id = ?4",
+            rusqlite::params![target_column_id, position, ts, task_id],
+        )
+    } else {
+        conn.execute(
+            "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = NULL, updated_at = ?3 WHERE id = ?4",
+            rusqlite::params![target_column_id, position, ts, task_id],
+        )
+    }
+    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    db::get_task(conn, task_id).map_err(|e| AppError::DatabaseError(e.to_string()))
+}
+
 /// Get column name by ID
 fn get_column_name(column_id: &str, columns: &[Column]) -> String {
     columns
@@ -512,6 +629,7 @@ fn get_column_name(column_id: &str, columns: &[Column]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn mock_columns() -> Vec<Column> {
         vec![
@@ -594,5 +712,78 @@ mod tests {
         let columns = mock_columns();
         let result = find_column_id(&columns, Some("nonexistent"));
         assert!(result.is_err());
+    }
+
+    fn setup_db_with_columns() -> (rusqlite::Connection, String, Vec<Column>) {
+        let conn = db::init_test().unwrap();
+        let workspace = db::insert_workspace(&conn, "Test", "/tmp/test").unwrap();
+        let backlog = db::insert_column(&conn, &workspace.id, "Backlog", 0).unwrap();
+        let done = db::insert_column(&conn, &workspace.id, "Done", 1).unwrap();
+        (conn, workspace.id, vec![backlog, done])
+    }
+
+    #[test]
+    fn test_create_task_rejects_blank_title() {
+        let (conn, workspace_id, columns) = setup_db_with_columns();
+        let result = execute_single_tool(
+            &conn,
+            &workspace_id,
+            "create_task",
+            &json!({ "title": "   ", "column": "Backlog" }),
+            &columns,
+        );
+
+        assert!(
+            matches!(result, Err(AppError::InvalidInput(message)) if message == "Task title cannot be empty")
+        );
+    }
+
+    #[test]
+    fn test_move_task_resets_pipeline_state_when_column_changes() {
+        let (conn, workspace_id, columns) = setup_db_with_columns();
+        let task = db::insert_task(&conn, &workspace_id, &columns[0].id, "Task", None).unwrap();
+        db::update_task_pipeline_state(
+            &conn,
+            &task.id,
+            "error",
+            Some("2024-01-01T00:00:00Z"),
+            Some("failed"),
+        )
+        .unwrap();
+
+        let outcome = execute_single_tool(
+            &conn,
+            &workspace_id,
+            "move_task",
+            &json!({ "task_id": task.id, "column_id": columns[1].id }),
+            &columns,
+        )
+        .unwrap();
+
+        let ToolOutcome::TaskMoved(moved, _, _) = outcome else {
+            panic!("expected task move");
+        };
+        assert_eq!(moved.column_id, columns[1].id);
+        assert_eq!(moved.pipeline_state, "idle");
+        assert!(moved.pipeline_triggered_at.is_none());
+        assert!(moved.pipeline_error.is_none());
+    }
+
+    #[test]
+    fn test_move_task_rejects_non_integer_position() {
+        let (conn, workspace_id, columns) = setup_db_with_columns();
+        let task = db::insert_task(&conn, &workspace_id, &columns[0].id, "Task", None).unwrap();
+
+        let result = execute_single_tool(
+            &conn,
+            &workspace_id,
+            "move_task",
+            &json!({ "task_id": task.id, "column_id": columns[1].id, "position": "first" }),
+            &columns,
+        );
+
+        assert!(
+            matches!(result, Err(AppError::InvalidInput(message)) if message == "Position must be an integer")
+        );
     }
 }

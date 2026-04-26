@@ -34,7 +34,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: "create_task".to_string(),
-            description: "Create a new task on the board. Use a concise title, put longer requirements or acceptance criteria in description, and place it in an existing column by name. If no column is provided, the first column is used.".to_string(),
+            description: "Create a new task on the board. Tasks are placed in the specified column (or the first column if not specified).".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -48,7 +48,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
                     },
                     "column": {
                         "type": "string",
-                        "description": "Existing column name to place the task in. Matching is case-insensitive; prefer exact names from the board."
+                        "description": "The column name to place the task in. If not provided, uses the first column (usually Backlog)"
                     }
                 },
                 "required": ["title"]
@@ -56,7 +56,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "update_task".to_string(),
-            description: "Update an existing task's title or description. Use only task IDs from the current board context, and preserve fields the user did not ask to change.".to_string(),
+            description: "Update an existing task's title or description.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -78,7 +78,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "move_task".to_string(),
-            description: "Move an existing task to a different board column. Use task IDs from the current board context and an existing target column name.".to_string(),
+            description: "Move a task to a different column.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -88,7 +88,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
                     },
                     "column": {
                         "type": "string",
-                        "description": "Existing target column name. Matching is case-insensitive; prefer exact names from the board."
+                        "description": "The target column name to move the task to"
                     }
                 },
                 "required": ["task_id", "column"]
@@ -96,7 +96,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "delete_task".to_string(),
-            description: "Delete an existing task from the board. This action cannot be undone; only use it when the user clearly asks to delete/remove a task.".to_string(),
+            description: "Delete a task from the board. This action cannot be undone.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -110,7 +110,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "queue_tasks".to_string(),
-            description: "Queue existing tasks for batch agent processing. Use task IDs from the current board context; tasks will be processed concurrently by agents (up to 5 at a time).".to_string(),
+            description: "Queue multiple tasks for batch agent processing. The tasks will be processed concurrently by agents (up to 5 at a time).".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -130,7 +130,6 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: "configure_triggers".to_string(),
             description: r#"Configure automation triggers for a column. Set what happens when tasks enter/exit a column.
-Use an existing column name from the board.
 
 Action types for on_entry/on_exit:
 - {"type": "spawn_cli", "cli": "claude"|"codex"|"aider", "command": "/start-task", "prompt_template": "{task.title}\n\n{task.description}", "use_queue": true}
@@ -215,8 +214,28 @@ pub fn extract_text_content(content: &[serde_json::Value]) -> String {
         .join("")
 }
 
-/// Parse action blocks from CLI response text
-/// Looks for ```action ... ``` blocks containing JSON arrays of actions
+/// Parse structured tool uses from response text.
+///
+/// Supports Anthropic-style `tool_use` content blocks, arrays of tool uses,
+/// wrapper objects with `tool_use`, `tool_uses`, `actions`, or `content`
+/// fields, and direct action objects.
+pub fn parse_structured_tool_uses(response: &str) -> Vec<ToolUse> {
+    parse_json_candidates(response)
+        .into_iter()
+        .flat_map(|value| tool_uses_from_value(&value))
+        .enumerate()
+        .map(|(index, mut tool_use)| {
+            if tool_use.id.is_empty() {
+                tool_use.id = format!("structured_tool_use_{}", index);
+            }
+            tool_use
+        })
+        .collect()
+}
+
+/// Parse action blocks from CLI response text.
+/// Looks for ```action ... ``` blocks containing JSON arrays of actions, and
+/// also accepts structured JSON tool_use/action payloads.
 pub fn parse_cli_action_blocks(response: &str) -> Vec<ToolUse> {
     let mut tool_uses = Vec::new();
     let mut counter = 0;
@@ -230,38 +249,13 @@ pub fn parse_cli_action_blocks(response: &str) -> Vec<ToolUse> {
         if let Some(end_idx) = after_marker.find("```") {
             let json_content = after_marker[..end_idx].trim();
 
-            // Try to parse as JSON array
-            if let Ok(actions) = serde_json::from_str::<Vec<serde_json::Value>>(json_content) {
-                for action in actions {
-                    if let Some(action_type) = action.get("action").and_then(|a| a.as_str()) {
-                        // Map CLI action format to ToolUse format
-                        let tool_name = match action_type {
-                            "create_task" => "create_task",
-                            "update_task" => "update_task",
-                            "move_task" => "move_task",
-                            "delete_task" => "delete_task",
-                            "queue_tasks" => "queue_tasks",
-                            "configure_triggers" => "configure_triggers",
-                            _ => continue,
-                        };
-
-                        // Build input from action fields (excluding "action" itself)
-                        let mut input = serde_json::Map::new();
-                        if let Some(obj) = action.as_object() {
-                            for (key, value) in obj {
-                                if key != "action" {
-                                    input.insert(key.clone(), value.clone());
-                                }
-                            }
-                        }
-
-                        tool_uses.push(ToolUse {
-                            id: format!("cli_action_{}", counter),
-                            name: tool_name.to_string(),
-                            input: serde_json::Value::Object(input),
-                        });
-                        counter += 1;
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_content) {
+                for mut tool_use in tool_uses_from_value(&value) {
+                    if tool_use.id.is_empty() {
+                        tool_use.id = format!("cli_action_{}", counter);
                     }
+                    tool_uses.push(tool_use);
+                    counter += 1;
                 }
             }
 
@@ -271,7 +265,171 @@ pub fn parse_cli_action_blocks(response: &str) -> Vec<ToolUse> {
         }
     }
 
+    tool_uses.extend(parse_structured_tool_uses(response));
+
     tool_uses
+}
+
+fn parse_json_candidates(response: &str) -> Vec<serde_json::Value> {
+    let mut candidates = Vec::new();
+    let trimmed = response.trim();
+
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        candidates.push(value);
+    }
+
+    candidates.extend(parse_fenced_json_blocks(response));
+    candidates
+}
+
+fn parse_fenced_json_blocks(response: &str) -> Vec<serde_json::Value> {
+    let mut values = Vec::new();
+    let mut remaining = response;
+
+    while let Some(start_idx) = remaining.find("```") {
+        let after_fence = &remaining[start_idx + 3..];
+        let Some(end_idx) = after_fence.find("```") else {
+            break;
+        };
+
+        let block = &after_fence[..end_idx];
+        let trimmed = block.trim_start();
+        let (language, content) = trimmed
+            .split_once('\n')
+            .map(|(language, content)| (language.trim(), content.trim()))
+            .unwrap_or(("", trimmed.trim()));
+
+        if language.eq_ignore_ascii_case("action") {
+            remaining = &after_fence[end_idx + 3..];
+            continue;
+        }
+
+        let content = if language.eq_ignore_ascii_case("json") {
+            content
+        } else {
+            trimmed.trim()
+        };
+
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(content) {
+            values.push(value);
+        }
+
+        remaining = &after_fence[end_idx + 3..];
+    }
+
+    values
+}
+
+fn tool_uses_from_value(value: &serde_json::Value) -> Vec<ToolUse> {
+    match value {
+        serde_json::Value::Array(items) => items
+            .iter()
+            .flat_map(tool_uses_from_value)
+            .collect::<Vec<_>>(),
+        serde_json::Value::Object(map) => {
+            if let Some(tool_use) = tool_use_from_object(map) {
+                return vec![tool_use];
+            }
+
+            for key in [
+                "tool_use",
+                "toolUse",
+                "tool_uses",
+                "toolUses",
+                "actions",
+                "content",
+            ] {
+                if let Some(nested) = map.get(key) {
+                    let parsed = tool_uses_from_value(nested);
+                    if !parsed.is_empty() {
+                        return parsed;
+                    }
+                }
+            }
+
+            Vec::new()
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn tool_use_from_object(map: &serde_json::Map<String, serde_json::Value>) -> Option<ToolUse> {
+    if let Some(block_type) = map.get("type").and_then(|v| v.as_str()) {
+        if block_type != "tool_use"
+            && map.get("action").is_none()
+            && map.get("action_type").is_none()
+            && map.get("actionType").is_none()
+        {
+            return None;
+        }
+    }
+
+    let name = map
+        .get("name")
+        .or_else(|| map.get("tool_name"))
+        .or_else(|| map.get("toolName"))
+        .or_else(|| map.get("action"))
+        .or_else(|| map.get("action_type"))
+        .or_else(|| map.get("actionType"))
+        .and_then(|v| v.as_str())
+        .and_then(normalize_tool_name)?;
+
+    let is_action_object = map.get("action").is_some()
+        || map.get("action_type").is_some()
+        || map.get("actionType").is_some();
+    let id = if is_action_object {
+        String::new()
+    } else {
+        map.get("id")
+            .or_else(|| map.get("tool_use_id"))
+            .or_else(|| map.get("toolUseId"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+
+    let input = map.get("input").cloned().unwrap_or_else(|| {
+        let mut input = serde_json::Map::new();
+        for (key, value) in map {
+            if !matches!(
+                key.as_str(),
+                "type"
+                    | "name"
+                    | "tool_name"
+                    | "toolName"
+                    | "tool_use_id"
+                    | "toolUseId"
+                    | "action"
+                    | "action_type"
+                    | "actionType"
+            ) {
+                if key == "id" && !is_action_object {
+                    continue;
+                }
+                input.insert(key.clone(), value.clone());
+            }
+        }
+        serde_json::Value::Object(input)
+    });
+
+    Some(ToolUse {
+        id,
+        name: name.to_string(),
+        input,
+    })
+}
+
+fn normalize_tool_name(name: &str) -> Option<&'static str> {
+    let normalized = name.trim().to_ascii_lowercase().replace([' ', '-'], "_");
+    match normalized.as_str() {
+        "create_task" | "create" => Some("create_task"),
+        "update_task" | "edit_task" | "edit" | "update" => Some("update_task"),
+        "move_task" | "move" => Some("move_task"),
+        "delete_task" | "remove_task" | "delete" | "remove" => Some("delete_task"),
+        "queue_tasks" | "queue" => Some("queue_tasks"),
+        "configure_triggers" => Some("configure_triggers"),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -294,23 +452,6 @@ mod tests {
         assert!(names.contains(&"delete_task"));
         assert!(names.contains(&"queue_tasks"));
         assert!(names.contains(&"configure_triggers"));
-    }
-
-    #[test]
-    fn test_tool_descriptions_include_board_schema_guidance() {
-        let tools = orchestrator_tools();
-
-        let create_task = tools.iter().find(|t| t.name == "create_task").unwrap();
-        assert!(create_task.description.contains("concise title"));
-        assert!(create_task.description.contains("existing column"));
-
-        let update_task = tools.iter().find(|t| t.name == "update_task").unwrap();
-        assert!(update_task
-            .description
-            .contains("task IDs from the current board context"));
-
-        let delete_task = tools.iter().find(|t| t.name == "delete_task").unwrap();
-        assert!(delete_task.description.contains("clearly asks to delete"));
     }
 
     #[test]
@@ -406,5 +547,66 @@ Done! Triggers configured for "In Progress"."#;
         assert_eq!(tool_uses[0].input["column"], "In Progress");
         assert_eq!(tool_uses[0].input["on_entry"]["type"], "spawn_cli");
         assert_eq!(tool_uses[0].input["exit_criteria"]["auto_advance"], true);
+    }
+
+    #[test]
+    fn test_parse_structured_tool_uses_content_blocks() {
+        let response = r#"{
+            "content": [
+                {"type": "text", "text": "Updating the task."},
+                {"type": "tool_use", "id": "toolu_1", "name": "edit_task", "input": {"task_id": "task-1", "title": "New title"}}
+            ]
+        }"#;
+
+        let tool_uses = parse_structured_tool_uses(response);
+        assert_eq!(tool_uses.len(), 1);
+        assert_eq!(tool_uses[0].id, "toolu_1");
+        assert_eq!(tool_uses[0].name, "update_task");
+        assert_eq!(tool_uses[0].input["task_id"], "task-1");
+    }
+
+    #[test]
+    fn test_parse_structured_tool_uses_actions_array() {
+        let response = r#"{
+            "actions": [
+                {"action": "move", "task_id": "task-1", "column": "Done"},
+                {"action": "remove_task", "id": "task-2"}
+            ]
+        }"#;
+
+        let tool_uses = parse_structured_tool_uses(response);
+        assert_eq!(tool_uses.len(), 2);
+        assert_eq!(tool_uses[0].name, "move_task");
+        assert_eq!(tool_uses[0].input["column"], "Done");
+        assert_eq!(tool_uses[1].name, "delete_task");
+        assert_eq!(tool_uses[1].input["id"], "task-2");
+    }
+
+    #[test]
+    fn test_parse_structured_tool_uses_ignores_named_text_blocks() {
+        let response = r#"{
+            "content": [
+                {"type": "text", "name": "create_task", "text": "This is only an example."},
+                {"type": "tool_use", "id": "toolu_1", "name": "Create Task", "input": {"title": "Real task"}}
+            ]
+        }"#;
+
+        let tool_uses = parse_structured_tool_uses(response);
+        assert_eq!(tool_uses.len(), 1);
+        assert_eq!(tool_uses[0].name, "create_task");
+        assert_eq!(tool_uses[0].input["title"], "Real task");
+    }
+
+    #[test]
+    fn test_parse_cli_action_blocks_does_not_duplicate_action_fence() {
+        let response = r#"```action
+[
+  {"action": "create_task", "title": "One"}
+]
+```"#;
+
+        let tool_uses = parse_cli_action_blocks(response);
+        assert_eq!(tool_uses.len(), 1);
+        assert_eq!(tool_uses[0].name, "create_task");
     }
 }
