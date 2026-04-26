@@ -38,23 +38,16 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const [settingsTab, setSettingsTab] = useState<'triggers' | 'dependencies'>('triggers')
   const columns = useColumnStore((s) => s.columns)
 
-  const currentColumn = useMemo(() => {
-    return columns.find(c => c.id === task.columnId) ?? null
+  // Get exit criteria type for this task's column
+  const currentColumnTriggers = useMemo(() => {
+    const col = columns.find(c => c.id === task.columnId)
+    if (!col) return null
+    return getColumnTriggers(col)
   }, [columns, task.columnId])
 
-  // Get exit criteria type for this task's column
-  const columnTriggers = useMemo(() => {
-    if (!currentColumn) return null
-    const triggers = getColumnTriggers(currentColumn)
-    return triggers.exit_criteria ?? null
-  }, [currentColumn])
-
-  const canTriggerWork = useMemo(() => {
-    if (!currentColumn) return false
-    return getColumnTriggers(currentColumn).on_entry?.type !== 'none'
-  }, [currentColumn])
-
-  const isQualityGate = columnTriggers?.type === 'manual_approval'
+  const columnExitCriteria = currentColumnTriggers?.exit_criteria ?? null
+  const isQualityGate = columnExitCriteria?.type === 'manual_approval'
+  const canTriggerWork = !!currentColumnTriggers?.on_entry && currentColumnTriggers.on_entry.type !== 'none'
   const reviewStatus = task.reviewStatus
 
   // Check if task is in the last column (Done) for visual dimming
@@ -202,37 +195,26 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const handleRetry = useCallback(() => { void actions.handleRetryPipeline() }, [actions])
 
   const [deleteConfirmPending, setDeleteConfirmPending] = useState(false)
-  const deleteConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     setDeleteConfirmPending(false)
   }, [task.id])
 
-  useEffect(() => {
-    return () => {
-      if (deleteConfirmTimeoutRef.current) {
-        clearTimeout(deleteConfirmTimeoutRef.current)
-      }
-    }
-  }, [])
-
   const handleDeleteWithConfirm = useCallback(() => {
-    if (deleteConfirmTimeoutRef.current) {
-      clearTimeout(deleteConfirmTimeoutRef.current)
-      deleteConfirmTimeoutRef.current = null
-    }
-
     if (deleteConfirmPending) {
       actions.handleDeleteTask()
       setDeleteConfirmPending(false)
     } else {
       setDeleteConfirmPending(true)
-      deleteConfirmTimeoutRef.current = setTimeout(() => {
-        setDeleteConfirmPending(false)
-        deleteConfirmTimeoutRef.current = null
-      }, 2000)
+      setTimeout(() => { setDeleteConfirmPending(false) }, 2000)
     }
   }, [deleteConfirmPending, actions])
+
+  const handleToggleAgent = useCallback(() => {
+    if (task.agentStatus === 'running' || canTriggerWork) {
+      actions.handleToggleAgent()
+    }
+  }, [task.agentStatus, canTriggerWork, actions])
 
   const needsAttention = hasAttention || task.agentStatus === 'needs_attention'
   const isPipelineActive = task.pipelineState !== 'idle'
@@ -282,15 +264,8 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       onKeyDown={(e) => {
         if (e.metaKey || e.ctrlKey || e.altKey) return
         // Don't intercept keyboard shortcuts when user is typing in an input
-        const target = e.target as HTMLElement
-        const tag = target.tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return
-        if (
-          target !== e.currentTarget &&
-          target.closest('button, a, select, [role="button"], [contenteditable="true"]')
-        ) {
-          return
-        }
+        const tag = (e.target as HTMLElement).tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return
         switch (e.key) {
           case 'Enter':
             e.preventDefault()
@@ -298,9 +273,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
             break
           case ' ':
             e.preventDefault()
-            if (canTriggerWork) {
-              actions.handleToggleAgent()
-            }
+            handleToggleAgent()
             break
           case 'r':
           case 'R':
@@ -359,9 +332,9 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         <TaskQuickActions
           task={task}
           hasNextColumn={!!nextColumnId}
-          deleteConfirmPending={deleteConfirmPending}
+          confirmDelete={deleteConfirmPending}
           onOpen={handleClick}
-          onToggleAgent={actions.handleToggleAgent}
+          onToggleAgent={handleToggleAgent}
           onRetry={handleRetry}
           onMoveNext={handleMoveNext}
           onDelete={handleDeleteWithConfirm}

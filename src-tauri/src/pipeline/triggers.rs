@@ -4,6 +4,7 @@
 //! supporting spawn_cli, move_column, trigger_task actions.
 
 use crate::chat::bridge;
+use crate::config::{self, EffectivePipelineSettings};
 use crate::db::{self, Column, Task, Workspace};
 use crate::error::AppError;
 use crate::git::branch_manager;
@@ -326,6 +327,27 @@ fn resolve_working_dir(task: &Task, workspace_repo_path: &str) -> String {
     workspace_repo_path.to_string()
 }
 
+fn resolve_model_override(
+    task_model: Option<&str>,
+    trigger_model: Option<&str>,
+    default_model: Option<&str>,
+) -> Option<String> {
+    task_model
+        .and_then(non_empty_trimmed)
+        .or_else(|| trigger_model.and_then(non_empty_trimmed))
+        .or_else(|| default_model.and_then(non_empty_trimmed))
+        .map(ToString::to_string)
+}
+
+fn non_empty_trimmed(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
 /// Auto-create a branch + worktree for a task if missing.
 /// Returns the updated task with `branch_name` and `worktree_path` set.
 fn ensure_task_worktree(
@@ -333,20 +355,26 @@ fn ensure_task_worktree(
     app: &AppHandle,
     task: &Task,
     repo_path: &str,
+    settings: &EffectivePipelineSettings,
 ) -> Result<Task, AppError> {
     let mut task = task.clone();
 
     // Step 1: Ensure task has a branch
     if task.branch_name.as_deref().unwrap_or("").is_empty() {
         let slug = branch_manager::slugify(&task.title);
-        match branch_manager::create_task_branch(repo_path, &slug, None) {
+        match branch_manager::create_task_branch_with_prefix(
+            repo_path,
+            &slug,
+            None,
+            &settings.branch_prefix,
+        ) {
             Ok(branch_name) => {
                 task = db::update_task_branch(conn, &task.id, Some(&branch_name))?;
                 log::info!("[triggers] Auto-created branch '{}' for task {}", branch_name, task.id);
             }
             Err(e) => {
                 // Branch may already exist (e.g. from a previous attempt)
-                let branch_name = format!("bentoya/{}", slug);
+                let branch_name = format!("{}{}", settings.branch_prefix, slug);
                 log::warn!("[triggers] Branch creation failed ({}), trying existing '{}'", e, branch_name);
                 task = db::update_task_branch(conn, &task.id, Some(&branch_name))?;
             }
@@ -378,7 +406,7 @@ fn ensure_task_worktree(
 // ─── Per-Action Handlers ──────────────────────────────────────────────────
 
 /// Default max concurrent agents per workspace (when not configured in workspace settings).
-pub const DEFAULT_MAX_CONCURRENT_AGENTS: i64 = 3;
+pub const DEFAULT_MAX_CONCURRENT_AGENTS: i64 = config::DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS;
 
 fn execute_spawn_cli(
     conn: &Connection,
@@ -394,11 +422,12 @@ fn execute_spawn_cli(
     model: Option<&str>,
 ) -> Result<Task, AppError> {
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
+    let pipeline_settings = config::effective_pipeline_settings(&workspace.config);
 
     // ── Concurrency guard ──────────────────────────────────────────────
     // Check how many agents are already running in this workspace.
     // If at or above the limit, mark this task as queued instead of spawning.
-    let max_concurrent = DEFAULT_MAX_CONCURRENT_AGENTS;
+    let max_concurrent = pipeline_settings.max_concurrent_agents;
     let running_count = db::get_running_agent_count(conn, &task.workspace_id).unwrap_or(0);
 
     if running_count >= max_concurrent {
@@ -425,8 +454,8 @@ fn execute_spawn_cli(
             log::warn!("[triggers] Worktree path set but directory missing for task {} — recreating", task.id);
             let _ = db::update_task_worktree_path(conn, &task.id, None);
         }
-        let mut fresh_task = db::get_task(conn, &task.id)?;
-        ensure_task_worktree(conn, app, &fresh_task, &workspace.repo_path)?
+        let fresh_task = db::get_task(conn, &task.id)?;
+        ensure_task_worktree(conn, app, &fresh_task, &workspace.repo_path, &pipeline_settings)?
     } else {
         task.clone()
     };
@@ -486,24 +515,11 @@ fn execute_spawn_cli(
         format!("{}\n\nSee .task.md for full spec.", task.title)
     };
 
-    // Resolve CLI and model from workspace config (both use the same parsed value)
-    let workspace_config: serde_json::Value = serde_json::from_str(&workspace.config).unwrap_or_default();
-
-    // Resolve CLI: trigger config > workspace default > "claude"
-    let ws_default_cli = workspace_config.get("defaultAgentCli").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
-    let cli_type = cli.or(ws_default_cli).unwrap_or("claude").to_string();
-
-    // Resolve model: task override > trigger config > workspace default > none
-    let ws_default_model = workspace_config.get("defaultModel").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
-    let resolved_model = task.model.as_deref().or(model).or(ws_default_model).map(|m| m.to_string());
     // Resolve CLI: trigger config > workspace config > global settings
-    let cli_type = cli.map(|c| c.to_string()).unwrap_or_else(|| {
-        let settings = crate::config::AppSettings::load();
-        settings.resolve_with_workspace(
-            Some(&workspace.config),
-            "default_agent_cli",
-        ).unwrap_or_else(|| settings.default_agent_cli.clone())
-    });
+    let cli_type = cli
+        .filter(|c| !c.trim().is_empty())
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| pipeline_settings.default_agent_cli.clone());
 
     // Prepend slash command if provided
     let initial_prompt = match command {
@@ -539,12 +555,11 @@ fn execute_spawn_cli(
     emit_pipeline(app, EVT_RUNNING, &task.id, &column.id, PipelineState::Running, Some(format!("CLI trigger: {}", cli_type)));
 
     // Resolve model: task override > trigger config > workspace config > global settings
-    let resolved_model = task.model.as_deref().or(model).map(|m| m.to_string()).or_else(|| {
-        let settings = crate::config::AppSettings::load();
-        let m = settings.resolve_with_workspace(Some(&workspace.config), "default_model")
-            .unwrap_or_else(|| settings.default_model.clone());
-        if m.is_empty() { None } else { Some(m) }
-    });
+    let resolved_model = resolve_model_override(
+        task.model.as_deref(),
+        model,
+        pipeline_settings.default_model.as_deref(),
+    );
     let mut cli_args = Vec::new();
     if let Some(ref m) = resolved_model {
         cli_args.push("--model".to_string());
@@ -873,6 +888,7 @@ fn execute_run_script(
             let script = db::get_script(conn, script_id)
                 .map_err(|_| AppError::NotFound(format!("Script '{}' not found", script_id)))?;
             let workspace = db::get_workspace(conn, &task.workspace_id)?;
+            let pipeline_settings = config::effective_pipeline_settings(&workspace.config);
             let working_dir = resolve_working_dir(task, &workspace.repo_path);
 
             // Validate working dir exists
@@ -962,6 +978,8 @@ fn execute_run_script(
             let app_handle = app.clone();
             let column_id = column.id.clone();
             let workspace_path = working_dir.clone();
+            let default_agent_cli = pipeline_settings.default_agent_cli.clone();
+            let default_model = pipeline_settings.default_model.clone();
 
             // Execute steps in a background task (all data is owned)
             tokio::spawn(async move {
@@ -1038,16 +1056,21 @@ fn execute_run_script(
                             };
 
                             let mut cli_args = Vec::new();
-                            if let Some(m) = model {
+                            let resolved_model = resolve_model_override(
+                                None,
+                                model.as_deref(),
+                                default_model.as_deref(),
+                            );
+                            if let Some(m) = resolved_model {
                                 cli_args.push("--model".to_string());
-                                cli_args.push(m.clone());
+                                cli_args.push(m);
                             }
 
                             // Spawn CLI — mark_complete called by PTY exit handler
                             bridge::spawn_cli_trigger_task(
                                 app_handle.clone(),
                                 task_id.clone(),
-                                "claude".to_string(),
+                                default_agent_cli.clone(),
                                 cli_args,
                                 workspace_path.clone(),
                                 initial_prompt,
@@ -1119,6 +1142,23 @@ mod tests {
         let col2 = db::insert_column(&conn, &ws.id, "Working", 1).unwrap();
         let col3 = db::insert_column(&conn, &ws.id, "Done", 2).unwrap();
         (conn, ws, col1, col2, col3)
+    }
+
+    #[test]
+    fn test_resolve_model_override_precedence_skips_blank_values() {
+        assert_eq!(
+            resolve_model_override(Some("  "), Some("sonnet"), Some("haiku")).as_deref(),
+            Some("sonnet")
+        );
+        assert_eq!(
+            resolve_model_override(Some("opus"), Some("sonnet"), Some("haiku")).as_deref(),
+            Some("opus")
+        );
+        assert_eq!(
+            resolve_model_override(None, Some("  "), Some("haiku")).as_deref(),
+            Some("haiku")
+        );
+        assert_eq!(resolve_model_override(None, Some(""), Some("  ")), None);
     }
 
     // ─── resolve_trigger tests ────────────────────────────────────────
@@ -1309,7 +1349,7 @@ mod tests {
 
     #[test]
     fn test_resolve_column_target_next() {
-        let (conn, ws, _, col2, col3) = setup();
+        let (conn, ws, _, col2, _) = setup();
         let task = db::insert_task(&conn, &ws.id, &col2.id, "Task", None).unwrap();
 
         let result = resolve_column_target(&conn, &task, "next").unwrap();
@@ -1319,7 +1359,7 @@ mod tests {
 
     #[test]
     fn test_resolve_column_target_previous() {
-        let (conn, ws, col1, col2, _) = setup();
+        let (conn, ws, _, col2, _) = setup();
         let task = db::insert_task(&conn, &ws.id, &col2.id, "Task", None).unwrap();
 
         let result = resolve_column_target(&conn, &task, "previous").unwrap();

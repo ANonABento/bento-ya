@@ -45,6 +45,16 @@ pub fn create_task_branch(
     task_slug: &str,
     base_branch: Option<&str>,
 ) -> Result<String, String> {
+    create_task_branch_with_prefix(repo_path, task_slug, base_branch, BRANCH_PREFIX)
+}
+
+/// Create a task branch using a caller-provided prefix.
+pub fn create_task_branch_with_prefix(
+    repo_path: &str,
+    task_slug: &str,
+    base_branch: Option<&str>,
+    branch_prefix: &str,
+) -> Result<String, String> {
     let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
 
     let base = match base_branch {
@@ -53,7 +63,15 @@ pub fn create_task_branch(
     };
 
     let slug = slugify(task_slug);
-    let branch_name = format!("{}{}", BRANCH_PREFIX, slug);
+    let trimmed_prefix = branch_prefix.trim();
+    let prefix = if trimmed_prefix.is_empty() {
+        BRANCH_PREFIX.to_string()
+    } else if trimmed_prefix.ends_with('/') {
+        trimmed_prefix.to_string()
+    } else {
+        format!("{}/", trimmed_prefix)
+    };
+    let branch_name = format!("{}{}", prefix, slug);
 
     let base_ref = repo
         .find_branch(&base, BranchType::Local)
@@ -470,6 +488,30 @@ mod tests {
         assert!(!tmp.join(".task.md").exists());
         // Summary mentions what happened
         assert!(summary.contains(".task.md"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_create_task_branch_with_custom_prefix() {
+        let tmp = std::env::temp_dir().join(format!("bentoya-branch-prefix-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        init_test_repo(&tmp);
+
+        let branch = create_task_branch_with_prefix(
+            tmp.to_str().unwrap(),
+            "Add Billing Flow",
+            None,
+            " feature ",
+        )
+        .expect("create_task_branch_with_prefix failed");
+
+        assert_eq!(branch, "feature/add-billing-flow");
+
+        let repo = Repository::open(&tmp).unwrap();
+        assert!(repo.find_branch(&branch, BranchType::Local).is_ok());
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

@@ -73,7 +73,7 @@ describe('TaskCard quick-action keyboard behavior', () => {
     expect(screen.queryByTitle(/Click again to confirm/)).not.toBeInTheDocument()
   })
 
-  it('keyboard Space toggles the agent only when the current column can trigger work', () => {
+  it('keyboard Space starts the agent only when the current column can trigger work', () => {
     const task = mockKanbanTask()
     resetStores(task)
     const { rerender } = render(<TaskCard task={task} />)
@@ -93,6 +93,21 @@ describe('TaskCard quick-action keyboard behavior', () => {
 
     fireEvent.keyDown(screen.getByText('Triggerless task'), { key: ' ' })
     expect(useTaskStore.getState().tasks[0]?.agentStatus).toBe('idle')
+  })
+
+  it('keyboard Space can stop a running agent even when the current column has no trigger', () => {
+    const task = mockKanbanTask({ agentStatus: 'running' })
+    useColumnStore.setState({
+      columns: [mockKanbanColumn({ triggers: { on_entry: { type: 'none' }, on_exit: { type: 'none' } } })],
+      loaded: true,
+    })
+    useTaskStore.setState({ tasks: [task], loaded: true })
+    useUIStore.setState({ viewMode: 'board', activeTaskId: null, modal: null })
+
+    render(<TaskCard task={task} />)
+
+    fireEvent.keyDown(screen.getByText('Test task'), { key: ' ' })
+    expect(useTaskStore.getState().tasks[0]?.agentStatus).toBe('stopped')
   })
 
   it('keyboard ArrowRight moves to the next visible column', async () => {
