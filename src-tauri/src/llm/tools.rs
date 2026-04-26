@@ -34,7 +34,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: "create_task".to_string(),
-            description: "Create a new task on the board. Tasks are placed in the specified column (or the first column if not specified).".to_string(),
+            description: "Create a new task on the board. Use a concise title, put longer requirements or acceptance criteria in description, and place it in an existing column by name. If no column is provided, the first column is used.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -48,7 +48,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
                     },
                     "column": {
                         "type": "string",
-                        "description": "The column name to place the task in. If not provided, uses the first column (usually Backlog)"
+                        "description": "Existing column name to place the task in. Matching is case-insensitive; prefer exact names from the board."
                     }
                 },
                 "required": ["title"]
@@ -56,7 +56,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "update_task".to_string(),
-            description: "Update an existing task's title or description.".to_string(),
+            description: "Update an existing task's title or description. Use only task IDs from the current board context, and preserve fields the user did not ask to change.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -78,7 +78,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "move_task".to_string(),
-            description: "Move a task to a different column.".to_string(),
+            description: "Move an existing task to a different board column. Use task IDs from the current board context and an existing target column name.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -88,7 +88,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
                     },
                     "column": {
                         "type": "string",
-                        "description": "The target column name to move the task to"
+                        "description": "Existing target column name. Matching is case-insensitive; prefer exact names from the board."
                     }
                 },
                 "required": ["task_id", "column"]
@@ -96,7 +96,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "delete_task".to_string(),
-            description: "Delete a task from the board. This action cannot be undone.".to_string(),
+            description: "Delete an existing task from the board. This action cannot be undone; only use it when the user clearly asks to delete/remove a task.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -110,7 +110,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "queue_tasks".to_string(),
-            description: "Queue multiple tasks for batch agent processing. The tasks will be processed concurrently by agents (up to 5 at a time).".to_string(),
+            description: "Queue existing tasks for batch agent processing. Use task IDs from the current board context; tasks will be processed concurrently by agents (up to 5 at a time).".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -130,6 +130,7 @@ pub fn orchestrator_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: "configure_triggers".to_string(),
             description: r#"Configure automation triggers for a column. Set what happens when tasks enter/exit a column.
+Use an existing column name from the board.
 
 Action types for on_entry/on_exit:
 - {"type": "spawn_cli", "cli": "claude"|"codex"|"aider", "command": "/start-task", "prompt_template": "{task.title}\n\n{task.description}", "use_queue": true}
@@ -293,6 +294,23 @@ mod tests {
         assert!(names.contains(&"delete_task"));
         assert!(names.contains(&"queue_tasks"));
         assert!(names.contains(&"configure_triggers"));
+    }
+
+    #[test]
+    fn test_tool_descriptions_include_board_schema_guidance() {
+        let tools = orchestrator_tools();
+
+        let create_task = tools.iter().find(|t| t.name == "create_task").unwrap();
+        assert!(create_task.description.contains("concise title"));
+        assert!(create_task.description.contains("existing column"));
+
+        let update_task = tools.iter().find(|t| t.name == "update_task").unwrap();
+        assert!(update_task
+            .description
+            .contains("task IDs from the current board context"));
+
+        let delete_task = tools.iter().find(|t| t.name == "delete_task").unwrap();
+        assert!(delete_task.description.contains("clearly asks to delete"));
     }
 
     #[test]

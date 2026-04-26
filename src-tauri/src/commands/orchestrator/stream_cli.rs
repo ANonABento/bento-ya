@@ -77,11 +77,12 @@ pub(super) async fn stream_via_unified_cli(
         let full_message = prompt_builder.augment_message(message, &workspace, &columns, &tasks);
 
         let ws_id = workspace_id.to_string();
+        let sid = session_id.to_string();
         let app_for_events = app.clone();
 
         let result = session
             .send_message(&full_message, move |event| {
-                emit_orchestrator_cli_event(&app_for_events, &ws_id, event);
+                emit_orchestrator_cli_event(&app_for_events, &ws_id, &sid, event);
             })
             .await;
 
@@ -99,10 +100,11 @@ pub(super) async fn stream_via_unified_cli(
                     }
 
                     let ws_id2 = workspace_id.to_string();
+                    let sid2 = session_id.to_string();
                     let app_retry = app.clone();
                     session
                         .send_message(&full_message, move |event| {
-                            emit_orchestrator_cli_event(&app_retry, &ws_id2, event);
+                            emit_orchestrator_cli_event(&app_retry, &ws_id2, &sid2, event);
                         })
                         .await
                         .map_err(AppError::InvalidInput)?
@@ -115,10 +117,11 @@ pub(super) async fn stream_via_unified_cli(
                 session.set_resume_id(None);
 
                 let ws_id2 = workspace_id.to_string();
+                let sid2 = session_id.to_string();
                 let app_retry = app.clone();
                 session
                     .send_message(&full_message, move |event| {
-                        emit_orchestrator_cli_event(&app_retry, &ws_id2, event);
+                        emit_orchestrator_cli_event(&app_retry, &ws_id2, &sid2, event);
                     })
                     .await
                     .map_err(AppError::InvalidInput)?
@@ -147,6 +150,7 @@ pub(super) async fn stream_via_unified_cli(
                             "orchestrator:tool_result",
                             &ToolResultPayload {
                                 workspace_id: workspace_id.to_string(),
+                                session_id: session_id.to_string(),
                                 tool_use_id: tool_result.tool_use_id.clone(),
                                 result: tool_result.content.clone(),
                                 is_error: tool_result.is_error,
@@ -160,6 +164,7 @@ pub(super) async fn stream_via_unified_cli(
                         "orchestrator:error",
                         &OrchestratorEvent {
                             workspace_id: workspace_id.to_string(),
+                            session_id: session_id.to_string(),
                             event_type: "warning".to_string(),
                             message: Some(format!("Action execution failed: {}", e)),
                         },
@@ -179,6 +184,7 @@ pub(super) async fn stream_via_unified_cli(
             "orchestrator:complete",
             &OrchestratorEvent {
                 workspace_id: workspace_id.to_string(),
+                session_id: session_id.to_string(),
                 event_type: "complete".to_string(),
                 message: Some(assistant_msg.id.clone()),
             },
@@ -189,6 +195,7 @@ pub(super) async fn stream_via_unified_cli(
         "orchestrator:stream",
         &StreamChunkPayload {
             workspace_id: workspace_id.to_string(),
+            session_id: session_id.to_string(),
             delta: String::new(),
             finish_reason: Some("stop".to_string()),
             tool_use: None,
@@ -198,13 +205,19 @@ pub(super) async fn stream_via_unified_cli(
     Ok(())
 }
 
-fn emit_orchestrator_cli_event(app: &AppHandle, workspace_id: &str, event: ChatEvent) {
+fn emit_orchestrator_cli_event(
+    app: &AppHandle,
+    workspace_id: &str,
+    session_id: &str,
+    event: ChatEvent,
+) {
     match event {
         ChatEvent::TextContent(content) => {
             let _ = app.emit(
                 "orchestrator:stream",
                 &StreamChunkPayload {
                     workspace_id: workspace_id.to_string(),
+                    session_id: session_id.to_string(),
                     delta: content,
                     finish_reason: None,
                     tool_use: None,
@@ -219,6 +232,7 @@ fn emit_orchestrator_cli_event(app: &AppHandle, workspace_id: &str, event: ChatE
                 "orchestrator:thinking",
                 &ThinkingPayload {
                     workspace_id: workspace_id.to_string(),
+                    session_id: session_id.to_string(),
                     content,
                     is_complete,
                 },
@@ -235,6 +249,7 @@ fn emit_orchestrator_cli_event(app: &AppHandle, workspace_id: &str, event: ChatE
                 "orchestrator:tool_call",
                 &ToolCallPayload {
                     workspace_id: workspace_id.to_string(),
+                    session_id: session_id.to_string(),
                     tool_id: id,
                     tool_name: name,
                     status: status_str.to_string(),

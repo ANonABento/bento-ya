@@ -67,6 +67,7 @@ pub(super) fn process_orchestrator_response(
         "orchestrator:complete",
         &OrchestratorEvent {
             workspace_id: workspace_id.clone(),
+            session_id: chat_session.id,
             event_type: "complete".to_string(),
             message: Some(format!("Created {} task(s)", tasks_created.len())),
         },
@@ -87,6 +88,7 @@ pub(super) fn set_orchestrator_error(
 ) -> Result<OrchestratorSession, AppError> {
     let conn = db_conn(&state)?;
 
+    let chat_session = db::get_or_create_active_session(&conn, &workspace_id)?;
     let session = db::get_or_create_orchestrator_session(&conn, &workspace_id)?;
     let updated = db::update_orchestrator_session(
         &conn,
@@ -99,6 +101,7 @@ pub(super) fn set_orchestrator_error(
         "orchestrator:error",
         &OrchestratorEvent {
             workspace_id,
+            session_id: chat_session.id,
             event_type: "error".to_string(),
             message: Some(error_message),
         },

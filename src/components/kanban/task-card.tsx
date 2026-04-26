@@ -38,13 +38,21 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const [settingsTab, setSettingsTab] = useState<'triggers' | 'dependencies'>('triggers')
   const columns = useColumnStore((s) => s.columns)
 
+  const currentColumn = useMemo(() => {
+    return columns.find(c => c.id === task.columnId) ?? null
+  }, [columns, task.columnId])
+
   // Get exit criteria type for this task's column
   const columnTriggers = useMemo(() => {
-    const col = columns.find(c => c.id === task.columnId)
-    if (!col) return null
-    const triggers = getColumnTriggers(col)
+    if (!currentColumn) return null
+    const triggers = getColumnTriggers(currentColumn)
     return triggers.exit_criteria ?? null
-  }, [columns, task.columnId])
+  }, [currentColumn])
+
+  const canTriggerWork = useMemo(() => {
+    if (!currentColumn) return false
+    return getColumnTriggers(currentColumn).on_entry?.type !== 'none'
+  }, [currentColumn])
 
   const isQualityGate = columnTriggers?.type === 'manual_approval'
   const reviewStatus = task.reviewStatus
@@ -194,14 +202,35 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const handleRetry = useCallback(() => { void actions.handleRetryPipeline() }, [actions])
 
   const [deleteConfirmPending, setDeleteConfirmPending] = useState(false)
+  const deleteConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    setDeleteConfirmPending(false)
+  }, [task.id])
+
+  useEffect(() => {
+    return () => {
+      if (deleteConfirmTimeoutRef.current) {
+        clearTimeout(deleteConfirmTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const handleDeleteWithConfirm = useCallback(() => {
+    if (deleteConfirmTimeoutRef.current) {
+      clearTimeout(deleteConfirmTimeoutRef.current)
+      deleteConfirmTimeoutRef.current = null
+    }
+
     if (deleteConfirmPending) {
       actions.handleDeleteTask()
       setDeleteConfirmPending(false)
     } else {
       setDeleteConfirmPending(true)
-      setTimeout(() => { setDeleteConfirmPending(false) }, 2000)
+      deleteConfirmTimeoutRef.current = setTimeout(() => {
+        setDeleteConfirmPending(false)
+        deleteConfirmTimeoutRef.current = null
+      }, 2000)
     }
   }, [deleteConfirmPending, actions])
 
@@ -253,8 +282,15 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       onKeyDown={(e) => {
         if (e.metaKey || e.ctrlKey || e.altKey) return
         // Don't intercept keyboard shortcuts when user is typing in an input
-        const tag = (e.target as HTMLElement).tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return
+        const target = e.target as HTMLElement
+        const tag = target.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return
+        if (
+          target !== e.currentTarget &&
+          target.closest('button, a, select, [role="button"], [contenteditable="true"]')
+        ) {
+          return
+        }
         switch (e.key) {
           case 'Enter':
             e.preventDefault()
@@ -262,7 +298,9 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
             break
           case ' ':
             e.preventDefault()
-            actions.handleToggleAgent()
+            if (canTriggerWork) {
+              actions.handleToggleAgent()
+            }
             break
           case 'r':
           case 'R':
@@ -321,11 +359,12 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         <TaskQuickActions
           task={task}
           hasNextColumn={!!nextColumnId}
+          deleteConfirmPending={deleteConfirmPending}
           onOpen={handleClick}
           onToggleAgent={actions.handleToggleAgent}
           onRetry={handleRetry}
           onMoveNext={handleMoveNext}
-          onDelete={actions.handleDeleteTask}
+          onDelete={handleDeleteWithConfirm}
           onShowMenu={handleShowMenu}
         />
       )}

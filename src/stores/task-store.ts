@@ -3,6 +3,7 @@ import { devtools } from 'zustand/middleware'
 import type { Task } from '@/types'
 import * as ipc from '@/lib/ipc'
 import { useUIStore } from '@/stores/ui-store'
+import { refreshWorkspaceSummary } from './workspace-refresh'
 
 type TaskState = {
   tasks: Task[]
@@ -32,10 +33,12 @@ export const useTaskStore = create<TaskState>()(
       add: async (workspaceId, columnId, title, description) => {
         const task = await ipc.createTask(workspaceId, columnId, title, description)
         set((s) => ({ tasks: [...s.tasks, task] }))
+        await refreshWorkspaceSummary(workspaceId)
       },
 
       remove: async (id) => {
         const prev = get().tasks
+        const workspaceId = prev.find((t) => t.id === id)?.workspaceId
         set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }))
         // Clear stale UI references to deleted task
         const ui = useUIStore.getState()
@@ -43,6 +46,7 @@ export const useTaskStore = create<TaskState>()(
         if (ui.activeTaskId === id) ui.closeChat()
         try {
           await ipc.deleteTask(id)
+          await refreshWorkspaceSummary(workspaceId)
         } catch {
           set({ tasks: prev })
         }
@@ -50,6 +54,7 @@ export const useTaskStore = create<TaskState>()(
 
       move: async (id, targetColumnId, position) => {
         const prev = get().tasks
+        const workspaceId = prev.find((t) => t.id === id)?.workspaceId
         set((s) => ({
           tasks: s.tasks.map((t) =>
             t.id === id ? { ...t, columnId: targetColumnId, position } : t,
@@ -57,6 +62,7 @@ export const useTaskStore = create<TaskState>()(
         }))
         try {
           await ipc.moveTask(id, targetColumnId, position)
+          await refreshWorkspaceSummary(workspaceId)
         } catch {
           set({ tasks: prev })
         }
@@ -103,6 +109,7 @@ export const useTaskStore = create<TaskState>()(
           original.description,
         )
         set((s) => ({ tasks: [...s.tasks, task] }))
+        await refreshWorkspaceSummary(original.workspaceId)
         return task
       },
     }),

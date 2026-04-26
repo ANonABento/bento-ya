@@ -69,6 +69,8 @@ pub fn execute_tools(
     let mut tasks_created = Vec::new();
     let mut tasks_updated = Vec::new();
     let mut tasks_deleted = Vec::new();
+    let mut queued_task_count = 0usize;
+    let mut configured_trigger_count = 0usize;
 
     // Track the last created task ID for __LAST__ references
     let mut last_created_task_id: Option<String> = None;
@@ -162,6 +164,7 @@ pub fn execute_tools(
                         tasks_deleted.push(task_id);
                     }
                     ToolOutcome::TasksQueued(task_ids, agent_type) => {
+                        queued_task_count += task_ids.len();
                         results.push(ToolResult {
                             tool_use_id: tool_use.id.clone(),
                             content: format!("Queued {} task(s) for {} agent processing", task_ids.len(), agent_type),
@@ -175,6 +178,7 @@ pub fn execute_tools(
                         });
                     }
                     ToolOutcome::TriggersConfigured(column_id, column_name, triggers_json) => {
+                        configured_trigger_count += 1;
                         results.push(ToolResult {
                             tool_use_id: tool_use.id.clone(),
                             content: format!("Configured triggers for column \"{}\":\n{}", column_name, triggers_json),
@@ -207,6 +211,15 @@ pub fn execute_tools(
     }
     if !tasks_deleted.is_empty() {
         summary_parts.push(format!("Deleted {} task(s)", tasks_deleted.len()));
+    }
+    if queued_task_count > 0 {
+        summary_parts.push(format!("Queued {} task(s)", queued_task_count));
+    }
+    if configured_trigger_count > 0 {
+        summary_parts.push(format!(
+            "Configured triggers for {} column(s)",
+            configured_trigger_count
+        ));
     }
     let summary = if summary_parts.is_empty() {
         "No changes made".to_string()

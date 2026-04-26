@@ -8,14 +8,11 @@
 use std::collections::HashMap;
 
 use rusqlite::Connection;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 
 use super::events::ChatEvent;
-use super::registry::SharedSessionRegistry;
-use super::session::{SessionConfig, TransportType};
-use super::tmux_transport;
 use super::transport::TransportEvent;
 use crate::db;
 use crate::pipeline;
@@ -226,11 +223,6 @@ fn build_trigger_command(cli_command: &str, args: &[String], initial_prompt: &st
         cmd_parts.push(format!("'{}'", escaped));
     }
     cmd_parts.join(" ")
-}
-
-/// tmux session name for a task (delegates to tmux_transport for single source of truth).
-fn tmux_session_name(task_id: &str) -> String {
-    tmux_transport::session_name(task_id)
 }
 
 /// Run a CLI trigger by injecting the command into the task's tmux session.
@@ -475,11 +467,9 @@ mod tests {
     #[test]
     fn test_build_trigger_command_with_args() {
         let cmd = build_trigger_command("codex", &["--model".to_string(), "gpt-5".to_string()], "hello");
-        assert_eq!(cmd, "codex --model gpt-5 'hello'");
-    }
-
-    #[test]
-    fn test_tmux_session_name() {
-        assert_eq!(tmux_session_name("task-123"), "bentoya_task-123");
+        assert_eq!(
+            cmd,
+            "codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --model gpt-5 'hello'"
+        );
     }
 }

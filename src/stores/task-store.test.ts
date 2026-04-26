@@ -294,6 +294,7 @@ describe('task-store', () => {
         description: 'Some description',
       })
       mockIpc.createTask.mockResolvedValueOnce(duplicatedTask)
+      refreshWorkspace.mockResolvedValueOnce(undefined)
 
       const result = await useTaskStore.getState().duplicate('task-1')
 
@@ -304,6 +305,7 @@ describe('task-store', () => {
         'Original Task (Copy)',
         'Some description',
       )
+      expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
     })
 
     it('should add duplicated task to store', async () => {

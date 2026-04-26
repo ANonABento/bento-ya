@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
-import type { Column } from '@/types'
+import type { Column, ColumnTriggers } from '@/types'
 import * as ipc from '@/lib/ipc'
+import { refreshWorkspaceSummary } from './workspace-refresh'
 
 type ColumnUpdates = {
   name?: string
@@ -29,6 +30,22 @@ type ColumnState = {
   updateColumnAsync: (id: string, updates: ColumnUpdates) => Promise<void>
 }
 
+function parseOptimisticTriggers(
+  triggers: string,
+  fallback: Column['triggers'],
+): ColumnTriggers | undefined {
+  try {
+    const parsed: unknown = JSON.parse(triggers)
+    if (parsed && typeof parsed === 'object') {
+      return parsed as ColumnTriggers
+    }
+  } catch {
+    return fallback
+  }
+
+  return fallback
+}
+
 export const useColumnStore = create<ColumnState>()(
   devtools(
     (set, get) => ({
@@ -44,14 +61,17 @@ export const useColumnStore = create<ColumnState>()(
         const position = get().columns.length
         const column = await ipc.createColumn(workspaceId, name, position)
         set((s) => ({ columns: [...s.columns, column] }))
+        await refreshWorkspaceSummary(workspaceId)
         return column
       },
 
       remove: async (id) => {
         const prev = get().columns
+        const workspaceId = prev.find((c) => c.id === id)?.workspaceId
         set((s) => ({ columns: s.columns.filter((c) => c.id !== id) }))
         try {
           await ipc.deleteColumn(id)
+          await refreshWorkspaceSummary(workspaceId)
         } catch {
           set({ columns: prev })
         }
@@ -69,6 +89,7 @@ export const useColumnStore = create<ColumnState>()(
         }))
         try {
           await ipc.reorderColumns(workspaceId, ids)
+          await refreshWorkspaceSummary(workspaceId)
         } catch {
           set({ columns: prev })
         }
@@ -92,9 +113,11 @@ export const useColumnStore = create<ColumnState>()(
                   ...(updates.icon !== undefined && { icon: updates.icon }),
                   ...(updates.color !== undefined && { color: updates.color ?? '' }),
                   ...(updates.visible !== undefined && { visible: updates.visible }),
-                  ...(updates.triggers !== undefined && { triggers: JSON.parse(updates.triggers) as import('@/types').ColumnTriggers }),
+                  ...(updates.triggers !== undefined && {
+                    triggers: parseOptimisticTriggers(updates.triggers, c.triggers),
+                  }),
                 }
-              : c
+              : c,
           ),
         }))
         try {

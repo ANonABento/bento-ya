@@ -17,6 +17,73 @@ fn ordered_columns(columns: &[Column]) -> Vec<&Column> {
     ordered_columns
 }
 
+const BOARD_SCHEMA_PROMPT: &str = r#"## Board Schema
+The board is a Kanban workspace with ordered columns and tasks.
+
+Column fields you will see:
+- `id`: stable column identifier.
+- `name`: user-facing column name. Column matching is case-insensitive, but prefer exact names from the current board.
+- `position`: left-to-right board order.
+- `triggers`: optional automation config with `on_entry`, `on_exit`, and `exit_criteria`.
+
+Task fields you will see:
+- `id`: stable task identifier. Use this for existing task operations.
+- `title`: short task name.
+- `description`: optional implementation details.
+- `column_id` and `column`: current board location.
+- `position`: order within the column.
+- `priority`, `pipeline_state`, `agent_status`, `blocked`, `dependencies`, `trigger_prompt`, and PR fields: operational metadata. Do not invent values for fields you cannot update.
+
+Available task operations:
+- Create tasks with a concise title, optional description, and optional target column.
+- Update an existing task's title and/or description.
+- Move an existing task to another column.
+- Delete an existing task only when the user clearly asks to remove it.
+- Queue existing tasks for agent work.
+- Configure column automation triggers with the `configure_triggers` operation.
+"#;
+
+const OPERATION_GUIDANCE_PROMPT: &str = r#"## Natural Language Parsing Rules
+- Translate the user's request into the smallest set of board operations that satisfies it.
+- For existing tasks, resolve references by task `id` first, then by exact or unambiguous title. Ask a clarifying question if multiple tasks match.
+- Use the board's current column names. Do not create or refer to columns that are not listed.
+- Preserve task information the user did not ask to change.
+- If the user describes several tasks, create one task per distinct deliverable.
+- Put acceptance criteria, implementation notes, links, or long instructions in `description`, not `title`.
+- For "start", "work on", "do next", or similar requests, move the referenced task to the most appropriate in-progress column if one exists; otherwise ask.
+- For "done", "complete", "finished", or similar requests, move the referenced task to the most appropriate done/completed column if one exists; otherwise ask.
+- When creating and then immediately acting on the new task in CLI mode, reference it as `__LAST__`.
+- Do not pretend an operation happened unless you used a tool or emitted an action for it.
+"#;
+
+const API_OPERATION_PROMPT: &str = r#"Use Anthropic tool calls for board changes. Do not emit JSON action blocks in API mode.
+For each successful operation, briefly summarize what changed. If a tool returns an error, explain the error and ask for the missing correction."#;
+
+const CLI_OPERATION_PROMPT: &str = r#"## Actions
+To modify the board, output exactly one action block containing a JSON array:
+```action
+[
+  {"action": "create_task", "title": "...", "column": "...", "description": "..."},
+  {"action": "update_task", "task_id": "...", "title": "...", "description": "..."},
+  {"action": "move_task", "task_id": "...", "column": "..."},
+  {"action": "delete_task", "task_id": "..."},
+  {"action": "queue_tasks", "task_ids": ["..."], "agent_type": "claude"},
+  {"action": "configure_triggers", "column": "...", "on_entry": {}, "on_exit": {}, "exit_criteria": {}}
+]
+```
+
+### configure_triggers action
+Sets automation for a column. Action types for on_entry/on_exit:
+- `{"type": "spawn_cli", "cli": "claude", "command": "/start-task", "prompt_template": "{task.title}\n\n{task.description}", "use_queue": true}`
+- `{"type": "move_column", "target": "next"}`
+- `{"type": "none"}`
+Exit criteria: `{"type": "agent_complete", "auto_advance": true}`
+
+Use task IDs from the board state. Column names are case-insensitive.
+Use `"__LAST__"` as task_id to reference the last created task (e.g. create_task then move_task in the same block).
+Put all actions in a single action block. Do not output multiple action blocks.
+Briefly confirm actions taken."#;
+
 /// Build the system prompt for the orchestrator (API mode with native tools)
 pub fn build_system_prompt(workspace: &Workspace, columns: &[Column], tasks: &[Task]) -> String {
     let ordered_columns = ordered_columns(columns);
@@ -32,18 +99,23 @@ Columns: {columns}
 Current tasks:
 {tasks}
 
+{board_schema}
+
+{operation_guidance}
+
 ## Style
 - Be concise. Short answers.
 - No emojis.
 - Use markdown for formatting (bold, lists, code).
 - Ask clarifying questions if the request is ambiguous.
 
-Use the provided tools to modify the board. Briefly confirm actions taken.
-
-You can also configure column automation triggers using the configure_triggers tool."#,
+{api_operation_prompt}"#,
         workspace_name = workspace.name,
         columns = columns_str,
-        tasks = tasks_str
+        tasks = tasks_str,
+        board_schema = BOARD_SCHEMA_PROMPT,
+        operation_guidance = OPERATION_GUIDANCE_PROMPT,
+        api_operation_prompt = API_OPERATION_PROMPT
     )
 }
 
@@ -66,38 +138,23 @@ Columns: {columns}
 Current tasks:
 {tasks}
 
+{board_schema}
+
+{operation_guidance}
+
 ## Style
 - Be concise. Short answers.
 - No emojis.
 - Use markdown for formatting (bold, lists, code).
 - Ask clarifying questions if the request is ambiguous.
 
-## Actions
-To modify the board, output an action block:
-```action
-[
-  {{"action": "create_task", "title": "...", "column": "...", "description": "..."}},
-  {{"action": "update_task", "task_id": "...", "title": "...", "description": "..."}},
-  {{"action": "move_task", "task_id": "...", "column": "..."}},
-  {{"action": "delete_task", "task_id": "..."}},
-  {{"action": "configure_triggers", "column": "...", "on_entry": {{}}, "on_exit": {{}}, "exit_criteria": {{}}}}
-]
-```
-
-### configure_triggers action
-Sets automation for a column. Action types for on_entry/on_exit:
-- `{{"type": "spawn_cli", "cli": "claude", "command": "/start-task", "prompt_template": "{{task.title}}\n\n{{task.description}}", "use_queue": true}}`
-- `{{"type": "move_column", "target": "next"}}`
-- `{{"type": "none"}}`
-Exit criteria: `{{"type": "agent_complete", "auto_advance": true}}`
-
-Use task IDs from the board state. Column names are case-insensitive.
-Use `"__LAST__"` as task_id to reference the last created task (e.g. create_task then move_task in the same block).
-Put all actions in a SINGLE action block — do not output multiple blocks.
-Briefly confirm actions taken."#,
+{cli_operation_prompt}"#,
         workspace_name = workspace.name,
         columns = columns_str,
-        tasks = tasks_str
+        tasks = tasks_str,
+        board_schema = BOARD_SCHEMA_PROMPT,
+        operation_guidance = OPERATION_GUIDANCE_PROMPT,
+        cli_operation_prompt = CLI_OPERATION_PROMPT
     )
 }
 
@@ -136,7 +193,17 @@ pub fn build_board_context(
                 "column_id": t.column_id,
                 "column": column_name,
                 "description": t.description,
-                "position": t.position
+                "position": t.position,
+                "priority": t.priority,
+                "pipeline_state": t.pipeline_state,
+                "agent_status": t.agent_status,
+                "blocked": t.blocked,
+                "dependencies": t.dependencies,
+                "trigger_prompt": t.trigger_prompt,
+                "pr_number": t.pr_number,
+                "pr_url": t.pr_url,
+                "pr_ci_status": t.pr_ci_status,
+                "pr_review_decision": t.pr_review_decision
             })
         }).collect::<Vec<_>>(),
         "task_count": tasks.len()
@@ -344,6 +411,9 @@ mod tests {
         assert_eq!(context["tasks"].as_array().unwrap().len(), 1);
         assert_eq!(context["tasks"][0]["title"], "Fix login bug");
         assert_eq!(context["tasks"][0]["column"], "Backlog");
+        assert_eq!(context["tasks"][0]["priority"], "medium");
+        assert_eq!(context["tasks"][0]["pipeline_state"], "idle");
+        assert_eq!(context["tasks"][0]["blocked"], false);
     }
 
     #[test]
@@ -381,6 +451,26 @@ mod tests {
 
         let cli_prompt = build_cli_system_prompt(&workspace, &columns, &tasks);
         assert!(cli_prompt.contains("configure_triggers"));
+    }
+
+    #[test]
+    fn test_system_prompts_include_schema_and_parsing_contract() {
+        let workspace = mock_workspace();
+        let columns = mock_columns();
+        let tasks = mock_tasks();
+
+        let api_prompt = build_system_prompt(&workspace, &columns, &tasks);
+        assert!(api_prompt.contains("## Board Schema"));
+        assert!(api_prompt.contains("Task fields you will see"));
+        assert!(api_prompt.contains("Use Anthropic tool calls"));
+        assert!(api_prompt.contains("Do not emit JSON action blocks in API mode"));
+        assert!(api_prompt.contains("resolve references by task `id` first"));
+
+        let cli_prompt = build_cli_system_prompt(&workspace, &columns, &tasks);
+        assert!(cli_prompt.contains("## Natural Language Parsing Rules"));
+        assert!(cli_prompt.contains(r#""action": "queue_tasks""#));
+        assert!(cli_prompt.contains("Put all actions in a single action block"));
+        assert!(cli_prompt.contains("__LAST__"));
     }
 
     #[test]
