@@ -151,7 +151,7 @@ export const useChecklistStore = create<ChecklistState>()(
         })
 
         // Persist to backend
-        ipc.updateChecklistItem(itemId, newChecked, undefined).catch((error: unknown) => {
+        ipc.updateChecklistItem(itemId, { checked: newChecked }).catch((error: unknown) => {
           console.error('Failed to persist item toggle:', error)
           // Revert on error
           set((s) => {
@@ -211,7 +211,7 @@ export const useChecklistStore = create<ChecklistState>()(
 
         notesDebounceTimers[timerKey] = setTimeout(() => {
           notesDebounceTimers[timerKey] = undefined
-          ipc.updateChecklistItem(itemId, undefined, notes).catch((error: unknown) => {
+          ipc.updateChecklistItem(itemId, { notes }).catch((error: unknown) => {
             console.error('Failed to persist item notes:', error)
           })
         }, NOTES_DEBOUNCE_MS)

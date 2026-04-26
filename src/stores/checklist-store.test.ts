@@ -177,7 +177,7 @@ describe('checklist-store', () => {
 
       useChecklistStore.getState().toggleItem('item-1', 'cat-1')
 
-      expect(mockIpc.updateChecklistItem).toHaveBeenCalledWith('item-1', true, undefined)
+      expect(mockIpc.updateChecklistItem).toHaveBeenCalledWith('item-1', { checked: true })
     })
 
     it('should revert on IPC error', async () => {

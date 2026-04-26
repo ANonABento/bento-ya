@@ -60,6 +60,8 @@ export type TemplateCategory = {
 
 export type UpdateChecklistItemInput = {
   text?: string
+  checked?: boolean
+  notes?: string | null
   position?: number
   detectType?: string | null
   detectConfig?: string | null
@@ -98,11 +100,9 @@ export async function getWorkspaceChecklist(workspaceId: string): Promise<Checkl
 
 export async function updateChecklistItem(
   itemId: string,
-  checked?: boolean,
-  notes?: string | null,
   updates: UpdateChecklistItemInput = {},
 ): Promise<ChecklistItem> {
-  return invoke<ChecklistItem>('update_checklist_item', { itemId, checked, notes, ...updates })
+  return invoke<ChecklistItem>('update_checklist_item', { itemId, updates })
 }
 
 export async function createChecklistCategory(

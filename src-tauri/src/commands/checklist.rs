@@ -33,6 +33,19 @@ fn validate_detect_config(detect_config: Option<&str>) -> Result<(), AppError> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateChecklistItemInput {
+    pub text: Option<String>,
+    pub checked: Option<bool>,
+    pub notes: Option<Option<String>>,
+    pub position: Option<i64>,
+    pub detect_type: Option<Option<String>>,
+    pub detect_config: Option<Option<String>>,
+    pub auto_detected: Option<bool>,
+    pub linked_task_id: Option<Option<String>>,
+}
+
 /// Create a blank checklist for a workspace
 #[tauri::command]
 pub fn create_checklist(
@@ -75,8 +88,9 @@ pub fn update_checklist(
     name: Option<String>,
     description: Option<Option<String>>,
 ) -> Result<Checklist, AppError> {
-    if let Some(ref value) = name {
-        if value.trim().is_empty() {
+    let name = name.as_deref().map(str::trim);
+    if let Some(value) = name {
+        if value.is_empty() {
             return Err(AppError::InvalidInput(
                 "Checklist name cannot be empty".to_string(),
             ));
@@ -92,7 +106,7 @@ pub fn update_checklist(
     Ok(db::update_checklist(
         &conn,
         &checklist_id,
-        name.as_deref(),
+        name,
         description_ref,
     )?)
 }
@@ -149,35 +163,29 @@ pub fn get_workspace_checklist(
 }
 
 /// Update a checklist item's checked state and/or notes
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn update_checklist_item(
     state: State<AppState>,
     item_id: String,
-    text: Option<String>,
-    checked: Option<bool>,
-    notes: Option<Option<String>>,
-    position: Option<i64>,
-    detect_type: Option<Option<String>>,
-    detect_config: Option<Option<String>>,
-    auto_detected: Option<bool>,
-    linked_task_id: Option<Option<String>>,
+    updates: UpdateChecklistItemInput,
 ) -> Result<ChecklistItem, AppError> {
-    if let Some(ref value) = text {
-        if value.trim().is_empty() {
+    let text = updates.text.as_deref().map(str::trim);
+    if let Some(value) = text {
+        if value.is_empty() {
             return Err(AppError::InvalidInput(
                 "Checklist item text cannot be empty".to_string(),
             ));
         }
     }
-    if position.is_some_and(|pos| pos < 0) {
+    if updates.position.is_some_and(|pos| pos < 0) {
         return Err(AppError::InvalidInput(
             "Position must be non-negative".to_string(),
         ));
     }
-    if let Some(Some(ref value)) = detect_type {
+    if let Some(Some(ref value)) = updates.detect_type {
         validate_detect_type(Some(value))?;
     }
-    if let Some(Some(ref value)) = detect_config {
+    if let Some(Some(ref value)) = updates.detect_config {
         validate_detect_config(Some(value))?;
     }
 
@@ -186,22 +194,19 @@ pub fn update_checklist_item(
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    let notes_ref = notes.as_ref().map(|opt| opt.as_deref());
-    let detect_type_ref = detect_type.as_ref().map(|opt| opt.as_deref());
-    let detect_config_ref = detect_config.as_ref().map(|opt| opt.as_deref());
-    let linked_task_id_ref = linked_task_id.as_ref().map(|opt| opt.as_deref());
-
     Ok(db::update_checklist_item_details(
         &conn,
         &item_id,
-        text.as_deref(),
-        checked,
-        notes_ref,
-        position,
-        detect_type_ref,
-        detect_config_ref,
-        auto_detected,
-        linked_task_id_ref,
+        db::ChecklistItemUpdate {
+            text,
+            checked: updates.checked,
+            notes: updates.notes.as_ref().map(|opt| opt.as_deref()),
+            position: updates.position,
+            detect_type: updates.detect_type.as_ref().map(|opt| opt.as_deref()),
+            detect_config: updates.detect_config.as_ref().map(|opt| opt.as_deref()),
+            auto_detected: updates.auto_detected,
+            linked_task_id: updates.linked_task_id.as_ref().map(|opt| opt.as_deref()),
+        },
     )?)
 }
 
@@ -260,15 +265,17 @@ pub fn update_checklist_category(
     position: Option<i64>,
     collapsed: Option<bool>,
 ) -> Result<ChecklistCategory, AppError> {
-    if let Some(ref value) = name {
-        if value.trim().is_empty() {
+    let name = name.as_deref().map(str::trim);
+    let icon = icon.as_deref().map(str::trim);
+    if let Some(value) = name {
+        if value.is_empty() {
             return Err(AppError::InvalidInput(
                 "Category name cannot be empty".to_string(),
             ));
         }
     }
-    if let Some(ref value) = icon {
-        if value.trim().is_empty() {
+    if let Some(value) = icon {
+        if value.is_empty() {
             return Err(AppError::InvalidInput(
                 "Category icon cannot be empty".to_string(),
             ));
@@ -288,8 +295,8 @@ pub fn update_checklist_category(
     Ok(db::update_checklist_category_details(
         &conn,
         &category_id,
-        name.as_deref(),
-        icon.as_deref(),
+        name,
+        icon,
         position,
         collapsed,
     )?)

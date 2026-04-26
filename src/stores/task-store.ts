@@ -114,6 +114,7 @@ export const useTaskStore = create<TaskState>()(
           original.description,
         )
         set((s) => ({ tasks: [...s.tasks, task] }))
+        await useWorkspaceStore.getState().refreshWorkspace(original.workspaceId)
         return task
       },
     }),
