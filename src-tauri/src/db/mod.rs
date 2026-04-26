@@ -125,6 +125,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("016_siege_fields", include_str!("migrations/016_siege_fields.sql")),
         ("017_pr_status_fields", include_str!("migrations/017_pr_status_fields.sql")),
         ("018_discord_integration", include_str!("migrations/018_discord_integration.sql")),
+        ("019_checklist_autodetect", include_str!("migrations/019_checklist_autodetect.sql")),
         ("019_discord_agent_routes", include_str!("migrations/019_discord_agent_routes.sql")),
         ("020_notify_fields", include_str!("migrations/020_notify_fields.sql")),
         ("021_agent_messages", include_str!("migrations/021_agent_messages.sql")),
@@ -137,6 +138,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("028_scripts", include_str!("migrations/028_scripts.sql")),
         ("029_task_worktree", include_str!("migrations/029_task_worktree.sql")),
         ("030_pipeline_timing", include_str!("migrations/030_pipeline_timing.sql")),
+        ("030_usage_column_duration", include_str!("migrations/030_usage_column_duration.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -199,8 +201,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 30 migrations: 001-030
-        assert_eq!(count, 30);
+        // We have 32 migrations, including split 019 and 030 migration files.
+        assert_eq!(count, 32);
     }
 
     #[test]
