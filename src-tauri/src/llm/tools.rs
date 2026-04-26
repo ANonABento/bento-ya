@@ -419,7 +419,7 @@ fn tool_use_from_object(map: &serde_json::Map<String, serde_json::Value>) -> Opt
     })
 }
 
-fn normalize_tool_name(name: &str) -> Option<&'static str> {
+pub fn normalize_tool_name(name: &str) -> Option<&'static str> {
     let normalized = name.trim().to_ascii_lowercase().replace([' ', '-'], "_");
     match normalized.as_str() {
         "create_task" | "create" => Some("create_task"),

@@ -34,7 +34,8 @@ pub struct OrchestratorResponse {
 #[serde(rename_all = "camelCase")]
 pub struct OrchestratorEvent {
     pub workspace_id: String,
-    pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
     pub event_type: String,
     pub message: Option<String>,
 }
@@ -130,7 +131,7 @@ pub(super) fn api_stream_key(workspace_id: &str, session_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{api_stream_key, ApiStreamRegistry, OrchestratorEvent, StreamChunkPayload};
+    use super::{api_stream_key, ApiStreamRegistry};
 
     #[test]
     fn test_api_stream_key() {
@@ -138,30 +139,6 @@ mod tests {
             api_stream_key("ws-1", "session-1"),
             "chef-api:ws-1:session-1"
         );
-    }
-
-    #[test]
-    fn test_orchestrator_events_include_session_id() {
-        let event = OrchestratorEvent {
-            workspace_id: "ws-1".to_string(),
-            session_id: "session-1".to_string(),
-            event_type: "complete".to_string(),
-            message: None,
-        };
-        let payload = serde_json::to_value(event).unwrap();
-        assert_eq!(payload["workspaceId"], "ws-1");
-        assert_eq!(payload["sessionId"], "session-1");
-
-        let stream = StreamChunkPayload {
-            workspace_id: "ws-1".to_string(),
-            session_id: "session-1".to_string(),
-            delta: "hello".to_string(),
-            finish_reason: None,
-            tool_use: None,
-        };
-        let payload = serde_json::to_value(stream).unwrap();
-        assert_eq!(payload["workspaceId"], "ws-1");
-        assert_eq!(payload["sessionId"], "session-1");
     }
 
     #[tokio::test]

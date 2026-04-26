@@ -62,7 +62,7 @@ pub(super) async fn stream_orchestrator_chat(
         "orchestrator:processing",
         &OrchestratorEvent {
             workspace_id: workspace_id.clone(),
-            session_id: actual_session_id.clone(),
+            session_id: Some(actual_session_id.clone()),
             event_type: "processing".to_string(),
             message: Some(message.clone()),
         },
@@ -135,7 +135,7 @@ pub(super) async fn stream_orchestrator_chat(
             "orchestrator:error",
             &OrchestratorEvent {
                 workspace_id,
-                session_id: actual_session_id,
+                session_id: Some(actual_session_id),
                 event_type: "error".to_string(),
                 message: Some(error_message),
             },
@@ -175,7 +175,7 @@ pub(super) async fn cancel_orchestrator_chat(
         "orchestrator:complete",
         &OrchestratorEvent {
             workspace_id: workspace_id.clone(),
-            session_id,
+            session_id: Some(session_id),
             event_type: "cancelled".to_string(),
             message: Some("Request cancelled".to_string()),
         },

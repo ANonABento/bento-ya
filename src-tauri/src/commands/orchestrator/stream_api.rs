@@ -92,7 +92,6 @@ pub(super) async fn stream_via_api(
     let client = AnthropicClient::new(api_key.to_string());
     let app_clone = app.clone();
     let workspace_id_clone = workspace_id.to_string();
-    let session_id_clone = session_id.to_string();
     let mut pending_tool_calls: HashMap<String, (String, serde_json::Value)> = HashMap::new();
 
     let stream_handle = tokio::spawn(async move { client.stream_chat(request, tx).await });
@@ -109,7 +108,7 @@ pub(super) async fn stream_via_api(
                 "orchestrator:tool_call",
                 &ToolCallPayload {
                     workspace_id: workspace_id_clone.clone(),
-                    session_id: session_id_clone.clone(),
+                    session_id: session_id.to_string(),
                     tool_id: tu.id.clone(),
                     tool_name: tu.name.clone(),
                     status: "running".to_string(),
@@ -129,7 +128,7 @@ pub(super) async fn stream_via_api(
             "orchestrator:stream",
             &StreamChunkPayload {
                 workspace_id: workspace_id_clone.clone(),
-                session_id: session_id_clone.clone(),
+                session_id: session_id.to_string(),
                 delta: chunk.delta,
                 finish_reason: chunk.finish_reason.clone(),
                 tool_use: tool_use_payload,
@@ -244,7 +243,7 @@ pub(super) async fn stream_via_api(
             "orchestrator:complete",
             &OrchestratorEvent {
                 workspace_id: workspace_id.to_string(),
-                session_id: session_id.to_string(),
+                session_id: Some(session_id.to_string()),
                 event_type: "complete".to_string(),
                 message: Some(assistant_msg.id),
             },

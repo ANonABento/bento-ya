@@ -1,6 +1,6 @@
 use crate::db::{self, AppState, OrchestratorSession};
 use crate::error::AppError;
-use crate::llm::{execute_tools, parse_cli_action_blocks, ToolUse};
+use crate::llm::{execute_tools, normalize_tool_name, parse_cli_action_blocks, ToolUse};
 use tauri::{AppHandle, Emitter, State};
 
 use super::{
@@ -47,6 +47,7 @@ pub(super) fn process_orchestrator_response(
         "orchestrator:complete",
         &OrchestratorEvent {
             workspace_id: workspace_id.clone(),
+            session_id: Some(chat_session.id),
             event_type: "complete".to_string(),
             message: Some(execution_summary),
         },
@@ -64,7 +65,7 @@ fn actions_to_tool_uses(actions: &[OrchestratorAction]) -> Vec<ToolUse> {
         .iter()
         .enumerate()
         .filter_map(|(index, action)| {
-            let name = normalize_action_type(&action.action_type)?;
+            let name = normalize_tool_name(&action.action_type)?;
             let mut input = serde_json::Map::new();
 
             if let Some(title) = &action.title {
@@ -101,16 +102,6 @@ fn actions_to_tool_uses(actions: &[OrchestratorAction]) -> Vec<ToolUse> {
         .collect()
 }
 
-fn normalize_action_type(action_type: &str) -> Option<&'static str> {
-    match action_type {
-        "create_task" => Some("create_task"),
-        "update_task" | "edit_task" => Some("update_task"),
-        "move_task" => Some("move_task"),
-        "delete_task" | "remove_task" => Some("delete_task"),
-        _ => None,
-    }
-}
-
 pub(super) fn set_orchestrator_error(
     app: AppHandle,
     state: State<AppState>,
@@ -131,6 +122,7 @@ pub(super) fn set_orchestrator_error(
         "orchestrator:error",
         &OrchestratorEvent {
             workspace_id,
+            session_id: None,
             event_type: "error".to_string(),
             message: Some(error_message),
         },
