@@ -298,7 +298,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
             break
           case ' ':
             e.preventDefault()
-            if (canTriggerWork) {
+            if (canTriggerWork || task.agentStatus === 'running') {
               actions.handleToggleAgent()
             }
             break

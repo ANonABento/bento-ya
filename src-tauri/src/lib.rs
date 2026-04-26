@@ -17,10 +17,10 @@ pub mod pipeline;
 #[cfg(feature = "voice")]
 pub mod whisper;
 
+use chat::registry::{new_shared_session_registry, start_idle_sweep};
 #[cfg(feature = "voice")]
 use commands::voice::RecorderState;
 use db::AppState;
-use chat::registry::{new_shared_session_registry, start_idle_sweep};
 use tauri::Manager;
 #[cfg(feature = "voice")]
 use whisper::AudioRecorder;
@@ -28,17 +28,6 @@ use whisper::AudioRecorder;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let conn = db::init().expect("Failed to initialize database");
-
-    // Reset stale pipeline states from previous app instance (crash recovery)
-    let reset_count: i64 = conn
-        .execute(
-            "UPDATE tasks SET pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = 'App restarted — pipeline state reset' WHERE pipeline_state IN ('running', 'triggered', 'evaluating', 'advancing')",
-            [],
-        )
-        .unwrap_or(0) as i64;
-    if reset_count > 0 {
-        eprintln!("[startup] Reset {} task(s) with stale pipeline state to idle", reset_count);
-    }
 
     // Clear stale cli_session_id references (previous app sessions are dead)
     let cli_reset: i64 = conn
@@ -48,7 +37,10 @@ pub fn run() {
         )
         .unwrap_or(0) as i64;
     if cli_reset > 0 {
-        eprintln!("[startup] Cleared {} stale CLI session reference(s)", cli_reset);
+        eprintln!(
+            "[startup] Cleared {} stale CLI session reference(s)",
+            cli_reset
+        );
     }
 
     // Seed built-in scripts (idempotent — skips if already present)
@@ -263,6 +255,9 @@ pub fn run() {
             // Start periodic idle session sweep (every 60s)
             start_idle_sweep(session_registry_for_sweep);
 
+            // Recover stale pipeline work from the previous app instance.
+            resume_stale_pipeline_tasks(app.handle().clone());
+
             // Recover tmux sessions from previous app instance
             recover_tmux_sessions(app.handle().clone());
 
@@ -308,7 +303,10 @@ fn recover_tmux_sessions(app: tauri::AppHandle) {
         return;
     }
 
-    eprintln!("[startup] Found {} existing tmux session(s)", existing.len());
+    eprintln!(
+        "[startup] Found {} existing tmux session(s)",
+        existing.len()
+    );
 
     let state: tauri::State<db::AppState> = app.state();
     let conn = match state.db.lock() {
@@ -351,5 +349,256 @@ fn recover_tmux_sessions(app: tauri::AppHandle) {
             "[startup] tmux recovery: {} recovered, {} cleaned up",
             recovered, cleaned
         );
+    }
+}
+
+const STALE_PIPELINE_STATES: &[&str] = &["running", "triggered", "evaluating", "advancing"];
+
+fn is_stale_pipeline_state(state: &str) -> bool {
+    STALE_PIPELINE_STATES.contains(&state)
+}
+
+fn has_on_entry_trigger(column: &db::Column) -> bool {
+    matches!(
+        pipeline::triggers::parse_column_triggers(column.triggers.as_deref()).on_entry,
+        Some(action) if !matches!(action, pipeline::triggers::TriggerActionV2::None)
+    )
+}
+
+fn startup_resume_candidates(
+    conn: &rusqlite::Connection,
+) -> rusqlite::Result<Vec<(db::Task, db::Column)>> {
+    let mut stmt = conn.prepare(
+        "SELECT t.id
+         FROM tasks t
+         JOIN columns c ON c.id = t.column_id
+         WHERE t.pipeline_state IN ('running', 'triggered', 'evaluating', 'advancing')
+         ORDER BY t.workspace_id, c.position, t.position",
+    )?;
+    let task_ids = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut candidates = Vec::new();
+    for task_id in task_ids {
+        let task = db::get_task(conn, &task_id)?;
+        let column = db::get_column(conn, &task.column_id)?;
+        if has_on_entry_trigger(&column) {
+            candidates.push((task, column));
+        }
+    }
+
+    Ok(candidates)
+}
+
+fn reset_stale_pipeline_state(conn: &rusqlite::Connection) -> rusqlite::Result<usize> {
+    let ts = db::now();
+    conn.execute(
+        "UPDATE agent_sessions
+         SET status = 'failed', updated_at = ?1
+         WHERE status = 'running'
+           AND task_id IN (
+               SELECT id FROM tasks
+               WHERE pipeline_state IN ('running', 'triggered', 'evaluating', 'advancing')
+           )",
+        rusqlite::params![ts],
+    )?;
+
+    conn.execute(
+        "UPDATE tasks
+         SET pipeline_state = 'idle',
+             pipeline_triggered_at = NULL,
+             pipeline_error = NULL,
+             agent_status = 'idle',
+             queued_at = NULL,
+             agent_session_id = NULL,
+             updated_at = ?1
+         WHERE pipeline_state IN ('running', 'triggered', 'evaluating', 'advancing')",
+        rusqlite::params![ts],
+    )
+}
+
+/// Resume tasks that were interrupted while sitting in trigger columns.
+///
+/// Startup first records which stale tasks are in columns with `on_entry`
+/// triggers, then resets all stale pipeline state to idle. Re-firing each
+/// trigger through the normal pipeline path preserves the existing concurrency
+/// guard, so excess agent tasks are queued instead of spawned.
+fn resume_stale_pipeline_tasks(app: tauri::AppHandle) {
+    let state: tauri::State<db::AppState> = app.state();
+    let conn = match state.db.lock() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[startup] DB lock failed during pipeline recovery: {}", e);
+            return;
+        }
+    };
+
+    let candidates = match startup_resume_candidates(&conn) {
+        Ok(candidates) => candidates,
+        Err(e) => {
+            eprintln!("[startup] Failed to inspect stale pipeline tasks: {}", e);
+            Vec::new()
+        }
+    };
+
+    let reset_count = reset_stale_pipeline_state(&conn).unwrap_or_else(|e| {
+        eprintln!("[startup] Failed to reset stale pipeline state: {}", e);
+        0
+    });
+
+    if reset_count > 0 {
+        eprintln!(
+            "[startup] Reset {} task(s) with stale pipeline state to idle",
+            reset_count
+        );
+    }
+
+    if candidates.is_empty() {
+        return;
+    }
+
+    let mut resumed = 0;
+    let mut failed = 0;
+    for (stale_task, column) in candidates {
+        let task = match db::get_task(&conn, &stale_task.id) {
+            Ok(task) if is_stale_pipeline_state(&task.pipeline_state) => {
+                log::warn!(
+                    "[startup] Task {} stayed stale after reset; skipping resume",
+                    task.id
+                );
+                failed += 1;
+                continue;
+            }
+            Ok(task) => task,
+            Err(e) => {
+                log::warn!(
+                    "[startup] Failed to reload task {} for resume: {}",
+                    stale_task.id,
+                    e
+                );
+                failed += 1;
+                continue;
+            }
+        };
+
+        match pipeline::fire_trigger(&conn, &app, &task, &column) {
+            Ok(_) => resumed += 1,
+            Err(e) => {
+                log::warn!(
+                    "[startup] Failed to resume pipeline trigger for task {}: {}",
+                    task.id,
+                    e
+                );
+                failed += 1;
+            }
+        }
+    }
+
+    eprintln!(
+        "[startup] Pipeline recovery resumed {} task(s), {} failed",
+        resumed, failed
+    );
+}
+
+#[cfg(test)]
+mod startup_recovery_tests {
+    use super::*;
+
+    #[test]
+    fn startup_resume_candidates_only_include_stale_tasks_in_trigger_columns() {
+        let conn = db::init_test().unwrap();
+        let workspace = db::insert_workspace(&conn, "Test", "/tmp/test").unwrap();
+        let backlog = db::insert_column(&conn, &workspace.id, "Backlog", 0).unwrap();
+        let plan = db::insert_column(&conn, &workspace.id, "Plan", 1).unwrap();
+        let done = db::insert_column(&conn, &workspace.id, "Done", 2).unwrap();
+        let trigger_json = r#"{"on_entry":{"type":"spawn_cli","cli":"codex"}}"#;
+        db::update_column(
+            &conn,
+            &plan.id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(trigger_json),
+        )
+        .unwrap();
+
+        let backlog_task =
+            db::insert_task(&conn, &workspace.id, &backlog.id, "Backlog", None).unwrap();
+        let plan_task = db::insert_task(&conn, &workspace.id, &plan.id, "Plan", None).unwrap();
+        let idle_plan_task =
+            db::insert_task(&conn, &workspace.id, &plan.id, "Idle Plan", None).unwrap();
+        let done_task = db::insert_task(&conn, &workspace.id, &done.id, "Done", None).unwrap();
+
+        db::update_task_pipeline_state(&conn, &backlog_task.id, "running", None, None).unwrap();
+        db::update_task_pipeline_state(&conn, &plan_task.id, "triggered", None, None).unwrap();
+        db::update_task_pipeline_state(&conn, &done_task.id, "advancing", None, None).unwrap();
+
+        let candidates = startup_resume_candidates(&conn).unwrap();
+        let ids: Vec<_> = candidates.into_iter().map(|(task, _)| task.id).collect();
+
+        assert_eq!(ids, vec![plan_task.id]);
+        assert!(!ids.contains(&idle_plan_task.id));
+    }
+
+    #[test]
+    fn startup_resume_candidates_skip_explicit_none_triggers() {
+        let conn = db::init_test().unwrap();
+        let workspace = db::insert_workspace(&conn, "Test", "/tmp/test").unwrap();
+        let column = db::insert_column(&conn, &workspace.id, "Backlog", 0).unwrap();
+        db::update_column(
+            &conn,
+            &column.id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(r#"{"on_entry":{"type":"none"}}"#),
+        )
+        .unwrap();
+        let task = db::insert_task(&conn, &workspace.id, &column.id, "Task", None).unwrap();
+        db::update_task_pipeline_state(&conn, &task.id, "running", None, None).unwrap();
+
+        assert!(startup_resume_candidates(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn reset_stale_pipeline_state_clears_agent_and_pipeline_state() {
+        let conn = db::init_test().unwrap();
+        let workspace = db::insert_workspace(&conn, "Test", "/tmp/test").unwrap();
+        let column = db::insert_column(&conn, &workspace.id, "Plan", 0).unwrap();
+        let task = db::insert_task(&conn, &workspace.id, &column.id, "Task", None).unwrap();
+        let session = db::insert_agent_session(&conn, &task.id, "codex", Some("/tmp")).unwrap();
+
+        db::update_task_pipeline_state(&conn, &task.id, "running", Some("now"), Some("old"))
+            .unwrap();
+        db::update_task_agent_status(&conn, &task.id, Some("running"), Some("now")).unwrap();
+        db::update_task_agent_session(&conn, &task.id, Some(&session.id)).unwrap();
+        db::update_agent_session(
+            &conn,
+            &session.id,
+            None,
+            Some("running"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(reset_stale_pipeline_state(&conn).unwrap(), 1);
+
+        let task = db::get_task(&conn, &task.id).unwrap();
+        assert_eq!(task.pipeline_state, "idle");
+        assert_eq!(task.agent_status.as_deref(), Some("idle"));
+        assert!(task.pipeline_triggered_at.is_none());
+        assert!(task.pipeline_error.is_none());
+        assert!(task.agent_session_id.is_none());
+
+        let session = db::get_agent_session(&conn, &session.id).unwrap();
+        assert_eq!(session.status, "failed");
     }
 }
