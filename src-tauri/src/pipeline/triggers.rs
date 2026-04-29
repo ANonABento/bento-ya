@@ -11,11 +11,12 @@ use crate::git::branch_manager;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
 use tauri::{AppHandle, Emitter};
 
 use super::template::{self, TemplateContext};
 use super::{emit_pipeline, PipelineState, EVT_ADVANCED, EVT_RUNNING, EVT_TRIGGERED};
+
+const STAGING_BRANCH_PREFIX: &str = "staging/";
 
 // ─── V2 Trigger Types ─────────────────────────────────────────────────────
 
@@ -376,100 +377,6 @@ fn resolve_working_dir(task: &Task, workspace_repo_path: &str) -> String {
     workspace_repo_path.to_string()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PrePrCheckCommand {
-    NpmTypeCheck,
-    CargoCheck,
-}
-
-impl PrePrCheckCommand {
-    fn display(self) -> &'static str {
-        match self {
-            PrePrCheckCommand::NpmTypeCheck => "npm run type-check",
-            PrePrCheckCommand::CargoCheck => "cargo check",
-        }
-    }
-
-    fn command(self) -> (&'static str, &'static [&'static str]) {
-        match self {
-            PrePrCheckCommand::NpmTypeCheck => ("npm", &["run", "type-check"]),
-            PrePrCheckCommand::CargoCheck => ("cargo", &["check"]),
-        }
-    }
-}
-
-fn detect_pre_pr_check_commands(repo_path: &Path) -> Vec<PrePrCheckCommand> {
-    let mut commands = Vec::new();
-    let package_json_path = repo_path.join("package.json");
-    if let Ok(package_json) = std::fs::read_to_string(&package_json_path) {
-        let has_type_check_script = serde_json::from_str::<serde_json::Value>(&package_json)
-            .ok()
-            .and_then(|json| {
-                json.get("scripts")
-                    .and_then(|scripts| scripts.get("type-check"))
-                    .and_then(|script| script.as_str())
-                    .map(|script| !script.trim().is_empty())
-            })
-            .unwrap_or(false);
-
-        if has_type_check_script {
-            commands.push(PrePrCheckCommand::NpmTypeCheck);
-        }
-    }
-
-    if repo_path.join("Cargo.toml").exists() {
-        commands.push(PrePrCheckCommand::CargoCheck);
-    }
-
-    commands
-}
-
-fn run_pre_pr_check(repo_path: &Path) -> Result<(), String> {
-    let check_commands = detect_pre_pr_check_commands(repo_path);
-    if check_commands.is_empty() {
-        return Err(concat!(
-            "No pre-PR type-check command found ",
-            "(expected package.json with scripts.type-check or Cargo.toml)"
-        )
-        .to_string());
-    }
-
-    for check_command in check_commands {
-        let (program, args) = check_command.command();
-
-        log::info!(
-            "[create_pr] Running pre-PR check: {}",
-            check_command.display()
-        );
-
-        let output = std::process::Command::new(program)
-            .args(args)
-            .current_dir(repo_path)
-            .output()
-            .map_err(|e| format!("Failed to run {}: {}", check_command.display(), e))?;
-
-        if output.status.success() {
-            continue;
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let detail = if !stderr.trim().is_empty() {
-            stderr.trim()
-        } else {
-            stdout.trim()
-        };
-        let detail = detail.chars().take(2000).collect::<String>();
-        return Err(format!(
-            "Pre-PR check failed ({}): {}",
-            check_command.display(),
-            detail
-        ));
-    }
-
-    Ok(())
-}
-
 fn resolve_model_override(
     task_model: Option<&str>,
     trigger_model: Option<&str>,
@@ -489,6 +396,65 @@ fn non_empty_trimmed(value: &str) -> Option<&str> {
     } else {
         Some(trimmed)
     }
+}
+
+fn normalize_batch_id(value: &str) -> Option<String> {
+    let raw = value
+        .trim()
+        .strip_prefix(STAGING_BRANCH_PREFIX)
+        .unwrap_or_else(|| value.trim());
+
+    let mut normalized = String::new();
+    let mut previous_dash = false;
+
+    for ch in raw.chars() {
+        let next = if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
+            previous_dash = false;
+            ch
+        } else if ch == '-' {
+            if previous_dash {
+                continue;
+            }
+            previous_dash = true;
+            ch
+        } else {
+            if previous_dash {
+                continue;
+            }
+            previous_dash = true;
+            '-'
+        };
+        normalized.push(next);
+    }
+
+    let normalized = normalized.trim_matches('-').to_string();
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn staging_branch_for_batch(batch_id: &str) -> String {
+    let batch_id = normalize_batch_id(batch_id).unwrap_or_else(db::generate_batch_id);
+    format!("{}{}", STAGING_BRANCH_PREFIX, batch_id)
+}
+
+fn ensure_task_batch_id(conn: &Connection, task: &Task) -> Result<Task, AppError> {
+    if let Some(batch_id) = task
+        .batch_id
+        .as_deref()
+        .and_then(normalize_batch_id)
+        .filter(|id| !id.is_empty())
+    {
+        if task.batch_id.as_deref() == Some(batch_id.as_str()) {
+            return Ok(task.clone());
+        }
+        return Ok(db::update_task_batch_id(conn, &task.id, Some(&batch_id))?);
+    }
+
+    let batch_id = db::generate_batch_id();
+    Ok(db::update_task_batch_id(conn, &task.id, Some(&batch_id))?)
 }
 
 /// Auto-create a branch + worktree for a task if missing.
@@ -957,6 +923,299 @@ fn build_pr_body(
     sections.join("\n\n")
 }
 
+fn run_command(
+    repo_path: &str,
+    program: &str,
+    args: &[&str],
+) -> Result<std::process::Output, String> {
+    std::process::Command::new(program)
+        .args(args)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("Failed to run {}: {}", program, e))
+}
+
+fn command_stderr(output: &std::process::Output) -> String {
+    String::from_utf8_lossy(&output.stderr).trim().to_string()
+}
+
+fn command_stdout(output: &std::process::Output) -> String {
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+fn remote_branch_ref(branch: &str) -> String {
+    format!("refs/remotes/origin/{}", branch)
+}
+
+fn local_branch_ref(branch: &str) -> String {
+    format!("refs/heads/{}", branch)
+}
+
+fn git_ref_exists(repo_path: &str, git_ref: &str) -> Result<bool, String> {
+    Ok(run_command(
+        repo_path,
+        "git",
+        &["show-ref", "--verify", "--quiet", git_ref],
+    )?
+    .status
+    .success())
+}
+
+fn fetch_remote_branch(repo_path: &str, branch: &str) -> Result<bool, String> {
+    let output = run_command(repo_path, "git", &["fetch", "origin", branch])?;
+    if output.status.success() {
+        return Ok(true);
+    }
+
+    let stderr = command_stderr(&output);
+    if stderr.contains("couldn't find remote ref") || stderr.contains("could not find remote ref") {
+        Ok(false)
+    } else {
+        Err(format!(
+            "Failed to fetch remote branch '{}': {}",
+            branch, stderr
+        ))
+    }
+}
+
+fn best_base_ref(repo_path: &str, base_branch: &str) -> Result<String, String> {
+    if fetch_remote_branch(repo_path, base_branch)? {
+        let remote_ref = remote_branch_ref(base_branch);
+        if git_ref_exists(repo_path, &remote_ref)? {
+            return Ok(format!("origin/{}", base_branch));
+        }
+    }
+
+    Ok(base_branch.to_string())
+}
+
+fn ensure_staging_branch(
+    repo_path: &str,
+    staging_branch: &str,
+    base_branch: &str,
+) -> Result<(), String> {
+    if fetch_remote_branch(repo_path, staging_branch)? {
+        return Ok(());
+    }
+
+    let local_ref = local_branch_ref(staging_branch);
+    if !git_ref_exists(repo_path, &local_ref)? {
+        let base_ref = best_base_ref(repo_path, base_branch)?;
+        let branch_output = run_command(repo_path, "git", &["branch", staging_branch, &base_ref])?;
+        if !branch_output.status.success() {
+            return Err(format!(
+                "Failed to create staging branch '{}' from '{}': {}",
+                staging_branch,
+                base_ref,
+                command_stderr(&branch_output)
+            ));
+        }
+    }
+
+    let push_output = run_command(repo_path, "git", &["push", "-u", "origin", staging_branch])?;
+    if !push_output.status.success() {
+        let stderr = command_stderr(&push_output);
+        if !stderr.contains("up-to-date") && !stderr.contains("already exists") {
+            return Err(format!(
+                "Failed to push staging branch '{}': {}",
+                staging_branch, stderr
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn batch_tasks_ready_for_main_pr(conn: &Connection, workspace_id: &str, batch_id: &str) -> bool {
+    match db::list_tasks_by_batch_id(conn, workspace_id, batch_id) {
+        Ok(tasks) => !tasks.is_empty() && tasks.iter().all(|task| task.pr_number.is_some()),
+        Err(e) => {
+            log::warn!("[create_pr] Failed to list batch tasks: {}", e);
+            false
+        }
+    }
+}
+
+fn branch_has_commits(
+    repo_path: &str,
+    base_branch: &str,
+    head_branch: &str,
+) -> Result<bool, String> {
+    let base_ref = best_base_ref(repo_path, base_branch)?;
+    let head_ref = if fetch_remote_branch(repo_path, head_branch)? {
+        format!("origin/{}", head_branch)
+    } else {
+        head_branch.to_string()
+    };
+    let range = format!("{}..{}", base_ref, head_ref);
+    let output = run_command(repo_path, "git", &["rev-list", "--count", &range])?;
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to compare '{}' and '{}': {}",
+            base_ref,
+            head_ref,
+            command_stderr(&output)
+        ));
+    }
+
+    let count = command_stdout(&output).parse::<i64>().unwrap_or(0);
+    Ok(count > 0)
+}
+
+fn open_batch_pr_exists(
+    repo_path: &str,
+    base_branch: &str,
+    staging_branch: &str,
+) -> Result<bool, String> {
+    let output = run_command(
+        repo_path,
+        "gh",
+        &[
+            "pr",
+            "list",
+            "--base",
+            base_branch,
+            "--head",
+            staging_branch,
+            "--state",
+            "open",
+            "--json",
+            "url",
+            "--jq",
+            ".[0].url",
+        ],
+    )?;
+
+    if !output.status.success() {
+        return Err(format!("gh pr list failed: {}", command_stderr(&output)));
+    }
+
+    Ok(!String::from_utf8_lossy(&output.stdout).trim().is_empty())
+}
+
+fn maybe_create_batch_pr(
+    repo_path: &str,
+    batch_id: &str,
+    base_branch: &str,
+    staging_branch: &str,
+) -> Result<Option<String>, String> {
+    if open_batch_pr_exists(repo_path, base_branch, staging_branch)? {
+        return Ok(None);
+    }
+
+    if !branch_has_commits(repo_path, base_branch, staging_branch)? {
+        log::info!(
+            "[create_pr] Batch {} staging branch has no commits over {}; skipping final PR for now",
+            batch_id,
+            base_branch
+        );
+        return Ok(None);
+    }
+
+    let title = format!("Merge {} into {}", batch_id, base_branch);
+    let body = format!(
+        "Batch staging PR for `{}`.\n\nTask PRs in this batch target `{}` so CI can validate the combined branch before it reaches `{}`.",
+        batch_id, staging_branch, base_branch
+    );
+
+    let output = run_command(
+        repo_path,
+        "gh",
+        &[
+            "pr",
+            "create",
+            "--title",
+            &title,
+            "--body",
+            &body,
+            "--base",
+            base_branch,
+            "--head",
+            staging_branch,
+        ],
+    )?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "gh pr create for batch failed: {}",
+            command_stderr(&output)
+        ));
+    }
+
+    Ok(Some(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
+}
+
+fn push_task_branch(repo_path: &str, branch_name: &str) -> Result<(), String> {
+    let output = run_command(repo_path, "git", &["push", "-u", "origin", branch_name])?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = command_stderr(&output);
+    if stderr.contains("up-to-date") || stderr.contains("already exists") {
+        return Ok(());
+    }
+
+    // Safety: only force-push Bento task branches, never main/master or user branches.
+    if !branch_name.starts_with("bentoya/") {
+        return Err(format!(
+            "git push failed (force-push not allowed on '{}'): {}",
+            branch_name, stderr
+        ));
+    }
+
+    log::warn!(
+        "[pipeline] Regular push failed, trying force-push: {}",
+        stderr
+    );
+    let force_output = run_command(
+        repo_path,
+        "git",
+        &["push", "-u", "origin", branch_name, "--force"],
+    )?;
+    if !force_output.status.success() {
+        return Err(format!(
+            "git push --force failed: {}",
+            command_stderr(&force_output)
+        ));
+    }
+
+    Ok(())
+}
+
+fn parse_pr_number(pr_url: &str) -> Result<i64, String> {
+    pr_url
+        .rsplit('/')
+        .next()
+        .and_then(|s| s.parse::<i64>().ok())
+        .ok_or_else(|| format!("Failed to parse PR number from URL: {}", pr_url))
+}
+
+fn maybe_create_ready_batch_pr(
+    conn: &Connection,
+    repo_path: &str,
+    workspace_id: &str,
+    batch_id: &str,
+    base_branch: &str,
+    staging_branch: &str,
+) {
+    if !batch_tasks_ready_for_main_pr(conn, workspace_id, batch_id) {
+        return;
+    }
+
+    match maybe_create_batch_pr(repo_path, batch_id, base_branch, staging_branch) {
+        Ok(Some(url)) => log::info!("[create_pr] Created batch PR for {}: {}", batch_id, url),
+        Ok(None) => {}
+        Err(e) => log::warn!(
+            "[create_pr] Could not create batch PR for {}: {}",
+            batch_id,
+            e
+        ),
+    }
+}
+
 fn execute_create_pr(
     conn: &Connection,
     app: &AppHandle,
@@ -965,6 +1224,15 @@ fn execute_create_pr(
     base_branch: Option<&str>,
 ) -> Result<Task, AppError> {
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
+    let task = ensure_task_batch_id(conn, task)?;
+    let batch_id = task
+        .batch_id
+        .as_deref()
+        .and_then(normalize_batch_id)
+        .unwrap_or_else(db::generate_batch_id);
+    let final_base = base_branch.unwrap_or("main").to_string();
+    let staging_branch = staging_branch_for_batch(&batch_id);
+    let repo_path = resolve_working_dir(&task, &workspace.repo_path);
 
     let branch_name = match &task.branch_name {
         Some(b) if !b.is_empty() => b.clone(),
@@ -972,7 +1240,7 @@ fn execute_create_pr(
             return super::handle_trigger_failure(
                 conn,
                 app,
-                task,
+                &task,
                 column,
                 "Cannot create PR: task has no branch_name",
             );
@@ -985,6 +1253,14 @@ fn execute_create_pr(
             task.id,
             pr_num
         );
+        maybe_create_ready_batch_pr(
+            conn,
+            &repo_path,
+            &task.workspace_id,
+            &batch_id,
+            &final_base,
+            &staging_branch,
+        );
         let updated = db::update_task_pipeline_state(
             conn,
             &task.id,
@@ -995,11 +1271,17 @@ fn execute_create_pr(
         return Ok(updated);
     }
 
-    let base = base_branch.unwrap_or("main").to_string();
     let pr_title = task.title.clone();
-    let repo_path = resolve_working_dir(task, &workspace.repo_path);
-    let pr_body = build_pr_body(task, column, &workspace, &repo_path, &base, &branch_name);
+    let pr_body = build_pr_body(
+        &task,
+        column,
+        &workspace,
+        &repo_path,
+        &staging_branch,
+        &branch_name,
+    );
     let task_id = task.id.clone();
+    let workspace_id = task.workspace_id.clone();
     let column_id = column.id.clone();
 
     let updated_task = db::update_task_pipeline_state(
@@ -1016,57 +1298,26 @@ fn execute_create_pr(
         &task.id,
         &column.id,
         PipelineState::Running,
-        Some("Creating PR".to_string()),
+        Some(format!("Creating PR against {}", staging_branch)),
     );
 
     let app_handle = app.clone();
+    let pr_repo_path = repo_path.clone();
+    let pr_staging_branch = staging_branch.clone();
+    let pr_final_base = final_base.clone();
+    let pr_branch_name = branch_name.clone();
 
     tokio::spawn(async move {
         let result = tokio::task::spawn_blocking(move || -> Result<(i64, String), String> {
-            run_pre_pr_check(Path::new(&repo_path))?;
+            ensure_staging_branch(&pr_repo_path, &pr_staging_branch, &pr_final_base)?;
 
-            // Push branch to remote first (gh pr create requires the branch to exist on remote)
-            let push_output = std::process::Command::new("git")
-                .args(["push", "-u", "origin", &branch_name])
-                .current_dir(&repo_path)
-                .output()
-                .map_err(|e| format!("Failed to push branch: {}", e))?;
+            // gh pr create requires the branch to exist on remote.
+            push_task_branch(&pr_repo_path, &pr_branch_name)?;
 
-            if !push_output.status.success() {
-                let stderr = String::from_utf8_lossy(&push_output.stderr);
-                // "Everything up-to-date" is not an error
-                if !stderr.contains("up-to-date") && !stderr.contains("already exists") {
-                    // Fallback: force-push if regular push fails (e.g. stale remote branch)
-                    // Safety: only force-push bentoya/* branches, never main/master
-                    if branch_name.starts_with("bentoya/") {
-                        log::warn!(
-                            "[pipeline] Regular push failed, trying force-push: {}",
-                            stderr.trim()
-                        );
-                        let force_output = std::process::Command::new("git")
-                            .args(["push", "-u", "origin", &branch_name, "--force"])
-                            .current_dir(&repo_path)
-                            .output()
-                            .map_err(|e| format!("Failed to force-push branch: {}", e))?;
-                        if !force_output.status.success() {
-                            let force_stderr = String::from_utf8_lossy(&force_output.stderr);
-                            return Err(format!(
-                                "git push --force failed: {}",
-                                force_stderr.trim()
-                            ));
-                        }
-                    } else {
-                        return Err(format!(
-                            "git push failed (force-push not allowed on '{}'): {}",
-                            branch_name,
-                            stderr.trim()
-                        ));
-                    }
-                }
-            }
-
-            let output = std::process::Command::new("gh")
-                .args([
+            let output = run_command(
+                &pr_repo_path,
+                "gh",
+                &[
                     "pr",
                     "create",
                     "--title",
@@ -1074,26 +1325,18 @@ fn execute_create_pr(
                     "--body",
                     &pr_body,
                     "--base",
-                    &base,
+                    &pr_staging_branch,
                     "--head",
-                    &branch_name,
-                ])
-                .current_dir(&repo_path)
-                .output()
-                .map_err(|e| format!("Failed to run gh CLI: {}", e))?;
+                    &pr_branch_name,
+                ],
+            )?;
 
             if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("gh pr create failed: {}", stderr));
+                return Err(format!("gh pr create failed: {}", command_stderr(&output)));
             }
 
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let pr_url = stdout.trim().to_string();
-            let pr_number = pr_url
-                .rsplit('/')
-                .next()
-                .and_then(|s| s.parse::<i64>().ok())
-                .ok_or_else(|| format!("Failed to parse PR number from URL: {}", pr_url))?;
+            let pr_url = command_stdout(&output);
+            let pr_number = parse_pr_number(&pr_url)?;
 
             Ok((pr_number, pr_url))
         })
@@ -1111,7 +1354,7 @@ fn execute_create_pr(
             }
         };
 
-        let (success, error_detail) = match result {
+        let success = match result {
             Ok(Ok((pr_number, pr_url))) => {
                 log::info!(
                     "[create_pr] Created PR #{} for task {}: {}",
@@ -1121,8 +1364,16 @@ fn execute_create_pr(
                 );
                 if let Some(ref conn) = conn {
                     let _ = db::update_task_pr_info(conn, &task_id, Some(pr_number), Some(&pr_url));
+                    maybe_create_ready_batch_pr(
+                        conn,
+                        &repo_path,
+                        &workspace_id,
+                        &batch_id,
+                        &final_base,
+                        &staging_branch,
+                    );
                 }
-                (true, None)
+                true
             }
             Ok(Err(e)) => {
                 log::error!("[create_pr] Failed for task {}: {}", task_id, e);
@@ -1133,23 +1384,20 @@ fn execute_create_pr(
                         column_id: column_id.clone(),
                         event_type: "error".to_string(),
                         state: PipelineState::Idle.as_str().to_string(),
-                        message: Some(e.clone()),
+                        message: Some(e),
                     },
                 );
-                (false, Some(e))
+                false
             }
             Err(e) => {
                 log::error!("[create_pr] Join error for task {}: {}", task_id, e);
-                (false, Some(format!("create_pr task join error: {}", e)))
+                false
             }
         };
 
         // Mark complete so pipeline can advance (also emits tasks:changed)
         if let Some(conn) = conn {
-            let error_detail = error_detail.as_deref();
-            if let Err(e) =
-                super::mark_complete_with_error(&conn, &app_handle, &task_id, success, error_detail)
-            {
+            if let Err(e) = super::mark_complete(&conn, &app_handle, &task_id, success) {
                 log::error!("[create_pr] mark_complete failed: {}", e);
             }
         }
@@ -1486,91 +1734,6 @@ mod tests {
         (conn, ws, col1, col2, col3)
     }
 
-    struct TestRepo {
-        path: std::path::PathBuf,
-    }
-
-    impl TestRepo {
-        fn new(name: &str) -> Self {
-            let unique = format!(
-                "bentoya-triggers-{}-{}",
-                name,
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            );
-            let path = std::env::temp_dir().join(unique);
-            std::fs::create_dir_all(&path).unwrap();
-            Self { path }
-        }
-
-        fn path(&self) -> &std::path::Path {
-            &self.path
-        }
-
-        fn write(&self, file_name: &str, contents: &str) {
-            std::fs::write(self.path.join(file_name), contents).unwrap();
-        }
-    }
-
-    impl Drop for TestRepo {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.path);
-        }
-    }
-
-    #[test]
-    fn test_detect_pre_pr_check_runs_npm_and_cargo_for_mixed_workspace() {
-        let repo = TestRepo::new("mixed");
-        repo.write(
-            "package.json",
-            r#"{"scripts":{"type-check":"tsc --noEmit"}}"#,
-        );
-        repo.write("Cargo.toml", "[package]\nname = \"test\"\n");
-
-        assert_eq!(
-            detect_pre_pr_check_commands(repo.path()),
-            vec![
-                PrePrCheckCommand::NpmTypeCheck,
-                PrePrCheckCommand::CargoCheck
-            ]
-        );
-    }
-
-    #[test]
-    fn test_detect_pre_pr_check_uses_npm_type_check_without_cargo() {
-        let repo = TestRepo::new("npm");
-        repo.write(
-            "package.json",
-            r#"{"scripts":{"type-check":"tsc --noEmit"}}"#,
-        );
-
-        assert_eq!(
-            detect_pre_pr_check_commands(repo.path()),
-            vec![PrePrCheckCommand::NpmTypeCheck]
-        );
-    }
-
-    #[test]
-    fn test_detect_pre_pr_check_uses_cargo_without_npm_type_check() {
-        let repo = TestRepo::new("cargo");
-        repo.write("package.json", r#"{"scripts":{"test":"vitest"}}"#);
-        repo.write("Cargo.toml", "[package]\nname = \"test\"\n");
-
-        assert_eq!(
-            detect_pre_pr_check_commands(repo.path()),
-            vec![PrePrCheckCommand::CargoCheck]
-        );
-    }
-
-    #[test]
-    fn test_detect_pre_pr_check_returns_none_without_known_workspace() {
-        let repo = TestRepo::new("none");
-
-        assert_eq!(detect_pre_pr_check_commands(repo.path()), Vec::new());
-    }
-
     #[test]
     fn test_resolve_model_override_precedence_skips_blank_values() {
         assert_eq!(
@@ -1586,6 +1749,44 @@ mod tests {
             Some("haiku")
         );
         assert_eq!(resolve_model_override(None, Some(""), Some("  ")), None);
+    }
+
+    #[test]
+    fn test_normalize_batch_id_accepts_staging_branch_input() {
+        assert_eq!(
+            normalize_batch_id("staging/batch-20260429123456").as_deref(),
+            Some("batch-20260429123456")
+        );
+        assert_eq!(
+            normalize_batch_id(" Batch 2026/04/29 ").as_deref(),
+            Some("Batch-2026-04-29")
+        );
+        assert!(normalize_batch_id("///").is_none());
+    }
+
+    #[test]
+    fn test_staging_branch_for_batch() {
+        assert_eq!(
+            staging_branch_for_batch("batch-20260429123456"),
+            "staging/batch-20260429123456"
+        );
+    }
+
+    #[test]
+    fn test_batch_tasks_ready_for_main_pr_requires_all_prs() {
+        let (conn, ws, col1, _, _) = setup();
+        let task1 = db::insert_task(&conn, &ws.id, &col1.id, "Task 1", None).unwrap();
+        let task2 = db::insert_task(&conn, &ws.id, &col1.id, "Task 2", None).unwrap();
+        db::update_task_batch_id(&conn, &task1.id, Some("batch-1")).unwrap();
+        db::update_task_batch_id(&conn, &task2.id, Some("batch-1")).unwrap();
+
+        assert!(!batch_tasks_ready_for_main_pr(&conn, &ws.id, "batch-1"));
+
+        db::update_task_pr_info(&conn, &task1.id, Some(1), Some("https://example/pr/1")).unwrap();
+        assert!(!batch_tasks_ready_for_main_pr(&conn, &ws.id, "batch-1"));
+
+        db::update_task_pr_info(&conn, &task2.id, Some(2), Some("https://example/pr/2")).unwrap();
+        assert!(batch_tasks_ready_for_main_pr(&conn, &ws.id, "batch-1"));
     }
 
     // ─── resolve_trigger tests ────────────────────────────────────────

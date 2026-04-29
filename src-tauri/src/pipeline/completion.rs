@@ -251,6 +251,7 @@ mod tests {
             agent_status: None,
             queued_at: None,
             branch_name: None,
+            batch_id: None,
             files_touched: "[]".into(),
             checklist: None,
             pipeline_state: "running".into(),

@@ -139,6 +139,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("029_task_worktree", include_str!("migrations/029_task_worktree.sql")),
         ("030_pipeline_timing", include_str!("migrations/030_pipeline_timing.sql")),
         ("030_usage_column_duration", include_str!("migrations/030_usage_column_duration.sql")),
+        ("031_task_batch_id", include_str!("migrations/031_task_batch_id.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -201,8 +202,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 32 migrations, including split 019 and 030 migration files.
-        assert_eq!(count, 32);
+        // We have 33 migrations, including split 019 and 030 migration files.
+        assert_eq!(count, 33);
     }
 
     #[test]
