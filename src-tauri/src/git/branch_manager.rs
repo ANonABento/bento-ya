@@ -457,7 +457,17 @@ mod tests {
     fn init_test_repo(path: &std::path::Path) {
         use std::process::Command;
         Command::new("git")
-            .args(["init", "-q"])
+            .args(["init", "-q", "-b", "main"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "init.defaultBranch", "main"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["init", "-q", "--initial-branch=main"])
             .current_dir(path)
             .output()
             .unwrap();

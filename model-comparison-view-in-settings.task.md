@@ -2,192 +2,274 @@
 
 ## Task Description
 
-Add a model comparison view inside Settings, focused on the existing Agent settings tab. The view should help users compare enabled AI models side by side by provider, cost, context/output limits, capabilities, and current workspace usage, without changing how model selection, provider configuration, or Tauri IPC currently work.
+Add a model comparison view inside Settings, focused on the existing Agent settings tab. The view should help users compare enabled AI models side by side by provider, cost, context/output limits, capabilities, and current workspace usage, without changing model selection behavior, provider configuration behavior, or the existing Tauri IPC boundary.
 
-This plan is based on the active branch name (`bentoya/model-comparison-view-in-settings`), the current codebase state, and existing patterns in `CLAUDE.md`. No implementation is included here.
+This plan is based on the current `bentoya/model-comparison-view-in-settings` worktree, `CLAUDE.md`, and the existing Rust backend + React frontend + Tauri IPC architecture. It is a plan only; it does not implement the feature.
+
+Current codebase observations:
+
+- `Settings > Agent` already uses the dynamic model registry through `useModels()` and `src/lib/ipc/models.ts`.
+- Rust already exposes model metadata via `src-tauri/src/models/*` and Tauri commands `get_available_models` / `refresh_models`.
+- Workspace usage already exists through `src/lib/ipc/usage.ts`, `src-tauri/src/commands/usage.rs`, and `src-tauri/src/db/usage.rs`.
+- There is a partial comparison implementation in `src/components/settings/tabs/model-comparison-section.tsx`, `src/lib/model-usage.ts`, `src/lib/usage-format.ts`, and related tests.
+- The current `AgentTab` comparison row derivation is stale: it reads `PROVIDER_INFO.models`, but `PROVIDER_INFO` only contains provider label/description/CLI metadata. Comparison rows should come from `allModels`, filtered by enabled providers and `model.disabledModels`.
+- `npm run type-check` currently reports several unrelated errors elsewhere, plus one comparison-related error in `src/components/settings/tabs/agent-tab.tsx`.
 
 ## 1. Approach
 
-Build the feature as a frontend-led enhancement to `Settings > Agent` because the data needed for a useful first version already exists in the frontend settings store and usage IPC:
-
-- Provider enablement and default model configuration live in `src/types/settings.ts` and `src/stores/settings-store.ts`.
-- The Agent settings UI already owns provider expansion, CLI/API controls, and orchestrator model selection in `src/components/settings/tabs/agent-tab.tsx`.
-- Workspace usage records are already available through `getWorkspaceUsage()` in `src/lib/ipc/usage.ts`, backed by typed camelCase Rust models and commands.
-- Existing model capability data exists through `get_cli_capabilities`, but only for Claude aliases. A local frontend metadata registry can provide stable model comparison fields without introducing new network calls or backend migrations.
+Use the existing dynamic model registry as the model metadata source, and make the comparison view a frontend-led settings enhancement.
 
 Methodology:
 
-1. Extract model metadata and formatting into small reusable modules instead of increasing `agent-tab.tsx` substantially. `AgentTab` is already a dense component; comparison-specific calculations should be isolated.
-2. Render the comparison as a collapsible section in the Agent tab, near provider/model controls. Default it collapsed and persist collapsed state in `localStorage`, matching the existing `comingSoonCollapsed` pattern.
-3. Fetch usage lazily only when the comparison section is expanded and an active workspace exists. This avoids running workspace usage IPC every time Settings opens.
-4. Aggregate usage client-side for now. `getWorkspaceUsage(workspaceId, 500)` is already used by `MetricsDashboard`, and a comparison table only needs per-model rollups.
-5. Keep all event/IPC usage typed through existing frontend wrappers. No raw backend event emission is needed for this feature.
-6. Add focused React tests for rendering, lazy usage loading, aggregation, and empty states. This matches the codebase’s Vitest + Testing Library pattern.
+1. Keep the feature in `AgentTab`.
+   The request is specifically for a model comparison view in Settings, focused on Agent settings. A new route, modal, or settings tab would add navigation surface without improving the core workflow.
+
+2. Derive comparable models from `useModels()`.
+   The Rust backend already merges API/CLI discovery with local metadata and returns `ModelEntry[]` through `get_available_models`. Reusing that avoids a second hardcoded frontend registry and prevents drift between the selector, provider model toggles, and comparison table.
+
+3. Filter exactly like the orchestrator model selector.
+   Rows should include models whose provider is enabled and whose model ID is not in `model.disabledModels`. This keeps the comparison definition aligned with the models users can actually select.
+
+4. Fetch usage lazily.
+   The comparison section should stay collapsed by default and should not call `getWorkspaceUsage()` until expanded. When expanded, it should fetch only if an active workspace exists and at least one comparable model is visible.
+
+5. Aggregate usage client-side for this task.
+   `getWorkspaceUsage(workspaceId, 500)` is already used by `MetricsDashboard`; a first comparison view only needs recent per-model totals. A backend aggregate command is unnecessary unless the product later needs exact all-time rollups over large histories.
+
+6. Resolve usage aliases against the dynamic model list.
+   Usage records may store short aliases such as `sonnet`, `opus`, `haiku`, or `codex`, while model rows use full IDs. Build a provider-scoped alias map from `ModelEntry.alias` and aggregate with provider-qualified canonical keys.
+
+7. Preserve IPC conventions.
+   Use existing wrappers in `src/lib/ipc/usage.ts` and `src/lib/ipc/models.ts`; do not call `invoke()` directly from components. No Rust event changes are needed.
+
+8. Keep UI compact and settings-native.
+   Use one collapsible settings section with a horizontally scrollable comparison table. Do not add nested cards inside settings cards. Clickable collapse affordances need inline `style={{ cursor: 'pointer' }}` and children should inherit the cursor for macOS Tauri WKWebView.
 
 Why this approach:
 
-- It respects the current Rust backend + React frontend boundary: the backend stores and returns usage records; the frontend decides how to present comparisons.
-- It avoids adding a premature model discovery/cache backend when the existing task only requires a settings comparison view.
-- It preserves existing model/provider behavior and reduces regression risk around CLI detection, workspace settings sync, and orchestrator model selection.
-- It leaves a clean path to later replace the local metadata registry with dynamic model discovery if `.tickets/dynamic-model-discovery.md` is implemented.
+- It fits the existing Rust/React/Tauri ownership split: Rust discovers and enriches model data; React presents and aggregates it for the settings UI.
+- It avoids duplicate pricing/context metadata in the frontend.
+- It minimizes regression risk around provider enablement, CLI detection, API key settings, and orchestrator model selection.
+- It keeps the path open for future exact backend usage aggregation without blocking this UI-focused task.
 
 ## 2. Files To Modify/Create
 
 ### `src/components/settings/tabs/agent-tab.tsx`
 
-Changes:
+Changes needed:
 
-- Import the new comparison component.
-- Compute the list of configured/enabled models using existing `model.providers` and provider metadata.
-- Render the comparison section in the Agent tab, likely after `Providers` and before `Coming Soon` or before `Orchestrator`.
-- Keep provider setup behavior unchanged:
-  - provider toggle still updates `model.providers`.
-  - CLI mode still calls `detectSingleCli`.
-  - `availableModels` for orchestrator selection still uses enabled provider models.
-
-Existing patterns to follow:
-
-- `comingSoonCollapsed` localStorage state is the pattern for persisted collapse state.
-- `SettingSection` is the existing settings layout wrapper.
-- Tailwind utility styling should match the compact, work-focused settings UI.
-
-### `src/components/settings/tabs/model-comparison-section.tsx` (new)
-
-Purpose:
-
-- Own the comparison UI and lazy usage fetch.
-
-Responsibilities:
-
-- Render a collapsible header with a concise count of comparable models.
-- When expanded:
-  - read the active workspace ID from `useWorkspaceStore`;
-  - fetch usage with `getWorkspaceUsage(activeWorkspaceId, 500)`;
-  - aggregate usage by model ID and known aliases;
-  - render a compact comparison table.
-- Show clear states:
-  - no enabled providers/models;
-  - no active workspace;
-  - loading usage;
-  - no usage records yet.
-
-Suggested rows/columns:
-
-- Provider
-- Model
-- Tier or role
-- Input cost per 1M tokens
-- Output cost per 1M tokens
-- Context window
-- Max output
-- Capabilities
-- Workspace calls
-- Workspace tokens
-- Workspace spend
-
-Design notes:
-
-- Use a table or table-like grid with horizontal overflow inside the section so long model IDs do not break the settings panel.
-- Use small badges for capabilities, but keep the visual density consistent with `AgentTab`.
-- Avoid nested cards; this should be one settings section with rows/table, not a card inside a card.
-- Any clickable row/header areas that should display pointer cursors should use inline `style={{ cursor: 'pointer' }}` because macOS Tauri WKWebView does not reliably honor cursor classes.
-
-### `src/components/settings/tabs/model-comparison-section.test.tsx` (new)
-
-Test coverage:
-
-- Renders collapsed by default.
-- Persists expanded/collapsed state through `localStorage`.
-- Does not call `get_workspace_usage` while collapsed.
-- Calls `get_workspace_usage` when expanded and an active workspace exists.
-- Aggregates usage by model ID and aliases.
-- Shows empty/no-workspace states without throwing.
+- Fix comparison model derivation to use `allModels`, not `PROVIDER_INFO.models`.
+- Build `comparisonModels` from:
+  - `allModels`;
+  - `enabledProviderIds`;
+  - `model.disabledModels`;
+  - provider display names from `PROVIDER_INFO` / `ProviderConfig.name`.
+- Pass complete model metadata to `ModelComparisonSection`, not only model IDs. The comparison section should receive the fields it needs from `ModelEntry`: `id`, `displayName`, `provider`, `alias`, `tier`, `contextWindow`, `maxOutputTokens`, `inputCostPerM`, `outputCostPerM`, `capabilities`, and `isNew`.
+- Preserve existing behavior:
+  - provider toggles still update `model.providers`;
+  - CLI mode still calls `detectSingleCli`;
+  - refresh still calls `refreshModels()`;
+  - orchestrator model options still come from enabled, non-disabled models.
+- Use inline cursor style for provider headers that are clickable, matching the AGENTS/CLAUDE macOS Tauri cursor rule.
 
 Existing patterns to follow:
 
-- Use Vitest + Testing Library.
-- Use the Tauri invoke mock from `src/test/setup.ts` / `src/test/mocks/tauri.ts`.
-- Reset Zustand stores in `beforeEach`, as in `settings-store.test.ts`.
+- `availableModels` already shows how to filter by enabled providers and disabled model IDs.
+- `comingSoonCollapsed` shows the localStorage collapse persistence pattern.
+- Provider rows already show model toggles from `providerModels = allModels.filter((m) => m.provider === provider.id)`.
 
-### `src/lib/model-metadata.ts` (new)
+### `src/components/settings/tabs/model-comparison-section.tsx`
 
-Purpose:
+Changes needed:
 
-- Centralize frontend model metadata used by the comparison view and, later, other selectors.
-
-Suggested types:
+- Keep the component focused on:
+  - collapsed/expanded state;
+  - lazy usage fetch;
+  - usage state messaging;
+  - table rendering.
+- Update `ComparableModel` to include dynamic model metadata rather than requiring a separate frontend metadata lookup. Suggested shape:
 
 ```ts
-export type ModelMetadata = {
+export type ComparableModel = {
+  providerId: string
+  providerName: string
   id: string
-  provider: 'anthropic' | 'openai' | string
   displayName: string
-  alias?: string
-  tier: 'fast' | 'balanced' | 'powerful' | 'reasoning'
-  contextWindow: number | null
-  maxOutputTokens: number | null
-  inputCostPerMillion: number | null
-  outputCostPerMillion: number | null
+  alias: string | null
+  tier: ModelTier
+  contextWindow: number
+  maxOutputTokens: number
+  inputCostPerM: number | null
+  outputCostPerM: number | null
   capabilities: string[]
+  isNew: boolean
 }
 ```
 
-Initial metadata should cover the currently configured defaults and provider lists:
+- Render a compact table with columns:
+  - Provider
+  - Model
+  - Tier
+  - Input / 1M
+  - Output / 1M
+  - Context
+  - Max output
+  - Capabilities
+  - Calls
+  - Tokens
+  - Spend
+- Preserve explicit states:
+  - collapsed by default;
+  - no enabled models;
+  - no active workspace;
+  - loading usage;
+  - usage unavailable;
+  - no usage records yet.
+- Avoid stale async updates with a cancellation flag in the usage-loading effect.
+- Keep table horizontal overflow so long model IDs cannot break the settings panel.
+- Use inline cursor styles on the collapse button and `cursor: inherit` on child elements.
 
-- Anthropic:
-  - `claude-haiku-4-5-20251115`
-  - `claude-sonnet-4-6-20260217`
-  - `claude-opus-4-6-20260217`
-  - existing backend aliases where applicable: `haiku`, `sonnet`, `opus`
-- OpenAI:
-  - `codex-5.2`
-  - `codex-5.3`
-  - `codex-5.3-spark`
+Existing patterns to follow:
 
-Notes:
+- Current partial `ModelComparisonSection` already has the right lazy-fetch shape.
+- `MetricsDashboard` shows recent usage aggregation expectations and labels usage as bounded by the latest records.
+- `SettingSection` is used by `AgentTab`, but the comparison component can remain a plain section if it is visually aligned with nearby settings sections.
 
-- Pricing/context metadata must be treated as local static metadata, not authoritative billing logic. The backend cost calculation remains the source for recorded usage cost.
-- Unknown model IDs should still render with fallback labels and `null` metadata fields displayed as `--`, not disappear.
+### `src/lib/model-usage.ts`
 
-### `src/lib/model-metadata.test.ts` (new)
+Changes needed:
+
+- Keep usage aggregation isolated from React.
+- Replace hardcoded metadata-dependent canonicalization with a dynamic model index built from comparable models.
+- Add or adjust helpers:
+
+```ts
+export type ModelUsageStats = {
+  calls: number
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  costUsd: number
+}
+
+export function buildModelUsageIndex(models: ComparableUsageModel[]): ModelUsageIndex
+
+export function aggregateUsageByModel(
+  records: UsageRecord[],
+  index: ModelUsageIndex,
+): Record<string, ModelUsageStats>
+```
+
+- Key aggregation by `${provider}:${canonicalModelId}`.
+- Match records by provider + exact ID first, then provider + alias.
+- Keep unknown models provider-scoped so the same unknown ID from two providers does not merge.
+- Export `EMPTY_USAGE_STATS`.
+
+Existing patterns to follow:
+
+- Current `aggregateUsageByModel()` is a good starting point, but it should not depend on frontend static metadata once the dynamic registry is the source of truth.
+
+### `src/lib/usage-format.ts`
+
+Changes needed:
+
+- Keep or extend existing formatters:
+  - `formatUsageCost(usd: number): string`
+  - `formatUsageTokens(count: number): string`
+  - `formatPricePerMillion(value: number | null): string`
+  - `formatTokenLimit(value: number | null): string`
+- Ensure no formatter can display `undefined`, `NaN`, or `Infinity`.
+- Keep behavior aligned with `src/lib/usage.ts` / `MetricsDashboard` where possible.
+
+### `src/lib/model-metadata.ts`
+
+Preferred change:
+
+- Delete this frontend static metadata registry and move any remaining alias/canonicalization logic into `src/lib/model-usage.ts`.
+
+Reason:
+
+- The backend dynamic model registry already owns local metadata in `src-tauri/src/models/metadata.rs` and returns enriched `ModelEntry` values to the frontend.
+- Keeping a second frontend registry duplicates pricing/context/capability data and has already drifted from backend values, for example the Claude Haiku date and output-token limits.
+
+Fallback if deletion is too disruptive:
+
+- Restrict this file to provider-scoped alias helpers only and remove pricing/context/capability metadata from it.
+- Do not use it as the source for comparison-table model rows.
+
+### `src/lib/model-metadata.test.ts`
+
+Preferred change:
+
+- Delete this test if `src/lib/model-metadata.ts` is deleted.
+
+Fallback:
+
+- Rewrite it to cover only alias/canonicalization helpers if the file remains.
+
+### `src/lib/model-usage.test.ts` (new or expanded)
 
 Test coverage:
 
-- Looks up exact model IDs.
-- Resolves alias usage records to canonical model rows.
-- Returns stable fallback metadata for unknown model IDs.
-- Formats price/token fields without `NaN` or `undefined`.
+- Exact model IDs aggregate to `${provider}:${id}`.
+- Provider-scoped aliases aggregate to their canonical model row.
+- Aliases do not resolve across provider boundaries.
+- Unknown models stay provider-scoped.
+- Multiple records sum calls, input tokens, output tokens, total tokens, and cost.
+- Empty input returns an empty aggregation.
 
-### `src/lib/usage-format.ts` (new) or local helpers in `model-comparison-section.tsx`
+### `src/components/settings/tabs/model-comparison-section.test.tsx`
 
-Preferred if formatting is reused across tests:
+Changes needed:
 
-- `formatUsageCost(usd: number): string`
-- `formatUsageTokens(count: number): string`
-- `formatPricePerMillion(value: number | null): string`
+- Update fixtures to use dynamic model-shaped `ComparableModel` objects instead of static metadata IDs.
+- Cover:
+  - collapsed by default;
+  - localStorage persistence;
+  - no usage IPC while collapsed;
+  - usage IPC on expansion with active workspace;
+  - no usage IPC without active workspace;
+  - no usage IPC with zero comparable models;
+  - exact ID and alias aggregation visible in the table;
+  - empty usage still renders static model metadata;
+  - usage error state.
+- Reset `useWorkspaceStore` in `beforeEach`.
+- Continue mocking `getWorkspaceUsage` directly or through the existing Tauri invoke mock. Direct module mocking is acceptable here because the component imports the wrapper, not raw Tauri `invoke()`.
 
-Existing reference:
+Existing patterns to follow:
 
-- `src/components/usage/metrics-dashboard.tsx` already has local `formatCost()` and `formatTokens()`. The new helper can mirror that behavior, but do not refactor `MetricsDashboard` unless needed for this task.
+- `src/test/setup.ts` provides jsdom and localStorage mocks.
+- Store tests reset Zustand state directly in `beforeEach`.
+- Testing Library queries should prefer visible text/roles over implementation details.
 
-### `src/lib/ipc/usage.ts`
+### `src/lib/browser-mock.ts`
+
+Changes needed:
+
+- Add mock handlers for dynamic model registry IPC:
+  - `get_available_models`
+  - `refresh_models`
+- Return representative `ModelsCache` data matching `src/lib/ipc/models.ts`, including Anthropic and OpenAI models with aliases, pricing, limits, capabilities, and `source`.
+- Keep existing `get_workspace_usage` mock records with a mix of full model IDs and aliases so browser/Vite-only Settings can exercise the comparison view.
+- If this file is touched, also fix existing `Workspace` mock objects to include required `activeTaskCount`, because strict TypeScript currently reports this file as invalid.
+- Keep command names snake_case because this mock mirrors Tauri command names.
+
+### `src/lib/ipc/models.ts`
 
 Likely no functional change needed.
 
 Possible type-only change:
 
-- Export any additional shared usage aggregation type only if the comparison component needs it. Prefer keeping aggregation types local unless reused.
+- Export `ModelTier` and `ModelEntry` if not already exported from the barrel in a way that `AgentTab` and `ModelComparisonSection` can import cleanly.
 
-### `src/lib/browser-mock.ts`
+### `src/lib/ipc/index.ts`
 
-Changes:
+Likely no change if model IPC exports are already re-exported.
 
-- Ensure the existing `get_workspace_usage` mock returns enough representative records for browser/mock E2E if the settings UI is opened in Vite-only mode.
-- Keep mock command names snake_case because this file mirrors Tauri command names.
+Verify:
 
-Existing pattern:
-
-- Usage command stubs already exist around `record_usage`, `get_workspace_usage`, and summaries.
+- `AgentTab` imports `useModels()` and model IPC types cleanly.
+- No component imports `invoke()` directly.
 
 ### `src/components/settings/settings-panel.tsx`
 
@@ -195,32 +277,37 @@ No expected change.
 
 Rationale:
 
-- The comparison belongs inside the existing `AgentTab`; adding a new settings tab would increase navigation surface and conflict with the requested "in settings" model comparison scope.
+- The comparison belongs inside the existing Agent tab. Adding a new tab would not match the requested focus and would duplicate settings navigation.
 
 ### `src/types/settings.ts`
 
-No required change for the first version.
-
-Possible future change:
-
-- If users need to hide individual models from the comparison or selector, add a `disabledModels?: string[]` field to `ModelConfig`. That is out of scope unless the task explicitly requires per-model toggles.
-
-### Rust backend files
-
-No expected backend changes.
-
-Files reviewed:
-
-- `src-tauri/src/commands/usage.rs`
-- `src-tauri/src/db/usage.rs`
-- `src-tauri/src/db/models.rs`
-- `src-tauri/src/llm/types.rs`
-- `src-tauri/src/commands/cli_detect.rs`
+No expected schema change.
 
 Rationale:
 
-- Existing usage IPC already returns typed `UsageRecord[]` with `provider`, `model`, token counts, cost, and created timestamp.
-- The comparison view does not need a DB schema migration, new command, or new Tauri event.
+- `ModelConfig.disabledModels` already represents per-model visibility.
+- Provider enablement already lives in `ModelConfig.providers`.
+- No new persisted setting is required beyond localStorage UI collapse state.
+
+### Rust backend files
+
+No expected functional changes.
+
+Files reviewed:
+
+- `src-tauri/src/models/types.rs`
+- `src-tauri/src/models/metadata.rs`
+- `src-tauri/src/models/mod.rs`
+- `src-tauri/src/commands/usage.rs`
+- `src-tauri/src/db/usage.rs`
+- `src-tauri/src/db/models.rs`
+- `src-tauri/src/commands/mod.rs`
+
+Rationale:
+
+- `get_available_models` already returns enriched camelCase `ModelEntry` values.
+- `get_workspace_usage` already returns camelCase `UsageRecord[]` through the frontend wrapper.
+- No database migration or new Tauri command is needed for a recent-usage comparison.
 
 ## 3. Acceptance Criteria
 
@@ -228,76 +315,79 @@ Rationale:
 - [ ] The comparison section is collapsed by default.
 - [ ] Expanded/collapsed state persists in `localStorage`.
 - [ ] Collapsed comparison does not fetch workspace usage.
-- [ ] Expanding the comparison fetches usage only when there is an active workspace.
-- [ ] Enabled providers determine which models appear in the comparison.
-- [ ] Disabled providers do not contribute models to the comparison.
-- [ ] Each visible model row shows provider, display name/model ID, tier, pricing, context window, max output, and capabilities.
-- [ ] Unknown models still render with fallback metadata instead of crashing.
-- [ ] Workspace usage is aggregated per model with calls, input tokens, output tokens, total tokens, and cost.
-- [ ] Usage records using aliases such as `sonnet`, `opus`, or `haiku` map to the corresponding Anthropic model row when possible.
+- [ ] Expanding the comparison fetches usage only when there is an active workspace and at least one comparable model.
+- [ ] Comparable rows are derived from the dynamic model registry returned by `useModels()`.
+- [ ] Enabled providers determine which provider models are eligible for comparison.
+- [ ] Models in `model.disabledModels` do not appear in the comparison.
+- [ ] Provider toggles, model toggles, CLI/API switching, CLI path editing, API key editing, model refresh, and orchestrator model selection keep their current behavior.
+- [ ] Each visible model row shows provider, display name/model ID, tier, input cost per 1M, output cost per 1M, context window, max output, capabilities, workspace calls, workspace tokens, and workspace spend.
+- [ ] Unknown/new dynamic models render with available fallback metadata from the backend `ModelEntry` and do not crash the UI.
+- [ ] Workspace usage is aggregated per provider-scoped model with calls, input tokens, output tokens, total tokens, and cost.
+- [ ] Usage records using provider-scoped aliases such as `sonnet`, `opus`, `haiku`, or `codex` map to the corresponding model row when the dynamic model list exposes that alias.
+- [ ] Aliases do not resolve across providers.
+- [ ] Unknown usage model IDs remain provider-scoped and do not merge incorrectly.
 - [ ] Empty usage state is explicit and does not hide static model metadata.
 - [ ] No active workspace state is explicit and does not trigger usage IPC.
-- [ ] Existing provider toggles, CLI/API switching, CLI path editing, API key editing, and orchestrator model selection continue to work.
-- [ ] Text fits in the settings panel at desktop width and long model IDs do not overflow the panel.
-- [ ] Cursor affordances for clickable collapse controls work in macOS Tauri by using inline cursor styles where needed.
-- [ ] All added TypeScript passes strict mode without `any`.
-- [ ] Tests cover collapsed, expanded, usage aggregation, alias matching, and empty-state behavior.
+- [ ] Usage fetch failures show a non-fatal inline state.
+- [ ] Long model IDs and capability chips do not overflow the settings panel; the table scrolls horizontally when needed.
+- [ ] Clickable collapse/provider controls use inline cursor styles where needed for macOS Tauri WKWebView.
+- [ ] Added or modified TypeScript uses strict types and does not introduce `any`.
+- [ ] Comparison-specific tests cover collapsed state, lazy loading, no-workspace behavior, alias aggregation, unknown models, empty state, and error state.
 
 Requirement mapping:
 
-- "Model comparison view" -> `model-comparison-section.tsx` renders side-by-side/row comparison.
-- "In settings" -> section is integrated into `AgentTab`, not a separate route or modal.
-- "Existing architecture" -> data flows through Zustand settings and Tauri usage IPC wrappers.
-- "Rust backend + React frontend + Tauri IPC conventions" -> no raw IPC calls outside `src/lib/ipc`, no backend event changes, camelCase frontend types remain aligned with Rust serde rename rules.
-- "Do not implement" -> this file is a plan only; no feature code is changed.
+- "Model comparison view" -> `model-comparison-section.tsx` renders a side-by-side comparison table.
+- "Inside Settings" -> section is integrated into `AgentTab`, not a new route/modal/tab.
+- "Focused on existing Agent settings tab" -> data and layout are colocated with provider/model controls.
+- "Compare enabled AI models" -> rows use enabled provider IDs and exclude `model.disabledModels`.
+- "By provider, cost, context/output limits, capabilities" -> fields come from dynamic `ModelEntry` metadata.
+- "And current workspace usage" -> lazy `getWorkspaceUsage(activeWorkspaceId, 500)` aggregation.
+- "Without changing model selection/provider configuration/Tauri IPC" -> use existing stores and IPC wrappers; no new backend command or settings schema.
+- "Rust backend + React frontend + Tauri IPC conventions" -> backend metadata/usage stays typed and camelCase; frontend goes through `src/lib/ipc`.
 
 ## 4. Test Strategy
 
-### Unit and component tests
+### Targeted unit and component tests
+
+Run:
+
+```bash
+npm run test:run -- src/lib/model-usage.test.ts src/components/settings/tabs/model-comparison-section.test.tsx
+```
+
+Coverage:
+
+- `src/lib/model-usage.test.ts`
+  - exact ID aggregation;
+  - alias aggregation;
+  - provider boundary protection;
+  - unknown model handling;
+  - totals for calls, input, output, total tokens, and cost.
+- `src/components/settings/tabs/model-comparison-section.test.tsx`
+  - collapsed by default;
+  - localStorage persistence;
+  - no fetch while collapsed;
+  - fetch on expand with active workspace;
+  - no fetch with no active workspace;
+  - no fetch with no comparable models;
+  - visible usage totals;
+  - empty usage state;
+  - usage error state.
+
+### Broader frontend checks
 
 Run:
 
 ```bash
 npm run test:run
-```
-
-Add focused tests:
-
-- `src/lib/model-metadata.test.ts`
-  - exact lookup;
-  - alias lookup;
-  - fallback metadata;
-  - price/token formatting.
-- `src/components/settings/tabs/model-comparison-section.test.tsx`
-  - renders collapsed by default;
-  - persists collapse state;
-  - lazy loads usage on expand;
-  - does not load usage without an active workspace;
-  - aggregates multiple records for the same model;
-  - maps alias records to canonical model rows;
-  - handles empty model lists.
-
-Testing patterns:
-
-- Use `vi.mocked(invoke)` / `setupInvokeMock()` for Tauri commands.
-- Reset `useSettingsStore` and `useWorkspaceStore` directly in `beforeEach`.
-- Prefer querying visible text and roles over implementation details.
-
-### Type and lint checks
-
-Run:
-
-```bash
-npm run type-check
 npm run lint
+npm run type-check
 ```
 
-Expected focus:
+Notes:
 
-- no unused helper exports;
-- no implicit `any`;
-- no unsafe optional access causing `undefined` display;
-- no React hook dependency omissions.
+- `npm run type-check` currently has pre-existing errors outside this feature area. The comparison implementation must at minimum remove the comparison-related `agent-tab.tsx` error and not introduce new errors. If the task owner expects a fully green type-check, the unrelated existing errors in `column.tsx`, `task-dependency-utils.ts`, `split-view.tsx`, `agent-panel.tsx`, and `browser-mock.ts` need separate resolution or explicit inclusion in scope.
+- If `browser-mock.ts` is touched for model registry mocks, fix its existing `activeTaskCount` workspace mock errors in the same pass.
 
 ### Backend checks
 
@@ -319,61 +409,67 @@ npm run dev
 Manual coverage:
 
 - Open Settings > Agent.
+- Confirm provider rows still load dynamic model counts.
 - Confirm comparison is collapsed by default.
 - Expand comparison.
-- Toggle Anthropic/OpenAI providers and confirm rows update.
-- Verify long model IDs remain contained.
-- Confirm no visual overlap in the right-side settings panel.
-- Confirm clickable collapse header cursor works in the Tauri app, not only the browser.
+- Confirm usage loads only after expansion.
+- Toggle Anthropic/OpenAI providers and confirm comparison rows update.
+- Toggle individual model visibility and confirm comparison rows update.
+- Confirm long model IDs remain contained and the table scrolls horizontally.
+- Confirm no visual overlap in the settings panel.
+- Confirm collapse/header cursor affordances work in the Tauri app, not only the browser.
 
 ### Optional browser/E2E check
 
-If the change touches `browser-mock.ts` or settings startup behavior, run:
+If `browser-mock.ts` or Settings startup behavior changes, run:
 
 ```bash
 npm run test:e2e
 ```
 
-Real Tauri WebDriver is optional for this task unless cursor behavior or WKWebView layout issues are suspected.
+Real Tauri WebDriver is optional for this task unless WKWebView cursor/layout behavior needs direct verification.
 
 ## 5. Edge Cases & Risks
 
-- Static model metadata can become stale. Mitigation: isolate it in `src/lib/model-metadata.ts` and clearly separate displayed estimates from recorded backend usage cost.
-- Provider model lists currently live inside `AgentTab` as `PROVIDER_INFO.models`. Duplicating model lists in metadata would drift. Mitigation: move model list construction through metadata helpers or keep a single source for model IDs.
-- Usage records may store aliases (`sonnet`) while settings use full IDs (`claude-sonnet-4-6-20260217`). Mitigation: metadata must include aliases and aggregation must try both exact ID and alias.
-- Usage records may store legacy or unknown model IDs. Mitigation: render fallback rows or show usage under an "Unknown" model label without throwing.
-- `getWorkspaceUsage(workspaceId, 500)` is a bounded sample, not all-time usage. Mitigation: label usage as recent workspace usage unless a backend aggregate-by-model command is later added.
-- Opening Settings without an active workspace should not produce rejected IPC calls. Mitigation: gate usage fetch by `!!activeWorkspaceId`.
-- React Strict Mode can double-run effects. Mitigation: use cancellation flags or request guards so stale async results do not overwrite current state.
-- `localStorage` may be unavailable or mocked. Mitigation: wrap access in `try/catch`, following existing `comingSoonCollapsed` code.
-- Long model IDs and capability chips can overflow the settings panel. Mitigation: use horizontal overflow for the table and `truncate`/`break-all` only where appropriate.
-- macOS Tauri cursor styling is unreliable with CSS classes. Mitigation: use inline cursor styles on collapse headers/buttons that need pointer affordance.
-- Increasing `agent-tab.tsx` further makes it harder to maintain. Mitigation: keep the comparison component and metadata helpers separate.
+- Dynamic models may load after the Agent tab renders. The comparison should update when `useModels()` updates without losing collapse state.
+- The model registry can return an empty list if IPC fails or no fallback loads. Show an explicit no-models state instead of throwing.
+- Model metadata can be stale. Mitigation: use the backend registry as the single app-level metadata source and display recorded usage cost from usage records rather than recalculating billing.
+- API/CLI discovered models may not have pricing. Display `--` for unknown price fields.
+- Usage records may store aliases while model rows use full IDs. Mitigation: provider-scoped alias index from `ModelEntry.alias`.
+- The same alias or model ID could appear under two providers. Mitigation: all canonical keys include provider.
+- Usage records may reference models no longer returned by the registry. They should not crash aggregation; they may be omitted from visible rows unless a future "Other usage" row is added.
+- `getWorkspaceUsage(workspaceId, 500)` is a bounded recent sample. Label it as latest/recent workspace records, not all-time totals.
+- React Strict Mode can double-run effects. Use cancellation guards and ensure collapsed/no-workspace states do not issue duplicate meaningful requests.
+- `localStorage` may throw in constrained environments. Wrap reads/writes in `try/catch`.
+- Long model IDs and many capability chips can overflow the panel. Use table `min-width`, `overflow-x-auto`, truncation, and title attributes for full IDs.
+- macOS Tauri WKWebView may ignore Tailwind cursor classes. Use inline cursor styles for collapse headers and inherited cursor styles for children.
+- Existing unrelated type errors can obscure feature validation. Track comparison-specific errors separately if full type-check is not yet green.
 
 ## 6. Dependencies
 
-Existing dependencies:
+Existing runtime dependencies:
 
-- React 19 and TypeScript strict mode.
-- Zustand settings and workspace stores:
+- React 19
+- TypeScript 5.7 strict mode
+- Zustand stores:
   - `src/stores/settings-store.ts`
   - `src/stores/workspace-store.ts`
-- Existing Tauri usage IPC:
-  - frontend wrapper `src/lib/ipc/usage.ts`
-  - Rust command `src-tauri/src/commands/usage.rs`
-  - DB functions `src-tauri/src/db/usage.rs`
-- Existing settings UI primitives:
-  - `SettingSection`
-  - `SettingRow`
-  - `Dropdown`
-- Existing test stack:
-  - Vitest
-  - Testing Library
-  - jsdom
-  - mocked `@tauri-apps/api/core.invoke`
+- Tauri IPC wrappers:
+  - `src/lib/ipc/models.ts`
+  - `src/lib/ipc/usage.ts`
+- Rust model registry:
+  - `src-tauri/src/models/types.rs`
+  - `src-tauri/src/models/metadata.rs`
+  - `src-tauri/src/models/mod.rs`
+- Rust usage commands and DB:
+  - `src-tauri/src/commands/usage.rs`
+  - `src-tauri/src/db/usage.rs`
 
-No new npm, Cargo, database, or Tauri plugin dependency should be needed.
+Existing test dependencies:
 
-Future optional dependency:
+- Vitest
+- Testing Library
+- jsdom
+- Existing Tauri API mocks in `src/test/setup.ts` and `src/test/mocks/tauri.ts`
 
-- Dynamic model discovery from `.tickets/dynamic-model-discovery.md` could later replace or augment `src/lib/model-metadata.ts`, but it is not required for this task.
+No new npm, Cargo, database, or Tauri plugin dependency should be required.
