@@ -228,10 +228,9 @@ export function AgentTab() {
               >
                 {/* Provider Header */}
                 <div
-                  className={`flex items-center justify-between p-3 ${
-                    provider.enabled ? 'cursor-pointer' : ''
-                  }`}
+                  className="flex items-center justify-between p-3"
                   onClick={() => { handleToggleExpanded(provider.id) }}
+                  style={{ cursor: provider.enabled ? 'pointer' : 'default' }}
                 >
                   <div className="flex items-center gap-3">
                     {/* Chevron (only when enabled) */}
