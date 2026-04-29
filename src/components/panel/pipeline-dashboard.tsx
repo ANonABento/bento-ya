@@ -185,27 +185,31 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
       {/* Recent completions */}
       {recentCompletions.length > 0 && (
         <Section title="Completions">
-          {recentCompletions.map((task) => (
-            <div
-              key={task.id}
-              className="rounded-md bg-surface p-2"
-            >
-              <div className="flex items-center justify-between gap-1">
-                <span className="truncate text-xs font-medium text-text-primary">{task.title}</span>
-                <span className="text-[10px] text-text-tertiary">{formatRelativeTime(task.updatedAt)}</span>
+          {recentCompletions.map((task) => {
+            const prUrl = task.prUrl
+
+            return (
+              <div
+                key={task.id}
+                className="rounded-md bg-surface p-2"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span className="truncate text-xs font-medium text-text-primary">{task.title}</span>
+                  <span className="text-[10px] text-text-tertiary">{formatRelativeTime(task.updatedAt)}</span>
+                </div>
+                {prUrl && (
+                  <button
+                    type="button"
+                    onClick={() => { window.open(prUrl, '_blank') }}
+                    className="mt-0.5 text-[10px] text-accent hover:underline"
+                    style={{ cursor: 'pointer' }}
+                  >
+                    {task.prNumber ? `PR #${String(task.prNumber)}` : 'View PR'}
+                  </button>
+                )}
               </div>
-              {task.prUrl && (
-                <button
-                  type="button"
-                  onClick={() => { window.open(task.prUrl ?? undefined, '_blank') }}
-                  className="mt-0.5 text-[10px] text-accent hover:underline"
-                  style={{ cursor: 'pointer' }}
-                >
-                  {task.prNumber ? `PR #${String(task.prNumber)}` : 'View PR'}
-                </button>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </Section>
       )}
 

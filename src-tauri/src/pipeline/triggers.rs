@@ -486,6 +486,17 @@ fn ensure_task_worktree(
 /// Default max concurrent agents per workspace (when not configured in workspace settings).
 pub const DEFAULT_MAX_CONCURRENT_AGENTS: i64 = config::DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS;
 
+fn fail_auto_setup(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    column: &Column,
+    reason: impl Into<String>,
+) -> Result<Task, AppError> {
+    let message = format!("Cannot auto-setup task: {}", reason.into());
+    super::handle_trigger_failure(conn, app, task, column, &message)
+}
+
 fn execute_auto_setup(
     conn: &Connection,
     app: &AppHandle,
@@ -494,57 +505,51 @@ fn execute_auto_setup(
 ) -> Result<Task, AppError> {
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
     if workspace.repo_path.trim().is_empty() {
-        return super::handle_trigger_failure(
-            conn,
-            app,
-            task,
-            column,
-            "Cannot auto-setup task: workspace has no repo_path",
-        );
+        return fail_auto_setup(conn, app, task, column, "workspace has no repo_path");
     }
 
     let repo_path = std::path::Path::new(&workspace.repo_path);
     if !repo_path.exists() {
-        return super::handle_trigger_failure(
+        return fail_auto_setup(
             conn,
             app,
             task,
             column,
-            &format!(
-                "Cannot auto-setup task: repo_path does not exist: {}",
-                workspace.repo_path
-            ),
+            format!("repo_path does not exist: {}", workspace.repo_path),
         );
     }
 
     let pipeline_settings = config::effective_pipeline_settings(&workspace.config);
-    let setup_task = ensure_task_worktree(
+    let setup_task = match ensure_task_worktree(
         conn,
         app,
         task,
         &workspace.repo_path,
         &pipeline_settings,
-        Some("main"),
-    )?;
+        None,
+    ) {
+        Ok(task) => task,
+        Err(e) => return fail_auto_setup(conn, app, task, column, e.to_string()),
+    };
 
     if setup_task.branch_name.as_deref().unwrap_or("").is_empty() {
-        return super::handle_trigger_failure(
+        return fail_auto_setup(
             conn,
             app,
             &setup_task,
             column,
-            "Cannot auto-setup task: branch_name was not created",
+            "branch_name was not created",
         );
     }
 
     let worktree_path = setup_task.worktree_path.as_deref().unwrap_or("");
     if worktree_path.is_empty() || !std::path::Path::new(worktree_path).exists() {
-        return super::handle_trigger_failure(
+        return fail_auto_setup(
             conn,
             app,
             &setup_task,
             column,
-            "Cannot auto-setup task: worktree_path was not created",
+            "worktree_path was not created",
         );
     }
 
