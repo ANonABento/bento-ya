@@ -632,6 +632,53 @@ fn resume_stale_pipeline_tasks(app: tauri::AppHandle) {
 #[cfg(test)]
 mod startup_recovery_tests {
     use super::*;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
+
+    fn temp_git_repo(name: &str) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "bento-ya-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&path).unwrap();
+
+        for args in [
+            vec!["init"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "Test User"],
+        ] {
+            let status = Command::new("git")
+                .args(args)
+                .current_dir(&path)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+
+        path
+    }
+
+    fn commit_file(repo: &Path, file_name: &str, contents: &str) {
+        fs::write(repo.join(file_name), contents).unwrap();
+        for args in [vec!["add", file_name], vec!["commit", "-m", "test commit"]] {
+            let status = Command::new("git")
+                .args(args)
+                .current_dir(repo)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+    }
 
     #[test]
     fn startup_resume_candidates_only_include_stale_tasks_in_trigger_columns() {
@@ -712,6 +759,47 @@ mod startup_recovery_tests {
             startup_recovery_action(&task, &plan),
             StartupRecoveryAction::Retrigger
         );
+    }
+
+    #[test]
+    fn startup_recovery_actions_classify_agent_columns_with_new_commits_for_advance() {
+        let repo = temp_git_repo("startup-recovery-commits");
+        commit_file(&repo, "result.txt", "done\n");
+
+        let conn = db::init_test().unwrap();
+        let workspace = db::insert_workspace(&conn, "Test", repo.to_str().unwrap()).unwrap();
+        let plan = db::insert_column(&conn, &workspace.id, "Plan", 0).unwrap();
+        db::update_column(
+            &conn,
+            &plan.id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(r#"{"on_entry":{"type":"spawn_cli","cli":"codex"}}"#),
+        )
+        .unwrap();
+
+        let task = db::insert_task(&conn, &workspace.id, &plan.id, "Plan Task", None).unwrap();
+        db::update_task_pipeline_state(
+            &conn,
+            &task.id,
+            "running",
+            Some("1970-01-01 00:00:00"),
+            None,
+        )
+        .unwrap();
+        db::update_task_worktree_path(&conn, &task.id, Some(repo.to_str().unwrap())).unwrap();
+        let task = db::get_task(&conn, &task.id).unwrap();
+        let plan = db::get_column(&conn, &plan.id).unwrap();
+
+        assert_eq!(
+            startup_recovery_action(&task, &plan),
+            StartupRecoveryAction::CompleteAndAdvance
+        );
+
+        fs::remove_dir_all(repo).unwrap();
     }
 
     #[test]
