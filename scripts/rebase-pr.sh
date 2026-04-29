@@ -26,30 +26,58 @@ unmerged_files() {
   git diff --name-only --diff-filter=U
 }
 
+MANUAL_REVIEW_CONFLICT_FILES=()
+
+manual_review_conflict_files() {
+  if [ "${#MANUAL_REVIEW_CONFLICT_FILES[@]}" -gt 0 ]; then
+    printf "%s\n" "${MANUAL_REVIEW_CONFLICT_FILES[@]}"
+  else
+    unmerged_files
+  fi
+}
+
 has_unmerged_files() {
   [ -n "$(unmerged_files)" ]
 }
 
-typecheck_command() {
+typecheck_commands() {
   if [ -n "${BENTOYA_TYPECHECK_CMD:-}" ]; then
-    printf "%s" "$BENTOYA_TYPECHECK_CMD"
-  elif [ -f package.json ]; then
-    printf "%s" "npx tsc --noEmit"
-  elif [ -f Cargo.toml ]; then
-    printf "%s" "cargo check"
+    printf "%s\n" "$BENTOYA_TYPECHECK_CMD"
+    return
+  fi
+
+  if [ -f package.json ] && grep -q '"type-check"' package.json; then
+    printf "%s\n" "npm run type-check"
+  elif [ -f tsconfig.json ]; then
+    printf "%s\n" "npx tsc --noEmit"
+  fi
+
+  if [ -f Cargo.toml ]; then
+    printf "%s\n" "cargo check"
+  elif [ -f src-tauri/Cargo.toml ]; then
+    printf "%s\n" "cargo check --manifest-path src-tauri/Cargo.toml"
   fi
 }
 
 run_typecheck() {
+  local commands=()
   local cmd
-  cmd=$(typecheck_command)
-  if [ -z "$cmd" ]; then
+
+  while IFS= read -r cmd; do
+    if [ -n "$cmd" ]; then
+      commands+=("$cmd")
+    fi
+  done < <(typecheck_commands)
+
+  if [ "${#commands[@]}" -eq 0 ]; then
     echo "No type-check command found; refusing to treat conflicts as formatting-only."
     return 1
   fi
 
-  echo "Running type-check: $cmd"
-  bash -lc "$cmd"
+  for cmd in "${commands[@]}"; do
+    echo "Running type-check: $cmd"
+    bash -lc "$cmd"
+  done
 }
 
 mark_needs_manual_review() {
@@ -72,7 +100,7 @@ mark_needs_manual_review() {
     printf "time=%s\n" "$now"
     printf "reason=%s\n" "$reason"
     printf "conflicts=\n"
-    unmerged_files
+    manual_review_conflict_files
   } > "$marker"
 
   db_path=${BENTOYA_DB_PATH:-"$HOME/.bentoya/data.db"}
@@ -213,14 +241,28 @@ CONFLICT_FILES=()
 while IFS= read -r file; do
   CONFLICT_FILES+=("$file")
 done < <(unmerged_files)
+MANUAL_REVIEW_CONFLICT_FILES=("${CONFLICT_FILES[@]}")
 
 if [ "${#CONFLICT_FILES[@]}" -eq 0 ]; then
   abort_merge_if_active
   fail_manual "No conflict files were available for guarded fallback."
 fi
 
-git checkout --theirs -- "${CONFLICT_FILES[@]}"
-git add -A -- "${CONFLICT_FILES[@]}"
+if ! git checkout --theirs -- "${CONFLICT_FILES[@]}"; then
+  reason="--theirs conflict resolution could not be applied; not pushing."
+  mark_needs_manual_review "$reason"
+  abort_merge_if_active
+  echo "NEEDS MANUAL REVIEW: $reason"
+  exit 2
+fi
+
+if ! git add -A -- "${CONFLICT_FILES[@]}"; then
+  reason="--theirs conflict resolution could not be staged; not pushing."
+  mark_needs_manual_review "$reason"
+  abort_merge_if_active
+  echo "NEEDS MANUAL REVIEW: $reason"
+  exit 2
+fi
 
 if ! run_typecheck; then
   reason="--theirs conflict resolution failed type-check; not pushing."
