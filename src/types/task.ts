@@ -26,6 +26,7 @@ export type Task = {
   agentMode: AgentMode | null
   agentStatus: AgentStatus | null
   queuedAt: string | null
+  batchId?: string | null
   pipelineState: PipelineState
   pipelineTriggeredAt: string | null
   pipelineError: string | null

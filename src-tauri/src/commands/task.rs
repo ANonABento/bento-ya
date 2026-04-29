@@ -787,13 +787,14 @@ pub async fn queue_backlog(
         ));
     }
 
-    // Set queued_at on each task
+    // Set queued_at and shared batch_id on each task
     let ts = db::now();
+    let batch_id = format!("batch-{}", chrono::Utc::now().format("%Y%m%d%H%M%S%3f"));
     let mut queued_tasks = Vec::new();
     for task in &to_queue {
         conn.execute(
-            "UPDATE tasks SET queued_at = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![ts, ts, task.id],
+            "UPDATE tasks SET queued_at = ?1, batch_id = ?2, updated_at = ?3 WHERE id = ?4",
+            rusqlite::params![&ts, &batch_id, &ts, task.id],
         )
         .map_err(AppError::from)?;
         queued_tasks.push(db::get_task(&conn, &task.id)?);
