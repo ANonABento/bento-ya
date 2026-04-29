@@ -253,7 +253,7 @@ pub fn run() {
             // Start HTTP API server for external MCP control
             api::start(app.handle().clone());
             // Start periodic idle session sweep (every 60s)
-            start_idle_sweep(session_registry_for_sweep);
+            start_idle_sweep(session_registry_for_sweep, app.handle().clone());
 
             // Recover stale pipeline work from the previous app instance.
             resume_stale_pipeline_tasks(app.handle().clone());
@@ -354,14 +354,11 @@ fn recover_tmux_sessions(app: tauri::AppHandle) {
 
 const STALE_PIPELINE_STATES_SQL: &str = "'running', 'triggered', 'evaluating', 'advancing'";
 
-fn is_stale_pipeline_state(state: &str) -> bool {
-    pipeline::PipelineState::from_db_str(state) != pipeline::PipelineState::Idle
-}
-
 fn stale_pipeline_state_filter(column: &str) -> String {
     format!("{column} IN ({STALE_PIPELINE_STATES_SQL})")
 }
 
+#[cfg(test)]
 fn startup_resume_candidates(
     conn: &rusqlite::Connection,
 ) -> rusqlite::Result<Vec<(db::Task, db::Column)>> {
@@ -389,25 +386,113 @@ fn startup_resume_candidates(
     Ok(candidates)
 }
 
-fn reset_stale_pipeline_state(conn: &rusqlite::Connection) -> rusqlite::Result<usize> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartupRecoveryAction {
+    Retrigger,
+    CompleteAndAdvance,
+    ResetIdle,
+}
+
+fn column_name_matches(column: &db::Column, names: &[&str]) -> bool {
+    names
+        .iter()
+        .any(|candidate| column.name.eq_ignore_ascii_case(candidate))
+}
+
+fn is_named_no_agent_column(column: &db::Column) -> bool {
+    column_name_matches(column, &["setup", "pr", "staging", "merge"])
+}
+
+fn is_named_agent_column(column: &db::Column) -> bool {
+    column_name_matches(column, &["plan", "implement", "review", "verify"])
+}
+
+fn worktree_has_new_commits_since_trigger(task: &db::Task) -> bool {
+    let Some(triggered_at) = task.pipeline_triggered_at.as_deref() else {
+        return false;
+    };
+    let Some(worktree_path) = task.worktree_path.as_deref() else {
+        return false;
+    };
+    if worktree_path.is_empty() || !std::path::Path::new(worktree_path).exists() {
+        return false;
+    }
+
+    let output = std::process::Command::new("git")
+        .args(["log", "--since", triggered_at, "--format=%H", "-n", "1"])
+        .current_dir(worktree_path)
+        .output();
+
+    output
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| !String::from_utf8_lossy(&out.stdout).trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn startup_recovery_action(task: &db::Task, column: &db::Column) -> StartupRecoveryAction {
+    let trigger = pipeline::triggers::effective_on_entry_trigger(task, column);
+    let is_agent_trigger = matches!(
+        trigger,
+        Some(pipeline::triggers::TriggerActionV2::SpawnCli { .. })
+    );
+    let has_trigger = trigger.is_some();
+
+    if is_named_agent_column(column) || is_agent_trigger {
+        if worktree_has_new_commits_since_trigger(task) {
+            StartupRecoveryAction::CompleteAndAdvance
+        } else if has_trigger {
+            StartupRecoveryAction::Retrigger
+        } else {
+            StartupRecoveryAction::ResetIdle
+        }
+    } else if is_named_no_agent_column(column) || has_trigger {
+        StartupRecoveryAction::Retrigger
+    } else {
+        StartupRecoveryAction::ResetIdle
+    }
+}
+
+fn stale_pipeline_tasks(
+    conn: &rusqlite::Connection,
+) -> rusqlite::Result<Vec<(db::Task, db::Column, StartupRecoveryAction)>> {
+    let stale_pipeline_filter = stale_pipeline_state_filter("t.pipeline_state");
+    let mut stmt = conn.prepare(&format!(
+        "SELECT t.id
+         FROM tasks t
+         JOIN columns c ON c.id = t.column_id
+         WHERE {stale_pipeline_filter}
+         ORDER BY t.workspace_id, c.position, t.position",
+    ))?;
+    let task_ids = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut tasks = Vec::new();
+    for task_id in task_ids {
+        let task = db::get_task(conn, &task_id)?;
+        let column = db::get_column(conn, &task.column_id)?;
+        let action = startup_recovery_action(&task, &column);
+        tasks.push((task, column, action));
+    }
+
+    Ok(tasks)
+}
+
+fn reset_task_runtime_state(
+    conn: &rusqlite::Connection,
+    task_id: &str,
+) -> rusqlite::Result<db::Task> {
     let ts = db::now();
-    let task_stale_pipeline_filter = stale_pipeline_state_filter("pipeline_state");
     conn.execute(
-        &format!(
-            "UPDATE agent_sessions
-         SET status = 'failed', updated_at = ?1
-         WHERE status = 'running'
-           AND task_id IN (
-               SELECT id FROM tasks
-               WHERE {task_stale_pipeline_filter}
-           )"
-        ),
-        rusqlite::params![ts],
+        "UPDATE agent_sessions
+         SET status = 'failed', exit_code = COALESCE(exit_code, -1), updated_at = ?1
+         WHERE status = 'running' AND task_id = ?2",
+        rusqlite::params![ts, task_id],
     )?;
 
     conn.execute(
-        &format!(
-            "UPDATE tasks
+        "UPDATE tasks
          SET pipeline_state = 'idle',
              pipeline_triggered_at = NULL,
              pipeline_error = NULL,
@@ -415,18 +500,47 @@ fn reset_stale_pipeline_state(conn: &rusqlite::Connection) -> rusqlite::Result<u
              queued_at = NULL,
              agent_session_id = NULL,
              updated_at = ?1
-         WHERE {task_stale_pipeline_filter}"
-        ),
-        rusqlite::params![ts],
-    )
+         WHERE id = ?2",
+        rusqlite::params![ts, task_id],
+    )?;
+    db::get_task(conn, task_id)
+}
+
+fn complete_interrupted_agent_work(
+    conn: &rusqlite::Connection,
+    app: &tauri::AppHandle,
+    task: &db::Task,
+) -> Result<db::Task, error::AppError> {
+    let ts = db::now();
+    if let Some(session_id) = task.agent_session_id.as_deref() {
+        let _ = db::update_agent_session(
+            conn,
+            session_id,
+            None,
+            Some("completed"),
+            Some(Some(-1)),
+            None,
+            None,
+            None,
+        );
+    }
+    conn.execute(
+        "UPDATE tasks
+         SET agent_status = 'completed',
+             queued_at = NULL,
+             updated_at = ?1
+         WHERE id = ?2",
+        rusqlite::params![ts, task.id],
+    )?;
+    pipeline::mark_complete(conn, app, &task.id, true)
 }
 
 /// Resume tasks that were interrupted while sitting in trigger columns.
 ///
-/// Startup first records which stale tasks are in columns with `on_entry`
-/// triggers, then resets all stale pipeline state to idle. Re-firing each
-/// trigger through the normal pipeline path preserves the existing concurrency
-/// guard, so excess agent tasks are queued instead of spawned.
+/// No-agent trigger columns are re-fired immediately. Agent columns inspect the
+/// task worktree for commits after the last trigger; if commits exist, the task
+/// is completed through the normal pipeline path so it can advance. Otherwise,
+/// its current column trigger is restarted.
 fn resume_stale_pipeline_tasks(app: tauri::AppHandle) {
     let state: tauri::State<db::AppState> = app.state();
     let conn = match state.db.lock() {
@@ -437,76 +551,134 @@ fn resume_stale_pipeline_tasks(app: tauri::AppHandle) {
         }
     };
 
-    let candidates = match startup_resume_candidates(&conn) {
-        Ok(candidates) => candidates,
+    let tasks = match stale_pipeline_tasks(&conn) {
+        Ok(tasks) => tasks,
         Err(e) => {
             eprintln!("[startup] Failed to inspect stale pipeline tasks: {}", e);
             Vec::new()
         }
     };
 
-    let reset_count = reset_stale_pipeline_state(&conn).unwrap_or_else(|e| {
-        eprintln!("[startup] Failed to reset stale pipeline state: {}", e);
-        0
-    });
-
-    if reset_count > 0 {
-        eprintln!(
-            "[startup] Reset {} task(s) with stale pipeline state to idle",
-            reset_count
-        );
-    }
-
-    if candidates.is_empty() {
+    if tasks.is_empty() {
         return;
     }
 
-    let mut resumed = 0;
+    let mut retriggered = 0;
+    let mut advanced = 0;
+    let mut reset = 0;
     let mut failed = 0;
-    for (stale_task, column) in candidates {
-        let task = match db::get_task(&conn, &stale_task.id) {
-            Ok(task) if is_stale_pipeline_state(&task.pipeline_state) => {
-                log::warn!(
-                    "[startup] Task {} stayed stale after reset; skipping resume",
-                    task.id
-                );
-                failed += 1;
-                continue;
-            }
-            Ok(task) => task,
-            Err(e) => {
-                log::warn!(
-                    "[startup] Failed to reload task {} for resume: {}",
-                    stale_task.id,
-                    e
-                );
-                failed += 1;
-                continue;
-            }
-        };
+    for (stale_task, column, action) in tasks {
+        match action {
+            StartupRecoveryAction::Retrigger => {
+                let task = match reset_task_runtime_state(&conn, &stale_task.id) {
+                    Ok(task) => task,
+                    Err(e) => {
+                        log::warn!(
+                            "[startup] Failed to reset task {} for trigger recovery: {}",
+                            stale_task.id,
+                            e
+                        );
+                        failed += 1;
+                        continue;
+                    }
+                };
 
-        match pipeline::fire_trigger(&conn, &app, &task, &column) {
-            Ok(_) => resumed += 1,
-            Err(e) => {
-                log::warn!(
-                    "[startup] Failed to resume pipeline trigger for task {}: {}",
-                    task.id,
-                    e
-                );
-                failed += 1;
+                match pipeline::fire_trigger(&conn, &app, &task, &column) {
+                    Ok(_) => retriggered += 1,
+                    Err(e) => {
+                        log::warn!(
+                            "[startup] Failed to resume pipeline trigger for task {}: {}",
+                            task.id,
+                            e
+                        );
+                        failed += 1;
+                    }
+                }
+            }
+            StartupRecoveryAction::CompleteAndAdvance => {
+                match complete_interrupted_agent_work(&conn, &app, &stale_task) {
+                    Ok(_) => advanced += 1,
+                    Err(e) => {
+                        log::warn!(
+                            "[startup] Failed to advance recovered work for task {}: {}",
+                            stale_task.id,
+                            e
+                        );
+                        failed += 1;
+                    }
+                }
+            }
+            StartupRecoveryAction::ResetIdle => {
+                if let Err(e) = reset_task_runtime_state(&conn, &stale_task.id) {
+                    log::warn!(
+                        "[startup] Failed to reset stale task {} to idle: {}",
+                        stale_task.id,
+                        e
+                    );
+                    failed += 1;
+                } else {
+                    reset += 1;
+                }
             }
         }
     }
 
     eprintln!(
-        "[startup] Pipeline recovery resumed {} task(s), {} failed",
-        resumed, failed
+        "[startup] Pipeline recovery: {} retriggered, {} advanced, {} reset, {} failed",
+        retriggered, advanced, reset, failed
     );
 }
 
 #[cfg(test)]
 mod startup_recovery_tests {
     use super::*;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
+
+    fn temp_git_repo(name: &str) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "bento-ya-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&path).unwrap();
+
+        for args in [
+            vec!["init"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "Test User"],
+        ] {
+            let status = Command::new("git")
+                .args(args)
+                .current_dir(&path)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+
+        path
+    }
+
+    fn commit_file(repo: &Path, file_name: &str, contents: &str) {
+        fs::write(repo.join(file_name), contents).unwrap();
+        for args in [vec!["add", file_name], vec!["commit", "-m", "test commit"]] {
+            let status = Command::new("git")
+                .args(args)
+                .current_dir(repo)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+    }
 
     #[test]
     fn startup_resume_candidates_only_include_stale_tasks_in_trigger_columns() {
@@ -544,6 +716,90 @@ mod startup_recovery_tests {
 
         assert_eq!(ids, vec![plan_task.id]);
         assert!(!ids.contains(&idle_plan_task.id));
+    }
+
+    #[test]
+    fn startup_recovery_actions_classify_no_agent_columns_for_retrigger() {
+        let conn = db::init_test().unwrap();
+        let workspace = db::insert_workspace(&conn, "Test", "/tmp/test").unwrap();
+        let setup = db::insert_column(&conn, &workspace.id, "Setup", 0).unwrap();
+        let pr = db::insert_column(&conn, &workspace.id, "PR", 1).unwrap();
+        let task = db::insert_task(&conn, &workspace.id, &setup.id, "Setup Task", None).unwrap();
+
+        assert_eq!(
+            startup_recovery_action(&task, &setup),
+            StartupRecoveryAction::Retrigger
+        );
+        assert_eq!(
+            startup_recovery_action(&task, &pr),
+            StartupRecoveryAction::Retrigger
+        );
+    }
+
+    #[test]
+    fn startup_recovery_actions_classify_agent_columns_without_commits_for_retrigger() {
+        let conn = db::init_test().unwrap();
+        let workspace = db::insert_workspace(&conn, "Test", "/tmp/test").unwrap();
+        let plan = db::insert_column(&conn, &workspace.id, "Plan", 0).unwrap();
+        db::update_column(
+            &conn,
+            &plan.id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(r#"{"on_entry":{"type":"spawn_cli","cli":"codex"}}"#),
+        )
+        .unwrap();
+        let plan = db::get_column(&conn, &plan.id).unwrap();
+        let task = db::insert_task(&conn, &workspace.id, &plan.id, "Plan Task", None).unwrap();
+
+        assert_eq!(
+            startup_recovery_action(&task, &plan),
+            StartupRecoveryAction::Retrigger
+        );
+    }
+
+    #[test]
+    fn startup_recovery_actions_classify_agent_columns_with_new_commits_for_advance() {
+        let repo = temp_git_repo("startup-recovery-commits");
+        commit_file(&repo, "result.txt", "done\n");
+
+        let conn = db::init_test().unwrap();
+        let workspace = db::insert_workspace(&conn, "Test", repo.to_str().unwrap()).unwrap();
+        let plan = db::insert_column(&conn, &workspace.id, "Plan", 0).unwrap();
+        db::update_column(
+            &conn,
+            &plan.id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(r#"{"on_entry":{"type":"spawn_cli","cli":"codex"}}"#),
+        )
+        .unwrap();
+
+        let task = db::insert_task(&conn, &workspace.id, &plan.id, "Plan Task", None).unwrap();
+        db::update_task_pipeline_state(
+            &conn,
+            &task.id,
+            "running",
+            Some("1970-01-01 00:00:00"),
+            None,
+        )
+        .unwrap();
+        db::update_task_worktree_path(&conn, &task.id, Some(repo.to_str().unwrap())).unwrap();
+        let task = db::get_task(&conn, &task.id).unwrap();
+        let plan = db::get_column(&conn, &plan.id).unwrap();
+
+        assert_eq!(
+            startup_recovery_action(&task, &plan),
+            StartupRecoveryAction::CompleteAndAdvance
+        );
+
+        fs::remove_dir_all(repo).unwrap();
     }
 
     #[test]
@@ -605,7 +861,7 @@ mod startup_recovery_tests {
     }
 
     #[test]
-    fn reset_stale_pipeline_state_clears_agent_and_pipeline_state() {
+    fn reset_task_runtime_state_clears_agent_and_pipeline_state() {
         let conn = db::init_test().unwrap();
         let workspace = db::insert_workspace(&conn, "Test", "/tmp/test").unwrap();
         let column = db::insert_column(&conn, &workspace.id, "Plan", 0).unwrap();
@@ -628,7 +884,7 @@ mod startup_recovery_tests {
         )
         .unwrap();
 
-        assert_eq!(reset_stale_pipeline_state(&conn).unwrap(), 1);
+        reset_task_runtime_state(&conn, &task.id).unwrap();
 
         let task = db::get_task(&conn, &task.id).unwrap();
         assert_eq!(task.pipeline_state, "idle");
@@ -639,5 +895,6 @@ mod startup_recovery_tests {
 
         let session = db::get_agent_session(&conn, &session.id).unwrap();
         assert_eq!(session.status, "failed");
+        assert_eq!(session.exit_code, Some(-1));
     }
 }

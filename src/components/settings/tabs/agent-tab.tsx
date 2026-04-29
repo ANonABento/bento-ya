@@ -25,11 +25,6 @@ const COMING_SOON = [
   { name: 'Local Models', description: 'Ollama, LM Studio, etc.' },
 ]
 
-function normalizeDisabledModels(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value.filter((id): id is string => typeof id === 'string')
-}
-
 export function AgentTab() {
   const global = useSettingsStore((s) => s.global)
   const updateGlobal = useSettingsStore((s) => s.updateGlobal)
@@ -80,8 +75,7 @@ export function AgentTab() {
 
   // Get all available models from enabled providers, excluding disabled ones
   const enabledProviderIds = new Set(model.providers.filter((p) => p.enabled).map((p) => p.id))
-  const disabledModels = normalizeDisabledModels(model.disabledModels)
-  const disabledModelIds = new Set(disabledModels)
+  const disabledModelIds = new Set(model.disabledModels)
   const availableModels = allModels
     .filter((m) => enabledProviderIds.has(m.provider) && !disabledModelIds.has(m.id))
     .map((m) => m.id)
@@ -229,8 +223,8 @@ export function AgentTab() {
                 {/* Provider Header */}
                 <div
                   className="flex items-center justify-between p-3"
-                  onClick={() => { handleToggleExpanded(provider.id) }}
                   style={{ cursor: provider.enabled ? 'pointer' : 'default' }}
+                  onClick={() => { handleToggleExpanded(provider.id) }}
                 >
                   <div className="flex items-center gap-3">
                     {/* Chevron (only when enabled) */}
@@ -426,13 +420,12 @@ export function AgentTab() {
 
                     {/* Available Models with toggles */}
                     {providerModels.length > 0 && (() => {
-                      const disabledSet = new Set(disabledModels)
+                      const disabledSet = new Set(model.disabledModels)
                       const enabledCount = providerModels.filter((m) => !disabledSet.has(m.id)).length
                       const allEnabled = enabledCount === providerModels.length
-                      const noneEnabled = enabledCount === 0
 
                       const toggleModel = (modelId: string) => {
-                        const current = new Set(disabledModels)
+                        const current = new Set(model.disabledModels)
                         if (current.has(modelId)) {
                           current.delete(modelId)
                         } else {
@@ -444,12 +437,12 @@ export function AgentTab() {
                       const toggleAll = (enable: boolean) => {
                         if (enable) {
                           // Remove all this provider's models from disabled
-                          const current = new Set(disabledModels)
+                          const current = new Set(model.disabledModels)
                           for (const m of providerModels) current.delete(m.id)
                           updateGlobal('model', { ...model, disabledModels: [...current] })
                         } else {
                           // Add all this provider's models to disabled
-                          const current = new Set(disabledModels)
+                          const current = new Set(model.disabledModels)
                           for (const m of providerModels) current.add(m.id)
                           updateGlobal('model', { ...model, disabledModels: [...current] })
                         }
@@ -462,7 +455,7 @@ export function AgentTab() {
                               Models ({enabledCount}/{providerModels.length})
                             </label>
                             <button
-                              onClick={() => { toggleAll(noneEnabled || !allEnabled ? true : false) }}
+                              onClick={() => { toggleAll(!allEnabled) }}
                               className="text-[10px] text-text-secondary transition-colors hover:text-text-primary"
                             >
                               {allEnabled ? 'Deselect all' : 'Select all'}
@@ -509,7 +502,7 @@ export function AgentTab() {
                                     )}
                                   </div>
                                   <span className="text-[10px] text-text-secondary">
-                                    {Math.round(m.contextWindow / 1000)}k
+                                    {String(Math.round(m.contextWindow / 1000))}k
                                   </span>
                                 </div>
                               )
