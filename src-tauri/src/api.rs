@@ -374,6 +374,7 @@ pub fn start(app: AppHandle) {
             .route("/api/approve_task", post(approve_task))
             .route("/api/reject_task", post(reject_task))
             .route("/api/retry_task", post(retry_task))
+            .route("/api/retry_from_start", post(retry_from_start))
             .route("/api/settings", get(get_settings))
             .route("/api/settings", post(update_settings))
             .with_state(api_state);
