@@ -302,6 +302,8 @@ fn process_is_alive(pid: i64) -> bool {
         return false;
     }
 
+    // SAFETY: `kill(pid, 0)` does not send a signal. It only asks the OS
+    // whether the PID currently exists and whether this process may signal it.
     let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
     if result == 0 {
         return true;

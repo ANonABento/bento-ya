@@ -393,18 +393,18 @@ enum StartupRecoveryAction {
     ResetIdle,
 }
 
+fn column_name_matches(column: &db::Column, names: &[&str]) -> bool {
+    names
+        .iter()
+        .any(|candidate| column.name.eq_ignore_ascii_case(candidate))
+}
+
 fn is_named_no_agent_column(column: &db::Column) -> bool {
-    matches!(
-        column.name.to_ascii_lowercase().as_str(),
-        "setup" | "pr" | "staging" | "merge"
-    )
+    column_name_matches(column, &["setup", "pr", "staging", "merge"])
 }
 
 fn is_named_agent_column(column: &db::Column) -> bool {
-    matches!(
-        column.name.to_ascii_lowercase().as_str(),
-        "plan" | "implement" | "review" | "verify"
-    )
+    column_name_matches(column, &["plan", "implement", "review", "verify"])
 }
 
 fn worktree_has_new_commits_since_trigger(task: &db::Task) -> bool {

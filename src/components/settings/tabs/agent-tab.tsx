@@ -222,9 +222,8 @@ export function AgentTab() {
               >
                 {/* Provider Header */}
                 <div
-                  className={`flex items-center justify-between p-3 ${
-                    provider.enabled ? 'cursor-pointer' : ''
-                  }`}
+                  className="flex items-center justify-between p-3"
+                  style={{ cursor: provider.enabled ? 'pointer' : 'default' }}
                   onClick={() => { handleToggleExpanded(provider.id) }}
                 >
                   <div className="flex items-center gap-3">
@@ -424,7 +423,6 @@ export function AgentTab() {
                       const disabledSet = new Set(model.disabledModels)
                       const enabledCount = providerModels.filter((m) => !disabledSet.has(m.id)).length
                       const allEnabled = enabledCount === providerModels.length
-                      const noneEnabled = enabledCount === 0
 
                       const toggleModel = (modelId: string) => {
                         const current = new Set(model.disabledModels)
@@ -457,7 +455,7 @@ export function AgentTab() {
                               Models ({enabledCount}/{providerModels.length})
                             </label>
                             <button
-                              onClick={() => { toggleAll(noneEnabled || !allEnabled ? true : false) }}
+                              onClick={() => { toggleAll(!allEnabled) }}
                               className="text-[10px] text-text-secondary transition-colors hover:text-text-primary"
                             >
                               {allEnabled ? 'Deselect all' : 'Select all'}
@@ -504,7 +502,7 @@ export function AgentTab() {
                                     )}
                                   </div>
                                   <span className="text-[10px] text-text-secondary">
-                                    {Math.round(m.contextWindow / 1000)}k
+                                    {String(Math.round(m.contextWindow / 1000))}k
                                   </span>
                                 </div>
                               )
