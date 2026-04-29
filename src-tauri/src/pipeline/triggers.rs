@@ -430,6 +430,14 @@ fn ensure_task_worktree(
             Err(e) => {
                 // Branch may already exist (e.g. from a previous attempt)
                 let branch_name = format!("{}{}", settings.branch_prefix, slug);
+                let branch_exists = branch_manager::branch_exists(repo_path, &branch_name)
+                    .map_err(AppError::CommandError)?;
+                if !branch_exists {
+                    return Err(AppError::CommandError(format!(
+                        "Failed to create branch '{}': {}",
+                        branch_name, e
+                    )));
+                }
                 log::warn!(
                     "[triggers] Branch creation failed ({}), trying existing '{}'",
                     e,
