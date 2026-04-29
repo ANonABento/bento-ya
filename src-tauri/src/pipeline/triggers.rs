@@ -943,39 +943,76 @@ fn command_stderr(output: &std::process::Output) -> String {
     String::from_utf8_lossy(&output.stderr).trim().to_string()
 }
 
+fn command_stdout(output: &std::process::Output) -> String {
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+fn remote_branch_ref(branch: &str) -> String {
+    format!("refs/remotes/origin/{}", branch)
+}
+
+fn local_branch_ref(branch: &str) -> String {
+    format!("refs/heads/{}", branch)
+}
+
+fn git_ref_exists(repo_path: &str, git_ref: &str) -> Result<bool, String> {
+    Ok(run_command(
+        repo_path,
+        "git",
+        &["show-ref", "--verify", "--quiet", git_ref],
+    )?
+    .status
+    .success())
+}
+
+fn fetch_remote_branch(repo_path: &str, branch: &str) -> Result<bool, String> {
+    let output = run_command(repo_path, "git", &["fetch", "origin", branch])?;
+    if output.status.success() {
+        return Ok(true);
+    }
+
+    let stderr = command_stderr(&output);
+    if stderr.contains("couldn't find remote ref") || stderr.contains("could not find remote ref") {
+        Ok(false)
+    } else {
+        Err(format!(
+            "Failed to fetch remote branch '{}': {}",
+            branch, stderr
+        ))
+    }
+}
+
+fn best_base_ref(repo_path: &str, base_branch: &str) -> Result<String, String> {
+    if fetch_remote_branch(repo_path, base_branch)? {
+        let remote_ref = remote_branch_ref(base_branch);
+        if git_ref_exists(repo_path, &remote_ref)? {
+            return Ok(format!("origin/{}", base_branch));
+        }
+    }
+
+    Ok(base_branch.to_string())
+}
+
 fn ensure_staging_branch(
     repo_path: &str,
     staging_branch: &str,
     base_branch: &str,
 ) -> Result<(), String> {
-    let local_exists = run_command(
-        repo_path,
-        "git",
-        &[
-            "show-ref",
-            "--verify",
-            "--quiet",
-            &format!("refs/heads/{}", staging_branch),
-        ],
-    )?
-    .status
-    .success();
+    if fetch_remote_branch(repo_path, staging_branch)? {
+        return Ok(());
+    }
 
-    if !local_exists {
-        let fetch_ref = format!("{}:{}", staging_branch, staging_branch);
-        let fetch_output = run_command(repo_path, "git", &["fetch", "origin", &fetch_ref])?;
-
-        if !fetch_output.status.success() {
-            let branch_output =
-                run_command(repo_path, "git", &["branch", staging_branch, base_branch])?;
-            if !branch_output.status.success() {
-                return Err(format!(
-                    "Failed to create staging branch '{}' from '{}': {}",
-                    staging_branch,
-                    base_branch,
-                    command_stderr(&branch_output)
-                ));
-            }
+    let local_ref = local_branch_ref(staging_branch);
+    if !git_ref_exists(repo_path, &local_ref)? {
+        let base_ref = best_base_ref(repo_path, base_branch)?;
+        let branch_output = run_command(repo_path, "git", &["branch", staging_branch, &base_ref])?;
+        if !branch_output.status.success() {
+            return Err(format!(
+                "Failed to create staging branch '{}' from '{}': {}",
+                staging_branch,
+                base_ref,
+                command_stderr(&branch_output)
+            ));
         }
     }
 
@@ -1008,21 +1045,24 @@ fn branch_has_commits(
     base_branch: &str,
     head_branch: &str,
 ) -> Result<bool, String> {
-    let range = format!("{}..{}", base_branch, head_branch);
+    let base_ref = best_base_ref(repo_path, base_branch)?;
+    let head_ref = if fetch_remote_branch(repo_path, head_branch)? {
+        format!("origin/{}", head_branch)
+    } else {
+        head_branch.to_string()
+    };
+    let range = format!("{}..{}", base_ref, head_ref);
     let output = run_command(repo_path, "git", &["rev-list", "--count", &range])?;
     if !output.status.success() {
         return Err(format!(
             "Failed to compare '{}' and '{}': {}",
-            base_branch,
-            head_branch,
+            base_ref,
+            head_ref,
             command_stderr(&output)
         ));
     }
 
-    let count = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse::<i64>()
-        .unwrap_or(0);
+    let count = command_stdout(&output).parse::<i64>().unwrap_or(0);
     Ok(count > 0)
 }
 
@@ -1111,6 +1151,29 @@ fn maybe_create_batch_pr(
     ))
 }
 
+fn maybe_create_ready_batch_pr(
+    conn: &Connection,
+    repo_path: &str,
+    workspace_id: &str,
+    batch_id: &str,
+    base_branch: &str,
+    staging_branch: &str,
+) {
+    if !batch_tasks_ready_for_main_pr(conn, workspace_id, batch_id) {
+        return;
+    }
+
+    match maybe_create_batch_pr(repo_path, batch_id, base_branch, staging_branch) {
+        Ok(Some(url)) => log::info!("[create_pr] Created batch PR for {}: {}", batch_id, url),
+        Ok(None) => {}
+        Err(e) => log::warn!(
+            "[create_pr] Could not create batch PR for {}: {}",
+            batch_id,
+            e
+        ),
+    }
+}
+
 fn execute_create_pr(
     conn: &Connection,
     app: &AppHandle,
@@ -1127,6 +1190,7 @@ fn execute_create_pr(
         .unwrap_or_else(generate_batch_id);
     let final_base = base_branch.unwrap_or("main").to_string();
     let staging_branch = staging_branch_for_batch(&batch_id);
+    let repo_path = resolve_working_dir(&task, &workspace.repo_path);
 
     let branch_name = match &task.branch_name {
         Some(b) if !b.is_empty() => b.clone(),
@@ -1147,6 +1211,14 @@ fn execute_create_pr(
             task.id,
             pr_num
         );
+        maybe_create_ready_batch_pr(
+            conn,
+            &repo_path,
+            &task.workspace_id,
+            &batch_id,
+            &final_base,
+            &staging_branch,
+        );
         let updated = db::update_task_pipeline_state(
             conn,
             &task.id,
@@ -1158,7 +1230,6 @@ fn execute_create_pr(
     }
 
     let pr_title = task.title.clone();
-    let repo_path = resolve_working_dir(&task, &workspace.repo_path);
     let pr_body = build_pr_body(
         &task,
         column,
@@ -1294,24 +1365,14 @@ fn execute_create_pr(
                 );
                 if let Some(ref conn) = conn {
                     let _ = db::update_task_pr_info(conn, &task_id, Some(pr_number), Some(&pr_url));
-                    if batch_tasks_ready_for_main_pr(conn, &workspace_id, &batch_id) {
-                        match maybe_create_batch_pr(
-                            &repo_path,
-                            &batch_id,
-                            &final_base,
-                            &staging_branch,
-                        ) {
-                            Ok(Some(url)) => {
-                                log::info!("[create_pr] Created batch PR for {}: {}", batch_id, url)
-                            }
-                            Ok(None) => {}
-                            Err(e) => log::warn!(
-                                "[create_pr] Could not create batch PR for {}: {}",
-                                batch_id,
-                                e
-                            ),
-                        }
-                    }
+                    maybe_create_ready_batch_pr(
+                        conn,
+                        &repo_path,
+                        &workspace_id,
+                        &batch_id,
+                        &final_base,
+                        &staging_branch,
+                    );
                 }
                 true
             }
