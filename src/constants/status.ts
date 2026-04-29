@@ -61,12 +61,14 @@ export const REVIEW_STATUS_LABELS: Record<ReviewStatus, string> = {
   pending: 'Pending Review',
   approved: 'Approved',
   rejected: 'Rejected',
+  'needs-manual-review': 'Needs Manual Review',
 }
 
 export const REVIEW_STATUS_COLORS: Record<ReviewStatus, string> = {
   pending: 'text-warning',
   approved: 'text-success',
   rejected: 'text-error',
+  'needs-manual-review': 'text-attention',
 }
 
 // ─── PR/CI Status ───────────────────────────────────────────────────────────
