@@ -1,4 +1,4 @@
 export default {
   '**/*.{ts,tsx}': 'eslint --fix',
-  'src-tauri/**/*.{rs,toml}': () => 'cargo check --manifest-path src-tauri/Cargo.toml',
+  '{Cargo.toml,Cargo.lock,src-tauri/**/*.{rs,toml},mcp-server/**/*.{rs,toml}}': () => 'cargo check',
 }
