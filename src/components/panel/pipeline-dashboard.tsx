@@ -58,8 +58,6 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
     }).then((unlisten) => {
       if (cancelled) unlisten()
       else unlistenRefs.current.push(unlisten)
-    }).catch((err: unknown) => {
-      console.error('Failed to subscribe to task changes:', err)
     })
 
     // Pipeline events
@@ -68,8 +66,6 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
       void sub(() => { refresh() }).then((unlisten) => {
         if (cancelled) unlisten()
         else unlistenRefs.current.push(unlisten)
-      }).catch((err: unknown) => {
-        console.error('Failed to subscribe to pipeline events:', err)
       })
     }
 
@@ -149,7 +145,7 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
                   <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-hover">
                     <div
                       className="h-full rounded-full bg-accent transition-all duration-500"
-                      style={{ width: `${progress.toString()}%` }}
+                      style={{ width: `${String(progress)}%` }}
                     />
                   </div>
                 </motion.button>
@@ -205,7 +201,7 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
                   className="mt-0.5 text-[10px] text-accent hover:underline"
                   style={{ cursor: 'pointer' }}
                 >
-                  {task.prNumber ? `PR #${task.prNumber.toString()}` : 'View PR'}
+                  {task.prNumber ? `PR #${String(task.prNumber)}` : 'View PR'}
                 </button>
               )}
             </div>

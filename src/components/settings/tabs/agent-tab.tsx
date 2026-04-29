@@ -149,7 +149,7 @@ export function AgentTab() {
             <span className="text-xs text-text-secondary">
               {allModels.length} models ·{' '}
               {modelSource === 'api'
-                ? `From API · ${lastFetched ? new Date(lastFetched).toLocaleDateString() : 'not refreshed yet'}`
+                ? `From API${lastFetched ? ` · ${new Date(lastFetched).toLocaleDateString()}` : ''}`
                 : modelSource === 'cli'
                   ? 'From CLI'
                   : 'Built-in list'}
@@ -161,8 +161,8 @@ export function AgentTab() {
                 void refreshModels().then((result) => {
                   if (result.success) {
                     const msg = result.newModels.length > 0
-                      ? `Found ${result.newModels.length.toString()} new: ${result.newModels.join(', ')}`
-                      : `${result.modelCount.toString()} models up to date`
+                      ? `Found ${String(result.newModels.length)} new: ${result.newModels.join(', ')}`
+                      : `${String(result.modelCount)} models up to date`
                     setRefreshStatus({ message: msg, type: 'success' })
                   } else {
                     setRefreshStatus({
