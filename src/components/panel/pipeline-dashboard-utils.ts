@@ -46,7 +46,7 @@ export function formatElapsed(startDateStr: string): string {
   const now = Date.now()
   const diffSec = Math.max(0, Math.floor((now - start) / 1000))
 
-  if (diffSec < 60) return `${diffSec}s`
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m`
-  return `${Math.floor(diffSec / 3600)}h`
+  if (diffSec < 60) return `${diffSec.toString()}s`
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60).toString()}m`
+  return `${Math.floor(diffSec / 3600).toString()}h`
 }

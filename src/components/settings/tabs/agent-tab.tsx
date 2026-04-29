@@ -75,7 +75,7 @@ export function AgentTab() {
 
   // Get all available models from enabled providers, excluding disabled ones
   const enabledProviderIds = new Set(model.providers.filter((p) => p.enabled).map((p) => p.id))
-  const disabledModelIds = new Set(model.disabledModels ?? [])
+  const disabledModelIds = new Set(model.disabledModels)
   const availableModels = allModels
     .filter((m) => enabledProviderIds.has(m.provider) && !disabledModelIds.has(m.id))
     .map((m) => m.id)
@@ -149,7 +149,7 @@ export function AgentTab() {
             <span className="text-xs text-text-secondary">
               {allModels.length} models ·{' '}
               {modelSource === 'api'
-                ? `From API · ${new Date(lastFetched!).toLocaleDateString()}`
+                ? `From API · ${lastFetched ? new Date(lastFetched).toLocaleDateString() : 'not refreshed yet'}`
                 : modelSource === 'cli'
                   ? 'From CLI'
                   : 'Built-in list'}
@@ -161,8 +161,8 @@ export function AgentTab() {
                 void refreshModels().then((result) => {
                   if (result.success) {
                     const msg = result.newModels.length > 0
-                      ? `Found ${result.newModels.length} new: ${result.newModels.join(', ')}`
-                      : `${result.modelCount} models up to date`
+                      ? `Found ${result.newModels.length.toString()} new: ${result.newModels.join(', ')}`
+                      : `${result.modelCount.toString()} models up to date`
                     setRefreshStatus({ message: msg, type: 'success' })
                   } else {
                     setRefreshStatus({
@@ -349,6 +349,7 @@ export function AgentTab() {
                         {provider.cliPath && (() => {
                           const update = cliUpdates[provider.id]
                           const isChecking = checkingUpdate[provider.id]
+                          const updateCommand = update?.updateCommand
                           return (
                             <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
                               {isChecking ? (
@@ -366,15 +367,15 @@ export function AgentTab() {
                                     <>
                                       <span className="text-text-secondary">→</span>
                                       <span className="font-mono text-yellow-400">{update.latestVersion}</span>
-                                      {update.updateCommand && (
+                                      {updateCommand && (
                                         <button
                                           onClick={() => {
-                                            void navigator.clipboard.writeText(update.updateCommand!)
+                                            void navigator.clipboard.writeText(updateCommand)
                                             setCopiedCmd(provider.id)
                                             setTimeout(() => { setCopiedCmd(null) }, 2000)
                                           }}
                                           className="ml-0.5 rounded border border-yellow-500/30 px-1 py-0.5 text-[10px] text-yellow-400 transition-colors hover:bg-yellow-500/10"
-                                          title={update.updateCommand}
+                                          title={updateCommand}
                                         >
                                           {copiedCmd === provider.id ? '✓ copied' : (
                                             <span className="flex items-center gap-1">
@@ -420,13 +421,13 @@ export function AgentTab() {
 
                     {/* Available Models with toggles */}
                     {providerModels.length > 0 && (() => {
-                      const disabledSet = new Set(model.disabledModels ?? [])
+                      const disabledSet = new Set(model.disabledModels)
                       const enabledCount = providerModels.filter((m) => !disabledSet.has(m.id)).length
                       const allEnabled = enabledCount === providerModels.length
                       const noneEnabled = enabledCount === 0
 
                       const toggleModel = (modelId: string) => {
-                        const current = new Set(model.disabledModels ?? [])
+                        const current = new Set(model.disabledModels)
                         if (current.has(modelId)) {
                           current.delete(modelId)
                         } else {
@@ -438,12 +439,12 @@ export function AgentTab() {
                       const toggleAll = (enable: boolean) => {
                         if (enable) {
                           // Remove all this provider's models from disabled
-                          const current = new Set(model.disabledModels ?? [])
+                          const current = new Set(model.disabledModels)
                           for (const m of providerModels) current.delete(m.id)
                           updateGlobal('model', { ...model, disabledModels: [...current] })
                         } else {
                           // Add all this provider's models to disabled
-                          const current = new Set(model.disabledModels ?? [])
+                          const current = new Set(model.disabledModels)
                           for (const m of providerModels) current.add(m.id)
                           updateGlobal('model', { ...model, disabledModels: [...current] })
                         }

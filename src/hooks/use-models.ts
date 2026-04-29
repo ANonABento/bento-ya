@@ -53,7 +53,7 @@ export function useModels(provider?: string): UseModelsResult {
       }
       setModels(filtered)
       setLastFetched(cache.lastFetched || null)
-      setSource(cache.source ?? 'built-in')
+      setSource(cache.source)
     },
     [provider],
   )
