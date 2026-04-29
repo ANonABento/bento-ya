@@ -84,6 +84,13 @@ pub fn create_task_branch_with_prefix(
     Ok(branch_name)
 }
 
+/// Return whether a local branch exists in the repository.
+pub fn branch_exists(repo_path: &str, branch_name: &str) -> Result<bool, String> {
+    let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
+    let exists = repo.find_branch(branch_name, BranchType::Local).is_ok();
+    Ok(exists)
+}
+
 fn is_working_tree_dirty(repo: &Repository) -> Result<bool, git2::Error> {
     let statuses = repo.statuses(None)?;
     Ok(!statuses.is_empty())
@@ -450,7 +457,17 @@ mod tests {
     fn init_test_repo(path: &std::path::Path) {
         use std::process::Command;
         Command::new("git")
-            .args(["init", "-q"])
+            .args(["init", "-q", "-b", "main"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "init.defaultBranch", "main"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["init", "-q", "--initial-branch=main"])
             .current_dir(path)
             .output()
             .unwrap();
@@ -536,6 +553,22 @@ mod tests {
 
         let repo = Repository::open(&tmp).unwrap();
         assert!(repo.find_branch(&branch, BranchType::Local).is_ok());
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_branch_exists_reports_local_branch_presence() {
+        let tmp =
+            std::env::temp_dir().join(format!("bentoya-branch-exists-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        init_test_repo(&tmp);
+
+        let repo_path = tmp.to_str().unwrap();
+        assert!(branch_exists(repo_path, "main").unwrap());
+        assert!(!branch_exists(repo_path, "bentoya/missing-task").unwrap());
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

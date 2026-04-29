@@ -76,7 +76,7 @@ pub fn update_column(
                 Ok(_) => {} // Valid
                 Err(e) => {
                     return Err(AppError::InvalidInput(format!(
-                        "Invalid trigger configuration: {}. Check that trigger types match: spawn_cli, move_column, trigger_task, run_script (requires script_id), create_pr, none.",
+                        "Invalid trigger configuration: {}. Check that trigger types match: auto_setup, spawn_cli, move_column, trigger_task, run_script (requires script_id), create_pr, none.",
                         e
                     )));
                 }

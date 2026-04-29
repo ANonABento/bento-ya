@@ -112,7 +112,7 @@ pub fn scan_workspace_files(repo_path: String) -> Result<Vec<FileEntry>, AppErro
     }
 
     // Sort by modified_at descending (most recent first)
-    files.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
+    files.sort_by_key(|f| std::cmp::Reverse(f.modified_at));
 
     Ok(files)
 }

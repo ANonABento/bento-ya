@@ -60,6 +60,8 @@ pub struct Task {
     pub agent_status: Option<String>,
     pub queued_at: Option<String>,
     pub branch_name: Option<String>,
+    /// Batch identifier used to group related pipeline PRs.
+    pub batch_id: Option<String>,
     pub files_touched: String,
     pub checklist: Option<String>,
     pub pipeline_state: String,

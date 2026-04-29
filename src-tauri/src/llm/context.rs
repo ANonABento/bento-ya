@@ -347,6 +347,7 @@ mod tests {
             priority: "medium".to_string(),
             agent_mode: None,
             branch_name: None,
+            batch_id: None,
             files_touched: "[]".to_string(),
             checklist: None,
             pipeline_state: "idle".to_string(),

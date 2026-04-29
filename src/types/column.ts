@@ -1,6 +1,6 @@
 // ─── Action Types ───────────────────────────────────────────────────────────
 
-export type ActionType = 'spawn_cli' | 'move_column' | 'trigger_task' | 'run_script' | 'create_pr' | 'none'
+export type ActionType = 'auto_setup' | 'spawn_cli' | 'move_column' | 'trigger_task' | 'run_script' | 'create_pr' | 'none'
 
 export type CliType = 'claude' | 'codex' | 'aider'
 export type TriggerTaskActionType = 'move_column' | 'start' | 'unblock'
@@ -25,6 +25,10 @@ export interface SpawnCliAction {
   use_queue?: boolean
   /** AI model override (opus, sonnet, haiku) */
   model?: string
+}
+
+export interface AutoSetupAction {
+  type: 'auto_setup'
 }
 
 export interface MoveColumnAction {
@@ -59,7 +63,7 @@ export interface NoneAction {
   type: 'none'
 }
 
-export type TriggerAction = SpawnCliAction | MoveColumnAction | TriggerTaskAction | RunScriptAction | CreatePrAction | NoneAction
+export type TriggerAction = AutoSetupAction | SpawnCliAction | MoveColumnAction | TriggerTaskAction | RunScriptAction | CreatePrAction | NoneAction
 
 // ─── Exit Criteria ──────────────────────────────────────────────────────────
 

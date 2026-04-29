@@ -2,7 +2,7 @@ import type { AgentMode, AgentStatus } from './agent'
 
 export type PipelineState = 'idle' | 'triggered' | 'running' | 'evaluating' | 'advancing'
 
-export type ReviewStatus = 'pending' | 'approved' | 'rejected'
+export type ReviewStatus = 'pending' | 'approved' | 'rejected' | 'needs-manual-review'
 
 export type PrMergeable = 'mergeable' | 'conflicted' | 'unknown'
 export type PrCiStatus = 'pending' | 'success' | 'failure' | 'error'
@@ -26,6 +26,7 @@ export type Task = {
   agentMode: AgentMode | null
   agentStatus: AgentStatus | null
   queuedAt: string | null
+  batchId?: string | null
   pipelineState: PipelineState
   pipelineTriggeredAt: string | null
   pipelineError: string | null

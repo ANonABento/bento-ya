@@ -3,8 +3,13 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use super::models::Task;
 use super::{new_id, now};
 
-/// Shared SELECT columns for tasks (45 fields).
-const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path";
+/// Shared SELECT columns for tasks (46 fields).
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id";
+
+/// Generate a sortable task batch identifier for staging PR workflows.
+pub fn generate_batch_id() -> String {
+    format!("batch-{}", chrono::Utc::now().format("%Y%m%d%H%M%S%3f"))
+}
 
 /// Map a database row to a Task struct.
 fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
@@ -20,6 +25,7 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         agent_status: row.get(40)?,
         queued_at: row.get(41)?,
         branch_name: row.get(8)?,
+        batch_id: row.get(45)?,
         files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
         checklist: row.get(10)?,
         pipeline_state: row
@@ -241,6 +247,34 @@ pub fn update_task_branch(
         params![branch_name, ts, id],
     )?;
     get_task(conn, id)
+}
+
+/// Update batch_id for a task.
+pub fn update_task_batch_id(
+    conn: &Connection,
+    id: &str,
+    batch_id: Option<&str>,
+) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET batch_id = ?1, updated_at = ?2 WHERE id = ?3",
+        params![batch_id, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// List tasks in a batch.
+pub fn list_tasks_by_batch_id(
+    conn: &Connection,
+    workspace_id: &str,
+    batch_id: &str,
+) -> SqlResult<Vec<Task>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM tasks WHERE workspace_id = ?1 AND batch_id = ?2 ORDER BY created_at ASC",
+        TASK_COLUMNS
+    ))?;
+    let rows = stmt.query_map(params![workspace_id, batch_id], map_task_row)?;
+    rows.collect()
 }
 
 /// Update worktree_path for a task

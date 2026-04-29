@@ -22,7 +22,7 @@ export function CreatePrActionEditor({
         className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
       />
       <p className="mt-1.5 text-xs text-text-secondary">
-        Task must have a branch_name set. PR title and body come from task title and description.
+        Task PRs target staging/&lt;batch_id&gt;. This branch is the final merge target.
       </p>
     </div>
   )

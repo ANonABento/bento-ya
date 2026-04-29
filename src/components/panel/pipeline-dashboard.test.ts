@@ -127,6 +127,15 @@ describe('filterActiveTasks', () => {
     expect(result.map((t) => t.id)).toEqual(['t2', 't3', 't4', 't5'])
   })
 
+  it('excludes failed tasks from active results', () => {
+    const tasks = [
+      makeTask({ id: 't1', pipelineState: 'running', pipelineError: 'agent failed' }),
+      makeTask({ id: 't2', pipelineState: 'running', pipelineError: null }),
+    ]
+    const result = filterActiveTasks(tasks)
+    expect(result.map((t) => t.id)).toEqual(['t2'])
+  })
+
   it('returns empty for all idle', () => {
     const tasks = [makeTask({ pipelineState: 'idle' })]
     expect(filterActiveTasks(tasks)).toEqual([])
@@ -204,5 +213,9 @@ describe('formatElapsed', () => {
 
   it('returns 0s for future date', () => {
     expect(formatElapsed('2026-01-01T02:00:00Z')).toBe('0s')
+  })
+
+  it('returns 0s for invalid dates', () => {
+    expect(formatElapsed('not-a-date')).toBe('0s')
   })
 })

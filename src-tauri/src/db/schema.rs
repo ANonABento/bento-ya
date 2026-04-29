@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     priority TEXT NOT NULL DEFAULT 'medium',
     agent_mode TEXT,
     branch_name TEXT,
+    batch_id TEXT,
     files_touched TEXT DEFAULT '[]',
     checklist TEXT,
     created_at TEXT NOT NULL,

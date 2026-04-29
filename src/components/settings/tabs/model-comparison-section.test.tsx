@@ -103,12 +103,14 @@ describe('ModelComparisonSection', () => {
     render(<ModelComparisonSection models={models} />)
     fireEvent.click(screen.getByRole('button', { name: /model comparison/i }))
 
-    const row = await screen.findByRole('row', { name: /claude sonnet 4\.6/i })
-    const cells = within(row).getAllByRole('cell')
+    await waitFor(() => {
+      const row = screen.getByRole('row', { name: /claude sonnet 4\.6/i })
+      const cells = within(row).getAllByRole('cell')
 
-    expect(cells.map((cell) => cell.textContent)).toEqual(
-      expect.arrayContaining(['2', '3.0K', '$0.03']),
-    )
+      expect(cells.map((cell) => cell.textContent)).toEqual(
+        expect.arrayContaining(['2', '3.0K', '$0.03']),
+      )
+    })
   })
 
   it('shows no-workspace state without calling usage IPC', () => {

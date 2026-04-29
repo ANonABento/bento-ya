@@ -1,5 +1,13 @@
 import type { Task, Column } from '@/types'
 
+function hasPipelineError(task: Task): boolean {
+  return Boolean(task.pipelineError?.trim())
+}
+
+function hasPullRequest(task: Task): boolean {
+  return Boolean(task.prUrl?.trim())
+}
+
 export function computeProgress(columnId: string, sortedColumns: Column[]): number {
   if (sortedColumns.length === 0) return 0
   const index = sortedColumns.findIndex((c) => c.id === columnId)
@@ -9,16 +17,16 @@ export function computeProgress(columnId: string, sortedColumns: Column[]): numb
 }
 
 export function filterActiveTasks(tasks: Task[]): Task[] {
-  return tasks.filter((t) => t.pipelineState !== 'idle')
+  return tasks.filter((t) => t.pipelineState !== 'idle' && !hasPipelineError(t))
 }
 
 export function filterFailedTasks(tasks: Task[]): Task[] {
-  return tasks.filter((t) => t.pipelineError !== null && t.pipelineError !== '')
+  return tasks.filter(hasPipelineError)
 }
 
 export function filterRecentCompletions(tasks: Task[], n: number): Task[] {
   return tasks
-    .filter((t) => t.prUrl !== null && t.prUrl !== '')
+    .filter(hasPullRequest)
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     .slice(0, n)
 }
@@ -29,11 +37,11 @@ export function computeBatchStats(tasks: Task[]): { active: number; complete: nu
   let failed = 0
 
   for (const t of tasks) {
-    if (t.pipelineError) {
+    if (hasPipelineError(t)) {
       failed++
     } else if (t.pipelineState !== 'idle') {
       active++
-    } else if (t.prUrl) {
+    } else if (hasPullRequest(t)) {
       complete++
     }
   }
@@ -43,10 +51,12 @@ export function computeBatchStats(tasks: Task[]): { active: number; complete: nu
 
 export function formatElapsed(startDateStr: string): string {
   const start = new Date(startDateStr).getTime()
+  if (Number.isNaN(start)) return '0s'
+
   const now = Date.now()
   const diffSec = Math.max(0, Math.floor((now - start) / 1000))
 
-  if (diffSec < 60) return `${diffSec}s`
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m`
-  return `${Math.floor(diffSec / 3600)}h`
+  if (diffSec < 60) return `${String(diffSec)}s`
+  if (diffSec < 3600) return `${String(Math.floor(diffSec / 60))}m`
+  return `${String(Math.floor(diffSec / 3600))}h`
 }
