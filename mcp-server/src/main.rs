@@ -77,6 +77,7 @@ fn read_api_port() -> Option<u16> {
 /// Check if the Bento-ya app is running and its API is reachable.
 /// Verifies response body contains {"status":"ok"} to avoid false positives
 /// from a different process on a stale port.
+#[cfg(not(test))]
 fn is_app_running() -> bool {
     let port = match read_api_port() {
         Some(p) => p,
@@ -1938,7 +1939,7 @@ mod tests {
             "column": "Done"
         }));
         assert!(result.get("error").is_none(), "Got error: {:?}", result);
-        assert_eq!(result["message"].as_str().unwrap().contains("Done"), true);
+        assert!(result["message"].as_str().unwrap().contains("Done"));
 
         // Verify task moved
         let task: String = conn.query_row(

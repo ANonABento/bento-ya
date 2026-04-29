@@ -44,7 +44,7 @@ function toCapability(entry: ModelEntry): ModelCapability {
     name: entry.displayName,
     description,
     supportsExtendedContext: entry.supportsExtendedContext,
-    contextWindow: `${Math.round(entry.contextWindow / 1000)}k`,
+    contextWindow: `${String(Math.round(entry.contextWindow / 1000))}k`,
     maxEffort: effort,
     available: true,
   }
