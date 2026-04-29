@@ -398,7 +398,8 @@ impl PrePrCheckCommand {
     }
 }
 
-fn detect_pre_pr_check_command(repo_path: &Path) -> Option<PrePrCheckCommand> {
+fn detect_pre_pr_check_commands(repo_path: &Path) -> Vec<PrePrCheckCommand> {
+    let mut commands = Vec::new();
     let package_json_path = repo_path.join("package.json");
     if let Ok(package_json) = std::fs::read_to_string(&package_json_path) {
         let has_type_check_script = serde_json::from_str::<serde_json::Value>(&package_json)
@@ -412,52 +413,61 @@ fn detect_pre_pr_check_command(repo_path: &Path) -> Option<PrePrCheckCommand> {
             .unwrap_or(false);
 
         if has_type_check_script {
-            return Some(PrePrCheckCommand::NpmTypeCheck);
+            commands.push(PrePrCheckCommand::NpmTypeCheck);
         }
     }
 
     if repo_path.join("Cargo.toml").exists() {
-        return Some(PrePrCheckCommand::CargoCheck);
+        commands.push(PrePrCheckCommand::CargoCheck);
     }
 
-    None
+    commands
 }
 
 fn run_pre_pr_check(repo_path: &Path) -> Result<(), String> {
-    let check_command = detect_pre_pr_check_command(repo_path).ok_or_else(|| {
-        "No pre-PR type-check command found (expected package.json with scripts.type-check or Cargo.toml)"
-            .to_string()
-    })?;
-    let (program, args) = check_command.command();
-
-    log::info!(
-        "[create_pr] Running pre-PR check: {}",
-        check_command.display()
-    );
-
-    let output = std::process::Command::new(program)
-        .args(args)
-        .current_dir(repo_path)
-        .output()
-        .map_err(|e| format!("Failed to run {}: {}", check_command.display(), e))?;
-
-    if output.status.success() {
-        return Ok(());
+    let check_commands = detect_pre_pr_check_commands(repo_path);
+    if check_commands.is_empty() {
+        return Err(concat!(
+            "No pre-PR type-check command found ",
+            "(expected package.json with scripts.type-check or Cargo.toml)"
+        )
+        .to_string());
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let detail = if !stderr.trim().is_empty() {
-        stderr.trim()
-    } else {
-        stdout.trim()
-    };
-    let detail = detail.chars().take(2000).collect::<String>();
-    Err(format!(
-        "Pre-PR check failed ({}): {}",
-        check_command.display(),
-        detail
-    ))
+    for check_command in check_commands {
+        let (program, args) = check_command.command();
+
+        log::info!(
+            "[create_pr] Running pre-PR check: {}",
+            check_command.display()
+        );
+
+        let output = std::process::Command::new(program)
+            .args(args)
+            .current_dir(repo_path)
+            .output()
+            .map_err(|e| format!("Failed to run {}: {}", check_command.display(), e))?;
+
+        if output.status.success() {
+            continue;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = if !stderr.trim().is_empty() {
+            stderr.trim()
+        } else {
+            stdout.trim()
+        };
+        let detail = detail.chars().take(2000).collect::<String>();
+        return Err(format!(
+            "Pre-PR check failed ({}): {}",
+            check_command.display(),
+            detail
+        ));
+    }
+
+    Ok(())
 }
 
 fn resolve_model_override(
@@ -1491,8 +1501,8 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_pre_pr_check_prefers_npm_type_check() {
-        let repo = temp_repo("npm");
+    fn test_detect_pre_pr_check_runs_npm_and_cargo_for_mixed_workspace() {
+        let repo = temp_repo("mixed");
         std::fs::write(
             repo.join("package.json"),
             r#"{"scripts":{"type-check":"tsc --noEmit"}}"#,
@@ -1501,8 +1511,28 @@ mod tests {
         std::fs::write(repo.join("Cargo.toml"), "[package]\nname = \"test\"\n").unwrap();
 
         assert_eq!(
-            detect_pre_pr_check_command(&repo),
-            Some(PrePrCheckCommand::NpmTypeCheck)
+            detect_pre_pr_check_commands(&repo),
+            vec![
+                PrePrCheckCommand::NpmTypeCheck,
+                PrePrCheckCommand::CargoCheck
+            ]
+        );
+
+        std::fs::remove_dir_all(repo).unwrap();
+    }
+
+    #[test]
+    fn test_detect_pre_pr_check_uses_npm_type_check_without_cargo() {
+        let repo = temp_repo("npm");
+        std::fs::write(
+            repo.join("package.json"),
+            r#"{"scripts":{"type-check":"tsc --noEmit"}}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            detect_pre_pr_check_commands(&repo),
+            vec![PrePrCheckCommand::NpmTypeCheck]
         );
 
         std::fs::remove_dir_all(repo).unwrap();
@@ -1519,8 +1549,8 @@ mod tests {
         std::fs::write(repo.join("Cargo.toml"), "[package]\nname = \"test\"\n").unwrap();
 
         assert_eq!(
-            detect_pre_pr_check_command(&repo),
-            Some(PrePrCheckCommand::CargoCheck)
+            detect_pre_pr_check_commands(&repo),
+            vec![PrePrCheckCommand::CargoCheck]
         );
 
         std::fs::remove_dir_all(repo).unwrap();
@@ -1530,7 +1560,7 @@ mod tests {
     fn test_detect_pre_pr_check_returns_none_without_known_workspace() {
         let repo = temp_repo("none");
 
-        assert_eq!(detect_pre_pr_check_command(&repo), None);
+        assert_eq!(detect_pre_pr_check_commands(&repo), Vec::new());
 
         std::fs::remove_dir_all(repo).unwrap();
     }
