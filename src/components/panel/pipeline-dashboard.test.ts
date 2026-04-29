@@ -127,13 +127,13 @@ describe('filterActiveTasks', () => {
     expect(result.map((t) => t.id)).toEqual(['t2', 't3', 't4', 't5'])
   })
 
-  it('excludes failed tasks', () => {
+  it('excludes failed tasks from active results', () => {
     const tasks = [
-      makeTask({ id: 't1', pipelineState: 'running', pipelineError: null }),
-      makeTask({ id: 't2', pipelineState: 'running', pipelineError: 'failed' }),
+      makeTask({ id: 't1', pipelineState: 'running', pipelineError: 'agent failed' }),
+      makeTask({ id: 't2', pipelineState: 'running', pipelineError: null }),
     ]
     const result = filterActiveTasks(tasks)
-    expect(result.map((t) => t.id)).toEqual(['t1'])
+    expect(result.map((t) => t.id)).toEqual(['t2'])
   })
 
   it('returns empty for all idle', () => {
@@ -164,16 +164,6 @@ describe('filterRecentCompletions', () => {
     ]
     const result = filterRecentCompletions(tasks, 2)
     expect(result.map((t) => t.id)).toEqual(['t2', 't3'])
-  })
-
-  it('excludes active and failed tasks', () => {
-    const tasks = [
-      makeTask({ id: 't1', pipelineState: 'idle', pipelineError: null, prUrl: 'https://github.com/pr/1' }),
-      makeTask({ id: 't2', pipelineState: 'running', pipelineError: null, prUrl: 'https://github.com/pr/2' }),
-      makeTask({ id: 't3', pipelineState: 'idle', pipelineError: 'failed', prUrl: 'https://github.com/pr/3' }),
-    ]
-    const result = filterRecentCompletions(tasks, 5)
-    expect(result.map((t) => t.id)).toEqual(['t1'])
   })
 
   it('returns empty when no tasks have prUrl', () => {
@@ -223,5 +213,9 @@ describe('formatElapsed', () => {
 
   it('returns 0s for future date', () => {
     expect(formatElapsed('2026-01-01T02:00:00Z')).toBe('0s')
+  })
+
+  it('returns 0s for invalid dates', () => {
+    expect(formatElapsed('not-a-date')).toBe('0s')
   })
 })

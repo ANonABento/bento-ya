@@ -25,6 +25,8 @@ export function ActionEditor({
   const handleTypeChange = (type: ActionType) => {
     if (type === 'none') {
       setAction({ type: 'none' })
+    } else if (type === 'auto_setup') {
+      setAction({ type: 'auto_setup' })
     } else if (type === 'run_script') {
       setAction({ type: 'run_script', script_id: '' })
     } else if (type === 'spawn_cli') {

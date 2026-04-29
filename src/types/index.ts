@@ -4,6 +4,7 @@ export type {
   Column,
   ColumnTriggers,
   TriggerAction,
+  AutoSetupAction,
   SpawnCliAction,
   MoveColumnAction,
   TriggerTaskAction,
