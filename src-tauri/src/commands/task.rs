@@ -789,7 +789,7 @@ pub async fn queue_backlog(
 
     // Set queued_at and shared batch_id on each task
     let ts = db::now();
-    let batch_id = format!("batch-{}", chrono::Utc::now().format("%Y%m%d%H%M%S%3f"));
+    let batch_id = db::generate_batch_id();
     let mut queued_tasks = Vec::new();
     for task in &to_queue {
         conn.execute(

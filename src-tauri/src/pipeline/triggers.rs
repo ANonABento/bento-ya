@@ -398,10 +398,6 @@ fn non_empty_trimmed(value: &str) -> Option<&str> {
     }
 }
 
-fn generate_batch_id() -> String {
-    format!("batch-{}", chrono::Utc::now().format("%Y%m%d%H%M%S%3f"))
-}
-
 fn normalize_batch_id(value: &str) -> Option<String> {
     let raw = value
         .trim()
@@ -440,7 +436,7 @@ fn normalize_batch_id(value: &str) -> Option<String> {
 }
 
 fn staging_branch_for_batch(batch_id: &str) -> String {
-    let batch_id = normalize_batch_id(batch_id).unwrap_or_else(generate_batch_id);
+    let batch_id = normalize_batch_id(batch_id).unwrap_or_else(db::generate_batch_id);
     format!("{}{}", STAGING_BRANCH_PREFIX, batch_id)
 }
 
@@ -457,7 +453,7 @@ fn ensure_task_batch_id(conn: &Connection, task: &Task) -> Result<Task, AppError
         return Ok(db::update_task_batch_id(conn, &task.id, Some(&batch_id))?);
     }
 
-    let batch_id = generate_batch_id();
+    let batch_id = db::generate_batch_id();
     Ok(db::update_task_batch_id(conn, &task.id, Some(&batch_id))?)
 }
 
@@ -1151,6 +1147,52 @@ fn maybe_create_batch_pr(
     ))
 }
 
+fn push_task_branch(repo_path: &str, branch_name: &str) -> Result<(), String> {
+    let output = run_command(repo_path, "git", &["push", "-u", "origin", branch_name])?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = command_stderr(&output);
+    if stderr.contains("up-to-date") || stderr.contains("already exists") {
+        return Ok(());
+    }
+
+    // Safety: only force-push Bento task branches, never main/master or user branches.
+    if !branch_name.starts_with("bentoya/") {
+        return Err(format!(
+            "git push failed (force-push not allowed on '{}'): {}",
+            branch_name, stderr
+        ));
+    }
+
+    log::warn!(
+        "[pipeline] Regular push failed, trying force-push: {}",
+        stderr
+    );
+    let force_output = run_command(
+        repo_path,
+        "git",
+        &["push", "-u", "origin", branch_name, "--force"],
+    )?;
+    if !force_output.status.success() {
+        return Err(format!(
+            "git push --force failed: {}",
+            command_stderr(&force_output)
+        ));
+    }
+
+    Ok(())
+}
+
+fn parse_pr_number(pr_url: &str) -> Result<i64, String> {
+    pr_url
+        .rsplit('/')
+        .next()
+        .and_then(|s| s.parse::<i64>().ok())
+        .ok_or_else(|| format!("Failed to parse PR number from URL: {}", pr_url))
+}
+
 fn maybe_create_ready_batch_pr(
     conn: &Connection,
     repo_path: &str,
@@ -1187,7 +1229,7 @@ fn execute_create_pr(
         .batch_id
         .as_deref()
         .and_then(normalize_batch_id)
-        .unwrap_or_else(generate_batch_id);
+        .unwrap_or_else(db::generate_batch_id);
     let final_base = base_branch.unwrap_or("main").to_string();
     let staging_branch = staging_branch_for_batch(&batch_id);
     let repo_path = resolve_working_dir(&task, &workspace.repo_path);
@@ -1269,48 +1311,13 @@ fn execute_create_pr(
         let result = tokio::task::spawn_blocking(move || -> Result<(i64, String), String> {
             ensure_staging_branch(&pr_repo_path, &pr_staging_branch, &pr_final_base)?;
 
-            // Push branch to remote first (gh pr create requires the branch to exist on remote)
-            let push_output = std::process::Command::new("git")
-                .args(["push", "-u", "origin", &pr_branch_name])
-                .current_dir(&pr_repo_path)
-                .output()
-                .map_err(|e| format!("Failed to push branch: {}", e))?;
+            // gh pr create requires the branch to exist on remote.
+            push_task_branch(&pr_repo_path, &pr_branch_name)?;
 
-            if !push_output.status.success() {
-                let stderr = String::from_utf8_lossy(&push_output.stderr);
-                // "Everything up-to-date" is not an error
-                if !stderr.contains("up-to-date") && !stderr.contains("already exists") {
-                    // Fallback: force-push if regular push fails (e.g. stale remote branch)
-                    // Safety: only force-push bentoya/* branches, never main/master
-                    if pr_branch_name.starts_with("bentoya/") {
-                        log::warn!(
-                            "[pipeline] Regular push failed, trying force-push: {}",
-                            stderr.trim()
-                        );
-                        let force_output = std::process::Command::new("git")
-                            .args(["push", "-u", "origin", &pr_branch_name, "--force"])
-                            .current_dir(&pr_repo_path)
-                            .output()
-                            .map_err(|e| format!("Failed to force-push branch: {}", e))?;
-                        if !force_output.status.success() {
-                            let force_stderr = String::from_utf8_lossy(&force_output.stderr);
-                            return Err(format!(
-                                "git push --force failed: {}",
-                                force_stderr.trim()
-                            ));
-                        }
-                    } else {
-                        return Err(format!(
-                            "git push failed (force-push not allowed on '{}'): {}",
-                            pr_branch_name,
-                            stderr.trim()
-                        ));
-                    }
-                }
-            }
-
-            let output = std::process::Command::new("gh")
-                .args([
+            let output = run_command(
+                &pr_repo_path,
+                "gh",
+                &[
                     "pr",
                     "create",
                     "--title",
@@ -1321,23 +1328,15 @@ fn execute_create_pr(
                     &pr_staging_branch,
                     "--head",
                     &pr_branch_name,
-                ])
-                .current_dir(&pr_repo_path)
-                .output()
-                .map_err(|e| format!("Failed to run gh CLI: {}", e))?;
+                ],
+            )?;
 
             if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("gh pr create failed: {}", stderr));
+                return Err(format!("gh pr create failed: {}", command_stderr(&output)));
             }
 
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let pr_url = stdout.trim().to_string();
-            let pr_number = pr_url
-                .rsplit('/')
-                .next()
-                .and_then(|s| s.parse::<i64>().ok())
-                .ok_or_else(|| format!("Failed to parse PR number from URL: {}", pr_url))?;
+            let pr_url = command_stdout(&output);
+            let pr_number = parse_pr_number(&pr_url)?;
 
             Ok((pr_number, pr_url))
         })
