@@ -127,6 +127,15 @@ describe('filterActiveTasks', () => {
     expect(result.map((t) => t.id)).toEqual(['t2', 't3', 't4', 't5'])
   })
 
+  it('excludes failed tasks', () => {
+    const tasks = [
+      makeTask({ id: 't1', pipelineState: 'running', pipelineError: null }),
+      makeTask({ id: 't2', pipelineState: 'running', pipelineError: 'failed' }),
+    ]
+    const result = filterActiveTasks(tasks)
+    expect(result.map((t) => t.id)).toEqual(['t1'])
+  })
+
   it('returns empty for all idle', () => {
     const tasks = [makeTask({ pipelineState: 'idle' })]
     expect(filterActiveTasks(tasks)).toEqual([])
@@ -155,6 +164,16 @@ describe('filterRecentCompletions', () => {
     ]
     const result = filterRecentCompletions(tasks, 2)
     expect(result.map((t) => t.id)).toEqual(['t2', 't3'])
+  })
+
+  it('excludes active and failed tasks', () => {
+    const tasks = [
+      makeTask({ id: 't1', pipelineState: 'idle', pipelineError: null, prUrl: 'https://github.com/pr/1' }),
+      makeTask({ id: 't2', pipelineState: 'running', pipelineError: null, prUrl: 'https://github.com/pr/2' }),
+      makeTask({ id: 't3', pipelineState: 'idle', pipelineError: 'failed', prUrl: 'https://github.com/pr/3' }),
+    ]
+    const result = filterRecentCompletions(tasks, 5)
+    expect(result.map((t) => t.id)).toEqual(['t1'])
   })
 
   it('returns empty when no tasks have prUrl', () => {

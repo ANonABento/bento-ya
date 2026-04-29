@@ -9,7 +9,7 @@ export function computeProgress(columnId: string, sortedColumns: Column[]): numb
 }
 
 export function filterActiveTasks(tasks: Task[]): Task[] {
-  return tasks.filter((t) => t.pipelineState !== 'idle')
+  return tasks.filter((t) => t.pipelineState !== 'idle' && !t.pipelineError)
 }
 
 export function filterFailedTasks(tasks: Task[]): Task[] {
@@ -18,7 +18,7 @@ export function filterFailedTasks(tasks: Task[]): Task[] {
 
 export function filterRecentCompletions(tasks: Task[], n: number): Task[] {
   return tasks
-    .filter((t) => t.prUrl !== null && t.prUrl !== '')
+    .filter((t) => t.pipelineState === 'idle' && !t.pipelineError && t.prUrl !== null && t.prUrl !== '')
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     .slice(0, n)
 }
