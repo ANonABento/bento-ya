@@ -22,6 +22,7 @@ use super::{emit_pipeline, PipelineState, EVT_ADVANCED, EVT_RUNNING, EVT_TRIGGER
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TriggerActionV2 {
+    AutoSetup,
     SpawnCli {
         #[serde(default)]
         cli: Option<String>,
@@ -339,6 +340,7 @@ fn execute_action(
             flags.as_deref(),
             model.as_deref(),
         ),
+        TriggerActionV2::AutoSetup => execute_auto_setup(conn, app, task, column),
         TriggerActionV2::MoveColumn { target } => execute_move_column(conn, app, task, target),
         TriggerActionV2::TriggerTask {
             target_task,
@@ -404,6 +406,7 @@ fn ensure_task_worktree(
     task: &Task,
     repo_path: &str,
     settings: &EffectivePipelineSettings,
+    base_branch: Option<&str>,
 ) -> Result<Task, AppError> {
     let mut task = task.clone();
 
@@ -413,7 +416,7 @@ fn ensure_task_worktree(
         match branch_manager::create_task_branch_with_prefix(
             repo_path,
             &slug,
-            None,
+            base_branch,
             &settings.branch_prefix,
         ) {
             Ok(branch_name) => {
@@ -474,6 +477,88 @@ fn ensure_task_worktree(
 
 /// Default max concurrent agents per workspace (when not configured in workspace settings).
 pub const DEFAULT_MAX_CONCURRENT_AGENTS: i64 = config::DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS;
+
+fn execute_auto_setup(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    column: &Column,
+) -> Result<Task, AppError> {
+    let workspace = db::get_workspace(conn, &task.workspace_id)?;
+    if workspace.repo_path.trim().is_empty() {
+        return super::handle_trigger_failure(
+            conn,
+            app,
+            task,
+            column,
+            "Cannot auto-setup task: workspace has no repo_path",
+        );
+    }
+
+    let repo_path = std::path::Path::new(&workspace.repo_path);
+    if !repo_path.exists() {
+        return super::handle_trigger_failure(
+            conn,
+            app,
+            task,
+            column,
+            &format!(
+                "Cannot auto-setup task: repo_path does not exist: {}",
+                workspace.repo_path
+            ),
+        );
+    }
+
+    let pipeline_settings = config::effective_pipeline_settings(&workspace.config);
+    let setup_task = ensure_task_worktree(
+        conn,
+        app,
+        task,
+        &workspace.repo_path,
+        &pipeline_settings,
+        Some("main"),
+    )?;
+
+    if setup_task.branch_name.as_deref().unwrap_or("").is_empty() {
+        return super::handle_trigger_failure(
+            conn,
+            app,
+            &setup_task,
+            column,
+            "Cannot auto-setup task: branch_name was not created",
+        );
+    }
+
+    let worktree_path = setup_task.worktree_path.as_deref().unwrap_or("");
+    if worktree_path.is_empty() || !std::path::Path::new(worktree_path).exists() {
+        return super::handle_trigger_failure(
+            conn,
+            app,
+            &setup_task,
+            column,
+            "Cannot auto-setup task: worktree_path was not created",
+        );
+    }
+
+    let setup_task = db::update_task_pipeline_state(
+        conn,
+        &setup_task.id,
+        PipelineState::Advancing.as_str(),
+        None,
+        None,
+    )?;
+
+    emit_pipeline(
+        app,
+        EVT_ADVANCED,
+        &setup_task.id,
+        &column.id,
+        PipelineState::Advancing,
+        Some("Auto setup complete".to_string()),
+    );
+
+    execute_move_column(conn, app, &setup_task, "next")
+}
 
 #[allow(clippy::too_many_arguments)]
 fn execute_spawn_cli(
@@ -536,6 +621,7 @@ fn execute_spawn_cli(
             &fresh_task,
             &workspace.repo_path,
             &pipeline_settings,
+            None,
         )?
     } else {
         task.clone()
@@ -1682,6 +1768,7 @@ mod tests {
     #[test]
     fn test_trigger_action_serde_roundtrip_all_variants() {
         let variants = vec![
+            r#"{"type":"auto_setup"}"#,
             r#"{"type":"spawn_cli","cli":"claude","command":"/start-task"}"#,
             r#"{"type":"move_column","target":"next"}"#,
             r#"{"type":"trigger_task","target_task":"task-123","action":"unblock"}"#,

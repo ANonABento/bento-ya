@@ -37,7 +37,7 @@ describe('getColumnTriggers', () => {
 
   it('should parse and return triggers when column has JSON string', () => {
     const triggers = {
-      on_entry: { type: 'spawn_cli' },
+      on_entry: { type: 'auto_setup' },
       on_exit: { type: 'none' },
       exit_criteria: { type: 'agent_complete', auto_advance: true },
     }
