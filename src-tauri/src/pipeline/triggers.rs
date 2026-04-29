@@ -1486,83 +1486,89 @@ mod tests {
         (conn, ws, col1, col2, col3)
     }
 
-    fn temp_repo(name: &str) -> std::path::PathBuf {
-        let unique = format!(
-            "bentoya-triggers-{}-{}",
-            name,
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        let path = std::env::temp_dir().join(unique);
-        std::fs::create_dir_all(&path).unwrap();
-        path
+    struct TestRepo {
+        path: std::path::PathBuf,
+    }
+
+    impl TestRepo {
+        fn new(name: &str) -> Self {
+            let unique = format!(
+                "bentoya-triggers-{}-{}",
+                name,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            );
+            let path = std::env::temp_dir().join(unique);
+            std::fs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.path
+        }
+
+        fn write(&self, file_name: &str, contents: &str) {
+            std::fs::write(self.path.join(file_name), contents).unwrap();
+        }
+    }
+
+    impl Drop for TestRepo {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
     }
 
     #[test]
     fn test_detect_pre_pr_check_runs_npm_and_cargo_for_mixed_workspace() {
-        let repo = temp_repo("mixed");
-        std::fs::write(
-            repo.join("package.json"),
+        let repo = TestRepo::new("mixed");
+        repo.write(
+            "package.json",
             r#"{"scripts":{"type-check":"tsc --noEmit"}}"#,
-        )
-        .unwrap();
-        std::fs::write(repo.join("Cargo.toml"), "[package]\nname = \"test\"\n").unwrap();
+        );
+        repo.write("Cargo.toml", "[package]\nname = \"test\"\n");
 
         assert_eq!(
-            detect_pre_pr_check_commands(&repo),
+            detect_pre_pr_check_commands(repo.path()),
             vec![
                 PrePrCheckCommand::NpmTypeCheck,
                 PrePrCheckCommand::CargoCheck
             ]
         );
-
-        std::fs::remove_dir_all(repo).unwrap();
     }
 
     #[test]
     fn test_detect_pre_pr_check_uses_npm_type_check_without_cargo() {
-        let repo = temp_repo("npm");
-        std::fs::write(
-            repo.join("package.json"),
+        let repo = TestRepo::new("npm");
+        repo.write(
+            "package.json",
             r#"{"scripts":{"type-check":"tsc --noEmit"}}"#,
-        )
-        .unwrap();
-
-        assert_eq!(
-            detect_pre_pr_check_commands(&repo),
-            vec![PrePrCheckCommand::NpmTypeCheck]
         );
 
-        std::fs::remove_dir_all(repo).unwrap();
+        assert_eq!(
+            detect_pre_pr_check_commands(repo.path()),
+            vec![PrePrCheckCommand::NpmTypeCheck]
+        );
     }
 
     #[test]
     fn test_detect_pre_pr_check_uses_cargo_without_npm_type_check() {
-        let repo = temp_repo("cargo");
-        std::fs::write(
-            repo.join("package.json"),
-            r#"{"scripts":{"test":"vitest"}}"#,
-        )
-        .unwrap();
-        std::fs::write(repo.join("Cargo.toml"), "[package]\nname = \"test\"\n").unwrap();
+        let repo = TestRepo::new("cargo");
+        repo.write("package.json", r#"{"scripts":{"test":"vitest"}}"#);
+        repo.write("Cargo.toml", "[package]\nname = \"test\"\n");
 
         assert_eq!(
-            detect_pre_pr_check_commands(&repo),
+            detect_pre_pr_check_commands(repo.path()),
             vec![PrePrCheckCommand::CargoCheck]
         );
-
-        std::fs::remove_dir_all(repo).unwrap();
     }
 
     #[test]
     fn test_detect_pre_pr_check_returns_none_without_known_workspace() {
-        let repo = temp_repo("none");
+        let repo = TestRepo::new("none");
 
-        assert_eq!(detect_pre_pr_check_commands(&repo), Vec::new());
-
-        std::fs::remove_dir_all(repo).unwrap();
+        assert_eq!(detect_pre_pr_check_commands(repo.path()), Vec::new());
     }
 
     #[test]
