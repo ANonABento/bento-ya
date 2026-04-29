@@ -11,6 +11,7 @@ use crate::git::branch_manager;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::Path;
 use tauri::{AppHandle, Emitter};
 
 use super::template::{self, TemplateContext};
@@ -373,6 +374,90 @@ fn resolve_working_dir(task: &Task, workspace_repo_path: &str) -> String {
         }
     }
     workspace_repo_path.to_string()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrePrCheckCommand {
+    NpmTypeCheck,
+    CargoCheck,
+}
+
+impl PrePrCheckCommand {
+    fn display(self) -> &'static str {
+        match self {
+            PrePrCheckCommand::NpmTypeCheck => "npm run type-check",
+            PrePrCheckCommand::CargoCheck => "cargo check",
+        }
+    }
+
+    fn command(self) -> (&'static str, &'static [&'static str]) {
+        match self {
+            PrePrCheckCommand::NpmTypeCheck => ("npm", &["run", "type-check"]),
+            PrePrCheckCommand::CargoCheck => ("cargo", &["check"]),
+        }
+    }
+}
+
+fn detect_pre_pr_check_command(repo_path: &Path) -> Option<PrePrCheckCommand> {
+    let package_json_path = repo_path.join("package.json");
+    if let Ok(package_json) = std::fs::read_to_string(&package_json_path) {
+        let has_type_check_script = serde_json::from_str::<serde_json::Value>(&package_json)
+            .ok()
+            .and_then(|json| {
+                json.get("scripts")
+                    .and_then(|scripts| scripts.get("type-check"))
+                    .and_then(|script| script.as_str())
+                    .map(|script| !script.trim().is_empty())
+            })
+            .unwrap_or(false);
+
+        if has_type_check_script {
+            return Some(PrePrCheckCommand::NpmTypeCheck);
+        }
+    }
+
+    if repo_path.join("Cargo.toml").exists() {
+        return Some(PrePrCheckCommand::CargoCheck);
+    }
+
+    None
+}
+
+fn run_pre_pr_check(repo_path: &Path) -> Result<(), String> {
+    let check_command = detect_pre_pr_check_command(repo_path).ok_or_else(|| {
+        "No pre-PR type-check command found (expected package.json with scripts.type-check or Cargo.toml)"
+            .to_string()
+    })?;
+    let (program, args) = check_command.command();
+
+    log::info!(
+        "[create_pr] Running pre-PR check: {}",
+        check_command.display()
+    );
+
+    let output = std::process::Command::new(program)
+        .args(args)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("Failed to run {}: {}", check_command.display(), e))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let detail = if !stderr.trim().is_empty() {
+        stderr.trim()
+    } else {
+        stdout.trim()
+    };
+    let detail = detail.chars().take(2000).collect::<String>();
+    Err(format!(
+        "Pre-PR check failed ({}): {}",
+        check_command.display(),
+        detail
+    ))
 }
 
 fn resolve_model_override(
@@ -928,6 +1013,8 @@ fn execute_create_pr(
 
     tokio::spawn(async move {
         let result = tokio::task::spawn_blocking(move || -> Result<(i64, String), String> {
+            run_pre_pr_check(Path::new(&repo_path))?;
+
             // Push branch to remote first (gh pr create requires the branch to exist on remote)
             let push_output = std::process::Command::new("git")
                 .args(["push", "-u", "origin", &branch_name])
@@ -1014,7 +1101,7 @@ fn execute_create_pr(
             }
         };
 
-        let success = match result {
+        let (success, error_detail) = match result {
             Ok(Ok((pr_number, pr_url))) => {
                 log::info!(
                     "[create_pr] Created PR #{} for task {}: {}",
@@ -1025,7 +1112,7 @@ fn execute_create_pr(
                 if let Some(ref conn) = conn {
                     let _ = db::update_task_pr_info(conn, &task_id, Some(pr_number), Some(&pr_url));
                 }
-                true
+                (true, None)
             }
             Ok(Err(e)) => {
                 log::error!("[create_pr] Failed for task {}: {}", task_id, e);
@@ -1036,20 +1123,23 @@ fn execute_create_pr(
                         column_id: column_id.clone(),
                         event_type: "error".to_string(),
                         state: PipelineState::Idle.as_str().to_string(),
-                        message: Some(e),
+                        message: Some(e.clone()),
                     },
                 );
-                false
+                (false, Some(e))
             }
             Err(e) => {
                 log::error!("[create_pr] Join error for task {}: {}", task_id, e);
-                false
+                (false, Some(format!("create_pr task join error: {}", e)))
             }
         };
 
         // Mark complete so pipeline can advance (also emits tasks:changed)
         if let Some(conn) = conn {
-            if let Err(e) = super::mark_complete(&conn, &app_handle, &task_id, success) {
+            let error_detail = error_detail.as_deref();
+            if let Err(e) =
+                super::mark_complete_with_error(&conn, &app_handle, &task_id, success, error_detail)
+            {
                 log::error!("[create_pr] mark_complete failed: {}", e);
             }
         }
@@ -1384,6 +1474,65 @@ mod tests {
         let col2 = db::insert_column(&conn, &ws.id, "Working", 1).unwrap();
         let col3 = db::insert_column(&conn, &ws.id, "Done", 2).unwrap();
         (conn, ws, col1, col2, col3)
+    }
+
+    fn temp_repo(name: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "bentoya-triggers-{}-{}",
+            name,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let path = std::env::temp_dir().join(unique);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn test_detect_pre_pr_check_prefers_npm_type_check() {
+        let repo = temp_repo("npm");
+        std::fs::write(
+            repo.join("package.json"),
+            r#"{"scripts":{"type-check":"tsc --noEmit"}}"#,
+        )
+        .unwrap();
+        std::fs::write(repo.join("Cargo.toml"), "[package]\nname = \"test\"\n").unwrap();
+
+        assert_eq!(
+            detect_pre_pr_check_command(&repo),
+            Some(PrePrCheckCommand::NpmTypeCheck)
+        );
+
+        std::fs::remove_dir_all(repo).unwrap();
+    }
+
+    #[test]
+    fn test_detect_pre_pr_check_uses_cargo_without_npm_type_check() {
+        let repo = temp_repo("cargo");
+        std::fs::write(
+            repo.join("package.json"),
+            r#"{"scripts":{"test":"vitest"}}"#,
+        )
+        .unwrap();
+        std::fs::write(repo.join("Cargo.toml"), "[package]\nname = \"test\"\n").unwrap();
+
+        assert_eq!(
+            detect_pre_pr_check_command(&repo),
+            Some(PrePrCheckCommand::CargoCheck)
+        );
+
+        std::fs::remove_dir_all(repo).unwrap();
+    }
+
+    #[test]
+    fn test_detect_pre_pr_check_returns_none_without_known_workspace() {
+        let repo = temp_repo("none");
+
+        assert_eq!(detect_pre_pr_check_command(&repo), None);
+
+        std::fs::remove_dir_all(repo).unwrap();
     }
 
     #[test]
