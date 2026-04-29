@@ -11,7 +11,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use rusqlite::Connection;
+use tauri::AppHandle;
 use tokio::sync::Mutex;
+
+use crate::{db, pipeline};
 
 use super::bridge::ManagedBridge;
 use super::session::{SessionConfig, SessionState, TransportType, UnifiedChatSession};
@@ -293,9 +297,94 @@ pub fn new_shared_session_registry() -> SharedSessionRegistry {
     Arc::new(Mutex::new(SessionRegistry::new()))
 }
 
+fn process_is_alive(pid: i64) -> bool {
+    if pid <= 0 || pid > i32::MAX as i64 {
+        return false;
+    }
+
+    let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    if result == 0 {
+        return true;
+    }
+
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+fn cleanup_dead_running_agent_sessions(app: &AppHandle) -> usize {
+    let conn = match Connection::open(db::db_path()) {
+        Ok(conn) => conn,
+        Err(e) => {
+            log::warn!(
+                "[registry] Failed to open DB for stale agent cleanup: {}",
+                e
+            );
+            return 0;
+        }
+    };
+    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+
+    let sessions = {
+        let mut stmt = match conn.prepare(
+            "SELECT id, task_id, pid FROM agent_sessions WHERE status = 'running' AND pid IS NOT NULL",
+        ) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                log::warn!("[registry] Failed to query running agent sessions: {}", e);
+                return 0;
+            }
+        };
+
+        stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .map(|rows| rows.filter_map(Result::ok).collect::<Vec<_>>())
+        .unwrap_or_default()
+    };
+
+    let mut cleaned = 0;
+    for (session_id, task_id, pid) in sessions {
+        if process_is_alive(pid) {
+            continue;
+        }
+
+        log::warn!(
+            "[registry] Agent session {} for task {} has dead PID {}; marking completed",
+            session_id,
+            task_id,
+            pid
+        );
+
+        if db::update_agent_session(
+            &conn,
+            &session_id,
+            None,
+            Some("completed"),
+            Some(Some(-1)),
+            None,
+            None,
+            None,
+        )
+        .is_err()
+        {
+            continue;
+        }
+
+        let _ = db::update_task_agent_status(&conn, &task_id, Some("completed"), None);
+        let _ = pipeline::mark_complete(&conn, app, &task_id, true);
+        cleaned += 1;
+    }
+
+    cleaned
+}
+
 /// Start a periodic idle sweep task. Runs every 60s.
-/// Suspends sessions that have been idle longer than the registry's idle_timeout.
-pub fn start_idle_sweep(registry: SharedSessionRegistry) {
+/// Suspends sessions that have been idle longer than the registry's idle_timeout
+/// and clears DB-backed agent sessions whose tracked process has died.
+pub fn start_idle_sweep(registry: SharedSessionRegistry, app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
@@ -306,6 +395,13 @@ pub fn start_idle_sweep(registry: SharedSessionRegistry) {
             };
             if count > 0 {
                 eprintln!("[registry] Suspended {} idle session(s)", count);
+            }
+            let stale_count = cleanup_dead_running_agent_sessions(&app);
+            if stale_count > 0 {
+                eprintln!(
+                    "[registry] Marked {} dead agent session(s) completed",
+                    stale_count
+                );
             }
         }
     });
