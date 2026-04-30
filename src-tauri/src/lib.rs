@@ -257,7 +257,7 @@ pub fn run() {
 
             // Keep macOS didFinishLaunching light. Finder/Spotlight launches can
             // abort if setup blocks on DB queries, tmux checks, or pipeline resume.
-            start_background_startup_recovery(app.handle().clone());
+            spawn_startup_recovery(app.handle().clone());
 
             // Start garbage collector for tmux sessions + agent resources
             chat::gc::start_gc();
@@ -271,14 +271,17 @@ pub fn run() {
     api::cleanup();
 }
 
-fn start_background_startup_recovery(app: tauri::AppHandle) {
-    tauri::async_runtime::spawn_blocking(move || {
+fn spawn_startup_recovery(app: tauri::AppHandle) {
+    let recovery_task = tauri::async_runtime::spawn_blocking(move || {
         // Recover stale pipeline work from the previous app instance.
         resume_stale_pipeline_tasks(app.clone());
 
         // Recover tmux sessions from previous app instance.
         recover_tmux_sessions(app);
     });
+
+    // Startup recovery is best-effort and must not hold up Tauri startup.
+    std::mem::drop(recovery_task);
 }
 
 /// Recover tmux sessions from a previous app instance.
