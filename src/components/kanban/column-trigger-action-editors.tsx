@@ -35,6 +35,8 @@ export function ActionEditor({
       setAction({ type: 'move_column', target: 'next' })
     } else if (type === 'create_pr') {
       setAction({ type: 'create_pr', base_branch: 'main' })
+    } else if (type === 'auto_merge') {
+      setAction({ type: 'auto_merge', base_branch: 'main' })
     }
   }
 
@@ -80,6 +82,13 @@ export function ActionEditor({
       )}
 
       {action.type === 'create_pr' && (
+        <CreatePrActionEditor
+          action={action}
+          setAction={(nextAction) => { setAction(nextAction) }}
+        />
+      )}
+
+      {action.type === 'auto_merge' && (
         <CreatePrActionEditor
           action={action}
           setAction={(nextAction) => { setAction(nextAction) }}

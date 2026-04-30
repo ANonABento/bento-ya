@@ -1,6 +1,6 @@
 // ─── Action Types ───────────────────────────────────────────────────────────
 
-export type ActionType = 'auto_setup' | 'spawn_cli' | 'move_column' | 'trigger_task' | 'run_script' | 'create_pr' | 'none'
+export type ActionType = 'auto_setup' | 'spawn_cli' | 'move_column' | 'trigger_task' | 'run_script' | 'create_pr' | 'auto_merge' | 'none'
 
 export type CliType = 'claude' | 'codex' | 'aider'
 export type TriggerTaskActionType = 'move_column' | 'start' | 'unblock'
@@ -59,11 +59,16 @@ export interface CreatePrAction {
   base_branch?: string
 }
 
+export interface AutoMergeAction {
+  type: 'auto_merge'
+  base_branch?: string
+}
+
 export interface NoneAction {
   type: 'none'
 }
 
-export type TriggerAction = AutoSetupAction | SpawnCliAction | MoveColumnAction | TriggerTaskAction | RunScriptAction | CreatePrAction | NoneAction
+export type TriggerAction = AutoSetupAction | SpawnCliAction | MoveColumnAction | TriggerTaskAction | RunScriptAction | CreatePrAction | AutoMergeAction | NoneAction
 
 // ─── Exit Criteria ──────────────────────────────────────────────────────────
 

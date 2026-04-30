@@ -1,8 +1,8 @@
-import type { CreatePrAction } from '@/types'
+import type { AutoMergeAction, CreatePrAction } from '@/types'
 
 type CreatePrActionEditorProps = {
-  action: CreatePrAction
-  setAction: (value: CreatePrAction) => void
+  action: CreatePrAction | AutoMergeAction
+  setAction: (value: CreatePrAction | AutoMergeAction) => void
 }
 
 export function CreatePrActionEditor({

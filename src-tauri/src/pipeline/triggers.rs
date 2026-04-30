@@ -2299,6 +2299,7 @@ mod tests {
             r#"{"type":"trigger_task","target_task":"task-123","action":"unblock"}"#,
             r#"{"type":"run_script","script_id":"test-1"}"#,
             r#"{"type":"create_pr","base_branch":"main"}"#,
+            r#"{"type":"auto_merge","base_branch":"main"}"#,
             r#"{"type":"none"}"#,
         ];
         for json in variants {
