@@ -1,8 +1,9 @@
 use crate::db::{self, AppState};
 use crate::error::AppError;
+use crate::github_sync::GhIssue;
 use crate::pipeline;
 use rusqlite::Error as SqlError;
-use serde::{Deserialize, Serialize};
+use serde::{de::IgnoredAny, Deserialize, Serialize};
 use std::collections::HashSet;
 use std::process::Command;
 use tauri::{AppHandle, State};
@@ -31,7 +32,6 @@ pub async fn fetch_pr_status(
     task_id: String,
     repo_path: String,
 ) -> Result<PrStatusResponse, AppError> {
-    // Get task to find PR number
     let task = {
         let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
         db::get_task(&conn, &task_id)?
@@ -61,7 +61,6 @@ pub async fn fetch_pr_status(
     let gh_response: GhPrResponse = serde_json::from_str(&json_str)
         .map_err(|e| AppError::CommandError(format!("Failed to parse gh response: {}", e)))?;
 
-    // Map GitHub values to our simplified statuses
     let mergeable = match gh_response.mergeable.as_deref() {
         Some("MERGEABLE") => "mergeable",
         Some("CONFLICTING") => "conflicted",
@@ -70,8 +69,6 @@ pub async fn fetch_pr_status(
 
     let ci_status = determine_ci_status(&gh_response.status_check_rollup);
 
-    let review_decision = gh_response.review_decision.clone();
-
     let labels: Vec<String> = gh_response.labels
         .iter()
         .map(|l| l.name.clone())
@@ -79,7 +76,6 @@ pub async fn fetch_pr_status(
 
     let comment_count = gh_response.comments.len() as i64;
 
-    // Update task in database
     {
         let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
         db::update_task_pr_status(
@@ -87,7 +83,7 @@ pub async fn fetch_pr_status(
             &task_id,
             Some(&mergeable),
             Some(&ci_status),
-            review_decision.as_deref(),
+            gh_response.review_decision.as_deref(),
             Some(comment_count),
             Some(gh_response.is_draft),
             Some(&serde_json::to_string(&labels).unwrap_or_else(|_| "[]".to_string())),
@@ -100,7 +96,7 @@ pub async fn fetch_pr_status(
         pr_number,
         mergeable,
         ci_status,
-        review_decision,
+        review_decision: gh_response.review_decision,
         comment_count,
         is_draft: gh_response.is_draft,
         labels,
@@ -211,7 +207,6 @@ pub async fn sync_github_issues_now(
         (repo, label_filter, inbox_col, done_col, pr_col)
     };
 
-    // Determine target inbox column
     let target_column_id = {
         let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
         let columns = db::list_columns(&conn, &workspace_id)?;
@@ -333,7 +328,7 @@ pub async fn sync_github_issues_now(
         }
     }
 
-    // 6. Post PR-link comments for tasks in the PR column that have a pr_url
+    // 6. Post PR-link comments (no lock during gh call)
     let mut prs_linked = 0usize;
     if !pr_column_id.is_empty() {
         let pending = {
@@ -364,7 +359,6 @@ pub async fn sync_github_issues_now(
         }
     }
 
-    // 7. Update sync timestamp
     {
         let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
         let _ = db::upsert_github_sync_state(&conn, &workspace_id);
@@ -398,30 +392,17 @@ pub fn get_github_sync_state(
 // ─── Internal types for gh CLI response ─────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
-struct GhIssue {
-    number: i64,
-    title: String,
-    body: Option<String>,
-    url: String,
-}
-
-#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GhPrResponse {
     mergeable: Option<String>,
     state: String,
     review_decision: Option<String>,
-    comments: Vec<GhComment>,
+    comments: Vec<IgnoredAny>,
     is_draft: bool,
     labels: Vec<GhLabel>,
     head_ref_oid: String,
     #[serde(default)]
     status_check_rollup: Vec<GhCheckRun>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GhComment {
-    // We only need the count
 }
 
 #[derive(Debug, Deserialize)]

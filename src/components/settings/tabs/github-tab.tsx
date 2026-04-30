@@ -43,7 +43,7 @@ export function GithubTab() {
     }
   }, [workspace, config, updateWorkspace])
 
-  const handleSyncNow = async () => {
+  const handleSyncNow = useCallback(async () => {
     if (!workspace) return
     setIsSyncing(true)
     setMessage(null)
@@ -62,7 +62,7 @@ export function GithubTab() {
     } finally {
       setIsSyncing(false)
     }
-  }
+  }, [workspace])
 
   const columnOptions = useMemo(
     () => [{ value: '', label: 'None' }, ...columns.map((c) => ({ value: c.id, label: c.name }))],
@@ -176,6 +176,7 @@ export function GithubTab() {
       <SettingSection title="Manual Sync">
         <div className="flex items-center gap-4">
           <button
+            type="button"
             onClick={() => { void handleSyncNow() }}
             disabled={isSyncing || !config.githubRepo}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"

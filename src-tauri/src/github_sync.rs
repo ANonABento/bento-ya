@@ -82,7 +82,6 @@ fn run_sync_cycle(app: AppHandle) {
             }
         };
 
-        // Build gh issue list args
         let mut args = vec![
             "issue".to_string(),
             "list".to_string(),
@@ -123,7 +122,6 @@ fn run_sync_cycle(app: AppHandle) {
                 }
             };
 
-        // Create tasks for new issues
         let existing: HashSet<i64> = db::list_github_issue_numbers(&conn, &ws.id)
             .unwrap_or_default()
             .into_iter()
@@ -156,7 +154,6 @@ fn run_sync_cycle(app: AppHandle) {
             pipeline::emit_tasks_changed(&app, &ws.id, "github_sync");
         }
 
-        // Post done-comments
         if !done_column_id.is_empty() {
             let pending = db::list_tasks_pending_done_comment(&conn, &ws.id, &done_column_id)
                 .unwrap_or_default();
@@ -180,7 +177,6 @@ fn run_sync_cycle(app: AppHandle) {
             }
         }
 
-        // Post PR-link comments
         if !pr_column_id.is_empty() {
             let pending =
                 db::list_tasks_pending_pr_link(&conn, &ws.id, &pr_column_id).unwrap_or_default();
@@ -213,9 +209,9 @@ fn run_sync_cycle(app: AppHandle) {
 }
 
 #[derive(Debug, serde::Deserialize)]
-struct GhIssue {
-    number: i64,
-    title: String,
-    body: Option<String>,
-    url: String,
+pub struct GhIssue {
+    pub number: i64,
+    pub title: String,
+    pub body: Option<String>,
+    pub url: String,
 }
