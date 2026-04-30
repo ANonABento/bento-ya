@@ -1297,6 +1297,18 @@ fn parse_pr_number(pr_url: &str) -> Result<i64, String> {
         .ok_or_else(|| format!("Failed to parse PR number from URL: {}", pr_url))
 }
 
+/// Force-create a batch staging PR without checking if all tasks have PRs.
+/// Used by the batch management UI to manually merge incomplete batches.
+pub fn force_create_batch_pr(
+    repo_path: &str,
+    batch_id: &str,
+    base_branch: &str,
+) -> Result<Option<String>, String> {
+    let normalized = normalize_batch_id(batch_id).unwrap_or_else(|| batch_id.to_string());
+    let staging_branch = staging_branch_for_batch(&normalized);
+    maybe_create_batch_pr(repo_path, &normalized, base_branch, &staging_branch)
+}
+
 fn maybe_create_ready_batch_pr(
     conn: &Connection,
     repo_path: &str,

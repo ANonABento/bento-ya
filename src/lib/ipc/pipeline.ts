@@ -1,5 +1,5 @@
 import { invoke, listen, type EventCallback, type UnlistenFn } from './invoke'
-import type { Task } from '@/types'
+import type { Task, BatchSummary } from '@/types'
 
 // ─── Pipeline commands ─────────────────────────────────────────────────────
 
@@ -49,6 +49,20 @@ export async function cancelBacklogQueue(taskIds: string[]): Promise<void> {
       invoke('update_task_agent_status', { taskId, agentStatus: null, queuedAt: null })
     )
   )
+}
+
+// ─── Batch Management ────────────────────────────────────────────────────────
+
+export async function listBatches(workspaceId: string): Promise<BatchSummary[]> {
+  return invoke<BatchSummary[]>('list_batches', { workspaceId })
+}
+
+export async function forceMergeBatch(workspaceId: string, batchId: string): Promise<string | null> {
+  return invoke<string | null>('force_merge_batch', { workspaceId, batchId })
+}
+
+export async function retryBatch(workspaceId: string, batchId: string): Promise<Task[]> {
+  return invoke<Task[]>('retry_batch', { workspaceId, batchId })
 }
 
 // ─── Pipeline event listeners ───────────────────────────────────────────────

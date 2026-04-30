@@ -107,6 +107,15 @@ export type CheckSiegeResult = {
   reason: string
 }
 
+export type BatchSummary = {
+  batchId: string
+  taskCount: number
+  prCount: number
+  failedCount: number
+  tasks: Task[]
+  createdAt: string
+}
+
 export type SiegeEvent = {
   taskId: string
   eventType: string
