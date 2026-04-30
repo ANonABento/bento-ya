@@ -272,7 +272,7 @@ pub fn run() {
 }
 
 fn start_background_startup_recovery(app: tauri::AppHandle) {
-    tauri::async_runtime::spawn(async move {
+    tauri::async_runtime::spawn_blocking(move || {
         // Recover stale pipeline work from the previous app instance.
         resume_stale_pipeline_tasks(app.clone());
 
