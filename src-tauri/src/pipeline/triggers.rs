@@ -406,32 +406,20 @@ fn non_empty_trimmed(value: &str) -> Option<&str> {
 }
 
 fn normalize_batch_id(value: &str) -> Option<String> {
-    let raw = value
-        .trim()
-        .strip_prefix(STAGING_BRANCH_PREFIX)
-        .unwrap_or_else(|| value.trim());
+    let trimmed = value.trim();
+    let raw = trimmed.strip_prefix(STAGING_BRANCH_PREFIX).unwrap_or(trimmed);
 
     let mut normalized = String::new();
-    let mut previous_dash = false;
+    let mut last_was_dash = false;
 
     for ch in raw.chars() {
-        let next = if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
-            previous_dash = false;
-            ch
-        } else if ch == '-' {
-            if previous_dash {
-                continue;
-            }
-            previous_dash = true;
-            ch
-        } else {
-            if previous_dash {
-                continue;
-            }
-            previous_dash = true;
-            '-'
-        };
-        normalized.push(next);
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
+            normalized.push(ch);
+            last_was_dash = false;
+        } else if !last_was_dash {
+            normalized.push('-');
+            last_was_dash = true;
+        }
     }
 
     let normalized = normalized.trim_matches('-').to_string();

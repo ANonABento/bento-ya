@@ -1,5 +1,4 @@
-import type { Task } from '@/types'
-import type { ReviewStatus } from '@/types'
+import type { Task, ReviewStatus } from '@/types'
 import type { AttentionItem } from '@/stores/attention-store'
 import { ATTENTION_LABELS } from '@/stores/attention-store'
 import { REVIEW_STATUS_LABELS } from '@/constants/status'

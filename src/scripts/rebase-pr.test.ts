@@ -10,7 +10,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it } from 'vitest'
 
 const scriptPath = resolve(process.cwd(), 'scripts/rebase-pr.sh')
 const env = {
@@ -19,12 +19,21 @@ const env = {
   GIT_AUTHOR_EMAIL: 'test@example.com',
   GIT_COMMITTER_NAME: 'Test User',
   GIT_COMMITTER_EMAIL: 'test@example.com',
+  // Prevent git from hanging waiting for credentials or running slow system hooks.
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_ASKPASS: 'echo',
+  GIT_CONFIG_NOSYSTEM: '1',
 }
 
 const tempDirs: string[] = []
 
+// Minimal HOME with no shell init files so `bash -l` inside rebase-pr.sh doesn't
+// load nvm/pyenv/conda and take 5-30s per invocation in CI or dev machines.
+const tempHome = mkdtempSync(join(tmpdir(), 'bentoya-test-home-'))
+const envWithHome = { ...env, HOME: tempHome }
+
 function git(cwd: string, args: string[]): string {
-  return execFileSync('git', args, { cwd, env, encoding: 'utf8', stdio: 'pipe' }).trim()
+  return execFileSync('git', args, { cwd, env: envWithHome, encoding: 'utf8', stdio: 'pipe' }).trim()
 }
 
 function makeTempDir(): string {
@@ -54,7 +63,7 @@ function setupRepo() {
   const origin = join(root, 'origin.git')
   const repo = join(root, 'repo')
 
-  execFileSync('git', ['init', '--bare', origin], { env })
+  execFileSync('git', ['init', '--bare', origin], { env: envWithHome })
   mkdirSync(repo)
   git(repo, ['init', '-b', 'main'])
   git(repo, ['config', 'user.name', 'Test User'])
@@ -76,14 +85,19 @@ function runScript(repo: string, root: string, extraEnv: Record<string, string> 
   return spawnSync('bash', [scriptPath, '123', repo], {
     cwd: repo,
     env: {
-      ...env,
+      ...envWithHome,
       ...extraEnv,
       PATH: `${binDir}:${process.env.PATH ?? ''}`,
       BENTOYA_DB_PATH: join(root, 'missing.db'),
     },
     encoding: 'utf8',
+    timeout: 40_000,
   })
 }
+
+afterAll(() => {
+  rmSync(tempHome, { recursive: true, force: true })
+})
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
@@ -92,7 +106,7 @@ afterEach(() => {
 })
 
 describe('scripts/rebase-pr.sh', () => {
-  it('rebases a clean PR branch and force-pushes it', () => {
+  it('rebases a clean PR branch and force-pushes it', { timeout: 45_000 }, () => {
     const { root, repo } = setupRepo()
 
     git(repo, ['checkout', '-b', 'feature'])
@@ -116,7 +130,7 @@ describe('scripts/rebase-pr.sh', () => {
     expect(git(repo, ['status', '--porcelain'])).toBe('')
   })
 
-  it('marks manual review and does not push when the guarded fallback fails type-check', () => {
+  it('marks manual review and does not push when the guarded fallback fails type-check', { timeout: 45_000 }, () => {
     const { root, repo, origin } = setupRepo()
 
     git(repo, ['checkout', '-b', 'feature'])
