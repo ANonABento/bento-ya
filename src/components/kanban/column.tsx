@@ -13,6 +13,7 @@ import { queueBacklog, cancelBacklogQueue } from '@/lib/ipc/pipeline'
 import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
+import { TaskTemplateDialog } from './task-template-dialog'
 
 type BatchQueueLocalState = {
   isQueuing: boolean
@@ -63,6 +64,7 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
   const [showConfigDialog, setShowConfigDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showAddTask, setShowAddTask] = useState(false)
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const addTaskInputRef = useRef<HTMLInputElement>(null)
 
@@ -176,6 +178,10 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
     setShowAddTask(true)
   }, [])
 
+  const handleNewFromTemplate = useCallback(() => {
+    setShowTemplateDialog(true)
+  }, [])
+
   const handleSubmitTask = useCallback(async () => {
     if (!newTaskTitle.trim() || !activeWorkspaceId) return
     await addTask(activeWorkspaceId, column.id, newTaskTitle.trim(), '')
@@ -211,6 +217,7 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
             onConfigure={handleConfigure}
             onDelete={handleDelete}
             onAddTask={handleAddTask}
+            onNewFromTemplate={handleNewFromTemplate}
             onRunAll={() => { void handleRunAll(); }}
             onCancelQueue={() => { void handleCancelQueue(); }}
           />
@@ -278,6 +285,14 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
           </div>
         </SortableContext>
       </motion.div>
+
+      {showTemplateDialog && activeWorkspaceId && (
+        <TaskTemplateDialog
+          workspaceId={activeWorkspaceId}
+          columnId={column.id}
+          onClose={() => { setShowTemplateDialog(false) }}
+        />
+      )}
 
       {/* Config dialog */}
       {showConfigDialog && (

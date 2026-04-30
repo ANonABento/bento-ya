@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import type { Task } from '@/types'
 import { useTaskStore } from '@/stores/task-store'
+import { useTaskTemplateStore } from '@/stores/task-template-store'
 import * as ipc from '@/lib/ipc'
 
 /** Encapsulates all task card action handlers (context menu, keyboard, quick actions). */
@@ -9,6 +10,7 @@ export function useTaskCardActions(task: Task) {
   const removeTask = useTaskStore((s) => s.remove)
   const updateTask = useTaskStore((s) => s.updateTask)
   const duplicateTask = useTaskStore((s) => s.duplicate)
+  const saveTemplateFromTask = useTaskTemplateStore((s) => s.saveFromTask)
 
   const handleMoveToColumn = useCallback((columnId: string) => {
     void moveTask(task.id, columnId, 0)
@@ -59,6 +61,10 @@ export function useTaskCardActions(task: Task) {
     void duplicateTask(task.id)
   }, [task.id, duplicateTask])
 
+  const handleSaveAsTemplate = useCallback(() => {
+    void saveTemplateFromTask(task.id)
+  }, [task.id, saveTemplateFromTask])
+
   const handleToggleAgent = useCallback(() => {
     if (task.agentStatus === 'running') {
       updateTask(task.id, { agentStatus: 'stopped' })
@@ -89,6 +95,7 @@ export function useTaskCardActions(task: Task) {
     handleArchiveTask,
     handleDeleteTask,
     handleDuplicateTask,
+    handleSaveAsTemplate,
     handleToggleAgent,
     handleRetryPipeline,
   }

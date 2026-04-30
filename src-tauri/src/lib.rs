@@ -127,6 +127,12 @@ pub fn run() {
             commands::task::queue_backlog,
             commands::task::create_task_worktree,
             commands::task::remove_task_worktree,
+            // Task templates
+            commands::task_template::list_task_templates,
+            commands::task_template::create_task_template_from_task,
+            commands::task_template::update_task_template,
+            commands::task_template::delete_task_template,
+            commands::task_template::create_task_from_template,
             // Git commands
             commands::git::create_task_branch,
             commands::git::switch_branch,

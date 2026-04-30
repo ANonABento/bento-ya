@@ -498,6 +498,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         onStartSiege={() => { void actions.handleStartSiege(); }}
         onStopSiege={() => { void actions.handleStopSiege(); }}
         onConfigureTask={() => { setShowSettings(true) }}
+        onSaveAsTemplate={actions.handleSaveAsTemplate}
       />
     )}
 

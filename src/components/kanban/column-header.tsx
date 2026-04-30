@@ -23,6 +23,7 @@ type ColumnHeaderProps = {
   onConfigure: () => void
   onDelete: () => void
   onAddTask: () => void
+  onNewFromTemplate: () => void
   onRunAll?: () => void
   onCancelQueue?: () => void
 }
@@ -95,6 +96,7 @@ export const ColumnHeader = memo(function ColumnHeader({
   onConfigure,
   onDelete,
   onAddTask,
+  onNewFromTemplate,
   onRunAll,
   onCancelQueue,
 }: ColumnHeaderProps) {
@@ -193,6 +195,17 @@ export const ColumnHeader = memo(function ColumnHeader({
             }
             onClick={onAddTask}
             tooltip="Add task"
+            tooltipSide="bottom"
+          />
+
+          <IconButton
+            icon={
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                <path d="M3.5 2A1.5 1.5 0 0 0 2 3.5v9A1.5 1.5 0 0 0 3.5 14h9a1.5 1.5 0 0 0 1.5-1.5V6.621a1.5 1.5 0 0 0-.44-1.06L10.44 2.44A1.5 1.5 0 0 0 9.378 2H3.5Zm2 4.75A.75.75 0 0 1 6.25 6h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1-.75-.75Zm0 2.5A.75.75 0 0 1 6.25 8.5h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75Zm.75 1.75a.75.75 0 0 0 0 1.5h2.5a.75.75 0 0 0 0-1.5h-2.5Z" />
+              </svg>
+            }
+            onClick={onNewFromTemplate}
+            tooltip="New from template"
             tooltipSide="bottom"
           />
 

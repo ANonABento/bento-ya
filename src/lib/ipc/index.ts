@@ -1,6 +1,7 @@
 export * from './workspace'
 export * from './column'
 export * from './task'
+export * from './task-template'
 export * from './git'
 export * from './agent'
 export * from './cli'

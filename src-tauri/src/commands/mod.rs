@@ -11,6 +11,7 @@ pub mod pipeline;
 pub mod script;
 pub mod siege;
 pub mod task;
+pub mod task_template;
 pub mod terminal;
 pub mod usage;
 #[cfg(feature = "voice")]

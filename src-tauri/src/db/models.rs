@@ -103,6 +103,21 @@ pub struct Task {
     pub updated_at: String,
 }
 
+/// A reusable task template scoped to a workspace.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskTemplate {
+    pub id: String,
+    pub workspace_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    /// JSON array of label strings.
+    pub labels: String,
+    pub model: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 // ─── Agent Entities ─────────────────────────────────────────────────────────
 
 /// A PTY/CLI session for an agent working on a task.
