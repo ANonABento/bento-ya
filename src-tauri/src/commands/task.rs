@@ -1176,12 +1176,11 @@ pub async fn remove_task_worktree(
 
 // ─── Batch Management Commands ───────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchSummary {
     pub batch_id: String,
     pub task_count: i64,
-    pub pr_count: i64,
     pub failed_count: i64,
     pub tasks: Vec<Task>,
     pub created_at: String,
@@ -1219,14 +1218,12 @@ pub async fn list_batches(
             continue;
         }
         let task_count = tasks.len() as i64;
-        let pr_count = tasks.iter().filter(|t| t.pr_number.is_some()).count() as i64;
         let failed_count = tasks.iter().filter(|t| t.pipeline_error.is_some()).count() as i64;
         let created_at = tasks.first().map(|t| t.created_at.clone()).unwrap_or_default();
 
         summaries.push(BatchSummary {
             batch_id,
             task_count,
-            pr_count,
             failed_count,
             tasks,
             created_at,

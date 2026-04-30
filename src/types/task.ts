@@ -110,7 +110,6 @@ export type CheckSiegeResult = {
 export type BatchSummary = {
   batchId: string
   taskCount: number
-  prCount: number
   failedCount: number
   tasks: Task[]
   createdAt: string

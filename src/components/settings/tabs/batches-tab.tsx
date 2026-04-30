@@ -130,7 +130,7 @@ type BatchCardProps = {
 function BatchCard({ batch, isMerging, isRetrying, onForceMerge, onRetry }: BatchCardProps) {
   const [expanded, setExpanded] = useState(false)
 
-  const succeededCount = batch.tasks.filter((t) => t.prNumber !== null && t.prNumber !== undefined && !t.pipelineError).length
+  const succeededCount = batch.tasks.filter((t) => t.prNumber != null && !t.pipelineError).length
   const pendingCount = Math.max(0, batch.taskCount - succeededCount - batch.failedCount)
   const allComplete = succeededCount === batch.taskCount
 
