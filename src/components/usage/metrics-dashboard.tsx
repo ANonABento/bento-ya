@@ -72,20 +72,21 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
   const exportCsv = useCallback(() => {
     setIsExporting(true)
     try {
-      const header = 'Date,Model,Column,Task,Input Tokens,Output Tokens,Cost USD\n'
+      const csvField = (v: string) => (v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v)
+      const header = 'Date,Model,Column,Task ID,Input Tokens,Output Tokens,Cost USD\n'
       const rows = records.map((r) => {
-        const date = r.createdAt.split('T')[0] ?? r.createdAt
-        const model = r.model.split('/').pop() ?? r.model
-        const column = r.columnName ?? ''
-        const task = ''
-        return `${date},${model},${column},${task},${r.inputTokens},${r.outputTokens},${r.costUsd.toFixed(6)}`
+        const date = r.createdAt.slice(0, 10)
+        const model = csvField(r.model.split('/').pop() ?? r.model)
+        const column = csvField(r.columnName ?? '')
+        const taskId = csvField(r.taskId ?? '')
+        return `${date},${model},${column},${taskId},${String(r.inputTokens)},${String(r.outputTokens)},${r.costUsd.toFixed(6)}`
       })
       const csv = header + rows.join('\n')
       const blob = new Blob([csv], { type: 'text/csv' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `usage-${workspaceId}-${new Date().toISOString().split('T')[0]}.csv`
+      a.download = `usage-${workspaceId}-${new Date().toISOString().slice(0, 10)}.csv`
       a.click()
       URL.revokeObjectURL(url)
     } finally {
