@@ -25,10 +25,13 @@ export function BulkTaskToolbar({
 }: BulkTaskToolbarProps) {
   if (selectedCount <= 1) return null
 
+  const excludedColumnIds = currentColumnIds.size === 1
+    ? currentColumnIds
+    : new Set<string>()
   const columnOptions = [
     { value: '', label: 'Move to column...' },
     ...columns
-      .filter((column) => column.visible && !currentColumnIds.has(column.id))
+      .filter((column) => column.visible && !excludedColumnIds.has(column.id))
       .sort((a, b) => a.position - b.position)
       .map((column) => ({ value: column.id, label: column.name })),
   ]

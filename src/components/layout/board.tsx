@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { useEffect, useCallback, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -64,22 +64,34 @@ export function Board() {
     collapseTask()
   }, [closeChat, collapseTask])
 
-  const sortedColumns = columns
-    .filter((c) => c.visible)
-    .sort((a, b) => a.position - b.position)
-  const columnIds = sortedColumns.map((c) => c.id)
-  const visibleTaskOrder = sortedColumns.flatMap((column) =>
-    tasks
-      .filter((task) => task.columnId === column.id)
-      .sort((a, b) => a.position - b.position)
-      .map((task) => task.id),
+  const sortedColumns = useMemo(
+    () => columns
+      .filter((c) => c.visible)
+      .sort((a, b) => a.position - b.position),
+    [columns],
   )
-  const selectedTasks = tasks.filter((task) => selectedTaskIds.has(task.id))
-  const selectedColumnIds = new Set(selectedTasks.map((task) => task.columnId))
-  const archiveColumnId = sortedColumns.find((column) => {
+  const columnIds = useMemo(() => sortedColumns.map((c) => c.id), [sortedColumns])
+  const visibleTaskOrder = useMemo(
+    () => sortedColumns.flatMap((column) =>
+      tasks
+        .filter((task) => task.columnId === column.id)
+        .sort((a, b) => a.position - b.position)
+        .map((task) => task.id),
+    ),
+    [sortedColumns, tasks],
+  )
+  const selectedTasks = useMemo(
+    () => tasks.filter((task) => selectedTaskIds.has(task.id)),
+    [selectedTaskIds, tasks],
+  )
+  const selectedColumnIds = useMemo(
+    () => new Set(selectedTasks.map((task) => task.columnId)),
+    [selectedTasks],
+  )
+  const archiveColumnId = useMemo(() => sortedColumns.find((column) => {
     const name = column.name.toLowerCase()
     return column.icon === 'archive' || ['archive', 'archived', 'stale', 'cancelled', 'deprecated'].includes(name)
-  })?.id ?? null
+  })?.id ?? null, [sortedColumns])
 
   const { activeItem, onDragStart, onDragOver, onDragEnd } = useDnd()
 
