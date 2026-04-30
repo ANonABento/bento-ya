@@ -144,7 +144,6 @@ pub fn get_column_metrics(conn: &Connection, workspace_id: &str) -> SqlResult<Ve
           AND pt.column_id = c.id
           AND pt.duration_seconds IS NOT NULL
           AND datetime(pt.exited_at) >= datetime('now', '-30 days')
-         LEFT JOIN (SELECT DISTINCT task_id FROM agent_sessions) a ON a.task_id = t.id
          WHERE c.workspace_id = ?1
          GROUP BY c.id, c.name, c.position
          ORDER BY c.position ASC",
@@ -163,7 +162,7 @@ pub fn get_column_metrics(conn: &Connection, workspace_id: &str) -> SqlResult<Ve
             column_name: row.get(1)?,
             avg_duration_seconds: row.get(2)?,
             success_rate,
-            throughput_per_day: success_count as f64 / 30.0,
+            throughput_per_day: sample_count as f64 / 30.0,
             sample_count,
             success_count,
             retry_count: row.get(4)?,
@@ -177,8 +176,10 @@ mod tests {
     use super::*;
     use crate::db::{
         complete_pipeline_timing, init_test, insert_column, insert_pipeline_timing, insert_task,
-        insert_workspace,
+        insert_workspace, now,
     };
+    use chrono::{Duration, Utc};
+    use rusqlite::params;
 
     #[test]
     fn column_metrics_include_empty_columns() {
@@ -215,6 +216,53 @@ mod tests {
         assert_eq!(metrics[0].success_count, 1);
         assert_eq!(metrics[0].retry_count, 1);
         assert_eq!(metrics[0].success_rate, 50.0);
-        assert!((metrics[0].throughput_per_day - (1.0 / 30.0)).abs() < f64::EPSILON);
+        assert!((metrics[0].throughput_per_day - (2.0 / 30.0)).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn column_metrics_ignore_samples_older_than_30_days() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Working", 0).unwrap();
+        let old_task = insert_task(&conn, &ws.id, &col.id, "Old", None).unwrap();
+        let recent_task = insert_task(&conn, &ws.id, &col.id, "Recent", None).unwrap();
+        let old_entered_at = (Utc::now() - Duration::days(40)).to_rfc3339();
+        let old_exited_at = (Utc::now() - Duration::days(39)).to_rfc3339();
+
+        conn.execute(
+            "INSERT INTO pipeline_timing
+             (id, task_id, column_id, column_name, entered_at, exited_at, duration_seconds, success, retry_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 3600, 1, 0)",
+            params![
+                "old-timing",
+                old_task.id,
+                col.id,
+                col.name,
+                old_entered_at,
+                old_exited_at,
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO pipeline_timing
+             (id, task_id, column_id, column_name, entered_at, exited_at, duration_seconds, success, retry_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 120, 1, 0)",
+            params![
+                "recent-timing",
+                recent_task.id,
+                col.id,
+                col.name,
+                now(),
+                now(),
+            ],
+        )
+        .unwrap();
+
+        let metrics = get_column_metrics(&conn, &ws.id).unwrap();
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].sample_count, 1);
+        assert_eq!(metrics[0].success_count, 1);
+        assert_eq!(metrics[0].avg_duration_seconds, 120.0);
     }
 }

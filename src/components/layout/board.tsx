@@ -91,13 +91,19 @@ export function Board() {
       setColumnMetrics({})
       return
     }
+    let cancelled = false
     void getColumnMetrics(activeWorkspaceId)
       .then((metrics) => {
+        if (cancelled) return
         setColumnMetrics(Object.fromEntries(metrics.map((metric) => [metric.columnId, metric])))
       })
       .catch((err) => {
+        if (cancelled) return
         console.error('[Board] Failed to refresh column metrics:', err)
       })
+    return () => {
+      cancelled = true
+    }
   }, [activeWorkspaceId, tasks])
 
   // Resolve overlay content
