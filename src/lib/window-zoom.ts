@@ -7,6 +7,7 @@ const MAX_ZOOM = 2
 const ZOOM_STEP = 0.1
 
 let currentZoom = DEFAULT_ZOOM
+let initialized = false
 
 function clampZoom(value: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value))
@@ -17,7 +18,15 @@ function normalizeZoom(value: number): number {
 }
 
 function readStoredZoom(): number {
-  const stored = localStorage.getItem(STORAGE_KEY)
+  let stored: string | null
+
+  try {
+    stored = localStorage.getItem(STORAGE_KEY)
+  } catch (error) {
+    console.error('[window-zoom] Failed to read stored zoom:', error)
+    return DEFAULT_ZOOM
+  }
+
   if (!stored) return DEFAULT_ZOOM
 
   const parsed = Number(stored)
@@ -29,7 +38,12 @@ function readStoredZoom(): number {
 async function applyWindowZoom(zoom: number): Promise<void> {
   const normalized = normalizeZoom(zoom)
   currentZoom = normalized
-  localStorage.setItem(STORAGE_KEY, String(normalized))
+
+  try {
+    localStorage.setItem(STORAGE_KEY, String(normalized))
+  } catch (error) {
+    console.error('[window-zoom] Failed to store zoom:', error)
+  }
 
   try {
     await getCurrentWebview().setZoom(normalized)
@@ -64,6 +78,9 @@ function handleZoomShortcut(event: KeyboardEvent): void {
 }
 
 export function initializeWindowZoom(): void {
+  if (initialized) return
+
+  initialized = true
   currentZoom = readStoredZoom()
   void applyWindowZoom(currentZoom)
   window.addEventListener('keydown', handleZoomShortcut)
