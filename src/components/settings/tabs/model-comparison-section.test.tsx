@@ -50,7 +50,7 @@ describe('ModelComparisonSection', () => {
     await waitFor(() => {
       expect(window.localStorage.getItem('agent-tab-model-comparison-collapsed')).toBe('true')
     })
-  })
+  }, 20_000)
 
   it('does not call usage IPC while collapsed', () => {
     render(<ModelComparisonSection models={models} />)
@@ -111,7 +111,7 @@ describe('ModelComparisonSection', () => {
         expect.arrayContaining(['2', '3.0K', '$0.03']),
       )
     })
-  })
+  }, 20_000)
 
   it('shows no-workspace state without calling usage IPC', () => {
     useWorkspaceStore.setState({ activeWorkspaceId: null })

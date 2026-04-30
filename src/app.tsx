@@ -3,6 +3,7 @@ import { AnimatePresence } from 'motion/react'
 import { initializeTheme } from '@/lib/theme'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSettingsStore } from '@/stores/settings-store'
+import { checkUpdateIfAvailable, installPendingUpdate, isTauriRuntime, type AppUpdateResult } from '@/lib/update'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { usePrStatusPolling } from '@/hooks/use-pr-status-polling'
 import { useTaskSync } from '@/hooks/use-task-sync'
@@ -26,6 +27,10 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [showAbout, setShowAbout] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const [appUpdate, setAppUpdate] = useState<AppUpdateResult | null>(null)
+  const [appUpdateError, setAppUpdateError] = useState<string | null>(null)
+  const [isInstallingAppUpdate, setIsInstallingAppUpdate] = useState(false)
+  const [installCompleted, setInstallCompleted] = useState(false)
 
   // Keyboard shortcuts
   const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
@@ -53,6 +58,37 @@ function App() {
     const cleanup = initializeTheme()
     return cleanup
   }, [])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return
+    }
+
+    void checkUpdateIfAvailable()
+      .then((update) => {
+        if (update) {
+          setAppUpdate(update)
+        }
+      })
+      .catch((error: unknown) => {
+        setAppUpdateError(error instanceof Error ? error.message : 'Failed to check for updates')
+      })
+  }, [])
+
+  const installAppUpdate = async () => {
+    if (!appUpdate || isInstallingAppUpdate) return
+
+    setIsInstallingAppUpdate(true)
+    setAppUpdateError(null)
+    try {
+      await installPendingUpdate()
+      setInstallCompleted(true)
+    } catch (error: unknown) {
+      setAppUpdateError(error instanceof Error ? error.message : 'Failed to install update')
+    } finally {
+      setIsInstallingAppUpdate(false)
+    }
+  }
 
   // Load workspaces on mount
   useEffect(() => {
@@ -94,6 +130,53 @@ function App() {
       {/* Slide-over panels */}
       <SettingsPanel />
       <ChecklistPanel />
+
+      {appUpdate && !installCompleted && (
+        <div className="fixed inset-x-0 top-4 z-[200] mx-auto flex w-full max-w-md items-start gap-3 rounded-lg border border-accent/30 bg-surface p-3 shadow-lg">
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-text-primary">Update available</div>
+            <div className="mt-1 text-xs text-text-secondary">
+              Version <span className="font-mono text-text-primary">{appUpdate.version}</span>
+              {' '}is available.
+            </div>
+            {appUpdate.body && (
+              <div className="mt-1.5 text-xs text-text-secondary whitespace-pre-wrap">{appUpdate.body}</div>
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <button
+              onClick={() => { void installAppUpdate() }}
+              disabled={isInstallingAppUpdate}
+              className="rounded-lg border border-accent bg-accent/10 px-2.5 py-1 text-xs text-accent transition-colors hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isInstallingAppUpdate ? 'Installing…' : 'Install update'}
+            </button>
+            <button
+              onClick={() => { setAppUpdate(null); setInstallCompleted(false) }}
+              className="rounded-lg border border-border-default px-2.5 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-hover"
+            >
+              Dismiss
+            </button>
+          </div>
+          {appUpdateError && (
+            <div className="absolute inset-x-3 top-full mt-1 text-xs text-error">{appUpdateError}</div>
+          )}
+        </div>
+      )}
+
+      {installCompleted && appUpdate && (
+        <div className="fixed inset-x-0 top-4 z-[200] mx-auto flex w-full max-w-md rounded-lg border border-green-400/30 bg-surface p-3 shadow-lg">
+          <p className="text-xs text-text-secondary">
+            Update installed for version <span className="font-mono text-text-primary">{appUpdate.version}</span>. Restart the app to use the new version.
+          </p>
+        </div>
+      )}
+
+      {!isTauriRuntime() && appUpdateError && (
+        <div className="fixed inset-x-0 top-4 z-[200] mx-auto flex w-full max-w-md rounded-lg border border-error/30 bg-surface p-3 shadow-lg">
+          <p className="text-xs text-error">{appUpdateError}</p>
+        </div>
+      )}
 
       {/* Modals */}
       <AnimatePresence>

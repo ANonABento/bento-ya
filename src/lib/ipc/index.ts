@@ -16,6 +16,7 @@ export * from './script'
 export * from './siege'
 export * from './github'
 export * from './terminal'
+export * from './update'
 export * from './models'
 
 // Re-export listen and types that consumers use directly

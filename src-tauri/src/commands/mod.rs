@@ -5,6 +5,8 @@ pub mod column;
 pub mod files;
 pub mod git;
 pub mod github;
+#[cfg(desktop)]
+pub mod app_update;
 pub mod history;
 pub mod orchestrator;
 pub mod pipeline;

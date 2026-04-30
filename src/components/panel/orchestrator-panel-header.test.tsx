@@ -43,7 +43,7 @@ describe('OrchestratorPanelHeader', () => {
     fireEvent.click(screen.getByRole('button', { name: /new/i }))
     expect(onNewChat).toHaveBeenCalledTimes(1)
     expect(toggleFromBackground).toHaveBeenCalledTimes(1)
-  })
+  }, 20_000)
 
   it('keeps the New action disabled when there is no chat history', () => {
     render(

@@ -60,12 +60,19 @@ pub fn run() {
     let session_registry_for_shutdown = Arc::clone(&session_registry);
     let session_registry_for_sweep = Arc::clone(&session_registry);
 
-    let builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(state)
         .manage(session_registry);
+
+    #[cfg(desktop)]
+    {
+        builder = builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .manage(commands::app_update::PendingUpdate(std::sync::Mutex::new(None)));
+    }
 
     #[cfg(feature = "webdriver")]
     {
@@ -222,6 +229,10 @@ pub fn run() {
             commands::cli_detect::verify_cli_path,
             commands::cli_detect::get_cli_capabilities,
             commands::cli_detect::check_cli_update,
+            #[cfg(desktop)]
+            commands::app_update::check_app_update,
+            #[cfg(desktop)]
+            commands::app_update::install_app_update,
             // Checklist commands
             commands::checklist::get_workspace_checklist,
             commands::checklist::update_checklist_item,

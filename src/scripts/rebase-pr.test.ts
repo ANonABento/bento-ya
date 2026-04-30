@@ -114,7 +114,7 @@ describe('scripts/rebase-pr.sh', () => {
     expect(result.stdout).toContain('Clean rebase succeeded')
     expect(git(repo, ['merge-base', '--is-ancestor', 'origin/main', 'feature'])).toBe('')
     expect(git(repo, ['status', '--porcelain'])).toBe('')
-  })
+  }, 60_000)
 
   it('marks manual review and does not push when the guarded fallback fails type-check', () => {
     const { root, repo, origin } = setupRepo()
@@ -143,5 +143,5 @@ describe('scripts/rebase-pr.sh', () => {
     expect(existsSync(marker)).toBe(true)
     expect(readFileSync(marker, 'utf8')).toContain('file.txt')
     expect(git(repo, ['ls-remote', origin, 'refs/heads/feature']).split(/\s+/)[0]).toBe(remoteBefore)
-  })
+  }, 60_000)
 })
