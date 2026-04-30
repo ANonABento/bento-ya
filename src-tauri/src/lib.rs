@@ -255,11 +255,9 @@ pub fn run() {
             // Start periodic idle session sweep (every 60s)
             start_idle_sweep(session_registry_for_sweep, app.handle().clone());
 
-            // Recover stale pipeline work from the previous app instance.
-            resume_stale_pipeline_tasks(app.handle().clone());
-
-            // Recover tmux sessions from previous app instance
-            recover_tmux_sessions(app.handle().clone());
+            // Keep macOS didFinishLaunching light. Finder/Spotlight launches can
+            // abort if setup blocks on DB queries, tmux checks, or pipeline resume.
+            start_background_startup_recovery(app.handle().clone());
 
             // Start garbage collector for tmux sessions + agent resources
             chat::gc::start_gc();
@@ -271,6 +269,21 @@ pub fn run() {
 
     // Cleanup port file on exit
     api::cleanup();
+}
+
+fn start_background_startup_recovery(app: tauri::AppHandle) {
+    if let Err(e) = std::thread::Builder::new()
+        .name("bentoya-startup-recovery".into())
+        .spawn(move || {
+            // Recover stale pipeline work from the previous app instance.
+            resume_stale_pipeline_tasks(app.clone());
+
+            // Recover tmux sessions from previous app instance.
+            recover_tmux_sessions(app);
+        })
+    {
+        eprintln!("[startup] Failed to start background recovery: {}", e);
+    }
 }
 
 /// Recover tmux sessions from a previous app instance.
