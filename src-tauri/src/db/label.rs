@@ -104,11 +104,14 @@ pub fn set_task_labels(
         params![task_id],
         |row| row.get(0),
     )?;
-    let unique_label_ids: Vec<&String> = label_ids
-        .iter()
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect();
+    let mut unique_label_ids: Vec<String> = Vec::new();
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    for label_id in label_ids {
+        if seen.insert(label_id.as_str()) {
+            unique_label_ids.push(label_id.clone());
+        }
+    }
+
     for label_id in &unique_label_ids {
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM labels WHERE id = ?1 AND workspace_id = ?2",
@@ -125,11 +128,11 @@ pub fn set_task_labels(
         "DELETE FROM task_labels WHERE task_id = ?1",
         params![task_id],
     )?;
-    for label_id in unique_label_ids {
+    for label_id in &unique_label_ids {
         conn.execute(
             "INSERT OR IGNORE INTO task_labels (task_id, label_id, created_at) VALUES (?1, ?2, ?3)",
             params![task_id, label_id, ts],
         )?;
     }
-    list_label_ids_for_task(conn, task_id)
+    Ok(unique_label_ids)
 }

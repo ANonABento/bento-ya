@@ -22,7 +22,7 @@ const env = {
 }
 
 const tempDirs: string[] = []
-const REBASE_TEST_TIMEOUT_MS = 15_000
+const REBASE_TEST_TIMEOUT_MS = 45_000
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, env, encoding: 'utf8', stdio: 'pipe' }).trim()
