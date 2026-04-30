@@ -74,3 +74,46 @@ export async function getTaskUsageSummary(taskId: string): Promise<UsageSummary>
 export async function clearWorkspaceUsage(workspaceId: string): Promise<void> {
   return invoke('clear_workspace_usage', { workspaceId })
 }
+
+export type DailyCost = {
+  date: string
+  costUsd: number
+  inputTokens: number
+  outputTokens: number
+  recordCount: number
+}
+
+export type ColumnCost = {
+  columnName: string
+  costUsd: number
+  inputTokens: number
+  outputTokens: number
+  recordCount: number
+}
+
+export type TaskCost = {
+  taskId: string
+  taskTitle: string
+  costUsd: number
+  inputTokens: number
+  outputTokens: number
+  recordCount: number
+}
+
+export async function getWorkspaceDailyCosts(
+  workspaceId: string,
+  days?: number,
+): Promise<DailyCost[]> {
+  return invoke<DailyCost[]>('get_workspace_daily_costs', { workspaceId, days })
+}
+
+export async function getWorkspaceColumnCosts(workspaceId: string): Promise<ColumnCost[]> {
+  return invoke<ColumnCost[]>('get_workspace_column_costs', { workspaceId })
+}
+
+export async function getWorkspaceTaskCosts(
+  workspaceId: string,
+  limit?: number,
+): Promise<TaskCost[]> {
+  return invoke<TaskCost[]>('get_workspace_task_costs', { workspaceId, limit })
+}
