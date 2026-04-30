@@ -43,6 +43,10 @@ export function useCostDashboard({
     setIsLoading(enabled)
     if (!enabled) return
     void refresh()
+
+    return () => {
+      requestIdRef.current += 1
+    }
   }, [enabled, refresh])
 
   return { dashboard, isLoading, error, refresh }
