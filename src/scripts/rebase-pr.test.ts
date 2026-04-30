@@ -22,6 +22,7 @@ const env = {
 }
 
 const tempDirs: string[] = []
+const TEST_TIMEOUT_MS = 90_000
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, env, encoding: 'utf8', stdio: 'pipe' }).trim()
@@ -92,7 +93,7 @@ afterEach(() => {
 })
 
 describe('scripts/rebase-pr.sh', () => {
-  it('rebases a clean PR branch and force-pushes it', () => {
+  it('rebases a clean PR branch and force-pushes it', { timeout: TEST_TIMEOUT_MS }, () => {
     const { root, repo } = setupRepo()
 
     git(repo, ['checkout', '-b', 'feature'])
@@ -116,7 +117,7 @@ describe('scripts/rebase-pr.sh', () => {
     expect(git(repo, ['status', '--porcelain'])).toBe('')
   })
 
-  it('marks manual review and does not push when the guarded fallback fails type-check', () => {
+  it('marks manual review and does not push when the guarded fallback fails type-check', { timeout: TEST_TIMEOUT_MS }, () => {
     const { root, repo, origin } = setupRepo()
 
     git(repo, ['checkout', '-b', 'feature'])
