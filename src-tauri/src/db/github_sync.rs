@@ -61,7 +61,7 @@ pub fn insert_task_from_github_issue(
         )
         .unwrap_or(-1);
     conn.execute(
-        "INSERT INTO tasks (id, workspace_id, column_id, title, description, position, priority, files_touched, pipeline_state, github_issue_number, github_issue_commented, github_issue_pr_linked, created_at, updated_at)
+        "INSERT OR IGNORE INTO tasks (id, workspace_id, column_id, title, description, position, priority, files_touched, pipeline_state, github_issue_number, github_issue_commented, github_issue_pr_linked, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'medium', '[]', 'idle', ?7, 0, 0, ?8, ?9)",
         params![id, workspace_id, column_id, title, description, max_pos + 1, issue_number, ts, ts],
     )?;

@@ -1,10 +1,11 @@
 use crate::db::{self, AppState};
 use crate::error::AppError;
+use crate::pipeline;
 use rusqlite::Error as SqlError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::process::Command;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 /// PR status response from GitHub API (via gh cli)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,6 +183,7 @@ pub struct GithubSyncStateResponse {
 /// Fetches open issues, creates tasks for new ones, posts done-comments, and links PRs.
 #[tauri::command]
 pub async fn sync_github_issues_now(
+    app: AppHandle,
     state: State<'_, AppState>,
     workspace_id: String,
 ) -> Result<GithubSyncResult, AppError> {
@@ -295,6 +297,10 @@ pub async fn sync_github_issues_now(
             )?;
             tasks_created += 1;
         }
+    }
+
+    if tasks_created > 0 {
+        pipeline::emit_tasks_changed(&app, &workspace_id, "github_sync");
     }
 
     // 5. Post done-comments for tasks in the done column (no lock during gh call)

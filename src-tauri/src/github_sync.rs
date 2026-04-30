@@ -5,25 +5,30 @@
 //! and links PRs.
 
 use crate::db;
+use crate::pipeline;
 use rusqlite::Connection;
 use std::collections::HashSet;
 use std::process::Command;
+use tauri::AppHandle;
 use tokio::time::Duration;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(300); // 5 minutes
 const STARTUP_DELAY: Duration = Duration::from_secs(30);
 
-pub fn start_github_sync() {
+pub fn start_github_sync(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(STARTUP_DELAY).await;
         loop {
-            run_sync_cycle();
+            let app_clone = app.clone();
+            tokio::task::spawn_blocking(move || run_sync_cycle(app_clone))
+                .await
+                .ok();
             tokio::time::sleep(POLL_INTERVAL).await;
         }
     });
 }
 
-fn run_sync_cycle() {
+fn run_sync_cycle(app: AppHandle) {
     let conn = match Connection::open(db::db_path()) {
         Ok(c) => c,
         Err(e) => {
@@ -124,6 +129,7 @@ fn run_sync_cycle() {
             .into_iter()
             .collect();
 
+        let mut tasks_created = 0usize;
         for issue in &issues {
             if existing.contains(&issue.number) {
                 continue;
@@ -134,7 +140,7 @@ fn run_sync_cycle() {
                     b, issue.number, issue.url
                 )
             });
-            let _ = db::insert_task_from_github_issue(
+            let ok = db::insert_task_from_github_issue(
                 &conn,
                 &ws.id,
                 &target_column_id,
@@ -142,6 +148,12 @@ fn run_sync_cycle() {
                 desc.as_deref(),
                 issue.number,
             );
+            if ok.is_ok() {
+                tasks_created += 1;
+            }
+        }
+        if tasks_created > 0 {
+            pipeline::emit_tasks_changed(&app, &ws.id, "github_sync");
         }
 
         // Post done-comments

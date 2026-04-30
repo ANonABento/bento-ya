@@ -268,7 +268,7 @@ pub fn run() {
             chat::gc::start_gc();
 
             // Start GitHub issues sync poller (every 5 minutes)
-            github_sync::start_github_sync();
+            github_sync::start_github_sync(app.handle().clone());
 
             Ok(())
         })
