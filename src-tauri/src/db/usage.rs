@@ -217,7 +217,7 @@ pub fn get_cost_dashboard(conn: &Connection) -> SqlResult<CostDashboard> {
             COALESCE(t.title, 'Deleted or unassigned task') AS task_title,
             u.workspace_id,
             COALESCE(w.name, 'Unknown workspace') AS workspace_name,
-            COALESCE(c.name, MAX(u.column_name)) AS column_name,
+            COALESCE(MAX(c.name), MAX(u.column_name), 'Unassigned') AS column_name,
             COALESCE(SUM(u.cost_usd), 0.0) AS total_cost_usd,
             COALESCE(SUM(u.input_tokens), 0) AS total_input_tokens,
             COALESCE(SUM(u.output_tokens), 0) AS total_output_tokens,
@@ -226,7 +226,7 @@ pub fn get_cost_dashboard(conn: &Connection) -> SqlResult<CostDashboard> {
         LEFT JOIN tasks t ON t.id = u.task_id
         LEFT JOIN workspaces w ON w.id = u.workspace_id
         LEFT JOIN columns c ON c.id = t.column_id
-        GROUP BY u.task_id, task_title, u.workspace_id, workspace_name, c.name
+        GROUP BY u.task_id, task_title, u.workspace_id, workspace_name
         ORDER BY total_cost_usd DESC, task_title ASC
         LIMIT 10",
     )?;

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   DndContext,
@@ -26,6 +26,8 @@ import { CostDashboardPanel } from '@/components/usage'
 import type { Workspace } from '@/types'
 import { AddWorkspaceDialog } from './add-workspace-dialog'
 import { useTabBarNavigation } from './use-tab-bar-navigation'
+
+const COST_DASHBOARD_HASH = '#cost-dashboard'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -268,7 +270,7 @@ export function TabBar() {
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
-  const [showCostDashboard, setShowCostDashboard] = useState(false)
+  const [showCostDashboard, setShowCostDashboard] = useState(() => window.location.hash === COST_DASHBOARD_HASH)
 
   const sortedWorkspaces = [...workspaces].sort((a, b) => a.tabOrder - b.tabOrder)
   const workspaceIds = sortedWorkspaces.map((w) => w.id)
@@ -286,6 +288,19 @@ export function TabBar() {
     remove,
     openAddDialog: () => { setShowAddDialog(true) },
   })
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setShowCostDashboard(window.location.hash === COST_DASHBOARD_HASH)
+    }
+
+    handleHashChange()
+    window.addEventListener('hashchange', handleHashChange)
+
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange)
+    }
+  }, [])
 
   // ─── Drag Handlers ──────────────────────────────────────────────────────────
 
@@ -359,7 +374,7 @@ export function TabBar() {
           />
           <CostDashboardButton
             onClick={() => {
-              setShowCostDashboard(true)
+              window.location.hash = COST_DASHBOARD_HASH
             }}
           />
           <ChecklistButton />
@@ -379,7 +394,7 @@ export function TabBar() {
         {showCostDashboard && (
           <CostDashboardPanel
             onClose={() => {
-              setShowCostDashboard(false)
+              window.location.hash = ''
             }}
           />
         )}

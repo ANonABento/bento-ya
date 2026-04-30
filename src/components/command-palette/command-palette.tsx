@@ -104,6 +104,13 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
       action: () => { closeChat() },
     })
 
+    cmds.push({
+      id: 'nav-cost-dashboard',
+      label: 'Open cost dashboard',
+      category: 'Navigation',
+      action: () => { window.location.hash = '#cost-dashboard' },
+    })
+
     // Tasks: create new
     cmds.push({
       id: 'task-create',
