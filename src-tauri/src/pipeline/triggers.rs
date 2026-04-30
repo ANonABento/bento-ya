@@ -436,12 +436,7 @@ fn staging_branch_for_batch(batch_id: &str) -> String {
 }
 
 fn ensure_task_batch_id(conn: &Connection, task: &Task) -> Result<Task, AppError> {
-    if let Some(batch_id) = task
-        .batch_id
-        .as_deref()
-        .and_then(normalize_batch_id)
-        .filter(|id| !id.is_empty())
-    {
+    if let Some(batch_id) = task.batch_id.as_deref().and_then(normalize_batch_id) {
         if task.batch_id.as_deref() == Some(batch_id.as_str()) {
             return Ok(task.clone());
         }
