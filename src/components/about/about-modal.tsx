@@ -1,37 +1,11 @@
 import { motion } from 'motion/react'
+import { KEYBOARD_SHORTCUT_SECTIONS } from '@/lib/keyboard-shortcuts'
 
 type Props = {
   onClose: () => void
 }
 
 const VERSION = '1.0.0'
-
-const SHORTCUTS = [
-  { category: 'Global', items: [
-    { keys: ['Cmd', 'K'], desc: 'Command palette' },
-    { keys: ['?'], desc: 'Keyboard shortcuts' },
-    { keys: ['Cmd', '/'], desc: 'About Bento-ya' },
-    { keys: ['Esc'], desc: 'Close panel / cancel' },
-  ]},
-  { category: 'Workspaces', items: [
-    { keys: ['Cmd', '1-9'], desc: 'Switch to workspace 1-9' },
-    { keys: ['Cmd', 'T'], desc: 'New workspace' },
-    { keys: ['Cmd', 'W'], desc: 'Close workspace' },
-    { keys: ['Ctrl', 'Tab'], desc: 'Next workspace' },
-    { keys: ['Ctrl', 'Shift', 'Tab'], desc: 'Previous workspace' },
-  ]},
-  { category: 'Task Cards', items: [
-    { keys: ['Enter'], desc: 'Open task' },
-    { keys: ['Space'], desc: 'Open task (peek)' },
-    { keys: ['D'], desc: 'Duplicate task' },
-    { keys: ['L'], desc: 'Link dependencies' },
-    { keys: ['M'], desc: 'Move task menu' },
-    { keys: ['Del'], desc: 'Delete task menu' },
-  ]},
-  { category: 'Terminal', items: [
-    { keys: ['Ctrl', 'C'], desc: 'Interrupt process' },
-  ]},
-]
 
 export function AboutModal({ onClose }: Props) {
   return (
@@ -105,7 +79,7 @@ export function AboutModal({ onClose }: Props) {
           <div className="rounded-xl border border-border-default bg-bg p-4">
             <h4 className="mb-4 font-medium text-text-primary">Keyboard Shortcuts</h4>
             <div className="space-y-4">
-              {SHORTCUTS.map((section) => (
+              {KEYBOARD_SHORTCUT_SECTIONS.map((section) => (
                 <div key={section.category}>
                   <h5 className="mb-2 text-xs font-medium uppercase tracking-wide text-text-secondary">
                     {section.category}

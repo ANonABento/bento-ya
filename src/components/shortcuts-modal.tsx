@@ -1,95 +1,16 @@
 import { useEffect } from 'react'
 import { motion } from 'motion/react'
-
-type ShortcutItem = {
-  keys: string[]
-  desc: string
-}
-
-type ShortcutSection = {
-  category: string
-  items: ShortcutItem[]
-}
+import { KEYBOARD_SHORTCUT_SECTIONS } from '@/lib/keyboard-shortcuts'
 
 type Props = {
   onClose: () => void
 }
 
-const SHORTCUT_SECTIONS: ShortcutSection[] = [
-  {
-    category: 'Global',
-    items: [
-      { keys: ['?'], desc: 'Show keyboard shortcuts' },
-      { keys: ['Cmd', 'K'], desc: 'Search and command palette' },
-      { keys: ['Cmd', ','], desc: 'Open settings' },
-      { keys: ['Cmd', '/'], desc: 'About Bento-ya' },
-      { keys: ['Esc'], desc: 'Close panel or cancel' },
-    ],
-  },
-  {
-    category: 'Workspaces',
-    items: [
-      { keys: ['Cmd', '1-9'], desc: 'Switch workspace' },
-      { keys: ['Cmd', 'T'], desc: 'New workspace' },
-      { keys: ['Cmd', 'W'], desc: 'Close workspace' },
-      { keys: ['Ctrl', 'Tab'], desc: 'Next workspace' },
-      { keys: ['Ctrl', 'Shift', 'Tab'], desc: 'Previous workspace' },
-    ],
-  },
-  {
-    category: 'Board',
-    items: [
-      { keys: ['Cmd', 'J'], desc: 'Toggle chef panel' },
-      { keys: ['Cmd', 'L'], desc: 'Close task chat panel' },
-      { keys: ['Cmd', 'Drag'], desc: 'Link task dependencies' },
-      { keys: ['Esc'], desc: 'Cancel dependency link' },
-    ],
-  },
-  {
-    category: 'Task Cards',
-    items: [
-      { keys: ['Enter'], desc: 'Open task' },
-      { keys: ['Space'], desc: 'Run or stop agent' },
-      { keys: ['R'], desc: 'Retry failed pipeline' },
-      { keys: ['ArrowRight'], desc: 'Move task to next column' },
-      { keys: ['M'], desc: 'Open move task menu' },
-      { keys: ['D'], desc: 'Duplicate task' },
-      { keys: ['L'], desc: 'Edit dependencies' },
-      { keys: ['Del'], desc: 'Confirm/delete task' },
-      { keys: ['Backspace'], desc: 'Confirm/delete task' },
-    ],
-  },
-  {
-    category: 'Command Palette',
-    items: [
-      { keys: ['ArrowDown'], desc: 'Select next command' },
-      { keys: ['ArrowUp'], desc: 'Select previous command' },
-      { keys: ['Enter'], desc: 'Run selected command' },
-      { keys: ['Cmd', 'Enter'], desc: 'Create task from search text' },
-      { keys: ['Esc'], desc: 'Close command palette' },
-    ],
-  },
-  {
-    category: 'Editing',
-    items: [
-      { keys: ['Enter'], desc: 'Submit message, task, or checklist item' },
-      { keys: ['Shift', 'Enter'], desc: 'Insert newline in message' },
-      { keys: ['Esc'], desc: 'Cancel inline edit' },
-    ],
-  },
-  {
-    category: 'Terminal',
-    items: [
-      { keys: ['Ctrl', 'C'], desc: 'Interrupt process' },
-    ],
-  },
-]
-
 function KbdSequence({ keys }: { keys: string[] }) {
   return (
     <div className="flex min-w-[116px] flex-wrap justify-end gap-1">
       {keys.map((key, index) => (
-        <span key={`${key}-${index}`} className="inline-flex items-center gap-1">
+        <span key={`${key}-${String(index)}`} className="inline-flex items-center gap-1">
           <kbd className="rounded border border-border-default bg-bg px-1.5 py-0.5 font-mono text-[11px] leading-5 text-text-primary">
             {key}
           </kbd>
@@ -150,7 +71,7 @@ export function ShortcutsModal({ onClose }: Props) {
 
         <div className="overflow-y-auto p-5">
           <div className="grid gap-4 md:grid-cols-2">
-            {SHORTCUT_SECTIONS.map((section) => (
+            {KEYBOARD_SHORTCUT_SECTIONS.map((section) => (
               <section key={section.category} className="rounded-lg border border-border-default bg-bg/60 p-3">
                 <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-text-secondary">
                   {section.category}

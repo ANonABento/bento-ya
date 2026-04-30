@@ -22,6 +22,7 @@ const env = {
 }
 
 const tempDirs: string[] = []
+const REBASE_TEST_TIMEOUT_MS = 30_000
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, env, encoding: 'utf8', stdio: 'pipe' }).trim()
@@ -114,7 +115,7 @@ describe('scripts/rebase-pr.sh', () => {
     expect(result.stdout).toContain('Clean rebase succeeded')
     expect(git(repo, ['merge-base', '--is-ancestor', 'origin/main', 'feature'])).toBe('')
     expect(git(repo, ['status', '--porcelain'])).toBe('')
-  })
+  }, REBASE_TEST_TIMEOUT_MS)
 
   it('marks manual review and does not push when the guarded fallback fails type-check', () => {
     const { root, repo, origin } = setupRepo()
@@ -143,5 +144,5 @@ describe('scripts/rebase-pr.sh', () => {
     expect(existsSync(marker)).toBe(true)
     expect(readFileSync(marker, 'utf8')).toContain('file.txt')
     expect(git(repo, ['ls-remote', origin, 'refs/heads/feature']).split(/\s+/)[0]).toBe(remoteBefore)
-  })
+  }, REBASE_TEST_TIMEOUT_MS)
 })
