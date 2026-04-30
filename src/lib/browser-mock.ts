@@ -312,6 +312,58 @@ const mockCommands: Record<string, CommandHandler> = {
     mockTasks.push(task)
     return task
   },
+  duplicate_task: (args) => {
+    const original = mockTasks.find((t) => t.id === args?.id)
+    if (!original) {
+      throw new Error('Task not found')
+    }
+
+    const now = new Date().toISOString()
+    const position = original.position + 1
+    mockTasks = mockTasks.map((task) =>
+      task.workspaceId === original.workspaceId &&
+      task.columnId === original.columnId &&
+      task.position >= position
+        ? { ...task, position: task.position + 1, updatedAt: now }
+        : task,
+    )
+
+    const task: Task = {
+      ...original,
+      id: generateId('task'),
+      title: `${original.title} (copy)`,
+      position,
+      branch: null,
+      agentStatus: 'idle',
+      queuedAt: null,
+      batchId: null,
+      pipelineState: 'idle',
+      pipelineTriggeredAt: null,
+      pipelineError: null,
+      retryCount: 0,
+      lastScriptExitCode: null,
+      reviewStatus: null,
+      prNumber: null,
+      prUrl: null,
+      siegeIteration: 0,
+      siegeActive: false,
+      siegeLastChecked: null,
+      prMergeable: null,
+      prCiStatus: null,
+      prReviewDecision: null,
+      prCommentCount: 0,
+      prIsDraft: false,
+      prLastFetched: null,
+      prHeadSha: null,
+      notificationSentAt: null,
+      lastOutput: null,
+      worktreePath: null,
+      createdAt: now,
+      updatedAt: now,
+    }
+    mockTasks.push(task)
+    return task
+  },
   update_task: (args) => {
     const existing = mockTasks.find((t) => t.id === args?.id)
     if (existing) {

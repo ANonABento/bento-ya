@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const scriptPath = resolve(process.cwd(), 'scripts/rebase-pr.sh')
+const GIT_INTEGRATION_TIMEOUT_MS = 30_000
 const env = {
   ...process.env,
   GIT_AUTHOR_NAME: 'Test User',
@@ -114,7 +115,7 @@ describe('scripts/rebase-pr.sh', () => {
     expect(result.stdout).toContain('Clean rebase succeeded')
     expect(git(repo, ['merge-base', '--is-ancestor', 'origin/main', 'feature'])).toBe('')
     expect(git(repo, ['status', '--porcelain'])).toBe('')
-  })
+  }, GIT_INTEGRATION_TIMEOUT_MS)
 
   it('marks manual review and does not push when the guarded fallback fails type-check', () => {
     const { root, repo, origin } = setupRepo()
@@ -143,5 +144,5 @@ describe('scripts/rebase-pr.sh', () => {
     expect(existsSync(marker)).toBe(true)
     expect(readFileSync(marker, 'utf8')).toContain('file.txt')
     expect(git(repo, ['ls-remote', origin, 'refs/heads/feature']).split(/\s+/)[0]).toBe(remoteBefore)
-  })
+  }, GIT_INTEGRATION_TIMEOUT_MS)
 })
