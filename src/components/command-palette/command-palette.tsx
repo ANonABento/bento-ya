@@ -164,7 +164,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
       id: 'settings-shortcuts',
       label: 'Show keyboard shortcuts',
       category: 'Settings',
-      shortcut: ['Cmd', '/'],
+      shortcut: ['?'],
       action: () => { onShowShortcuts() },
     })
 

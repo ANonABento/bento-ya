@@ -16,6 +16,7 @@ import { SettingsPanel } from '@/components/settings/settings-panel'
 import { ChecklistPanel } from '@/components/checklist/checklist-panel'
 import { AboutModal } from '@/components/about/about-modal'
 import { CommandPalette } from '@/components/command-palette/command-palette'
+import { ShortcutsModal } from '@/components/shortcuts-modal'
 import { SkeletonLoader } from '@/components/shared/skeleton-loader'
 
 function App() {
@@ -26,15 +27,19 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [showAbout, setShowAbout] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
 
   // Keyboard shortcuts
   const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
   const toggleCommandPalette = useCallback(() => { setShowCommandPalette((prev) => !prev) }, [])
+  const openShortcuts = useCallback(() => { setShowShortcuts(true) }, [])
   const openSettings = useSettingsStore((s) => s.openSettings)
   useKeyboardShortcuts([
     { key: '/', meta: true, handler: toggleAbout },
     { key: 'k', meta: true, handler: toggleCommandPalette },
     { key: ',', meta: true, handler: openSettings },
+    { key: '?', shift: true, handler: openShortcuts, ignoreEditable: true },
+    { key: 'Escape', handler: () => { setShowShortcuts(false) }, preventDefault: false },
   ])
 
   // Auto-detect CLI paths on startup
@@ -98,10 +103,11 @@ function App() {
       {/* Modals */}
       <AnimatePresence>
         {showAbout && <AboutModal onClose={() => { setShowAbout(false) }} />}
+        {showShortcuts && <ShortcutsModal onClose={() => { setShowShortcuts(false) }} />}
         {showCommandPalette && (
           <CommandPalette
             onClose={() => { setShowCommandPalette(false) }}
-            onShowShortcuts={() => { setShowCommandPalette(false); setShowAbout(true) }}
+            onShowShortcuts={() => { setShowCommandPalette(false); setShowShortcuts(true) }}
           />
         )}
       </AnimatePresence>

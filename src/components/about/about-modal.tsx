@@ -9,7 +9,8 @@ const VERSION = '1.0.0'
 const SHORTCUTS = [
   { category: 'Global', items: [
     { keys: ['Cmd', 'K'], desc: 'Command palette' },
-    { keys: ['Cmd', '/'], desc: 'Keyboard shortcuts' },
+    { keys: ['?'], desc: 'Keyboard shortcuts' },
+    { keys: ['Cmd', '/'], desc: 'About Bento-ya' },
     { keys: ['Esc'], desc: 'Close panel / cancel' },
   ]},
   { category: 'Workspaces', items: [

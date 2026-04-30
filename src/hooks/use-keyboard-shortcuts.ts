@@ -12,12 +12,32 @@ type ShortcutConfig = {
   alt?: boolean
   handler: ShortcutHandler
   preventDefault?: boolean
+  ignoreEditable?: boolean
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+
+  const tag = target.tagName
+  return (
+    tag === 'INPUT' ||
+    tag === 'TEXTAREA' ||
+    tag === 'SELECT' ||
+    target.isContentEditable ||
+    !!target.closest('[contenteditable="true"]')
+  )
 }
 
 export function useKeyboardShortcuts(shortcuts: ShortcutConfig[]) {
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
+
       for (const shortcut of shortcuts) {
+        if (shortcut.ignoreEditable && isEditableTarget(event.target)) {
+          continue
+        }
+
         const keyMatch = event.key.toLowerCase() === shortcut.key.toLowerCase()
         const ctrlMatch = shortcut.ctrl ? event.ctrlKey : !event.ctrlKey || shortcut.meta
         const metaMatch = shortcut.meta ? event.metaKey : !event.metaKey || shortcut.ctrl
