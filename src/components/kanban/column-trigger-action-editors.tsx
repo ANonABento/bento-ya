@@ -3,8 +3,8 @@ import type {
   TriggerAction,
 } from '@/types'
 import { DEFAULT_SPAWN_CLI } from '@/types/column'
+import { BaseBranchActionEditor } from './base-branch-action-editor'
 import { ACTION_TYPES } from './column-config-constants'
-import { CreatePrActionEditor } from './create-pr-action-editor'
 import { MoveColumnActionEditor } from './move-column-action-editor'
 import { RunScriptActionEditor } from './run-script-action-editor'
 import { SpawnCliActionEditor } from './spawn-cli-action-editor'
@@ -81,15 +81,8 @@ export function ActionEditor({
         />
       )}
 
-      {action.type === 'create_pr' && (
-        <CreatePrActionEditor
-          action={action}
-          setAction={(nextAction) => { setAction(nextAction) }}
-        />
-      )}
-
-      {action.type === 'auto_merge' && (
-        <CreatePrActionEditor
+      {(action.type === 'create_pr' || action.type === 'auto_merge') && (
+        <BaseBranchActionEditor
           action={action}
           setAction={(nextAction) => { setAction(nextAction) }}
         />

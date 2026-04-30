@@ -1397,7 +1397,16 @@ fn handle_configure_triggers(conn: &Connection, args: &Value) -> Value {
     };
 
     // Validate trigger action types if present
-    let valid_types = ["spawn_cli", "move_column", "trigger_task", "run_script", "create_pr", "none"];
+    let valid_types = [
+        "auto_setup",
+        "spawn_cli",
+        "move_column",
+        "trigger_task",
+        "run_script",
+        "create_pr",
+        "auto_merge",
+        "none",
+    ];
     for key in &["on_entry", "on_exit"] {
         if let Some(action) = parsed.get(key) {
             if let Some(action_type) = action.get("type").and_then(|t| t.as_str()) {

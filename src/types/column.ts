@@ -64,6 +64,8 @@ export interface AutoMergeAction {
   base_branch?: string
 }
 
+export type BaseBranchAction = CreatePrAction | AutoMergeAction
+
 export interface NoneAction {
   type: 'none'
 }

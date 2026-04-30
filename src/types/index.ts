@@ -12,6 +12,7 @@ export type {
   RunScriptAction,
   CreatePrAction,
   AutoMergeAction,
+  BaseBranchAction,
   NoneAction,
   ExitCriteria,
   ExitCriteriaType,
