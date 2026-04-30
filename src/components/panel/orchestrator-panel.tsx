@@ -21,6 +21,7 @@ import { useCliPath } from '@/hooks/use-cli-path'
 import { ChatHistory } from './chat-history'
 import { PanelSidebar } from './panel-sidebar'
 import { PipelineDashboard } from './pipeline-dashboard'
+import { PipelineV2Dashboard } from './pipeline-v2-dashboard'
 import { ChatErrorBoundary } from './chat-error-boundary'
 import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls } from './shared'
 
@@ -94,7 +95,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   })
 
   // Local UI state
-  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | 'dashboard' | null>(null)
+  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | 'dashboard' | 'v2-dashboard' | null>(null)
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -341,6 +342,20 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM10 7a1.5 1.5 0 0 0-1.5 1.5v8a1.5 1.5 0 0 0 3 0v-8A1.5 1.5 0 0 0 10 7ZM4.5 12A1.5 1.5 0 0 0 3 13.5v3a1.5 1.5 0 0 0 3 0v-3A1.5 1.5 0 0 0 4.5 12Z" />
                 </svg>
               </button>
+              <button
+                type="button"
+                onClick={() => { setSidebarMode(sidebarMode === 'v2-dashboard' ? null : 'v2-dashboard') }}
+                className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                  sidebarMode === 'v2-dashboard'
+                    ? 'bg-surface-hover text-text-primary'
+                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                }`}
+                title="Pipeline v2 dashboard — column distribution, ETA, cost"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path fillRule="evenodd" d="M1 2.75A.75.75 0 0 1 1.75 2h16.5a.75.75 0 0 1 0 1.5H18v8.75A2.75 2.75 0 0 1 15.25 15h-1.072l.798 3.06a.75.75 0 0 1-1.452.38L13.41 18H6.59l-.114.44a.75.75 0 0 1-1.452-.38L5.823 15H4.75A2.75 2.75 0 0 1 2 12.25V3.5h-.25A.75.75 0 0 1 1 2.75ZM7.373 15l-.391 1.5h6.036l-.392-1.5H7.373ZM13 7.5a.5.5 0 0 0-1 0v4a.5.5 0 0 0 1 0v-4Zm-3 2a.5.5 0 0 0-1 0v2a.5.5 0 0 0 1 0v-2Zm-2.5 1a.5.5 0 0 1 .5.5v.5a.5.5 0 0 1-1 0v-.5a.5.5 0 0 1 .5-.5Z" clipRule="evenodd" />
+                </svg>
+              </button>
             </>
           )}
         </div>
@@ -437,6 +452,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             {/* Sidebar */}
             {sidebarMode === 'dashboard' ? (
               <PipelineDashboard workspaceId={workspaceId} />
+            ) : sidebarMode === 'v2-dashboard' ? (
+              <PipelineV2Dashboard workspaceId={workspaceId} />
             ) : (
               <PanelSidebar
                 mode={sidebarMode}
