@@ -530,6 +530,18 @@ const mockCommands: Record<string, CommandHandler> = {
     totalCostUsd: 0,
     recordCount: 0,
   }),
+  get_cost_dashboard: () => ({
+    total: {
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCostUsd: 0,
+      recordCount: 0,
+    },
+    workspaces: [],
+    columns: [],
+    topTasks: [],
+    daily: [],
+  }),
   clear_workspace_usage: () => undefined,
 
   // Session history (stubs)

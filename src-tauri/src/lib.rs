@@ -208,6 +208,7 @@ pub fn run() {
             commands::usage::get_workspace_usage_summary,
             commands::usage::get_task_usage_summary,
             commands::usage::clear_workspace_usage,
+            commands::usage::get_cost_dashboard,
             // History commands
             commands::history::create_snapshot,
             commands::history::get_snapshot,

@@ -24,6 +24,53 @@ export type UsageSummary = {
   recordCount: number
 }
 
+export type WorkspaceCostSummary = {
+  workspaceId: string
+  workspaceName: string
+  totalCostUsd: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  recordCount: number
+}
+
+export type ColumnCostSummary = {
+  workspaceId: string
+  workspaceName: string
+  columnName: string
+  totalCostUsd: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  recordCount: number
+}
+
+export type TaskCostSummary = {
+  taskId: string | null
+  taskTitle: string
+  workspaceId: string
+  workspaceName: string
+  columnName: string | null
+  totalCostUsd: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  recordCount: number
+}
+
+export type DailyCostSummary = {
+  date: string
+  totalCostUsd: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  recordCount: number
+}
+
+export type CostDashboard = {
+  total: UsageSummary
+  workspaces: WorkspaceCostSummary[]
+  columns: ColumnCostSummary[]
+  topTasks: TaskCostSummary[]
+  daily: DailyCostSummary[]
+}
+
 export async function recordUsage(
   workspaceId: string,
   provider: string,
@@ -73,4 +120,8 @@ export async function getTaskUsageSummary(taskId: string): Promise<UsageSummary>
 
 export async function clearWorkspaceUsage(workspaceId: string): Promise<void> {
   return invoke('clear_workspace_usage', { workspaceId })
+}
+
+export async function getCostDashboard(): Promise<CostDashboard> {
+  return invoke<CostDashboard>('get_cost_dashboard')
 }

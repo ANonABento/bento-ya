@@ -22,6 +22,7 @@ import { useAttentionStore } from '@/stores/attention-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useChecklistStore } from '@/stores/checklist-store'
 import { Tooltip } from '@/components/shared/tooltip'
+import { CostDashboardPanel } from '@/components/usage'
 import type { Workspace } from '@/types'
 import { AddWorkspaceDialog } from './add-workspace-dialog'
 import { useTabBarNavigation } from './use-tab-bar-navigation'
@@ -228,6 +229,32 @@ function ChecklistButton() {
   )
 }
 
+// ─── CostDashboardButton ────────────────────────────────────────────────────
+
+function CostDashboardButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Tooltip content="Cost Dashboard" side="bottom">
+      <motion.button
+        type="button"
+        onClick={onClick}
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          className="h-4 w-4"
+        >
+          <path d="M10.75 10.818v2.614A3.13 3.13 0 0 0 11.888 13c.482-.315.612-.648.612-.875 0-.227-.13-.56-.612-.875a3.13 3.13 0 0 0-1.138-.432ZM8.33 8.62c.053.055.115.11.184.164.208.16.46.284.736.363V6.603a2.45 2.45 0 0 0-.35.13c-.14.065-.27.143-.386.233-.377.292-.514.627-.514.909 0 .184.058.39.202.592.037.051.08.102.128.152Z" />
+          <path fillRule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-6a.75.75 0 0 1 .75.75v.316a3.78 3.78 0 0 1 1.653.713c.426.33.744.74.925 1.2a.75.75 0 0 1-1.395.55 1.35 1.35 0 0 0-.447-.563 2.187 2.187 0 0 0-.736-.363V9.3c.698.093 1.383.32 1.959.696.787.514 1.29 1.27 1.29 2.13 0 .86-.504 1.616-1.29 2.13-.576.377-1.261.603-1.96.696v.299a.75.75 0 1 1-1.5 0v-.3a3.78 3.78 0 0 1-1.653-.713 2.97 2.97 0 0 1-.925-1.2.75.75 0 0 1 1.395-.55c.12.308.313.524.447.563.235.18.505.317.736.363v-2.614a3.78 3.78 0 0 1-1.959-.696C6.503 9.746 6 8.99 6 8.13c0-.86.504-1.616 1.29-2.13.576-.377 1.261-.603 1.96-.696v-.549A.75.75 0 0 1 10 4Z" clipRule="evenodd" />
+        </svg>
+      </motion.button>
+    </Tooltip>
+  )
+}
+
 // ─── TabBar ─────────────────────────────────────────────────────────────────
 
 export function TabBar() {
@@ -241,6 +268,7 @@ export function TabBar() {
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
+  const [showCostDashboard, setShowCostDashboard] = useState(false)
 
   const sortedWorkspaces = [...workspaces].sort((a, b) => a.tabOrder - b.tabOrder)
   const workspaceIds = sortedWorkspaces.map((w) => w.id)
@@ -329,6 +357,11 @@ export function TabBar() {
               setShowAddDialog(true)
             }}
           />
+          <CostDashboardButton
+            onClick={() => {
+              setShowCostDashboard(true)
+            }}
+          />
           <ChecklistButton />
           <SettingsButton />
         </div>
@@ -342,7 +375,15 @@ export function TabBar() {
           }}
         />
       )}
+      <AnimatePresence>
+        {showCostDashboard && (
+          <CostDashboardPanel
+            onClose={() => {
+              setShowCostDashboard(false)
+            }}
+          />
+        )}
+      </AnimatePresence>
     </>
   )
 }
-

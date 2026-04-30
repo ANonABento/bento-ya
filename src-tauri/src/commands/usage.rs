@@ -1,4 +1,4 @@
-use crate::db::{self, AppState, UsageRecord, UsageSummary};
+use crate::db::{self, AppState, CostDashboard, UsageRecord, UsageSummary};
 use crate::error::AppError;
 use tauri::State;
 
@@ -93,4 +93,13 @@ pub fn clear_workspace_usage(state: State<AppState>, workspace_id: String) -> Re
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::delete_workspace_usage(&conn, &workspace_id).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn get_cost_dashboard(state: State<AppState>) -> Result<CostDashboard, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    db::get_cost_dashboard(&conn).map_err(AppError::from)
 }

@@ -304,6 +304,68 @@ pub struct UsageSummary {
     pub record_count: i64,
 }
 
+/// Workspace-level cost aggregate for the cost dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceCostSummary {
+    pub workspace_id: String,
+    pub workspace_name: String,
+    pub total_cost_usd: f64,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub record_count: i64,
+}
+
+/// Column-level cost aggregate for the cost dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnCostSummary {
+    pub workspace_id: String,
+    pub workspace_name: String,
+    pub column_name: String,
+    pub total_cost_usd: f64,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub record_count: i64,
+}
+
+/// Task-level cost aggregate for the cost dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskCostSummary {
+    pub task_id: Option<String>,
+    pub task_title: String,
+    pub workspace_id: String,
+    pub workspace_name: String,
+    pub column_name: Option<String>,
+    pub total_cost_usd: f64,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub record_count: i64,
+}
+
+/// Daily cost aggregate for the cost dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyCostSummary {
+    pub date: String,
+    pub total_cost_usd: f64,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub record_count: i64,
+}
+
+/// Complete cost dashboard payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CostDashboard {
+    pub total: UsageSummary,
+    pub workspaces: Vec<WorkspaceCostSummary>,
+    pub columns: Vec<ColumnCostSummary>,
+    pub top_tasks: Vec<TaskCostSummary>,
+    pub daily: Vec<DailyCostSummary>,
+}
+
 // ─── Session History Entities ───────────────────────────────────────────────
 
 /// A snapshot of an agent session at a point in time.
