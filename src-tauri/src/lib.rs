@@ -11,6 +11,7 @@ pub mod db;
 pub mod error;
 pub mod events;
 pub mod git;
+pub mod github_sync;
 pub mod llm;
 pub mod models;
 pub mod pipeline;
@@ -241,10 +242,12 @@ pub fn run() {
             commands::script::create_script,
             commands::script::update_script,
             commands::script::delete_script,
-            // GitHub PR status commands
+            // GitHub PR status + issues sync commands
             commands::github::fetch_pr_status,
             commands::github::fetch_pr_status_batch,
             commands::github::should_refresh_pr_status,
+            commands::github::sync_github_issues_now,
+            commands::github::get_github_sync_state,
             // Dynamic model discovery
             models::get_available_models,
             models::refresh_models,
@@ -263,6 +266,9 @@ pub fn run() {
 
             // Start garbage collector for tmux sessions + agent resources
             chat::gc::start_gc();
+
+            // Start GitHub issues sync poller (every 5 minutes)
+            github_sync::start_github_sync();
 
             Ok(())
         })

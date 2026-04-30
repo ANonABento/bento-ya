@@ -14,6 +14,7 @@ pub mod chat_message;
 pub mod chat_session;
 pub mod checklist;
 pub mod column;
+pub mod github_sync;
 pub mod history;
 pub mod orchestrator_session;
 pub mod pipeline_timing;
@@ -32,6 +33,7 @@ pub use chat_message::*;
 pub use chat_session::*;
 pub use checklist::*;
 pub use column::*;
+pub use github_sync::*;
 pub use history::*;
 pub use orchestrator_session::*;
 pub use pipeline_timing::*;
@@ -140,6 +142,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("030_pipeline_timing", include_str!("migrations/030_pipeline_timing.sql")),
         ("030_usage_column_duration", include_str!("migrations/030_usage_column_duration.sql")),
         ("031_task_batch_id", include_str!("migrations/031_task_batch_id.sql")),
+        ("032_github_sync", include_str!("migrations/032_github_sync.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -202,8 +205,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 33 migrations, including split 019 and 030 migration files.
-        assert_eq!(count, 33);
+        // We have 34 migrations, including split 019 and 030 migration files.
+        assert_eq!(count, 34);
     }
 
     #[test]
