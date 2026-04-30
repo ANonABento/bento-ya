@@ -41,6 +41,7 @@ const SHORTCUT_SECTIONS: ShortcutSection[] = [
       { keys: ['Cmd', 'J'], desc: 'Toggle chef panel' },
       { keys: ['Cmd', 'L'], desc: 'Close task chat panel' },
       { keys: ['Cmd', 'Drag'], desc: 'Link task dependencies' },
+      { keys: ['Esc'], desc: 'Cancel dependency link' },
     ],
   },
   {
@@ -53,8 +54,8 @@ const SHORTCUT_SECTIONS: ShortcutSection[] = [
       { keys: ['M'], desc: 'Open move task menu' },
       { keys: ['D'], desc: 'Duplicate task' },
       { keys: ['L'], desc: 'Edit dependencies' },
-      { keys: ['Del'], desc: 'Delete task' },
-      { keys: ['Backspace'], desc: 'Delete task' },
+      { keys: ['Del'], desc: 'Confirm/delete task' },
+      { keys: ['Backspace'], desc: 'Confirm/delete task' },
     ],
   },
   {
@@ -70,8 +71,15 @@ const SHORTCUT_SECTIONS: ShortcutSection[] = [
   {
     category: 'Editing',
     items: [
-      { keys: ['Enter'], desc: 'Submit inline task or checklist item' },
+      { keys: ['Enter'], desc: 'Submit message, task, or checklist item' },
+      { keys: ['Shift', 'Enter'], desc: 'Insert newline in message' },
       { keys: ['Esc'], desc: 'Cancel inline edit' },
+    ],
+  },
+  {
+    category: 'Terminal',
+    items: [
+      { keys: ['Ctrl', 'C'], desc: 'Interrupt process' },
     ],
   },
 ]
