@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react'
+import { memo, useMemo, useState, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react'
 import { AnimatePresence } from 'motion/react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -23,7 +23,17 @@ import { useTaskCardActions } from './use-task-card-actions'
 import { AttentionBanner, BlockedBanner, QualityGateBanner, PipelineErrorBanner } from './task-card-status'
 import { AgentActivityPreview } from './task-card-activity'
 
-export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
+type TaskCardProps = {
+  task: Task
+  isSelected?: boolean
+  onSelectionChange?: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void
+}
+
+export const TaskCard = memo(function TaskCard({
+  task,
+  isSelected = false,
+  onSelectionChange,
+}: TaskCardProps) {
   const expandTask = useUIStore((s) => s.expandTask)
   const expandedTaskId = useUIStore((s) => s.expandedTaskId)
   const isExpanded = expandedTaskId === task.id
@@ -107,7 +117,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const closeChat = useUIStore((s) => s.closeChat)
   const collapseTask = useUIStore((s) => s.collapseTask)
 
-  function handleClick() {
+  function openTaskDetail() {
     if (hasAttention) {
       markViewed(task.id)
     }
@@ -146,20 +156,31 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     }
   }
 
-  function handlePrClick(e: React.MouseEvent) {
+  function handleClick(e: ReactMouseEvent<HTMLElement>) {
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      e.preventDefault()
+      e.stopPropagation()
+      onSelectionChange?.(task.id, e)
+      return
+    }
+
+    openTaskDetail()
+  }
+
+  function handlePrClick(e: ReactMouseEvent) {
     e.stopPropagation()
     if (task.prUrl) {
       window.open(task.prUrl, '_blank')
     }
   }
 
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+  const handleContextMenu = useCallback((e: ReactMouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setContextMenu({ x: e.clientX, y: e.clientY })
   }, [])
 
-  const handleShowMenu = useCallback((e: React.MouseEvent) => {
+  const handleShowMenu = useCallback((e: ReactMouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setContextMenu({ x: e.clientX, y: e.clientY })
@@ -295,7 +316,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         switch (e.key) {
           case 'Enter':
             e.preventDefault()
-            handleClick()
+            openTaskDetail()
             break
           case ' ':
             e.preventDefault()
@@ -341,6 +362,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       }}
       tabIndex={0}
       className={`group relative rounded-lg border bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+        isSelected ? 'border-accent ring-2 ring-accent/40 z-20' :
         isConnectedToHovered ? 'border-amber-400 ring-1 ring-amber-400/50 z-10' :
         isHovered ? 'border-accent ring-1 ring-accent/50 z-10' :
         'border-border-default hover:border-accent/50 hover:bg-surface-hover'
@@ -348,19 +370,27 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         hasPipelineError ? 'border-l-4 border-l-error' : isPipelineActive ? `border-l-4 ${PIPELINE_COLORS[task.pipelineState]}` : ''
       }`}
       onPointerDownCapture={(e) => {
-        if (e.metaKey || e.ctrlKey) {
+        if ((e.metaKey || e.ctrlKey) && !onSelectionChange) {
           onDepDragStart(e, task.id)
         }
       }}
       onMouseEnter={() => { if (!isDragging) setHoveredTaskId(task.id) }}
       onMouseLeave={() => { if (!isDragging) setHoveredTaskId(null) }}
     >
+      {isSelected && (
+        <div className="absolute left-2 top-2 z-20 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-bg shadow">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M16.704 5.29a1 1 0 0 1 .006 1.414l-7.25 7.31a1 1 0 0 1-1.42.002l-3.25-3.28a1 1 0 1 1 1.42-1.408l2.54 2.563 6.54-6.594a1 1 0 0 1 1.414-.006Z" clipRule="evenodd" />
+          </svg>
+        </div>
+      )}
+
       {/* Quick actions on hover */}
       {!isDragging && (
         <TaskQuickActions
           task={task}
           hasNextColumn={!!nextColumnId}
-          onOpen={handleClick}
+          onOpen={openTaskDetail}
           onToggleAgent={actions.handleToggleAgent}
           onRetry={handleRetry}
           onMoveNext={handleMoveNext}
@@ -489,7 +519,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         position={contextMenu}
         onClose={() => { setContextMenu(null) }}
         onMoveToColumn={actions.handleMoveToColumn}
-        onOpenTask={handleClick}
+        onOpenTask={openTaskDetail}
         onDuplicateTask={actions.handleDuplicateTask}
         onArchiveTask={actions.handleArchiveTask}
         onDeleteTask={actions.handleDeleteTask}

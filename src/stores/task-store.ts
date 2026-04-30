@@ -12,6 +12,8 @@ type TaskState = {
   load: (workspaceId: string) => Promise<void>
   add: (workspaceId: string, columnId: string, title: string, description: string) => Promise<Task>
   remove: (id: string) => Promise<void>
+  bulkRemove: (ids: string[]) => Promise<void>
+  bulkMove: (ids: string[], targetColumnId: string) => Promise<void>
   move: (id: string, targetColumnId: string, position: number) => Promise<void>
   reorder: (columnId: string, ids: string[]) => Promise<void>
   updateTask: (id: string, updates: Partial<Task>) => void
@@ -47,6 +49,60 @@ export const useTaskStore = create<TaskState>()(
         if (ui.activeTaskId === id) ui.closeChat()
         try {
           await ipc.deleteTask(id)
+          if (workspaceId) {
+            await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+          }
+        } catch {
+          set({ tasks: prev })
+        }
+      },
+
+      bulkRemove: async (ids) => {
+        const idSet = new Set(ids)
+        if (idSet.size === 0) return
+        const prev = get().tasks
+        const workspaceId = prev.find((t) => idSet.has(t.id))?.workspaceId
+        set((s) => ({ tasks: s.tasks.filter((t) => !idSet.has(t.id)) }))
+
+        const ui = useUIStore.getState()
+        if (ui.expandedTaskId && idSet.has(ui.expandedTaskId)) ui.collapseTask()
+        if (ui.activeTaskId && idSet.has(ui.activeTaskId)) ui.closeChat()
+
+        try {
+          await ipc.bulkUpdateTasks([...idSet], { delete: true })
+          if (workspaceId) {
+            await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+          }
+        } catch {
+          set({ tasks: prev })
+        }
+      },
+
+      bulkMove: async (ids, targetColumnId) => {
+        const idSet = new Set(ids)
+        if (idSet.size === 0) return
+        const prev = get().tasks
+        const workspaceId = prev.find((t) => idSet.has(t.id))?.workspaceId
+        const targetTasks = prev
+          .filter((t) => t.columnId === targetColumnId && !idSet.has(t.id))
+          .sort((a, b) => a.position - b.position)
+        const basePosition = targetTasks.length
+        const selectedOrder = [...idSet]
+
+        set((s) => ({
+          tasks: s.tasks.map((t) => {
+            const nextPosition = selectedOrder.indexOf(t.id)
+            return nextPosition >= 0
+              ? { ...t, columnId: targetColumnId, position: basePosition + nextPosition }
+              : t
+          }),
+        }))
+
+        try {
+          const updatedTasks = await ipc.bulkUpdateTasks([...idSet], { targetColumnId })
+          set((s) => ({
+            tasks: s.tasks.map((task) => updatedTasks.find((updated) => updated.id === task.id) ?? task),
+          }))
           if (workspaceId) {
             await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
           }
