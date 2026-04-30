@@ -30,6 +30,7 @@ type TaskContextMenuProps = {
   onOpenTask: () => void
   onDuplicateTask: () => void
   onArchiveTask: () => void
+  onUnarchiveTask: () => void
   onDeleteTask: () => void
   onRunAgent: () => void
   onStopAgent: () => void
@@ -175,6 +176,7 @@ export function TaskContextMenu({
   onOpenTask,
   onDuplicateTask,
   onArchiveTask,
+  onUnarchiveTask,
   onDeleteTask,
   onRunAgent,
   onStopAgent,
@@ -252,7 +254,9 @@ export function TaskContextMenu({
     },
     { label: 'Duplicate', icon: Icons.duplicate, shortcut: 'D', onClick: onDuplicateTask },
     { type: 'divider' },
-    { label: 'Archive', icon: Icons.archive, onClick: onArchiveTask },
+    task.archivedAt
+      ? { label: 'Unarchive', icon: Icons.archive, onClick: onUnarchiveTask }
+      : { label: 'Archive', icon: Icons.archive, onClick: onArchiveTask },
     { label: 'Delete', icon: Icons.trash, variant: 'danger' as const, onClick: onDeleteTask },
   ]
 

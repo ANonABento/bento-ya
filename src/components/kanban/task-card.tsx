@@ -238,6 +238,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const canToggleAgent = canTriggerWork || task.agentStatus === 'running'
   const isPipelineActive = task.pipelineState !== 'idle'
   const hasPipelineError = !!task.pipelineError
+  const isArchived = !!task.archivedAt
 
   // Count incoming dependency links
   const depCount = useMemo(() => parseDeps(task.dependencies).length, [task.dependencies])
@@ -275,7 +276,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       style={{
         ...style,
         cursor: 'pointer',
-        opacity: isDragging ? 0.4 : isDimmed ? 0.3 : task.blocked ? 0.7 : isInDoneColumn ? 0.6 : 1,
+        opacity: isDragging ? 0.4 : isDimmed ? 0.3 : isArchived ? 0.5 : task.blocked ? 0.7 : isInDoneColumn ? 0.6 : 1,
         transition: 'transform 200ms ease, opacity 200ms ease',
       }}
       onClick={handleClick}
@@ -346,6 +347,8 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         'border-border-default hover:border-accent/50 hover:bg-surface-hover'
       } ${isDragging ? 'z-0' : !isConnectedToHovered && !isHovered ? 'hover:z-10' : ''} ${
         hasPipelineError ? 'border-l-4 border-l-error' : isPipelineActive ? `border-l-4 ${PIPELINE_COLORS[task.pipelineState]}` : ''
+      } ${
+        isArchived ? 'grayscale' : ''
       }`}
       onPointerDownCapture={(e) => {
         if (e.metaKey || e.ctrlKey) {
@@ -381,6 +384,11 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           <h4 className="flex-1 text-sm font-medium text-text-primary leading-snug line-clamp-2">
             {task.title}
           </h4>
+          {isArchived && (
+            <span className="shrink-0 rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
+              Archived
+            </span>
+          )}
         </div>
 
         {/* Description — hidden when expanded (expanded view shows full description) */}
@@ -492,6 +500,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         onOpenTask={handleClick}
         onDuplicateTask={actions.handleDuplicateTask}
         onArchiveTask={actions.handleArchiveTask}
+        onUnarchiveTask={actions.handleUnarchiveTask}
         onDeleteTask={actions.handleDeleteTask}
         onRunAgent={actions.handleRunAgent}
         onStopAgent={actions.handleStopAgent}

@@ -252,6 +252,7 @@ mod tests {
             queued_at: None,
             branch_name: None,
             batch_id: None,
+            archived_at: None,
             files_touched: "[]".into(),
             checklist: None,
             pipeline_state: "running".into(),

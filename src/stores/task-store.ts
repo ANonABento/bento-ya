@@ -11,6 +11,8 @@ type TaskState = {
 
   load: (workspaceId: string) => Promise<void>
   add: (workspaceId: string, columnId: string, title: string, description: string) => Promise<Task>
+  archive: (id: string) => Promise<void>
+  unarchive: (id: string) => Promise<void>
   remove: (id: string) => Promise<void>
   move: (id: string, targetColumnId: string, position: number) => Promise<void>
   reorder: (columnId: string, ids: string[]) => Promise<void>
@@ -35,6 +37,50 @@ export const useTaskStore = create<TaskState>()(
         set((s) => ({ tasks: [...s.tasks, task] }))
         await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
         return task
+      },
+
+      archive: async (id) => {
+        const prev = get().tasks
+        const task = prev.find((t) => t.id === id)
+        const workspaceId = task?.workspaceId
+        set((s) => ({
+          tasks: s.tasks.map((t) =>
+            t.id === id ? { ...t, archivedAt: new Date().toISOString() } : t,
+          ),
+        }))
+        const ui = useUIStore.getState()
+        if (ui.expandedTaskId === id) ui.collapseTask()
+        if (ui.activeTaskId === id) ui.closeChat()
+        try {
+          const archived = await ipc.archiveTask(id)
+          set((s) => ({
+            tasks: s.tasks.map((t) => (t.id === id ? archived : t)),
+          }))
+          if (workspaceId) {
+            await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+          }
+        } catch {
+          set({ tasks: prev })
+        }
+      },
+
+      unarchive: async (id) => {
+        const prev = get().tasks
+        const workspaceId = prev.find((t) => t.id === id)?.workspaceId
+        set((s) => ({
+          tasks: s.tasks.map((t) => (t.id === id ? { ...t, archivedAt: null } : t)),
+        }))
+        try {
+          const unarchived = await ipc.unarchiveTask(id)
+          set((s) => ({
+            tasks: s.tasks.map((t) => (t.id === id ? unarchived : t)),
+          }))
+          if (workspaceId) {
+            await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+          }
+        } catch {
+          set({ tasks: prev })
+        }
       },
 
       remove: async (id) => {

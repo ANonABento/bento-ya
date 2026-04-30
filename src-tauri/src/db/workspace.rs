@@ -4,7 +4,7 @@ use super::models::Workspace;
 use super::{new_id, now};
 
 /// Shared SELECT columns for workspaces.
-const WORKSPACE_COLUMNS: &str = "id, name, repo_path, tab_order, is_active, COALESCE((SELECT COUNT(*) FROM tasks WHERE workspace_id = workspaces.id AND column_id != (SELECT id FROM columns WHERE workspace_id = workspaces.id ORDER BY position DESC LIMIT 1)), 0) AS active_task_count, config, created_at, updated_at, discord_guild_id, discord_category_id, discord_chef_channel_id, discord_notifications_channel_id, discord_enabled";
+const WORKSPACE_COLUMNS: &str = "id, name, repo_path, tab_order, is_active, COALESCE((SELECT COUNT(*) FROM tasks WHERE workspace_id = workspaces.id AND archived_at IS NULL AND column_id != (SELECT id FROM columns WHERE workspace_id = workspaces.id ORDER BY position DESC LIMIT 1)), 0) AS active_task_count, config, created_at, updated_at, discord_guild_id, discord_category_id, discord_chef_channel_id, discord_notifications_channel_id, discord_enabled";
 
 /// Map a database row to a Workspace struct.
 fn map_workspace_row(row: &rusqlite::Row) -> rusqlite::Result<Workspace> {

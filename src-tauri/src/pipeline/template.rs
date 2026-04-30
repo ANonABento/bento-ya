@@ -108,6 +108,7 @@ mod tests {
             queued_at: None,
             branch_name: None,
             batch_id: None,
+            archived_at: None,
             files_touched: "[]".to_string(),
             checklist: None,
             pipeline_state: "idle".to_string(),

@@ -16,6 +16,8 @@ vi.mock('./workspace-store', () => ({
 vi.mock('@/lib/ipc', () => ({
   getTasks: vi.fn(),
   createTask: vi.fn(),
+  archiveTask: vi.fn(),
+  unarchiveTask: vi.fn(),
   deleteTask: vi.fn(),
   moveTask: vi.fn(),
   reorderTasks: vi.fn(),
@@ -67,6 +69,7 @@ const createMockTask = (overrides: Partial<Task> = {}): Task => ({
   siegeMaxIterations: 3,
   siegeLastChecked: null,
   queuedAt: null,
+  archivedAt: null,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
   ...overrides,
@@ -150,6 +153,66 @@ describe('task-store', () => {
 
       const state = useTaskStore.getState()
       expect(state.tasks).toHaveLength(2)
+    })
+  })
+
+  describe('archive', () => {
+    beforeEach(() => {
+      useTaskStore.setState({
+        tasks: [createMockTask({ id: 'task-1' }), createMockTask({ id: 'task-2', position: 1 })],
+      })
+    })
+
+    it('should optimistically archive task and persist via IPC', async () => {
+      const archivedTask = createMockTask({
+        id: 'task-1',
+        archivedAt: '2024-01-02T00:00:00Z',
+      })
+      mockIpc.archiveTask.mockResolvedValueOnce(archivedTask)
+      refreshWorkspace.mockResolvedValueOnce(undefined)
+
+      await useTaskStore.getState().archive('task-1')
+
+      const state = useTaskStore.getState()
+      expect(state.tasks.find((t) => t.id === 'task-1')?.archivedAt).toBe('2024-01-02T00:00:00Z')
+      expect(mockIpc.archiveTask).toHaveBeenCalledWith('task-1')
+      expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
+    })
+
+    it('should revert archive on IPC error', async () => {
+      mockIpc.archiveTask.mockRejectedValueOnce(new Error('Failed'))
+
+      await useTaskStore.getState().archive('task-1')
+
+      expect(useTaskStore.getState().tasks.find((t) => t.id === 'task-1')?.archivedAt).toBeNull()
+    })
+  })
+
+  describe('unarchive', () => {
+    beforeEach(() => {
+      useTaskStore.setState({
+        tasks: [createMockTask({ id: 'task-1', archivedAt: '2024-01-02T00:00:00Z' })],
+      })
+    })
+
+    it('should optimistically unarchive task and persist via IPC', async () => {
+      const unarchivedTask = createMockTask({ id: 'task-1', archivedAt: null })
+      mockIpc.unarchiveTask.mockResolvedValueOnce(unarchivedTask)
+      refreshWorkspace.mockResolvedValueOnce(undefined)
+
+      await useTaskStore.getState().unarchive('task-1')
+
+      expect(useTaskStore.getState().tasks[0]?.archivedAt).toBeNull()
+      expect(mockIpc.unarchiveTask).toHaveBeenCalledWith('task-1')
+      expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
+    })
+
+    it('should revert unarchive on IPC error', async () => {
+      mockIpc.unarchiveTask.mockRejectedValueOnce(new Error('Failed'))
+
+      await useTaskStore.getState().unarchive('task-1')
+
+      expect(useTaskStore.getState().tasks[0]?.archivedAt).toBe('2024-01-02T00:00:00Z')
     })
   })
 

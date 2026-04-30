@@ -382,6 +382,32 @@ pub fn delete_task(app: AppHandle, state: State<AppState>, id: String) -> Result
     Ok(())
 }
 
+#[tauri::command]
+pub fn archive_task(app: AppHandle, state: State<AppState>, id: String) -> Result<Task, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let task = db::set_task_archived(&conn, &id, true)?;
+    pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_archived");
+    Ok(task)
+}
+
+#[tauri::command]
+pub fn unarchive_task(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<Task, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let task = db::set_task_archived(&conn, &id, false)?;
+    pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_unarchived");
+    Ok(task)
+}
+
 /// Approve a task - sets review_status to "approved" and triggers auto-advance if exit_type is manual_approval
 #[tauri::command]
 pub async fn approve_task(

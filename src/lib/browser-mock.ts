@@ -130,6 +130,7 @@ let mockTasks: Task[] = [
     blocked: false,
     worktreePath: null,
     queuedAt: null,
+    archivedAt: null,
     position: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -305,6 +306,7 @@ const mockCommands: Record<string, CommandHandler> = {
       blocked: false,
       worktreePath: null,
       queuedAt: null,
+      archivedAt: null,
       position: mockTasks.filter((t) => t.columnId === args?.columnId).length,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -344,6 +346,24 @@ const mockCommands: Record<string, CommandHandler> = {
   },
   delete_task: (args) => {
     mockTasks = mockTasks.filter((t) => t.id !== args?.id)
+  },
+  archive_task: (args) => {
+    const task = mockTasks.find((t) => t.id === args?.id)
+    if (task) {
+      task.archivedAt = new Date().toISOString()
+      task.updatedAt = new Date().toISOString()
+      return task
+    }
+    throw new Error('Task not found')
+  },
+  unarchive_task: (args) => {
+    const task = mockTasks.find((t) => t.id === args?.id)
+    if (task) {
+      task.archivedAt = null
+      task.updatedAt = new Date().toISOString()
+      return task
+    }
+    throw new Error('Task not found')
   },
   reorder_tasks: (args) => {
     const taskIds = args?.taskIds as string[]
@@ -832,6 +852,7 @@ export function resetMockData() {
       blocked: false,
       worktreePath: null,
       queuedAt: null,
+      archivedAt: null,
       position: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -877,6 +898,7 @@ export function resetMockData() {
       blocked: false,
       worktreePath: null,
       queuedAt: null,
+      archivedAt: null,
       position: 0,
       createdAt: new Date(Date.now() - 3600000).toISOString(),
       updatedAt: new Date(Date.now() - 1800000).toISOString(),
@@ -922,6 +944,7 @@ export function resetMockData() {
       blocked: false,
       worktreePath: null,
       queuedAt: null,
+      archivedAt: null,
       position: 1,
       createdAt: new Date(Date.now() - 86400000).toISOString(),
       updatedAt: new Date(Date.now() - 7200000).toISOString(),

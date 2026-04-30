@@ -14,6 +14,7 @@ pub fn make_task(retry_count: i64, pipeline_state: &str) -> Task {
         queued_at: None,
         branch_name: None,
         batch_id: None,
+        archived_at: None,
         files_touched: "[]".into(),
         checklist: None,
         pipeline_state: pipeline_state.into(),

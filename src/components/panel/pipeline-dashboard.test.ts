@@ -39,6 +39,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     agentMode: null,
     agentStatus: null,
     queuedAt: null,
+    archivedAt: null,
     pipelineState: 'idle',
     pipelineTriggeredAt: null,
     pipelineError: null,

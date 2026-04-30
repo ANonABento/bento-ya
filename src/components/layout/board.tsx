@@ -25,6 +25,7 @@ import { useChatPanel } from '@/hooks/use-chat-panel'
 import { useUIStore } from '@/stores/ui-store'
 import { CardPositionContext, useCardPositionProvider } from '@/hooks/use-card-positions'
 import { DepDragContext } from '@/hooks/use-dep-drag-context'
+import { Toggle } from '@/components/shared/toggle'
 
 export function Board() {
   const panelDock = useUIStore((s) => s.panelDock)
@@ -37,6 +38,7 @@ export function Board() {
   const loadScripts = useScriptStore((s) => s.load)
 
   const [newColumnId, setNewColumnId] = useState<string | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
 
   const handleAddColumn = useCallback(() => {
     if (!activeWorkspaceId) return
@@ -65,6 +67,7 @@ export function Board() {
   const columnIds = sortedColumns.map((c) => c.id)
 
   const { activeItem, onDragStart, onDragOver, onDragEnd } = useDnd()
+  const archivedTaskCount = tasks.filter((task) => task.archivedAt).length
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -109,12 +112,25 @@ export function Board() {
         <div className="flex h-full" data-board-container>
           {/* Board + orchestrator panel (left side, shrinks when task panel open) */}
           <div className="flex flex-1 flex-col overflow-hidden">
+            <div className="flex h-10 shrink-0 items-center justify-end gap-2 border-b border-border-default bg-bg px-3">
+              <span className="text-xs text-text-secondary">
+                Archived {archivedTaskCount}
+              </span>
+              <Toggle
+                checked={showArchived}
+                onChange={setShowArchived}
+                disabled={archivedTaskCount === 0}
+                size="sm"
+                ariaLabel="Show archived tasks"
+              />
+            </div>
             <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
               <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
                 {sortedColumns.map((col) => (
                   <Column
                     key={col.id}
                     column={col}
+                    showArchived={showArchived}
                     autoOpenConfig={col.id === newColumnId}
                     onConfigOpened={col.id === newColumnId ? () => { setNewColumnId(null) } : undefined}
                   />

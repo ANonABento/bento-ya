@@ -62,6 +62,8 @@ pub struct Task {
     pub branch_name: Option<String>,
     /// Batch identifier used to group related pipeline PRs.
     pub batch_id: Option<String>,
+    /// Timestamp when the task was archived. Archived tasks are hidden by default.
+    pub archived_at: Option<String>,
     pub files_touched: String,
     pub checklist: Option<String>,
     pub pipeline_state: String,

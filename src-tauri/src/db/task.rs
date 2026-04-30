@@ -3,8 +3,8 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use super::models::Task;
 use super::{new_id, now};
 
-/// Shared SELECT columns for tasks (46 fields).
-const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id";
+/// Shared SELECT columns for tasks (47 fields).
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, archived_at";
 
 /// Generate a sortable task batch identifier for staging PR workflows.
 pub fn generate_batch_id() -> String {
@@ -26,6 +26,7 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         queued_at: row.get(41)?,
         branch_name: row.get(8)?,
         batch_id: row.get(45)?,
+        archived_at: row.get(46)?,
         files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
         checklist: row.get(10)?,
         pipeline_state: row
@@ -165,6 +166,16 @@ pub fn update_task(
 pub fn delete_task(conn: &Connection, id: &str) -> SqlResult<()> {
     conn.execute("DELETE FROM tasks WHERE id = ?1", params![id])?;
     Ok(())
+}
+
+pub fn set_task_archived(conn: &Connection, id: &str, archived: bool) -> SqlResult<Task> {
+    let ts = now();
+    let archived_at = archived.then_some(ts.as_str());
+    conn.execute(
+        "UPDATE tasks SET archived_at = ?1, updated_at = ?2 WHERE id = ?3",
+        params![archived_at, ts, id],
+    )?;
+    get_task(conn, id)
 }
 
 /// List tasks by column ID
