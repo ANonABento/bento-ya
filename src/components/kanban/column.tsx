@@ -9,6 +9,7 @@ import { useTaskStore } from '@/stores/task-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useScriptStore } from '@/stores/script-store'
+import { useLabelStore } from '@/stores/label-store'
 import { queueBacklog, cancelBacklogQueue } from '@/lib/ipc/pipeline'
 import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
@@ -33,13 +34,16 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
   const getScriptName = useScriptStore((s) => s.getScriptName)
+  const selectedLabelId = useLabelStore((s) => s.selectedLabelId)
+  const taskLabels = useLabelStore((s) => s.taskLabels)
 
   // Memoize filtered tasks to prevent infinite loops
   const tasks = useMemo(
     () => allTasks
       .filter((t) => t.columnId === column.id)
+      .filter((t) => !selectedLabelId || (taskLabels[t.id] ?? []).includes(selectedLabelId))
       .sort((a, b) => a.position - b.position),
-    [allTasks, column.id]
+    [allTasks, column.id, selectedLabelId, taskLabels]
   )
   const taskIds = useMemo(() => tasks.map((t) => t.id), [tasks])
 
@@ -199,7 +203,7 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
           isDragging ? 'opacity-50' : ''
         }`}
       >
-        <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
+        <div {...attributes} {...listeners} style={{ cursor: isDragging ? 'grabbing' : 'grab' }}>
           <ColumnHeader
             name={column.name}
             icon={column.icon || 'list'}

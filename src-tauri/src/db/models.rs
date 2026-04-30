@@ -103,6 +103,26 @@ pub struct Task {
     pub updated_at: String,
 }
 
+/// A workspace-scoped task label with a display color.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Label {
+    pub id: String,
+    pub workspace_id: String,
+    pub name: String,
+    pub color: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Join-table projection used by the frontend to attach labels to tasks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskLabelAssignment {
+    pub task_id: String,
+    pub label_id: String,
+}
+
 // ─── Agent Entities ─────────────────────────────────────────────────────────
 
 /// A PTY/CLI session for an agent working on a task.

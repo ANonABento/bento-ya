@@ -15,6 +15,20 @@ export type TaskChecklistItem = {
   checked: boolean
 }
 
+export type Label = {
+  id: string
+  workspaceId: string
+  name: string
+  color: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type TaskLabelAssignment = {
+  taskId: string
+  labelId: string
+}
+
 export type Task = {
   id: string
   workspaceId: string

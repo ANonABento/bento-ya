@@ -127,6 +127,13 @@ pub fn run() {
             commands::task::queue_backlog,
             commands::task::create_task_worktree,
             commands::task::remove_task_worktree,
+            // Label commands
+            commands::label::create_label,
+            commands::label::list_labels,
+            commands::label::update_label,
+            commands::label::delete_label,
+            commands::label::list_task_label_assignments,
+            commands::label::set_task_labels,
             // Git commands
             commands::git::create_task_branch,
             commands::git::switch_branch,

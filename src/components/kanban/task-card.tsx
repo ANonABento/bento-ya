@@ -8,6 +8,7 @@ import { useAttentionStore } from '@/stores/attention-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
+import { useLabelStore } from '@/stores/label-store'
 import { TaskContextMenu } from './task-context-menu'
 import { TaskSettingsModal } from './task-settings-modal'
 import { TaskQuickActions } from './task-quick-actions'
@@ -22,6 +23,7 @@ import { PrStatusIndicator, SiegeBadge } from './task-card-badges'
 import { useTaskCardActions } from './use-task-card-actions'
 import { AttentionBanner, BlockedBanner, QualityGateBanner, PipelineErrorBanner } from './task-card-status'
 import { AgentActivityPreview } from './task-card-activity'
+import { TaskLabelPicker } from './task-label-picker'
 
 export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const expandTask = useUIStore((s) => s.expandTask)
@@ -31,6 +33,8 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const attention = useAttentionStore((s) => s.getAttention(task.id))
   const markViewed = useAttentionStore((s) => s.markViewed)
   const cardSettings = useSettingsStore((s) => s.global.cards)
+  const allBoardLabels = useLabelStore((s) => s.labels)
+  const taskLabelIds = useLabelStore((s) => s.taskLabels[task.id])
 
   // Context menu & settings modal
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
@@ -102,6 +106,10 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
       return []
     }
   }, [task.prLabels])
+  const taskLabels = useMemo(() => {
+    const ids = new Set(taskLabelIds ?? [])
+    return allBoardLabels.filter((label) => ids.has(label.id))
+  }, [allBoardLabels, taskLabelIds])
 
   const openChat = useUIStore((s) => s.openChat)
   const closeChat = useUIStore((s) => s.closeChat)
@@ -265,7 +273,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     task.model ||
     (cardSettings.showPrBadge && task.prNumber) ||
     (cardSettings.showCommentCount && task.prCommentCount > 0) ||
-    (cardSettings.showLabels && labels.length > 0) ||
+    (cardSettings.showLabels && (labels.length > 0 || taskLabels.length > 0)) ||
     depCount > 0
 
   return (
@@ -381,6 +389,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           <h4 className="flex-1 text-sm font-medium text-text-primary leading-snug line-clamp-2">
             {task.title}
           </h4>
+          <TaskLabelPicker taskId={task.id} labels={taskLabels} />
         </div>
 
         {/* Description — hidden when expanded (expanded view shows full description) */}
@@ -461,15 +470,24 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         )}
 
         {/* Labels — hidden when expanded */}
-        {!isExpanded && cardSettings.showLabels && labels.length > 0 && (
+        {!isExpanded && cardSettings.showLabels && (labels.length > 0 || taskLabels.length > 0) && (
           <div className="flex items-center gap-1 flex-wrap">
+            {taskLabels.slice(0, 4).map((label) => (
+              <span
+                key={label.id}
+                className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary"
+              >
+                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: label.color }} />
+                {label.name}
+              </span>
+            ))}
             {labels.slice(0, 3).map((label) => (
               <span key={label} className="rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary">
                 {label}
               </span>
             ))}
-            {labels.length > 3 && (
-              <span className="text-[10px] text-text-secondary/70">+{labels.length - 3}</span>
+            {taskLabels.length + labels.length > 7 && (
+              <span className="text-[10px] text-text-secondary/70">+{taskLabels.length + labels.length - 7}</span>
             )}
           </div>
         )}

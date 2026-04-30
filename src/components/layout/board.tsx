@@ -13,7 +13,9 @@ import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useScriptStore } from '@/stores/script-store'
+import { useLabelStore } from '@/stores/label-store'
 import { Column } from '@/components/kanban/column'
+import { LabelBoardHeader } from '@/components/kanban/label-board-header'
 import { DragOverlayContent } from '@/components/kanban/drag-overlay'
 import { DependencyLines } from '@/components/kanban/dependency-lines'
 import { DepDragPreview } from '@/components/kanban/dep-drag-preview'
@@ -35,6 +37,7 @@ export function Board() {
   const loadTasks = useTaskStore((s) => s.load)
   const tasks = useTaskStore((s) => s.tasks)
   const loadScripts = useScriptStore((s) => s.load)
+  const loadLabels = useLabelStore((s) => s.load)
 
   const [newColumnId, setNewColumnId] = useState<string | null>(null)
 
@@ -80,9 +83,10 @@ export function Board() {
     if (activeWorkspaceId) {
       void loadColumns(activeWorkspaceId)
       void loadTasks(activeWorkspaceId)
+      void loadLabels(activeWorkspaceId)
       void loadScripts()
     }
-  }, [activeWorkspaceId, loadColumns, loadTasks, loadScripts])
+  }, [activeWorkspaceId, loadColumns, loadTasks, loadLabels, loadScripts])
 
   // Resolve overlay content
   let overlayContent = null
@@ -109,6 +113,7 @@ export function Board() {
         <div className="flex h-full" data-board-container>
           {/* Board + orchestrator panel (left side, shrinks when task panel open) */}
           <div className="flex flex-1 flex-col overflow-hidden">
+            {activeWorkspaceId && <LabelBoardHeader workspaceId={activeWorkspaceId} />}
             <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
               <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
                 {sortedColumns.map((col) => (
