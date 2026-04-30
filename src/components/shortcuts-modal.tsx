@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
 import { motion } from 'motion/react'
 import { KEYBOARD_SHORTCUT_SECTIONS } from '@/lib/keyboard-shortcuts'
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 
 type Props = {
   onClose: () => void
@@ -24,18 +24,7 @@ function KbdSequence({ keys }: { keys: string[] }) {
 }
 
 export function ShortcutsModal({ onClose }: Props) {
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [onClose])
+  useKeyboardShortcuts([{ key: 'Escape', handler: onClose, preventDefault: false }])
 
   return (
     <motion.div
