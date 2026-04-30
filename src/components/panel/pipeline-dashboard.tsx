@@ -18,12 +18,8 @@ import {
   filterRecentCompletions,
   computeBatchStats,
   formatElapsed,
+  type TasksChangedPayload,
 } from './pipeline-dashboard-utils'
-
-type TasksChangedPayload = {
-  workspaceId: string
-  reason: string
-}
 
 type PipelineDashboardProps = {
   workspaceId: string

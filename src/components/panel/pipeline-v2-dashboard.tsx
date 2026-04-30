@@ -9,10 +9,8 @@ import {
   onPipelineError,
   onPipelineAdvanced,
 } from '@/lib/ipc/pipeline'
-import { filterActiveTasks } from './pipeline-dashboard-utils'
+import { filterActiveTasks, formatMs, type TasksChangedPayload } from './pipeline-dashboard-utils'
 import type { Task, Column } from '@/types'
-
-type TasksChangedPayload = { workspaceId: string; reason: string }
 
 type PipelineV2DashboardProps = {
   workspaceId: string
@@ -127,9 +125,6 @@ export function PipelineV2Dashboard({ workspaceId }: PipelineV2DashboardProps) {
               <ColumnBar key={col.id} column={col} count={count} pct={pct} />
             )
           })}
-          {colCounts.size === 0 && (
-            <span className="text-[10px] text-text-tertiary">No active tasks</span>
-          )}
         </Section>
       )}
 
@@ -224,14 +219,6 @@ function computeTaskEta(task: Task, sortedColumns: Column[], avgCompletionMs: nu
   const remainingCols = sortedColumns.length - Math.max(colIdx, 0) - 1
   const avgPerCol = sortedColumns.length > 0 ? avgCompletionMs / sortedColumns.length : avgCompletionMs
   return Math.max(0, remainingCols * avgPerCol - elapsed)
-}
-
-function formatMs(ms: number): string {
-  const sec = Math.floor(ms / 1000)
-  if (sec < 60) return `${String(sec)}s`
-  const min = Math.floor(sec / 60)
-  if (min < 60) return `${String(min)}m`
-  return `${String(Math.floor(min / 60))}h`
 }
 
 function formatTokens(n: number): string {

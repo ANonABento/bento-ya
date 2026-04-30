@@ -1,5 +1,7 @@
 import type { Task, Column } from '@/types'
 
+export type TasksChangedPayload = { workspaceId: string; reason: string }
+
 function hasPipelineError(task: Task): boolean {
   return Boolean(task.pipelineError?.trim())
 }
@@ -52,11 +54,13 @@ export function computeBatchStats(tasks: Task[]): { active: number; complete: nu
 export function formatElapsed(startDateStr: string): string {
   const start = new Date(startDateStr).getTime()
   if (Number.isNaN(start)) return '0s'
+  return formatMs(Math.max(0, Date.now() - start))
+}
 
-  const now = Date.now()
-  const diffSec = Math.max(0, Math.floor((now - start) / 1000))
-
-  if (diffSec < 60) return `${String(diffSec)}s`
-  if (diffSec < 3600) return `${String(Math.floor(diffSec / 60))}m`
-  return `${String(Math.floor(diffSec / 3600))}h`
+export function formatMs(ms: number): string {
+  const sec = Math.floor(ms / 1000)
+  if (sec < 60) return `${String(sec)}s`
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${String(min)}m`
+  return `${String(Math.floor(min / 60))}h`
 }
