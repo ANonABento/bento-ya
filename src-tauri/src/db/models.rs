@@ -101,6 +101,8 @@ pub struct Task {
     pub worktree_path: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub estimated_hours: f64,
+    pub actual_hours: f64,
 }
 
 // ─── Agent Entities ─────────────────────────────────────────────────────────

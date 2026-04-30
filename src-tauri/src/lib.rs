@@ -490,6 +490,7 @@ fn reset_task_runtime_state(
          WHERE status = 'running' AND task_id = ?2",
         rusqlite::params![ts, task_id],
     )?;
+    let _ = db::recalculate_task_actual_hours(conn, task_id);
 
     conn.execute(
         "UPDATE tasks

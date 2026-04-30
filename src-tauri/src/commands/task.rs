@@ -101,6 +101,7 @@ pub fn update_task(
     agent_mode: Option<Option<String>>,
     priority: Option<String>,
     model: Option<Option<String>>,
+    estimated_hours: Option<f64>,
 ) -> Result<Task, AppError> {
     if let Some(ref t) = title {
         if t.trim().is_empty() {
@@ -141,6 +142,22 @@ pub fn update_task(
         conn.execute(
             "UPDATE tasks SET model = ?1, updated_at = ?2 WHERE id = ?3",
             rusqlite::params![m.as_deref(), ts, id],
+        )
+        .map_err(AppError::from)?;
+        task = db::get_task(&conn, &id)?;
+    }
+
+    // Update estimated hours if provided
+    if let Some(hours) = estimated_hours {
+        if !hours.is_finite() || hours < 0.0 {
+            return Err(AppError::InvalidInput(
+                "Estimated hours must be a non-negative number".to_string(),
+            ));
+        }
+        let ts = db::now();
+        conn.execute(
+            "UPDATE tasks SET estimated_hours = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![hours, ts, id],
         )
         .map_err(AppError::from)?;
         task = db::get_task(&conn, &id)?;

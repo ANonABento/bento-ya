@@ -3,8 +3,8 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use super::models::Task;
 use super::{new_id, now};
 
-/// Shared SELECT columns for tasks (46 fields).
-const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id";
+/// Shared SELECT columns for tasks (48 fields).
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, estimated_hours, actual_hours";
 
 /// Generate a sortable task batch identifier for staging PR workflows.
 pub fn generate_batch_id() -> String {
@@ -64,7 +64,29 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         worktree_path: row.get(44)?,
         created_at: row.get(38)?,
         updated_at: row.get(39)?,
+        estimated_hours: row.get::<_, Option<f64>>(46)?.unwrap_or(0.0),
+        actual_hours: row.get::<_, Option<f64>>(47)?.unwrap_or(0.0),
     })
+}
+
+pub fn recalculate_task_actual_hours(conn: &Connection, task_id: &str) -> SqlResult<()> {
+    conn.execute(
+        "UPDATE tasks SET actual_hours = (
+            SELECT COALESCE(
+                SUM(
+                    (
+                        COALESCE(strftime('%s', updated_at), strftime('%s', created_at))
+                        - strftime('%s', created_at)
+                    ) / 3600.0
+                ),
+                0.0
+            )
+            FROM agent_sessions
+            WHERE task_id = ?1
+        ) WHERE id = ?1",
+        params![task_id],
+    )?;
+    Ok(())
 }
 
 pub fn insert_task(

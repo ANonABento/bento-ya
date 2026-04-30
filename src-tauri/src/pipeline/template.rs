@@ -140,6 +140,8 @@ mod tests {
             dependencies: None,
             blocked: false,
             worktree_path: None,
+            estimated_hours: 0.0,
+            actual_hours: 0.0,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
         }

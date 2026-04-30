@@ -382,6 +382,8 @@ mod tests {
             worktree_path: None,
             agent_status: None,
             queued_at: None,
+            estimated_hours: 0.0,
+            actual_hours: 0.0,
             created_at: "2024-01-01".to_string(),
             updated_at: "2024-01-01".to_string(),
         }]

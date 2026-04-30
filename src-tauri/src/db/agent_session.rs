@@ -40,7 +40,9 @@ pub fn insert_agent_session(
         "INSERT INTO agent_sessions (id, task_id, agent_type, working_dir, status, pty_cols, pty_rows, resumable, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 'idle', 80, 24, 0, ?5, ?6)",
         params![id, task_id, agent_type, working_dir, ts, ts],
     )?;
-    get_agent_session(conn, &id)
+    let session = get_agent_session(conn, &id)?;
+    super::recalculate_task_actual_hours(conn, task_id)?;
+    Ok(session)
 }
 
 pub fn get_agent_session(conn: &Connection, id: &str) -> SqlResult<AgentSession> {
@@ -115,11 +117,22 @@ pub fn update_agent_session(
             id,
         ],
     )?;
+    super::recalculate_task_actual_hours(conn, &current.task_id)?;
     get_agent_session(conn, id)
 }
 
 pub fn delete_agent_session(conn: &Connection, id: &str) -> SqlResult<()> {
+    let task_id = match conn.query_row(
+        "SELECT task_id FROM agent_sessions WHERE id = ?1",
+        params![id],
+        |row| row.get::<_, String>(0),
+    ) {
+        Ok(task_id) => task_id,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(()),
+        Err(e) => return Err(e),
+    };
     conn.execute("DELETE FROM agent_sessions WHERE id = ?1", params![id])?;
+    super::recalculate_task_actual_hours(conn, &task_id)?;
     Ok(())
 }
 

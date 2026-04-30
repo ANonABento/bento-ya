@@ -105,6 +105,8 @@ export interface Task {
   pipeline_error: string | null
   agent_session_id: string | null
   last_script_exit_code: number | null
+  estimated_hours?: number
+  actual_hours?: number
   created_at: string
   updated_at: string
 }

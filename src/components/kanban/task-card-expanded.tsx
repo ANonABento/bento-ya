@@ -1,5 +1,7 @@
+import { useState, useCallback, useEffect } from 'react'
 import { motion } from 'motion/react'
 import type { Task } from '@/types'
+import * as ipc from '@/lib/ipc'
 import { useTaskDetail } from '@/hooks/use-task-detail'
 import { ChangesSection } from '@/components/task-detail/changes-section'
 import { CommitsSection } from '@/components/task-detail/commits-section'
@@ -7,8 +9,59 @@ import { SiegeStatus } from '@/components/task-detail/siege-status'
 
 const EXPANDED_MAX_HEIGHT = 400
 
+function formatHours(value: number | null | undefined): string {
+  if (value == null) {
+    return '—'
+  }
+
+  const rounded = Math.round(value * 10) / 10
+  return `${rounded}h`
+}
+
 export function TaskCardExpanded({ task }: { task: Task }) {
   const { updateTask, changes, commits, loading } = useTaskDetail(task)
+  const [estimatedInput, setEstimatedInput] = useState(
+    task.estimatedHours != null ? String(task.estimatedHours) : '',
+  )
+  const [savingEstimate, setSavingEstimate] = useState(false)
+
+  useEffect(() => {
+    setEstimatedInput(task.estimatedHours != null ? String(task.estimatedHours) : '')
+  }, [task.estimatedHours])
+
+  const estimatedHours = task.estimatedHours ?? 0
+  const actualHours = task.actualHours ?? 0
+  const isOverBudget = estimatedHours > 0 && actualHours > estimatedHours * 2
+
+  const saveEstimatedHours = useCallback(async () => {
+    const trimmed = estimatedInput.trim()
+    const nextEstimate = trimmed === '' ? 0 : Number(trimmed)
+
+    if (Number.isNaN(nextEstimate) || !Number.isFinite(nextEstimate) || nextEstimate < 0) {
+      setEstimatedInput(
+        task.estimatedHours != null ? String(task.estimatedHours) : '',
+      )
+      return
+    }
+
+    if (nextEstimate === estimatedHours) {
+      return
+    }
+
+    setSavingEstimate(true)
+    try {
+      const updated = await ipc.updateTask(task.id, {
+        estimatedHours: nextEstimate,
+      })
+      updateTask(task.id, updated)
+    } catch {
+      setEstimatedInput(
+        task.estimatedHours != null ? String(task.estimatedHours) : '',
+      )
+    } finally {
+      setSavingEstimate(false)
+    }
+  }, [estimatedInput, estimatedHours, task, updateTask])
 
   return (
     <motion.div
@@ -54,6 +107,48 @@ export function TaskCardExpanded({ task }: { task: Task }) {
             <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
               {task.model}
             </span>
+          )}
+        </div>
+
+        {/* Time tracking side-by-side */}
+        <div className="rounded-lg border border-border-default bg-bg p-2">
+          <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-text-secondary">
+            Time Tracking
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <label className="space-y-1">
+              <span className="block text-text-secondary">Estimated</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.25"
+                value={estimatedInput}
+                onChange={(e) => { setEstimatedInput(e.target.value) }}
+                onBlur={() => { void saveEstimatedHours() }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    void saveEstimatedHours()
+                  }
+                }}
+                disabled={savingEstimate}
+                placeholder="0"
+                className="w-full rounded border border-border-default bg-surface-hover px-2 py-1 text-xs text-text-primary focus:border-accent focus:outline-none disabled:opacity-50"
+              />
+            </label>
+            <div>
+              <span className="block text-text-secondary">Actual</span>
+              <div className="mt-1 rounded border border-border-default bg-surface-hover px-2 py-1 text-xs text-text-primary">
+                {formatHours(actualHours)}
+              </div>
+            </div>
+          </div>
+
+          {isOverBudget && (
+            <p className="mt-2 text-[11px] text-warning">
+              Actual time is more than 2x estimated.
+            </p>
           )}
         </div>
 
