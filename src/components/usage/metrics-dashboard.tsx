@@ -27,6 +27,19 @@ type ModelStats = {
 type ActiveTab = 'overview' | 'model' | 'column' | 'task'
 
 const DAYS = 30
+const TOP_TASKS_LIMIT = 10
+const RECENT_RECORDS_LIMIT = 50
+
+const TABS: { id: ActiveTab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'model', label: 'By Model' },
+  { id: 'column', label: 'By Column' },
+  { id: 'task', label: 'By Task' },
+]
+
+function shortModelName(model: string): string {
+  return model.split('/').pop() ?? model
+}
 
 export function MetricsDashboard({ workspaceId, onClose }: Props) {
   const { summary, records, isLoading, error } = useWorkspaceUsage(workspaceId, {
@@ -37,12 +50,11 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
   const [columnCosts, setColumnCosts] = useState<ColumnCost[]>([])
   const [taskCosts, setTaskCosts] = useState<TaskCost[]>([])
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview')
-  const [isExporting, setIsExporting] = useState(false)
 
   useEffect(() => {
     void getWorkspaceDailyCosts(workspaceId, DAYS).then(setDailyCosts)
     void getWorkspaceColumnCosts(workspaceId).then(setColumnCosts)
-    void getWorkspaceTaskCosts(workspaceId, 10).then(setTaskCosts)
+    void getWorkspaceTaskCosts(workspaceId, TOP_TASKS_LIMIT).then(setTaskCosts)
   }, [workspaceId])
 
   const modelStats = useMemo((): ModelStats[] => {
@@ -70,36 +82,24 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
   const maxModelCost = Math.max(...modelStats.map((m) => m.cost), 0.01)
 
   const exportCsv = useCallback(() => {
-    setIsExporting(true)
-    try {
-      const csvField = (v: string) => (v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v)
-      const header = 'Date,Model,Column,Task ID,Input Tokens,Output Tokens,Cost USD\n'
-      const rows = records.map((r) => {
-        const date = r.createdAt.slice(0, 10)
-        const model = csvField(r.model.split('/').pop() ?? r.model)
-        const column = csvField(r.columnName ?? '')
-        const taskId = csvField(r.taskId ?? '')
-        return `${date},${model},${column},${taskId},${String(r.inputTokens)},${String(r.outputTokens)},${r.costUsd.toFixed(6)}`
-      })
-      const csv = header + rows.join('\n')
-      const blob = new Blob([csv], { type: 'text/csv' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `usage-${workspaceId}-${new Date().toISOString().slice(0, 10)}.csv`
-      a.click()
-      URL.revokeObjectURL(url)
-    } finally {
-      setIsExporting(false)
-    }
+    const csvField = (v: string) => (v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v)
+    const header = 'Date,Model,Column,Task ID,Input Tokens,Output Tokens,Cost USD\n'
+    const rows = records.map((r) => {
+      const date = r.createdAt.slice(0, 10)
+      const model = csvField(shortModelName(r.model))
+      const column = csvField(r.columnName ?? '')
+      const taskId = csvField(r.taskId ?? '')
+      return `${date},${model},${column},${taskId},${String(r.inputTokens)},${String(r.outputTokens)},${r.costUsd.toFixed(6)}`
+    })
+    const csv = header + rows.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `usage-${workspaceId}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }, [records, workspaceId])
-
-  const TABS: { id: ActiveTab; label: string }[] = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'model', label: 'By Model' },
-    { id: 'column', label: 'By Column' },
-    { id: 'task', label: 'By Task' },
-  ]
 
   return (
     <motion.div
@@ -121,8 +121,7 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
             {records.length > 0 && (
               <button
                 onClick={exportCsv}
-                disabled={isExporting}
-                className="flex items-center gap-1.5 rounded-lg border border-border-default px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-bg hover:text-text-primary disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-lg border border-border-default px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-bg hover:text-text-primary"
                 title="Export CSV"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -248,9 +247,9 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border-default">
-                        {records.slice(0, 50).map((record) => (
+                        {records.slice(0, RECENT_RECORDS_LIMIT).map((record) => (
                           <tr key={record.id} className="text-text-primary">
-                            <td className="py-2 font-mono text-xs">{record.model.split('/').pop()}</td>
+                            <td className="py-2 font-mono text-xs">{shortModelName(record.model)}</td>
                             <td className="py-2 text-xs text-text-secondary">{record.columnName ?? '—'}</td>
                             <td className="py-2">{formatUsageTokens(record.inputTokens)}</td>
                             <td className="py-2">{formatUsageTokens(record.outputTokens)}</td>
@@ -279,7 +278,7 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
                       {modelStats.map((model) => (
                         <div key={model.model} className="space-y-1">
                           <div className="flex items-center justify-between text-sm">
-                            <span className="font-mono text-text-primary">{model.model.split('/').pop()}</span>
+                            <span className="font-mono text-text-primary">{shortModelName(model.model)}</span>
                             <span className="text-text-secondary">
                               {formatUsageCost(model.cost)} ({model.count} calls)
                             </span>
