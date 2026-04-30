@@ -274,6 +274,20 @@ pub struct ColumnTimingAverage {
     pub failure_count: i64,
 }
 
+/// Per-column pipeline metrics for the board header.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnMetrics {
+    pub column_id: String,
+    pub column_name: String,
+    pub avg_duration_seconds: f64,
+    pub success_rate: f64,
+    pub throughput_per_day: f64,
+    pub sample_count: i64,
+    pub success_count: i64,
+    pub retry_count: i64,
+}
+
 // ─── Usage Tracking Entities ────────────────────────────────────────────────
 
 /// A record of LLM token usage (per-request).

@@ -10,6 +10,7 @@ import { useColumnStore } from '@/stores/column-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useScriptStore } from '@/stores/script-store'
 import { queueBacklog, cancelBacklogQueue } from '@/lib/ipc/pipeline'
+import type { ColumnMetrics } from '@/lib/ipc/pipeline'
 import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
@@ -23,11 +24,12 @@ type BatchQueueLocalState = {
 
 type ColumnProps = {
   column: ColumnType
+  metrics?: ColumnMetrics
   autoOpenConfig?: boolean
   onConfigOpened?: () => void
 }
 
-export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpened }: ColumnProps) {
+export const Column = memo(function Column({ column, metrics, autoOpenConfig, onConfigOpened }: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
@@ -208,6 +210,7 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
             scriptTrigger={scriptTrigger}
             isBacklog={column.position === 0}
             batchQueue={batchQueueState.isQueuing ? { total: batchQueueState.total, completed: batchQueueState.completed } : undefined}
+            metrics={metrics}
             onConfigure={handleConfigure}
             onDelete={handleDelete}
             onAddTask={handleAddTask}

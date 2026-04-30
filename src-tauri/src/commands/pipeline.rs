@@ -1,6 +1,6 @@
 //! Pipeline commands for Tauri IPC
 
-use crate::db::{self, AppState, ColumnTimingAverage, PipelineTiming, Task};
+use crate::db::{self, AppState, ColumnMetrics, ColumnTimingAverage, PipelineTiming, Task};
 use crate::error::AppError;
 use crate::pipeline;
 use tauri::{AppHandle, State};
@@ -91,4 +91,17 @@ pub fn get_average_pipeline_timing(
 ) -> Result<Vec<ColumnTimingAverage>, AppError> {
     let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::get_average_pipeline_timing(&conn, &workspace_id)?)
+}
+
+/// Get per-column board metrics for the last 30 days.
+#[tauri::command(rename_all = "camelCase")]
+pub fn get_column_metrics(
+    state: State<AppState>,
+    workspace_id: String,
+) -> Result<Vec<ColumnMetrics>, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::get_column_metrics(&conn, &workspace_id)?)
 }

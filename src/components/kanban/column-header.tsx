@@ -1,6 +1,7 @@
 import { memo, useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { IconButton } from '@/components/shared/icon-button'
+import type { ColumnMetrics } from '@/lib/ipc/pipeline'
 
 type ScriptTriggerInfo = {
   scriptName: string
@@ -20,11 +21,67 @@ type ColumnHeaderProps = {
   scriptTrigger?: ScriptTriggerInfo
   isBacklog?: boolean
   batchQueue?: BatchQueueState
+  metrics?: ColumnMetrics
   onConfigure: () => void
   onDelete: () => void
   onAddTask: () => void
   onRunAll?: () => void
   onCancelQueue?: () => void
+}
+
+function formatDuration(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0m'
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  const minutes = seconds / 60
+  if (minutes < 60) return `${Math.round(minutes)}m`
+  const hours = minutes / 60
+  if (hours < 24) return `${hours.toFixed(hours < 10 ? 1 : 0)}h`
+  const days = hours / 24
+  return `${days.toFixed(days < 10 ? 1 : 0)}d`
+}
+
+function formatRate(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '0%'
+  return `${Math.round(value)}%`
+}
+
+function formatThroughput(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '0/d'
+  if (value < 1) return `${value.toFixed(1)}/d`
+  return `${value.toFixed(value < 10 ? 1 : 0)}/d`
+}
+
+function ColumnMetricsCard({ metrics }: { metrics?: ColumnMetrics }) {
+  const avgDuration = formatDuration(metrics?.avgDurationSeconds ?? 0)
+  const successRate = formatRate(metrics?.successRate ?? 0)
+  const throughput = formatThroughput(metrics?.throughputPerDay ?? 0)
+  const sampleCount = metrics?.sampleCount ?? 0
+  const successCount = metrics?.successCount ?? 0
+  const retryCount = metrics?.retryCount ?? 0
+  const detail = sampleCount > 0
+    ? `Last 30 days: ${sampleCount} completed sample${sampleCount === 1 ? '' : 's'}, ${successCount} reached the next column without retry, ${retryCount} retried.`
+    : 'Last 30 days: no completed samples for this column yet.'
+
+  return (
+    <div
+      className="grid grid-cols-3 gap-px overflow-hidden rounded border border-border-default bg-border-default text-[9px] leading-none"
+      title={detail}
+      aria-label={detail}
+    >
+      <div className="min-w-0 bg-surface px-1 py-1 text-center">
+        <div className="truncate font-semibold text-text-primary">{avgDuration}</div>
+        <div className="mt-0.5 text-[8px] uppercase text-text-secondary">avg</div>
+      </div>
+      <div className="min-w-0 bg-surface px-1 py-1 text-center">
+        <div className="truncate font-semibold text-text-primary">{successRate}</div>
+        <div className="mt-0.5 text-[8px] uppercase text-text-secondary">ok</div>
+      </div>
+      <div className="min-w-0 bg-surface px-1 py-1 text-center">
+        <div className="truncate font-semibold text-text-primary">{throughput}</div>
+        <div className="mt-0.5 text-[8px] uppercase text-text-secondary">flow</div>
+      </div>
+    </div>
+  )
 }
 
 // Icon components
@@ -92,6 +149,7 @@ export const ColumnHeader = memo(function ColumnHeader({
   scriptTrigger,
   isBacklog,
   batchQueue,
+  metrics,
   onConfigure,
   onDelete,
   onAddTask,
@@ -154,6 +212,8 @@ export const ColumnHeader = memo(function ColumnHeader({
             Queued: {batchQueue.completed}/{batchQueue.total}
           </span>
         )}
+
+        <ColumnMetricsCard metrics={metrics} />
 
         <div className="ml-auto flex items-center gap-0.5">
           {/* Run All button (backlog only, when tasks exist and not already queuing) */}

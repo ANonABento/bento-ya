@@ -1,6 +1,6 @@
 use rusqlite::{params, Connection, Result as SqlResult};
 
-use super::models::{ColumnTimingAverage, PipelineTiming};
+use super::models::{ColumnMetrics, ColumnTimingAverage, PipelineTiming};
 use super::{new_id, now};
 
 /// Map a database row to a PipelineTiming struct.
@@ -89,10 +89,7 @@ pub fn complete_pipeline_timing(
 }
 
 /// Get all timing records for a specific task.
-pub fn get_pipeline_timing(
-    conn: &Connection,
-    task_id: &str,
-) -> SqlResult<Vec<PipelineTiming>> {
+pub fn get_pipeline_timing(conn: &Connection, task_id: &str) -> SqlResult<Vec<PipelineTiming>> {
     let mut stmt = conn.prepare(
         "SELECT id, task_id, column_id, column_name, entered_at, exited_at, duration_seconds, success, retry_count
          FROM pipeline_timing WHERE task_id = ?1 ORDER BY entered_at ASC",
@@ -129,4 +126,95 @@ pub fn get_average_pipeline_timing(
         })
     })?;
     rows.collect()
+}
+
+/// Get board header metrics for every column in a workspace.
+pub fn get_column_metrics(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<ColumnMetrics>> {
+    let mut stmt = conn.prepare(
+        "SELECT c.id,
+                c.name,
+                COALESCE(AVG(pt.duration_seconds), 0) AS avg_duration,
+                COALESCE(SUM(CASE WHEN pt.success = 1 AND pt.retry_count = 0 THEN 1 ELSE 0 END), 0) AS success_count,
+                COALESCE(SUM(CASE WHEN pt.retry_count > 0 THEN 1 ELSE 0 END), 0) AS retry_count,
+                COUNT(pt.id) AS sample_count
+         FROM columns c
+         LEFT JOIN tasks t ON t.workspace_id = c.workspace_id
+         LEFT JOIN pipeline_timing pt
+           ON pt.task_id = t.id
+          AND pt.column_id = c.id
+          AND pt.duration_seconds IS NOT NULL
+          AND datetime(pt.exited_at) >= datetime('now', '-30 days')
+         LEFT JOIN (SELECT DISTINCT task_id FROM agent_sessions) a ON a.task_id = t.id
+         WHERE c.workspace_id = ?1
+         GROUP BY c.id, c.name, c.position
+         ORDER BY c.position ASC",
+    )?;
+    let rows = stmt.query_map(params![workspace_id], |row| {
+        let sample_count: i64 = row.get(5)?;
+        let success_count: i64 = row.get(3)?;
+        let success_rate = if sample_count > 0 {
+            (success_count as f64 / sample_count as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        Ok(ColumnMetrics {
+            column_id: row.get(0)?,
+            column_name: row.get(1)?,
+            avg_duration_seconds: row.get(2)?,
+            success_rate,
+            throughput_per_day: success_count as f64 / 30.0,
+            sample_count,
+            success_count,
+            retry_count: row.get(4)?,
+        })
+    })?;
+    rows.collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{
+        complete_pipeline_timing, init_test, insert_column, insert_pipeline_timing, insert_task,
+        insert_workspace,
+    };
+
+    #[test]
+    fn column_metrics_include_empty_columns() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Backlog", 0).unwrap();
+
+        let metrics = get_column_metrics(&conn, &ws.id).unwrap();
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].column_id, col.id);
+        assert_eq!(metrics[0].sample_count, 0);
+        assert_eq!(metrics[0].success_rate, 0.0);
+        assert_eq!(metrics[0].throughput_per_day, 0.0);
+    }
+
+    #[test]
+    fn column_metrics_summarize_last_30_days() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Working", 0).unwrap();
+        let task_a = insert_task(&conn, &ws.id, &col.id, "A", None).unwrap();
+        let task_b = insert_task(&conn, &ws.id, &col.id, "B", None).unwrap();
+
+        insert_pipeline_timing(&conn, &task_a.id, &col.id, &col.name).unwrap();
+        complete_pipeline_timing(&conn, &task_a.id, &col.id, true, 0).unwrap();
+        insert_pipeline_timing(&conn, &task_b.id, &col.id, &col.name).unwrap();
+        complete_pipeline_timing(&conn, &task_b.id, &col.id, false, 1).unwrap();
+
+        let metrics = get_column_metrics(&conn, &ws.id).unwrap();
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].sample_count, 2);
+        assert_eq!(metrics[0].success_count, 1);
+        assert_eq!(metrics[0].retry_count, 1);
+        assert_eq!(metrics[0].success_rate, 50.0);
+        assert!((metrics[0].throughput_per_day - (1.0 / 30.0)).abs() < f64::EPSILON);
+    }
 }

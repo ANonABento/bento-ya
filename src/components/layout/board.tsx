@@ -25,6 +25,7 @@ import { useChatPanel } from '@/hooks/use-chat-panel'
 import { useUIStore } from '@/stores/ui-store'
 import { CardPositionContext, useCardPositionProvider } from '@/hooks/use-card-positions'
 import { DepDragContext } from '@/hooks/use-dep-drag-context'
+import { getColumnMetrics, type ColumnMetrics } from '@/lib/ipc/pipeline'
 
 export function Board() {
   const panelDock = useUIStore((s) => s.panelDock)
@@ -37,6 +38,7 @@ export function Board() {
   const loadScripts = useScriptStore((s) => s.load)
 
   const [newColumnId, setNewColumnId] = useState<string | null>(null)
+  const [columnMetrics, setColumnMetrics] = useState<Record<string, ColumnMetrics>>({})
 
   const handleAddColumn = useCallback(() => {
     if (!activeWorkspaceId) return
@@ -84,6 +86,20 @@ export function Board() {
     }
   }, [activeWorkspaceId, loadColumns, loadTasks, loadScripts])
 
+  useEffect(() => {
+    if (!activeWorkspaceId) {
+      setColumnMetrics({})
+      return
+    }
+    void getColumnMetrics(activeWorkspaceId)
+      .then((metrics) => {
+        setColumnMetrics(Object.fromEntries(metrics.map((metric) => [metric.columnId, metric])))
+      })
+      .catch((err) => {
+        console.error('[Board] Failed to refresh column metrics:', err)
+      })
+  }, [activeWorkspaceId, tasks])
+
   // Resolve overlay content
   let overlayContent = null
   if (activeItem) {
@@ -115,6 +131,7 @@ export function Board() {
                   <Column
                     key={col.id}
                     column={col}
+                    metrics={columnMetrics[col.id]}
                     autoOpenConfig={col.id === newColumnId}
                     onConfigOpened={col.id === newColumnId ? () => { setNewColumnId(null) } : undefined}
                   />

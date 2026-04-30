@@ -259,6 +259,20 @@ const mockCommands: Record<string, CommandHandler> = {
     })
     return mockColumns.filter((c) => c.workspaceId === args?.workspaceId)
   },
+  get_column_metrics: (args) =>
+    mockColumns
+      .filter((c) => c.workspaceId === args?.workspaceId)
+      .sort((a, b) => a.position - b.position)
+      .map((c) => ({
+        columnId: c.id,
+        columnName: c.name,
+        avgDurationSeconds: 0,
+        successRate: 0,
+        throughputPerDay: 0,
+        sampleCount: 0,
+        successCount: 0,
+        retryCount: 0,
+      })),
 
   // Task commands
   list_tasks: (args) => mockTasks.filter((t) => t.workspaceId === args?.workspaceId),

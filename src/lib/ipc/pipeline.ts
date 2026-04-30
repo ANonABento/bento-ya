@@ -11,6 +11,17 @@ export type PipelineEvent = {
   message: string | null
 }
 
+export type ColumnMetrics = {
+  columnId: string
+  columnName: string
+  avgDurationSeconds: number
+  successRate: number
+  throughputPerDay: number
+  sampleCount: number
+  successCount: number
+  retryCount: number
+}
+
 export async function markPipelineComplete(
   taskId: string,
   success: boolean,
@@ -35,6 +46,10 @@ export async function setPipelineError(
 
 export async function retryPipeline(taskId: string): Promise<Task> {
   return invoke<Task>('retry_pipeline', { taskId })
+}
+
+export async function getColumnMetrics(workspaceId: string): Promise<ColumnMetrics[]> {
+  return invoke<ColumnMetrics[]>('get_column_metrics', { workspaceId })
 }
 
 // ─── Batch Queue ────────────────────────────────────────────────────────────
