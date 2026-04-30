@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect, useCallback, useState, useMemo } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -25,6 +25,11 @@ import { useChatPanel } from '@/hooks/use-chat-panel'
 import { useUIStore } from '@/stores/ui-store'
 import { CardPositionContext, useCardPositionProvider } from '@/hooks/use-card-positions'
 import { DepDragContext } from '@/hooks/use-dep-drag-context'
+import { useSettingsStore } from '@/stores/settings-store'
+import { useWorkspaceUsageByModel } from '@/hooks/use-workspace-usage-by-model'
+import { ModelUsageWarningBanner } from '@/components/usage/model-usage-warning-banner'
+
+const USAGE_WARNING_DISMISSED_STORAGE_KEY = 'token-usage-warning-dismissed-v1'
 
 export function Board() {
   const panelDock = useUIStore((s) => s.panelDock)
@@ -52,6 +57,51 @@ export function Board() {
 
   const { isChatOpen, activeTaskId, closeChat } = useChatPanel()
   const collapseTask = useUIStore((s) => s.collapseTask)
+  const model = useSettingsStore((s) => s.global.model)
+  const budgets = model.dailyTokenBudgets
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const usageByModel = useWorkspaceUsageByModel(activeWorkspaceId ?? '', {
+    enabled: !!activeWorkspaceId,
+    date: today,
+  })
+  const [dismissedWarnings, setDismissedWarnings] = useState<Set<string>>(new Set())
+
+  const storageKey = useMemo(() => {
+    if (!activeWorkspaceId) return ''
+    return `${activeWorkspaceId}|${today}`
+  }, [activeWorkspaceId, today])
+
+  useEffect(() => {
+    if (!activeWorkspaceId) {
+      setDismissedWarnings(new Set())
+      return
+    }
+
+    try {
+      const raw = localStorage.getItem(USAGE_WARNING_DISMISSED_STORAGE_KEY)
+      if (!raw) {
+        setDismissedWarnings(new Set())
+        return
+      }
+
+      const parsed = JSON.parse(raw)
+      const saved = parsed?.[storageKey]
+      if (!Array.isArray(saved)) {
+        setDismissedWarnings(new Set())
+        return
+      }
+
+      const values = new Set<string>()
+      for (const modelId of saved) {
+        if (typeof modelId === 'string') {
+          values.add(`${storageKey}|${modelId}`)
+        }
+      }
+      setDismissedWarnings(values)
+    } catch {
+      setDismissedWarnings(new Set())
+    }
+  }, [activeWorkspaceId, storageKey])
 
   // Unified close: collapse card + close chat (used by back button, Escape, re-click)
   const handleCloseAll = useCallback(() => {
@@ -63,6 +113,69 @@ export function Board() {
     .filter((c) => c.visible)
     .sort((a, b) => a.position - b.position)
   const columnIds = sortedColumns.map((c) => c.id)
+  const warningSummaries = useMemo(() => {
+    return usageByModel.summaries
+      .filter((record) => {
+        const budget = budgets[record.model] ?? 0
+        if (!Number.isFinite(budget) || budget <= 0) return false
+        const used = record.totalInputTokens + record.totalOutputTokens
+        return (used / budget) >= 0.8
+      })
+      .map((record) => record.model)
+      .filter((modelId) => !dismissedWarnings.has(`${storageKey}|${modelId}`))
+  }, [budgets, dismissedWarnings, storageKey, usageByModel.summaries])
+
+  const dismissedModelIds = useMemo(() => {
+    const result = new Set<string>()
+    for (const value of dismissedWarnings) {
+      const separatorIndex = value.lastIndexOf('|')
+      if (separatorIndex === -1) continue
+      const key = value.slice(0, separatorIndex)
+      if (key !== storageKey) continue
+      result.add(value.slice(separatorIndex + 1))
+    }
+    return result
+  }, [dismissedWarnings, storageKey])
+
+  useEffect(() => {
+    if (!activeWorkspaceId) return
+    let rawPayload: Record<string, string[]> = {}
+
+    try {
+      const existingRaw = localStorage.getItem(USAGE_WARNING_DISMISSED_STORAGE_KEY)
+      if (existingRaw) {
+        const existing = JSON.parse(existingRaw)
+        if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+          rawPayload = existing as Record<string, string[]>
+        }
+      }
+    } catch {
+      rawPayload = {}
+    }
+
+    dismissedWarnings.forEach((value) => {
+      const separatorIndex = value.lastIndexOf('|')
+      if (separatorIndex === -1) return
+      const key = value.slice(0, separatorIndex)
+      const modelId = value.slice(separatorIndex + 1)
+      if (!modelId) return
+      const existing = rawPayload[key] ?? []
+      existing.push(modelId)
+      rawPayload[key] = existing
+    })
+
+    localStorage.setItem(USAGE_WARNING_DISMISSED_STORAGE_KEY, JSON.stringify(rawPayload))
+  }, [activeWorkspaceId, dismissedWarnings])
+
+  const handleDismissWarnings = () => {
+    if (!activeWorkspaceId || warningSummaries.length === 0) return
+
+    const next = new Set(dismissedWarnings)
+    for (const modelId of warningSummaries) {
+      next.add(`${storageKey}|${modelId}`)
+    }
+    setDismissedWarnings(next)
+  }
 
   const { activeItem, onDragStart, onDragOver, onDragEnd } = useDnd()
 
@@ -106,7 +219,16 @@ export function Board() {
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
       >
-        <div className="flex h-full" data-board-container>
+        <div className="flex h-full flex-col" data-board-container>
+          {warningSummaries.length > 0 && (
+            <ModelUsageWarningBanner
+              usage={usageByModel.summaries}
+              modelBudgets={budgets}
+              onDismiss={handleDismissWarnings}
+              dismissed={dismissedModelIds}
+            />
+          )}
+
           {/* Board + orchestrator panel (left side, shrinks when task panel open) */}
           <div className="flex flex-1 flex-col overflow-hidden">
             <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>

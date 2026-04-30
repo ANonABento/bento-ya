@@ -24,6 +24,14 @@ export type UsageSummary = {
   recordCount: number
 }
 
+export type UsageByModelSummary = {
+  model: string
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalCostUsd: number
+  recordCount: number
+}
+
 export async function recordUsage(
   workspaceId: string,
   provider: string,
@@ -65,6 +73,16 @@ export async function getWorkspaceUsageSummary(
   workspaceId: string,
 ): Promise<UsageSummary> {
   return invoke<UsageSummary>('get_workspace_usage_summary', { workspaceId })
+}
+
+export async function getWorkspaceUsageByModelForDate(
+  workspaceId: string,
+  date: string,
+): Promise<UsageByModelSummary[]> {
+  return invoke<UsageByModelSummary[]>('get_workspace_usage_by_model_for_date', {
+    workspaceId,
+    date,
+  })
 }
 
 export async function getTaskUsageSummary(taskId: string): Promise<UsageSummary> {

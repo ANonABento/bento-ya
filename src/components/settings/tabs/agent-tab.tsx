@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
 import type { AgentConfig, ProviderConfig } from '@/types/settings'
 import { detectSingleCli, checkCliUpdate, type DetectedCli, type CliUpdateInfo } from '@/lib/ipc'
@@ -71,6 +71,40 @@ export function AgentTab() {
       p.id === providerId ? { ...p, ...updates } : p
     )
     updateGlobal('model', { ...model, providers })
+  }
+
+  const budgetableModels = useMemo(() => {
+    const unique = new Map<string, { id: string; displayName: string }>()
+    for (const modelEntry of allModels) {
+      unique.set(modelEntry.id, {
+        id: modelEntry.id,
+        displayName: modelEntry.displayName,
+      })
+    }
+    return Array.from(unique.values())
+      .sort((a, b) => a.displayName.localeCompare(b.displayName))
+  }, [allModels])
+
+  const updateBudget = (modelId: string, value: string) => {
+    const nextBudgets = { ...model.dailyTokenBudgets }
+    const trimmed = value.trim()
+    if (trimmed === '') {
+      delete nextBudgets[modelId]
+      updateGlobal('model', { ...model, dailyTokenBudgets: nextBudgets })
+      return
+    }
+
+    const parsed = Number.parseInt(trimmed, 10)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      nextBudgets[modelId] = parsed
+      updateGlobal('model', { ...model, dailyTokenBudgets: nextBudgets })
+      return
+    }
+
+    if (trimmed === '0') {
+      delete nextBudgets[modelId]
+      updateGlobal('model', { ...model, dailyTokenBudgets: nextBudgets })
+    }
   }
 
   // Get all available models from enabled providers, excluding disabled ones
@@ -517,6 +551,38 @@ export function AgentTab() {
             )
           })}
         </div>
+      </SettingSection>
+
+      <SettingSection title="Daily Token Budgets" description="Set model-level daily token budgets to get warning alerts at 80% usage. Leave blank to disable budget.">
+        {budgetableModels.length > 0 ? (
+          <div className="space-y-3">
+            {budgetableModels.map((m) => {
+              const budgetValue = model.dailyTokenBudgets[m.id]
+              const displayValue = budgetValue ? String(budgetValue) : ''
+
+              return (
+                <SettingRow
+                  key={m.id}
+                  label={m.displayName}
+                  description={`Model ID: ${m.id}`}
+                  vertical
+                >
+                  <input
+                    type="number"
+                    value={displayValue}
+                    onChange={(e) => { updateBudget(m.id, e.target.value) }}
+                    placeholder="Unlimited"
+                    min={1}
+                    step={1000}
+                    className="w-full rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 md:max-w-xs"
+                  />
+                </SettingRow>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-text-secondary">No models available yet. Expand providers to load model list.</p>
+        )}
       </SettingSection>
 
       {/* Coming Soon */}

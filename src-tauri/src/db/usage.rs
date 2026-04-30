@@ -1,6 +1,6 @@
 use rusqlite::{params, Connection, Result as SqlResult};
 
-use super::models::{UsageRecord, UsageSummary};
+use super::models::{UsageByModelDailySummary, UsageRecord, UsageSummary};
 use super::{new_id, now};
 
 pub const PROVIDER_ANTHROPIC: &str = "anthropic";
@@ -130,6 +130,37 @@ pub fn get_task_usage_summary(conn: &Connection, task_id: &str) -> SqlResult<Usa
             record_count: row.get(3)?,
         }),
     )
+}
+
+/// Aggregate token/cost usage by model for a specific date.
+pub fn get_workspace_usage_by_model_for_date(
+    conn: &Connection,
+    workspace_id: &str,
+    date: &str,
+) -> SqlResult<Vec<UsageByModelDailySummary>> {
+    let mut stmt = conn.prepare(
+        "SELECT
+            model,
+            COALESCE(SUM(input_tokens), 0),
+            COALESCE(SUM(output_tokens), 0),
+            COALESCE(SUM(cost_usd), 0.0),
+            COUNT(*)
+          FROM usage_records
+         WHERE workspace_id = ?1
+           AND substr(created_at, 1, 10) = ?2
+         GROUP BY model
+         ORDER BY model ASC",
+    )?;
+    let rows = stmt.query_map(params![workspace_id, date], |row| {
+        Ok(UsageByModelDailySummary {
+            model: row.get(0)?,
+            total_input_tokens: row.get(1)?,
+            total_output_tokens: row.get(2)?,
+            total_cost_usd: row.get(3)?,
+            record_count: row.get(4)?,
+        })
+    })?;
+    rows.collect()
 }
 
 pub fn delete_workspace_usage(conn: &Connection, workspace_id: &str) -> SqlResult<()> {

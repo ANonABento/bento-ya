@@ -304,6 +304,17 @@ pub struct UsageSummary {
     pub record_count: i64,
 }
 
+/// Usage summary grouped by model for a specific date.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageByModelDailySummary {
+    pub model: String,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub total_cost_usd: f64,
+    pub record_count: i64,
+}
+
 // ─── Session History Entities ───────────────────────────────────────────────
 
 /// A snapshot of an agent session at a point in time.

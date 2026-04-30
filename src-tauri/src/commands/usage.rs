@@ -1,4 +1,4 @@
-use crate::db::{self, AppState, UsageRecord, UsageSummary};
+use crate::db::{self, AppState, UsageByModelDailySummary, UsageRecord, UsageSummary};
 use crate::error::AppError;
 use tauri::State;
 
@@ -72,6 +72,20 @@ pub fn get_workspace_usage_summary(
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::get_workspace_usage_summary(&conn, &workspace_id).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn get_workspace_usage_by_model_for_date(
+    state: State<AppState>,
+    workspace_id: String,
+    date: String,
+) -> Result<Vec<UsageByModelDailySummary>, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    db::get_workspace_usage_by_model_for_date(&conn, &workspace_id, &date)
+        .map_err(AppError::from)
 }
 
 #[tauri::command]
