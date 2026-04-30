@@ -278,6 +278,55 @@ mod tests {
     }
 
     #[test]
+    fn test_duplicate_task_copies_metadata_without_session_state() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Backlog", 0).unwrap();
+        let original = insert_task(&conn, &ws.id, &col.id, "Fix bug", Some("Critical issue")).unwrap();
+        let later = insert_task(&conn, &ws.id, &col.id, "Later task", None).unwrap();
+
+        conn.execute(
+            "UPDATE tasks SET priority = 'high', agent_mode = 'auto', files_touched = ?1, checklist = ?2, agent_session_id = 'session-1', pr_labels = ?3, notify_stakeholders = ?4, trigger_overrides = ?5, trigger_prompt = ?6, dependencies = ?7, blocked = 1, model = 'gpt-test', branch_name = 'feature/original', pr_number = 42, worktree_path = '/tmp/worktree' WHERE id = ?8",
+            params![
+                "[\"src/lib.rs\"]",
+                "[{\"id\":\"check-1\",\"text\":\"Verify\",\"checked\":false}]",
+                "[\"bug\",\"urgent\"]",
+                "[\"ops@example.com\"]",
+                "{\"on_entry\":{\"type\":\"none\"}}",
+                "Custom prompt",
+                "[{\"task_id\":\"dep-1\"}]",
+                &original.id,
+            ],
+        )
+        .unwrap();
+
+        let copy = duplicate_task(&conn, &original.id).unwrap();
+        assert_eq!(copy.title, "Fix bug (copy)");
+        assert_eq!(copy.description.as_deref(), Some("Critical issue"));
+        assert_eq!(copy.column_id, original.column_id);
+        assert_eq!(copy.position, original.position + 1);
+        assert_eq!(copy.priority, "high");
+        assert_eq!(copy.agent_mode.as_deref(), Some("auto"));
+        assert_eq!(copy.files_touched, "[\"src/lib.rs\"]");
+        assert_eq!(copy.checklist.as_deref(), Some("[{\"id\":\"check-1\",\"text\":\"Verify\",\"checked\":false}]"));
+        assert_eq!(copy.pr_labels, "[\"bug\",\"urgent\"]");
+        assert_eq!(copy.notify_stakeholders.as_deref(), Some("[\"ops@example.com\"]"));
+        assert_eq!(copy.trigger_overrides.as_deref(), Some("{\"on_entry\":{\"type\":\"none\"}}"));
+        assert_eq!(copy.trigger_prompt.as_deref(), Some("Custom prompt"));
+        assert_eq!(copy.dependencies.as_deref(), Some("[{\"task_id\":\"dep-1\"}]"));
+        assert!(copy.blocked);
+        assert_eq!(copy.model.as_deref(), Some("gpt-test"));
+        assert_eq!(copy.agent_session_id, None);
+        assert_eq!(copy.agent_status.as_deref(), Some("idle"));
+        assert_eq!(copy.branch_name, None);
+        assert_eq!(copy.pr_number, None);
+        assert_eq!(copy.worktree_path, None);
+
+        let shifted = get_task(&conn, &later.id).unwrap();
+        assert_eq!(shifted.position, 2);
+    }
+
+    #[test]
     fn test_agent_session_crud() {
         let conn = init_test().unwrap();
         let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();

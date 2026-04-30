@@ -149,6 +149,23 @@ pub fn update_task(
     Ok(task)
 }
 
+#[tauri::command]
+pub fn duplicate_task(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<Task, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let task = db::duplicate_task(&conn, &id)?;
+    pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_duplicated");
+
+    Ok(task)
+}
+
 /// Update task trigger settings (overrides, prompt, dependencies)
 #[tauri::command(rename_all = "camelCase")]
 pub fn update_task_triggers(

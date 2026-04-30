@@ -91,6 +91,63 @@ pub fn insert_task(
     get_task(conn, &id)
 }
 
+/// Duplicate a task immediately after the original in the same column.
+///
+/// User-editable metadata is copied, while execution/session state is reset so
+/// the copy does not share an agent session, PR, branch, or worktree.
+pub fn duplicate_task(conn: &Connection, id: &str) -> SqlResult<Task> {
+    let original = get_task(conn, id)?;
+    let copy_id = new_id();
+    let ts = now();
+    let copy_position = original.position + 1;
+    let copy_title = format!("{} (copy)", original.title);
+
+    let tx = conn.unchecked_transaction()?;
+
+    tx.execute(
+        "UPDATE tasks SET position = position + 1, updated_at = ?1 WHERE workspace_id = ?2 AND column_id = ?3 AND position >= ?4",
+        params![&ts, &original.workspace_id, &original.column_id, copy_position],
+    )?;
+
+    tx.execute(
+        "INSERT INTO tasks (
+            id, workspace_id, column_id, title, description, position, priority,
+            agent_mode, files_touched, checklist, pipeline_state,
+            pr_labels, notify_stakeholders, trigger_overrides, trigger_prompt,
+            dependencies, blocked, model, created_at, updated_at
+        ) VALUES (
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7,
+            ?8, ?9, ?10, 'idle',
+            ?11, ?12, ?13, ?14,
+            ?15, ?16, ?17, ?18, ?19
+        )",
+        params![
+            &copy_id,
+            &original.workspace_id,
+            &original.column_id,
+            &copy_title,
+            original.description.as_deref(),
+            copy_position,
+            &original.priority,
+            original.agent_mode.as_deref(),
+            &original.files_touched,
+            original.checklist.as_deref(),
+            &original.pr_labels,
+            original.notify_stakeholders.as_deref(),
+            original.trigger_overrides.as_deref(),
+            original.trigger_prompt.as_deref(),
+            original.dependencies.as_deref(),
+            original.blocked as i64,
+            original.model.as_deref(),
+            &ts,
+            &ts,
+        ],
+    )?;
+
+    tx.commit()?;
+    get_task(conn, &copy_id)
+}
+
 /// Move a task to the end of a column, resetting its pipeline state to idle.
 pub fn append_task_to_column(conn: &Connection, task_id: &str, column_id: &str) -> SqlResult<Task> {
     let max_pos: i64 = conn

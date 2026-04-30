@@ -27,6 +27,10 @@ export async function updateTask(
   return invoke<Task>('update_task', { id, ...updates })
 }
 
+export async function duplicateTask(id: string): Promise<Task> {
+  return invoke<Task>('duplicate_task', { id })
+}
+
 export async function updateTaskTriggers(
   id: string,
   updates: {
