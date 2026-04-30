@@ -130,8 +130,9 @@ type BatchCardProps = {
 function BatchCard({ batch, isMerging, isRetrying, onForceMerge, onRetry }: BatchCardProps) {
   const [expanded, setExpanded] = useState(false)
 
-  const pendingCount = batch.taskCount - batch.prCount - batch.failedCount
-  const allComplete = batch.prCount === batch.taskCount
+  const succeededCount = batch.tasks.filter((t) => t.prNumber !== null && t.prNumber !== undefined && !t.pipelineError).length
+  const pendingCount = Math.max(0, batch.taskCount - succeededCount - batch.failedCount)
+  const allComplete = succeededCount === batch.taskCount
 
   return (
     <div className="rounded-lg border border-border-default bg-surface/30">
@@ -159,7 +160,7 @@ function BatchCard({ batch, isMerging, isRetrying, onForceMerge, onRetry }: Batc
           <code className="text-xs font-mono text-text-primary">{batch.batchId}</code>
           <div className="mt-0.5 flex items-center gap-3 text-xs text-text-secondary">
             <span>{batch.taskCount} task{batch.taskCount !== 1 ? 's' : ''}</span>
-            <span className="text-green-400">{batch.prCount} PR{batch.prCount !== 1 ? 's' : ''}</span>
+            <span className="text-green-400">{succeededCount} PR{succeededCount !== 1 ? 's' : ''}</span>
             {batch.failedCount > 0 && (
               <span className="text-red-400">{batch.failedCount} failed</span>
             )}
