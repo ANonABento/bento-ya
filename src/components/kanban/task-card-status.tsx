@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import type { Task } from '@/types'
-import type { ReviewStatus } from '@/types'
+import type { Task, ReviewStatus } from '@/types'
 import type { AttentionItem } from '@/stores/attention-store'
 import { ATTENTION_LABELS } from '@/stores/attention-store'
 import { REVIEW_STATUS_LABELS } from '@/constants/status'
@@ -86,7 +85,7 @@ export function PipelineErrorBanner({
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
           <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm.75-8.25a.75.75 0 0 0-1.5 0v3.5a.75.75 0 0 0 1.5 0v-3.5ZM8 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
         </svg>
-        <Tooltip content={rawError} side="top" wrap delay={400}>
+        <Tooltip content={rawError || parsed.friendlyMessage} side="top" wrap delay={400}>
           <span className="truncate flex-1 cursor-default">
             {parsed.friendlyMessage}
             {task.retryCount > 0 && ` (${String(task.retryCount)} retries)`}
@@ -116,7 +115,6 @@ export function PipelineErrorBanner({
           className="px-2 pb-2 space-y-1.5"
           onClick={(e) => { e.stopPropagation() }}
         >
-          <p className="text-error/80 leading-snug">{parsed.friendlyMessage}</p>
           <ul className="space-y-0.5">
             {parsed.suggestedFixes.map((fix) => (
               <li key={fix} className="flex items-start gap-1 text-error/70">
