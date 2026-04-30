@@ -84,6 +84,13 @@ pub async fn create_task_from_template(
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     let template = db::get_task_template(&conn, &template_id)?;
+    let column = db::get_column(&conn, &column_id)?;
+    if column.workspace_id != template.workspace_id {
+        return Err(AppError::InvalidInput(
+            "Template and target column must belong to the same workspace".to_string(),
+        ));
+    }
+
     let task = db::insert_task(
         &conn,
         &template.workspace_id,
@@ -100,7 +107,6 @@ pub async fn create_task_from_template(
     .map_err(AppError::from)?;
 
     let task = db::get_task(&conn, &task.id)?;
-    let column = db::get_column(&conn, &column_id)?;
     let task = pipeline::fire_trigger(&conn, &app, &task, &column)?;
     pipeline::emit_tasks_changed(&app, &template.workspace_id, "task_created_from_template");
 

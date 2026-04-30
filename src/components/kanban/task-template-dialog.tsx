@@ -27,12 +27,16 @@ function textToLabels(text: string) {
 }
 
 export function TaskTemplateDialog({ workspaceId, columnId, onClose }: TaskTemplateDialogProps) {
-  const templates = useTaskTemplateStore((s) => s.templates)
+  const rawTemplates = useTaskTemplateStore((s) => s.templates)
   const loadedWorkspaceId = useTaskTemplateStore((s) => s.loadedWorkspaceId)
   const load = useTaskTemplateStore((s) => s.load)
   const update = useTaskTemplateStore((s) => s.update)
   const remove = useTaskTemplateStore((s) => s.remove)
   const createTask = useTaskTemplateStore((s) => s.createTask)
+
+  const templates = loadedWorkspaceId === workspaceId
+    ? rawTemplates.filter((template) => template.workspaceId === workspaceId)
+    : []
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [title, setTitle] = useState('')

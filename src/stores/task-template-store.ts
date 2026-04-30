@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 type TaskTemplateState = {
   templates: TaskTemplate[]
   loadedWorkspaceId: string | null
+  loadingWorkspaceId: string | null
   load: (workspaceId: string) => Promise<void>
   saveFromTask: (taskId: string) => Promise<TaskTemplate>
   update: (id: string, updates: { title: string; description?: string | null; labels: string; model?: string | null }) => Promise<TaskTemplate>
@@ -20,15 +21,34 @@ export const useTaskTemplateStore = create<TaskTemplateState>()(
     (set, get) => ({
       templates: [],
       loadedWorkspaceId: null,
+      loadingWorkspaceId: null,
 
       load: async (workspaceId) => {
-        const templates = await ipc.listTaskTemplates(workspaceId)
-        set({ templates, loadedWorkspaceId: workspaceId })
+        set((state) => (
+          state.loadedWorkspaceId === workspaceId
+            ? state
+            : { templates: [], loadedWorkspaceId: null, loadingWorkspaceId: workspaceId }
+        ))
+        try {
+          const templates = await ipc.listTaskTemplates(workspaceId)
+          if (get().loadingWorkspaceId === workspaceId || get().loadedWorkspaceId === workspaceId) {
+            set({ templates, loadedWorkspaceId: workspaceId, loadingWorkspaceId: null })
+          }
+        } catch (err) {
+          if (get().loadingWorkspaceId === workspaceId) {
+            set({ loadingWorkspaceId: null })
+          }
+          throw err
+        }
       },
 
       saveFromTask: async (taskId) => {
         const template = await ipc.createTaskTemplateFromTask(taskId)
-        set((state) => ({ templates: [template, ...state.templates] }))
+        set((state) => (
+          state.loadedWorkspaceId === template.workspaceId
+            ? { templates: [template, ...state.templates] }
+            : state
+        ))
         return template
       },
 
