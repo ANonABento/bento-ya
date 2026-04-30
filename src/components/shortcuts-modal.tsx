@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { motion } from 'motion/react'
 
 type ShortcutItem = {
@@ -102,6 +103,19 @@ function KbdSequence({ keys }: { keys: string[] }) {
 }
 
 export function ShortcutsModal({ onClose }: Props) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [onClose])
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -143,7 +157,7 @@ export function ShortcutsModal({ onClose }: Props) {
                 </h3>
                 <div className="space-y-2">
                   {section.items.map((item) => (
-                    <div key={`${section.category}-${item.desc}`} className="flex items-start justify-between gap-3 text-sm">
+                    <div key={`${section.category}-${item.keys.join('+')}-${item.desc}`} className="flex items-start justify-between gap-3 text-sm">
                       <span className="min-w-0 text-text-secondary">{item.desc}</span>
                       <KbdSequence keys={item.keys} />
                     </div>

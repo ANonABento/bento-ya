@@ -38,6 +38,7 @@ function App() {
     { key: '/', meta: true, handler: toggleAbout },
     { key: 'k', meta: true, handler: toggleCommandPalette },
     { key: ',', meta: true, handler: openSettings },
+    { key: '?', handler: openShortcuts, ignoreEditable: true },
     { key: '?', shift: true, handler: openShortcuts, ignoreEditable: true },
     { key: 'Escape', handler: () => { setShowShortcuts(false) }, preventDefault: false },
   ])

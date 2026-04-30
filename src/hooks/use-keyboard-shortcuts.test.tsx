@@ -10,6 +10,7 @@ function ShortcutHarness({
   onEscape: () => void
 }) {
   useKeyboardShortcuts([
+    { key: '?', handler: onShortcut, ignoreEditable: true },
     { key: '?', shift: true, handler: onShortcut, ignoreEditable: true },
     { key: 'Escape', handler: onEscape, preventDefault: false },
   ])
@@ -28,6 +29,15 @@ describe('useKeyboardShortcuts', () => {
     render(<ShortcutHarness onShortcut={onShortcut} onEscape={vi.fn()} />)
 
     fireEvent.keyDown(window, { key: '?', shiftKey: true })
+
+    expect(onShortcut).toHaveBeenCalledTimes(1)
+  })
+
+  it('runs a question-mark shortcut when the event is already normalized', () => {
+    const onShortcut = vi.fn()
+    render(<ShortcutHarness onShortcut={onShortcut} onEscape={vi.fn()} />)
+
+    fireEvent.keyDown(window, { key: '?' })
 
     expect(onShortcut).toHaveBeenCalledTimes(1)
   })
