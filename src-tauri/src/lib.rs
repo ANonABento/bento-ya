@@ -272,18 +272,13 @@ pub fn run() {
 }
 
 fn start_background_startup_recovery(app: tauri::AppHandle) {
-    if let Err(e) = std::thread::Builder::new()
-        .name("bentoya-startup-recovery".into())
-        .spawn(move || {
-            // Recover stale pipeline work from the previous app instance.
-            resume_stale_pipeline_tasks(app.clone());
+    tauri::async_runtime::spawn(async move {
+        // Recover stale pipeline work from the previous app instance.
+        resume_stale_pipeline_tasks(app.clone());
 
-            // Recover tmux sessions from previous app instance.
-            recover_tmux_sessions(app);
-        })
-    {
-        eprintln!("[startup] Failed to start background recovery: {}", e);
-    }
+        // Recover tmux sessions from previous app instance.
+        recover_tmux_sessions(app);
+    });
 }
 
 /// Recover tmux sessions from a previous app instance.
