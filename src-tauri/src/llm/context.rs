@@ -383,6 +383,7 @@ mod tests {
             github_issue_number: None,
             github_issue_commented: false,
             github_issue_pr_linked: false,
+            archived_at: None,
             agent_status: None,
             queued_at: None,
             created_at: "2024-01-01".to_string(),

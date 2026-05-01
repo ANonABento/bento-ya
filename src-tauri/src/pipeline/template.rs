@@ -143,6 +143,7 @@ mod tests {
             github_issue_number: None,
             github_issue_commented: false,
             github_issue_pr_linked: false,
+            archived_at: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
         }

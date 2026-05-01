@@ -207,8 +207,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 35 migrations, including split 019 and 030 migration files.
-        assert_eq!(count, 35);
+        // We have 36 migrations, including split 019 and 030 migration files.
+        assert_eq!(count, 36);
     }
 
     #[test]
