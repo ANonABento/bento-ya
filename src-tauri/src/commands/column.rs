@@ -1,6 +1,7 @@
 use crate::db::{self, AppState, Column};
 use crate::error::AppError;
 use crate::pipeline::triggers::ColumnTriggersV2;
+use std::collections::HashSet;
 use tauri::State;
 
 #[tauri::command]
@@ -112,6 +113,26 @@ pub fn reorder_columns(
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     let existing_columns = db::list_columns(&conn, &workspace_id)?;
+    let existing_ids: HashSet<&str> = existing_columns
+        .iter()
+        .map(|column| column.id.as_str())
+        .collect();
+    let mut requested_ids = HashSet::new();
+    for column_id in &column_ids {
+        if !requested_ids.insert(column_id.as_str()) {
+            return Err(AppError::InvalidInput(format!(
+                "Duplicate column id in reorder request: {}",
+                column_id
+            )));
+        }
+        if !existing_ids.contains(column_id.as_str()) {
+            return Err(AppError::InvalidInput(format!(
+                "Column does not belong to workspace: {}",
+                column_id
+            )));
+        }
+    }
+
     let mut ordered_ids = column_ids;
     for column in existing_columns {
         if !ordered_ids.contains(&column.id) {
@@ -119,9 +140,14 @@ pub fn reorder_columns(
         }
     }
 
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     for (i, col_id) in ordered_ids.iter().enumerate() {
-        db::update_column(&conn, col_id, None, None, Some(i as i64), None, None, None)?;
+        db::update_column(&tx, col_id, None, None, Some(i as i64), None, None, None)?;
     }
+    tx.commit()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     Ok(db::list_columns(&conn, &workspace_id)?)
 }
