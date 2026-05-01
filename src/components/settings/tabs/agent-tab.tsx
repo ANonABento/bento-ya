@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
 import type { AgentConfig, ProviderConfig } from '@/types/settings'
 import { detectSingleCli, checkCliUpdate, type DetectedCli, type CliUpdateInfo } from '@/lib/ipc'
 import { useModels } from '@/hooks/use-models'
 import { SettingSection, SettingRow, SettingInput, SettingSlider } from '@/components/shared/setting-components'
 import { Dropdown } from '@/components/shared/dropdown'
+import { ModelComparisonSection, type ComparableModel } from './model-comparison-section'
 
 const PROVIDER_INFO: Record<string, { name: string; description: string; cliId: string }> = {
   anthropic: {
@@ -79,6 +80,33 @@ export function AgentTab() {
   const availableModels = allModels
     .filter((m) => enabledProviderIds.has(m.provider) && !disabledModelIds.has(m.id))
     .map((m) => m.id)
+  const comparisonModels = useMemo<ComparableModel[]>(
+    () => {
+      const enabledProviders = new Set(model.providers.filter((p) => p.enabled).map((p) => p.id))
+      const disabledModels = new Set(model.disabledModels)
+
+      return allModels
+        .filter((m) => enabledProviders.has(m.provider) && !disabledModels.has(m.id))
+        .map((m) => {
+          const provider = model.providers.find((p) => p.id === m.provider)
+          return {
+            providerId: m.provider,
+            providerName: PROVIDER_INFO[m.provider]?.name ?? provider?.name ?? m.provider,
+            id: m.id,
+            displayName: m.displayName,
+            alias: m.alias,
+            tier: m.tier,
+            contextWindow: m.contextWindow,
+            maxOutputTokens: m.maxOutputTokens,
+            inputCostPerM: m.inputCostPerM,
+            outputCostPerM: m.outputCostPerM,
+            capabilities: m.capabilities,
+            isNew: m.isNew,
+          }
+        })
+    },
+    [allModels, model.disabledModels, model.providers],
+  )
 
   // Toggle provider enabled state
   const handleToggleProvider = (providerId: string, enabled: boolean) => {
@@ -518,6 +546,8 @@ export function AgentTab() {
           })}
         </div>
       </SettingSection>
+
+      <ModelComparisonSection models={comparisonModels} />
 
       {/* Coming Soon */}
       <SettingSection title="Coming Soon">

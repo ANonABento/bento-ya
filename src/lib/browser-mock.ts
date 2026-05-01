@@ -7,6 +7,8 @@
 
 import type { Workspace, Column, Task, AgentMode, AgentStatus, PipelineState } from '@/types'
 import { DEFAULT_TRIGGERS } from '@/types/column'
+import type { ModelsCache } from '@/lib/ipc/models'
+import type { UsageRecord } from '@/lib/ipc/usage'
 
 // Check if we're running in Tauri or in a test environment
 export const isTauri = (): boolean => {
@@ -137,6 +139,103 @@ let mockTasks: Task[] = [
 ]
 
 let idCounter = 100
+
+const mockModelsCache: ModelsCache = {
+  lastFetched: new Date().toISOString(),
+  source: 'built-in',
+  models: [
+    {
+      id: 'claude-sonnet-4-6-20260217',
+      displayName: 'Claude Sonnet 4.6',
+      provider: 'anthropic',
+      alias: 'sonnet',
+      tier: 'standard',
+      contextWindow: 200_000,
+      supportsExtendedContext: true,
+      maxOutputTokens: 64_000,
+      inputCostPerM: 3,
+      outputCostPerM: 15,
+      capabilities: ['code', 'tools', 'vision', 'reasoning'],
+      isNew: false,
+      createdAt: '2026-02-17T00:00:00Z',
+    },
+    {
+      id: 'claude-haiku-4-5-20251115',
+      displayName: 'Claude Haiku 4.5',
+      provider: 'anthropic',
+      alias: 'haiku',
+      tier: 'fast',
+      contextWindow: 200_000,
+      supportsExtendedContext: true,
+      maxOutputTokens: 64_000,
+      inputCostPerM: 0.8,
+      outputCostPerM: 4,
+      capabilities: ['code', 'tools'],
+      isNew: false,
+      createdAt: '2025-11-15T00:00:00Z',
+    },
+    {
+      id: 'codex-5.3',
+      displayName: 'Codex 5.3',
+      provider: 'openai',
+      alias: 'codex',
+      tier: 'flagship',
+      contextWindow: 256_000,
+      supportsExtendedContext: true,
+      maxOutputTokens: 64_000,
+      inputCostPerM: null,
+      outputCostPerM: null,
+      capabilities: ['code', 'tools', 'reasoning'],
+      isNew: true,
+      createdAt: '2026-01-15T00:00:00Z',
+    },
+  ],
+}
+
+const mockUsageRecords: UsageRecord[] = [
+  {
+    id: 'usage-demo-1',
+    workspaceId: 'ws-demo',
+    taskId: 'task-1',
+    sessionId: null,
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-6-20260217',
+    inputTokens: 12_000,
+    outputTokens: 3_500,
+    costUsd: 0.09,
+    columnName: 'Working',
+    durationSeconds: 42,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'usage-demo-2',
+    workspaceId: 'ws-demo',
+    taskId: 'task-1',
+    sessionId: null,
+    provider: 'anthropic',
+    model: 'sonnet',
+    inputTokens: 8_000,
+    outputTokens: 2_000,
+    costUsd: 0.05,
+    columnName: 'Review',
+    durationSeconds: 31,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'usage-demo-3',
+    workspaceId: 'ws-demo',
+    taskId: null,
+    sessionId: 'mock-session',
+    provider: 'openai',
+    model: 'codex',
+    inputTokens: 6_000,
+    outputTokens: 1_500,
+    costUsd: 0,
+    columnName: null,
+    durationSeconds: 24,
+    createdAt: new Date().toISOString(),
+  },
+]
 
 const generateId = (prefix: string) => `${prefix}-${String(++idCounter)}`
 
@@ -421,6 +520,21 @@ const mockCommands: Record<string, CommandHandler> = {
     workingDir: '',
   }),
 
+  // Model registry commands
+  get_available_models: (args) => {
+    const provider = args?.provider as string | null | undefined
+    return {
+      ...mockModelsCache,
+      models: provider
+        ? mockModelsCache.models.filter((modelEntry) => modelEntry.provider === provider)
+        : mockModelsCache.models,
+    }
+  },
+  refresh_models: () => ({
+    ...mockModelsCache,
+    lastFetched: new Date().toISOString(),
+  }),
+
   // Agent message commands
   save_agent_message: (args) => ({
     id: `msg-${String(Date.now())}`,
@@ -514,9 +628,18 @@ const mockCommands: Record<string, CommandHandler> = {
     inputTokens: 0,
     outputTokens: 0,
     costUsd: 0,
+    columnName: null,
+    durationSeconds: 0,
     createdAt: '',
   }),
-  get_workspace_usage: () => [],
+  get_workspace_usage: (args) => {
+    const workspaceId = args?.workspaceId as string | undefined
+    const limit = args?.limit as number | undefined
+    const records = mockUsageRecords.filter((record) =>
+      workspaceId ? record.workspaceId === workspaceId : true,
+    )
+    return typeof limit === 'number' ? records.slice(0, limit) : records
+  },
   get_task_usage: () => [],
   get_workspace_usage_summary: () => ({
     totalInputTokens: 0,

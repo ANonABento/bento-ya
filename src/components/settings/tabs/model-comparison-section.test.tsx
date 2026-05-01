@@ -2,20 +2,29 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getWorkspaceUsage } from '@/lib/ipc/usage'
-import { aggregateUsageByModel } from '@/lib/model-usage'
 import { ModelComparisonSection, type ComparableModel } from './model-comparison-section'
 
 vi.mock('@/lib/ipc/usage', () => ({
   getWorkspaceUsage: vi.fn(),
 }))
 
-const models: ComparableModel[] = [
-  {
-    providerId: 'anthropic',
-    providerName: 'Anthropic',
-    modelId: 'claude-sonnet-4-6-20260217',
-  },
-]
+const model = (overrides: Partial<ComparableModel> = {}): ComparableModel => ({
+  providerId: 'anthropic',
+  providerName: 'Anthropic',
+  id: 'claude-sonnet-4-6-20260217',
+  displayName: 'Claude Sonnet 4.6',
+  alias: 'sonnet',
+  tier: 'standard',
+  contextWindow: 200_000,
+  maxOutputTokens: 64_000,
+  inputCostPerM: 3,
+  outputCostPerM: 15,
+  capabilities: ['code', 'tools', 'vision'],
+  isNew: false,
+  ...overrides,
+})
+
+const models: ComparableModel[] = [model()]
 
 describe('ModelComparisonSection', () => {
   beforeEach(() => {
@@ -34,6 +43,7 @@ describe('ModelComparisonSection', () => {
 
     expect(screen.getByText('Model Comparison')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(getWorkspaceUsage).not.toHaveBeenCalled()
   })
 
   it('persists expanded and collapsed state through localStorage', async () => {
@@ -50,12 +60,6 @@ describe('ModelComparisonSection', () => {
     await waitFor(() => {
       expect(window.localStorage.getItem('agent-tab-model-comparison-collapsed')).toBe('true')
     })
-  }, 20_000)
-
-  it('does not call usage IPC while collapsed', () => {
-    render(<ModelComparisonSection models={models} />)
-
-    expect(getWorkspaceUsage).not.toHaveBeenCalled()
   })
 
   it('calls usage IPC when expanded and an active workspace exists', async () => {
@@ -68,7 +72,56 @@ describe('ModelComparisonSection', () => {
     })
   })
 
-  it('aggregates usage by model id and aliases', async () => {
+  it('does not call usage IPC without an active workspace', () => {
+    useWorkspaceStore.setState({ activeWorkspaceId: null })
+
+    render(<ModelComparisonSection models={models} />)
+    fireEvent.click(screen.getByRole('button', { name: /model comparison/i }))
+
+    expect(screen.getByText('Select a workspace to include usage totals.')).toBeInTheDocument()
+    expect(getWorkspaceUsage).not.toHaveBeenCalled()
+  })
+
+  it('does not call usage IPC when there are zero comparable models', () => {
+    render(<ModelComparisonSection models={[]} />)
+    fireEvent.click(screen.getByRole('button', { name: /model comparison/i }))
+
+    expect(screen.getByText('Enable a provider to compare available models.')).toBeInTheDocument()
+    expect(getWorkspaceUsage).not.toHaveBeenCalled()
+  })
+
+  it('shows exact ID usage in the matching row', async () => {
+    vi.mocked(getWorkspaceUsage).mockResolvedValue([
+      {
+        id: 'usage-1',
+        workspaceId: 'ws-1',
+        taskId: null,
+        sessionId: null,
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-6-20260217',
+        inputTokens: 1_000,
+        outputTokens: 500,
+        costUsd: 0.01,
+        columnName: null,
+        durationSeconds: 0,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ])
+
+    render(<ModelComparisonSection models={models} />)
+    fireEvent.click(screen.getByRole('button', { name: /model comparison/i }))
+
+    await waitFor(() => {
+      const row = screen.getByRole('row', { name: /claude sonnet 4\.6/i })
+      const cells = within(row).getAllByRole('cell')
+
+      expect(cells.map((cell) => cell.textContent)).toEqual(
+        expect.arrayContaining(['1', '1.5K', '$0.01']),
+      )
+    })
+  })
+
+  it('shows alias usage in the matching row', async () => {
     vi.mocked(getWorkspaceUsage).mockResolvedValue([
       {
         id: 'usage-1',
@@ -111,94 +164,55 @@ describe('ModelComparisonSection', () => {
         expect.arrayContaining(['2', '3.0K', '$0.03']),
       )
     })
-  }, 20_000)
-
-  it('shows no-workspace state without calling usage IPC', () => {
-    useWorkspaceStore.setState({ activeWorkspaceId: null })
-
-    render(<ModelComparisonSection models={models} />)
-    fireEvent.click(screen.getByRole('button', { name: /model comparison/i }))
-
-    expect(screen.getByText('Select a workspace to include usage totals.')).toBeInTheDocument()
-    expect(getWorkspaceUsage).not.toHaveBeenCalled()
   })
 
-  it('shows empty state without hiding model metadata', async () => {
+  it('renders static model metadata from props when usage is empty', async () => {
     render(<ModelComparisonSection models={models} />)
     fireEvent.click(screen.getByRole('button', { name: /model comparison/i }))
 
     expect(await screen.findByText('No usage records in this workspace yet.')).toBeInTheDocument()
     expect(screen.getByText('Claude Sonnet 4.6')).toBeInTheDocument()
+    expect(screen.getByText('claude-sonnet-4-6-20260217')).toBeInTheDocument()
+    expect(screen.getByText('alias: sonnet')).toBeInTheDocument()
+    expect(screen.getByText('$3')).toBeInTheDocument()
+    expect(screen.getByText('$15')).toBeInTheDocument()
+    expect(screen.getByText('200.0K')).toBeInTheDocument()
+    expect(screen.getByText('64.0K')).toBeInTheDocument()
   })
 
-  it('aggregates alias records through the exported helper', () => {
-    const usage = aggregateUsageByModel([
-      {
-        id: 'usage-1',
-        workspaceId: 'ws-1',
-        taskId: null,
-        sessionId: null,
-        provider: 'anthropic',
-        model: 'sonnet',
-        inputTokens: 10,
-        outputTokens: 5,
-        costUsd: 0.01,
-        columnName: null,
-        durationSeconds: 0,
-        createdAt: '2026-01-01T00:00:00Z',
-      },
-    ])
+  it('shows a non-fatal usage error state', async () => {
+    vi.mocked(getWorkspaceUsage).mockRejectedValue(new Error('usage failed'))
 
-    expect(usage['anthropic:claude-sonnet-4-6-20260217']).toMatchObject({
-      calls: 1,
-      inputTokens: 10,
-      outputTokens: 5,
-      totalTokens: 15,
-      costUsd: 0.01,
-    })
-  })
-
-  it('keeps usage for identical unknown model ids separate by provider', () => {
-    const usage = aggregateUsageByModel([
-      {
-        id: 'usage-1',
-        workspaceId: 'ws-1',
-        taskId: null,
-        sessionId: null,
-        provider: 'openai',
-        model: 'shared-model',
-        inputTokens: 10,
-        outputTokens: 5,
-        costUsd: 0.01,
-        columnName: null,
-        durationSeconds: 0,
-        createdAt: '2026-01-01T00:00:00Z',
-      },
-      {
-        id: 'usage-2',
-        workspaceId: 'ws-1',
-        taskId: null,
-        sessionId: null,
-        provider: 'anthropic',
-        model: 'shared-model',
-        inputTokens: 20,
-        outputTokens: 10,
-        costUsd: 0.02,
-        columnName: null,
-        durationSeconds: 0,
-        createdAt: '2026-01-01T00:00:00Z',
-      },
-    ])
-
-    expect(usage['openai:shared-model']?.totalTokens).toBe(15)
-    expect(usage['anthropic:shared-model']?.totalTokens).toBe(30)
-  })
-
-  it('handles empty model lists without fetching usage', () => {
-    render(<ModelComparisonSection models={[]} />)
+    render(<ModelComparisonSection models={models} />)
     fireEvent.click(screen.getByRole('button', { name: /model comparison/i }))
 
-    expect(screen.getByText('Enable a provider to compare available models.')).toBeInTheDocument()
-    expect(getWorkspaceUsage).not.toHaveBeenCalled()
+    expect(await screen.findByText('Usage data is unavailable right now.')).toBeInTheDocument()
+    expect(screen.getByText('Claude Sonnet 4.6')).toBeInTheDocument()
+  })
+
+  it('renders unknown and new dynamic model metadata without crashing', async () => {
+    render(
+      <ModelComparisonSection
+        models={[
+          model({
+            providerId: 'custom',
+            providerName: 'Custom',
+            id: 'provider-new-model-2026',
+            displayName: 'Provider New Model',
+            alias: null,
+            tier: 'fast',
+            inputCostPerM: null,
+            outputCostPerM: null,
+            capabilities: [],
+            isNew: true,
+          }),
+        ]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /model comparison/i }))
+
+    expect(await screen.findByText('Provider New Model')).toBeInTheDocument()
+    expect(screen.getByText('New')).toBeInTheDocument()
+    expect(screen.getAllByText('--').length).toBeGreaterThanOrEqual(3)
   })
 })
