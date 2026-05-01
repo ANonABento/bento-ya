@@ -5,7 +5,7 @@ import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useUIStore } from '@/stores/ui-store'
 import type { Task } from '@/types'
-import { mockKanbanColumn, mockKanbanTask, setupInvokeMock } from '@/test/mocks/tauri'
+import { mockKanbanColumn, mockKanbanTask, mockWorkspace, setupInvokeMock } from '@/test/mocks/tauri'
 
 vi.mock('@dnd-kit/sortable', () => ({
   useSortable: () => ({
@@ -140,5 +140,28 @@ describe('TaskCard quick-action keyboard behavior', () => {
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith('delete_task', { id: 't1' })
     })
+  })
+
+  it('duplicates the task from the context menu', async () => {
+    const task = mockKanbanTask()
+    const duplicatedTask = mockKanbanTask({
+      id: 't1-copy',
+      title: 'Test task (copy)',
+      position: 1,
+    })
+    const invoke = await setupInvokeMock({
+      duplicate_task: duplicatedTask,
+      get_workspace: mockWorkspace({ id: 'ws-1' }),
+    })
+    resetStores(task)
+    render(<TaskCard task={task} />)
+
+    fireEvent.contextMenu(screen.getByText('Test task'))
+    fireEvent.click(screen.getByText('Duplicate'))
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('duplicate_task', { id: 't1' })
+    })
+    expect(useTaskStore.getState().tasks).toContainEqual(duplicatedTask)
   })
 })
