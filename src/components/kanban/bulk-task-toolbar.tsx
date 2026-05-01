@@ -5,7 +5,7 @@ import { Select } from '@/components/shared/select'
 type BulkTaskToolbarProps = {
   selectedCount: number
   columns: Column[]
-  currentColumnIds: Set<string>
+  currentColumnIds: ReadonlySet<string>
   archiveColumnId: string | null
   onMoveToColumn: (columnId: string) => void
   onArchive: () => void

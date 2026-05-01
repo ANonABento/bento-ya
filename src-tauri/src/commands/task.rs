@@ -2,6 +2,7 @@ use crate::db::{self, AppState, Task};
 use crate::error::AppError;
 use crate::pipeline;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::process::Command;
 use tauri::{AppHandle, State};
 
@@ -316,30 +317,30 @@ pub async fn bulk_update_tasks(
 ) -> Result<Vec<Task>, AppError> {
     use crate::git::branch_manager;
 
-    let task_ids = task_ids.into_iter().fold(Vec::new(), |mut ids, id| {
-        if !ids.contains(&id) {
-            ids.push(id);
-        }
-        ids
-    });
+    let mut seen_task_ids = HashSet::new();
+    let task_ids = task_ids
+        .into_iter()
+        .filter(|id| seen_task_ids.insert(id.clone()))
+        .collect::<Vec<_>>();
+    let should_delete = delete.unwrap_or(false);
 
     if task_ids.is_empty() {
         return Err(AppError::InvalidInput(
             "At least one task is required".to_string(),
         ));
     }
-    if delete.unwrap_or(false) && target_column_id.is_some() {
+    if should_delete && target_column_id.is_some() {
         return Err(AppError::InvalidInput(
             "Bulk update cannot both move and delete tasks".to_string(),
         ));
     }
-    if !delete.unwrap_or(false) && target_column_id.is_none() {
+    if !should_delete && target_column_id.is_none() {
         return Err(AppError::InvalidInput(
             "Bulk update requires a target column or delete=true".to_string(),
         ));
     }
 
-    if delete.unwrap_or(false) {
+    if should_delete {
         let (tasks, workspace_id, cleanup_targets) = {
             let conn = state
                 .db
@@ -364,7 +365,11 @@ pub async fn bulk_update_tasks(
             let cleanup_targets = tasks
                 .iter()
                 .filter(|task| task.worktree_path.is_some())
-                .filter_map(|task| repo_path.as_ref().map(|repo| (task.id.clone(), repo.clone())))
+                .filter_map(|task| {
+                    repo_path
+                        .as_ref()
+                        .map(|repo| (task.id.clone(), repo.clone()))
+                })
                 .collect::<Vec<_>>();
             (tasks, workspace_id, cleanup_targets)
         };
@@ -387,8 +392,11 @@ pub async fn bulk_update_tasks(
             .unchecked_transaction()
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         for task in &tasks {
-            tx.execute("DELETE FROM tasks WHERE id = ?1", rusqlite::params![task.id])
-                .map_err(AppError::from)?;
+            tx.execute(
+                "DELETE FROM tasks WHERE id = ?1",
+                rusqlite::params![task.id],
+            )
+            .map_err(AppError::from)?;
         }
         tx.commit()
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
@@ -397,7 +405,9 @@ pub async fn bulk_update_tasks(
         return Ok(db::list_tasks(&conn, &workspace_id)?);
     }
 
-    let target_column_id = target_column_id.expect("validated above");
+    let target_column_id = target_column_id.ok_or_else(|| {
+        AppError::InvalidInput("Bulk update requires a target column or delete=true".to_string())
+    })?;
     let conn = state
         .db
         .lock()

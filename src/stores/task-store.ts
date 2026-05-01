@@ -85,25 +85,29 @@ export const useTaskStore = create<TaskState>()(
         if (idSet.size === 0) return false
         const prev = get().tasks
         const workspaceId = prev.find((t) => idSet.has(t.id))?.workspaceId
-        const targetTasks = prev
+        const targetPositions = prev
           .filter((t) => t.columnId === targetColumnId && !idSet.has(t.id))
-          .sort((a, b) => a.position - b.position)
-        const basePosition = targetTasks.length
+          .map((t) => t.position)
+        const basePosition = targetPositions.length > 0 ? Math.max(...targetPositions) + 1 : 0
         const selectedOrder = [...idSet]
+        const selectedPositionById = new Map(
+          selectedOrder.map((id, index) => [id, basePosition + index]),
+        )
 
         set((s) => ({
           tasks: s.tasks.map((t) => {
-            const nextPosition = selectedOrder.indexOf(t.id)
-            return nextPosition >= 0
-              ? { ...t, columnId: targetColumnId, position: basePosition + nextPosition }
+            const nextPosition = selectedPositionById.get(t.id)
+            return nextPosition !== undefined
+              ? { ...t, columnId: targetColumnId, position: nextPosition }
               : t
           }),
         }))
 
         try {
           const updatedTasks = await ipc.bulkUpdateTasks([...idSet], { targetColumnId })
+          const updatedTaskById = new Map(updatedTasks.map((task) => [task.id, task]))
           set((s) => ({
-            tasks: s.tasks.map((task) => updatedTasks.find((updated) => updated.id === task.id) ?? task),
+            tasks: s.tasks.map((task) => updatedTaskById.get(task.id) ?? task),
           }))
           if (workspaceId) {
             await useWorkspaceStore.getState().refreshWorkspace(workspaceId)

@@ -25,7 +25,7 @@ type ColumnProps = {
   column: ColumnType
   autoOpenConfig?: boolean
   onConfigOpened?: () => void
-  selectedTaskIds?: Set<string>
+  selectedTaskIds?: ReadonlySet<string>
   onTaskSelectionChange?: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void
 }
 
@@ -33,7 +33,7 @@ export const Column = memo(function Column({
   column,
   autoOpenConfig,
   onConfigOpened,
-  selectedTaskIds = new Set<string>(),
+  selectedTaskIds,
   onTaskSelectionChange,
 }: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -285,7 +285,7 @@ export const Column = memo(function Column({
                 <TaskCard
                   key={task.id}
                   task={task}
-                  isSelected={selectedTaskIds.has(task.id)}
+                  isSelected={selectedTaskIds?.has(task.id) ?? false}
                   onSelectionChange={onTaskSelectionChange}
                 />
               ))

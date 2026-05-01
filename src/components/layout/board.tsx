@@ -177,7 +177,8 @@ export function Board() {
   const handleBulkDelete = useCallback(() => {
     const ids = [...selectedTaskIds]
     if (ids.length === 0) return
-    const confirmed = window.confirm(`Delete ${ids.length} selected task${ids.length === 1 ? '' : 's'}?`)
+    const taskCount = ids.length.toString()
+    const confirmed = window.confirm(`Delete ${taskCount} selected task${ids.length === 1 ? '' : 's'}?`)
     if (!confirmed) return
     void bulkRemoveTasks(ids).then((success) => {
       if (success) {
