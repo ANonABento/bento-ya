@@ -27,6 +27,7 @@ type ColumnProps = {
   onConfigOpened?: () => void
   selectedTaskIds?: ReadonlySet<string>
   onTaskSelectionChange?: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void
+  labelFilterId?: string | null
 }
 
 export const Column = memo(function Column({
@@ -35,6 +36,7 @@ export const Column = memo(function Column({
   onConfigOpened,
   selectedTaskIds,
   onTaskSelectionChange,
+  labelFilterId = null,
 }: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
@@ -46,8 +48,9 @@ export const Column = memo(function Column({
   const tasks = useMemo(
     () => allTasks
       .filter((t) => t.columnId === column.id)
+      .filter((t) => labelFilterId === null || (t.labels ?? []).some((label) => label.id === labelFilterId))
       .sort((a, b) => a.position - b.position),
-    [allTasks, column.id]
+    [allTasks, column.id, labelFilterId]
   )
   const taskIds = useMemo(() => tasks.map((t) => t.id), [tasks])
 

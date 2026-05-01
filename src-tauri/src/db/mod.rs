@@ -16,6 +16,7 @@ pub mod checklist;
 pub mod column;
 pub mod github_sync;
 pub mod history;
+pub mod label;
 pub mod orchestrator_session;
 pub mod pipeline_timing;
 pub mod script;
@@ -35,6 +36,7 @@ pub use checklist::*;
 pub use column::*;
 pub use github_sync::*;
 pub use history::*;
+pub use label::*;
 pub use orchestrator_session::*;
 pub use pipeline_timing::*;
 pub use script::*;
@@ -144,6 +146,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("031_task_batch_id", include_str!("migrations/031_task_batch_id.sql")),
         ("032_github_sync", include_str!("migrations/032_github_sync.sql")),
         ("033_github_issue_unique", include_str!("migrations/033_github_issue_unique.sql")),
+        ("034_task_labels", include_str!("migrations/034_task_labels.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -206,8 +209,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 35 migrations, including split 019 and 030 migration files.
-        assert_eq!(count, 35);
+        // We have 36 migrations, including split 019 and 030 migration files.
+        assert_eq!(count, 36);
     }
 
     #[test]
@@ -279,6 +282,29 @@ mod tests {
         delete_task(&conn, &task.id).unwrap();
         let tasks = list_tasks(&conn, &ws.id).unwrap();
         assert_eq!(tasks.len(), 1);
+    }
+
+    #[test]
+    fn test_label_crud_and_task_assignment() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Backlog", 0).unwrap();
+        let task = insert_task(&conn, &ws.id, &col.id, "Fix bug", None).unwrap();
+
+        let label = insert_label(&conn, &ws.id, "Bug", "#ef4444").unwrap();
+        assert_eq!(label.name, "Bug");
+        assert_eq!(list_labels(&conn, &ws.id).unwrap().len(), 1);
+
+        set_task_labels(&conn, &task.id, std::slice::from_ref(&label.id)).unwrap();
+        let task = get_task(&conn, &task.id).unwrap();
+        assert_eq!(task.labels, vec![label.clone()]);
+
+        let updated = update_label(&conn, &label.id, Some("Defect"), Some("#dc2626")).unwrap();
+        assert_eq!(updated.name, "Defect");
+        assert_eq!(get_task(&conn, &task.id).unwrap().labels[0].name, "Defect");
+
+        delete_label(&conn, &label.id).unwrap();
+        assert!(get_task(&conn, &task.id).unwrap().labels.is_empty());
     }
 
     #[test]

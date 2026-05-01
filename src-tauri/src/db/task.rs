@@ -65,9 +65,15 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         github_issue_number: row.get(46)?,
         github_issue_commented: row.get::<_, Option<i64>>(47)?.unwrap_or(0) != 0,
         github_issue_pr_linked: row.get::<_, Option<i64>>(48)?.unwrap_or(0) != 0,
+        labels: Vec::new(),
         created_at: row.get(38)?,
         updated_at: row.get(39)?,
     })
+}
+
+fn with_labels(conn: &Connection, mut task: Task) -> SqlResult<Task> {
+    task.labels = super::list_task_labels(conn, &task.id)?;
+    Ok(task)
 }
 
 pub fn insert_task(
@@ -112,11 +118,12 @@ pub fn append_task_to_column(conn: &Connection, task_id: &str, column_id: &str) 
 }
 
 pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
-    conn.query_row(
+    let task = conn.query_row(
         &format!("SELECT {} FROM tasks WHERE id = ?1", TASK_COLUMNS),
         params![id],
         map_task_row,
-    )
+    )?;
+    with_labels(conn, task)
 }
 
 pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
@@ -125,7 +132,7 @@ pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>>
         TASK_COLUMNS
     ))?;
     let rows = stmt.query_map(params![workspace_id], map_task_row)?;
-    rows.collect()
+    rows.map(|task| with_labels(conn, task?)).collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -177,7 +184,7 @@ pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec
         TASK_COLUMNS
     ))?;
     let rows = stmt.query_map(params![column_id], map_task_row)?;
-    rows.collect()
+    rows.map(|task| with_labels(conn, task?)).collect()
 }
 
 /// Update pipeline state for a task
@@ -277,7 +284,7 @@ pub fn list_tasks_by_batch_id(
         TASK_COLUMNS
     ))?;
     let rows = stmt.query_map(params![workspace_id, batch_id], map_task_row)?;
-    rows.collect()
+    rows.map(|task| with_labels(conn, task?)).collect()
 }
 
 /// Update worktree_path for a task
@@ -315,7 +322,7 @@ pub fn get_queued_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<
         &format!("SELECT {} FROM tasks WHERE workspace_id = ?1 AND agent_status = 'queued' ORDER BY queued_at ASC", TASK_COLUMNS),
     )?;
     let rows = stmt.query_map(params![workspace_id], map_task_row)?;
-    rows.collect()
+    rows.map(|task| with_labels(conn, task?)).collect()
 }
 
 /// Count tasks with agent_status = 'running' in a workspace
