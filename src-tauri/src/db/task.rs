@@ -94,6 +94,130 @@ pub fn insert_task(
     get_task(conn, &id)
 }
 
+/// Duplicate a task immediately after the source task in the same column.
+pub fn duplicate_task(conn: &Connection, id: &str) -> SqlResult<Task> {
+    let source_task = get_task(conn, id)?;
+    let new_id = new_id();
+    let ts = now();
+    let new_title = format!("{} (copy)", source_task.title);
+    let duplicate_position = source_task.position + 1;
+
+    let tx = conn.unchecked_transaction()?;
+
+    tx.execute(
+        "UPDATE tasks SET position = position + 1 WHERE column_id = ?1 AND position >= ?2",
+        params![source_task.column_id, duplicate_position],
+    )?;
+
+    tx.execute(
+        "INSERT INTO tasks (
+            id,
+            workspace_id,
+            column_id,
+            title,
+            description,
+            position,
+            priority,
+            agent_mode,
+            branch_name,
+            files_touched,
+            checklist,
+            pipeline_state,
+            pipeline_triggered_at,
+            pipeline_error,
+            agent_session_id,
+            last_script_exit_code,
+            review_status,
+            pr_number,
+            pr_url,
+            siege_iteration,
+            siege_active,
+            siege_max_iterations,
+            siege_last_checked,
+            pr_mergeable,
+            pr_ci_status,
+            pr_review_decision,
+            pr_comment_count,
+            pr_is_draft,
+            pr_labels,
+            pr_last_fetched,
+            pr_head_sha,
+            notify_stakeholders,
+            notification_sent_at,
+            trigger_overrides,
+            trigger_prompt,
+            last_output,
+            dependencies,
+            blocked,
+            created_at,
+            updated_at,
+            agent_status,
+            queued_at,
+            retry_count,
+            model,
+            worktree_path,
+            batch_id,
+            github_issue_number,
+            github_issue_commented,
+            github_issue_pr_linked
+        ) SELECT
+            ?1,
+            workspace_id,
+            column_id,
+            ?2,
+            description,
+            ?3,
+            priority,
+            agent_mode,
+            branch_name,
+            files_touched,
+            checklist,
+            'idle',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            0,
+            0,
+            siege_max_iterations,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            0,
+            0,
+            pr_labels,
+            NULL,
+            NULL,
+            notify_stakeholders,
+            NULL,
+            trigger_overrides,
+            trigger_prompt,
+            NULL,
+            dependencies,
+            blocked,
+            ?4,
+            ?4,
+            NULL,
+            NULL,
+            0,
+            model,
+            NULL,
+            batch_id,
+            NULL,
+            0,
+            0
+        FROM tasks WHERE id = ?5",
+        params![new_id, new_title, duplicate_position, ts, source_task.id],
+    )?;
+
+    tx.commit()?;
+    get_task(conn, &new_id)
+}
+
 /// Move a task to the end of a column, resetting its pipeline state to idle.
 pub fn append_task_to_column(conn: &Connection, task_id: &str, column_id: &str) -> SqlResult<Task> {
     let max_pos: i64 = conn
@@ -464,4 +588,70 @@ pub fn clear_task_notification_sent(conn: &Connection, id: &str) -> SqlResult<Ta
         params![ts, id],
     )?;
     get_task(conn, id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+
+    #[test]
+    fn duplicate_task_copies_metadata_after_source_without_agent_session() {
+        let conn = db::init_test().unwrap();
+        let workspace = db::insert_workspace(&conn, "Test", "/tmp/test").unwrap();
+        let column = db::insert_column(&conn, &workspace.id, "Backlog", 0).unwrap();
+        let source = insert_task(
+            &conn,
+            &workspace.id,
+            &column.id,
+            "Original",
+            Some("details"),
+        )
+        .unwrap();
+        let after = insert_task(&conn, &workspace.id, &column.id, "After", None).unwrap();
+        let session = db::insert_agent_session(&conn, &source.id, "codex", Some("/tmp")).unwrap();
+
+        db::update_task_agent_session(&conn, &source.id, Some(&session.id)).unwrap();
+        conn.execute(
+            "UPDATE tasks SET pr_labels = ?1, checklist = ?2, trigger_overrides = ?3, trigger_prompt = ?4, dependencies = ?5, blocked = 1 WHERE id = ?6",
+            params![
+                r#"["bug","ui"]"#,
+                r#"[{"id":"one","text":"Check","checked":false}]"#,
+                r#"{"skip_triggers":true}"#,
+                "custom prompt",
+                r#"[{"taskId":"dep"}]"#,
+                source.id,
+            ],
+        )
+        .unwrap();
+
+        let duplicated = duplicate_task(&conn, &source.id).unwrap();
+        let shifted = get_task(&conn, &after.id).unwrap();
+
+        assert_ne!(duplicated.id, source.id);
+        assert_eq!(duplicated.title, "Original (copy)");
+        assert_eq!(duplicated.description.as_deref(), Some("details"));
+        assert_eq!(duplicated.workspace_id, workspace.id);
+        assert_eq!(duplicated.column_id, column.id);
+        assert_eq!(duplicated.position, source.position + 1);
+        assert_eq!(shifted.position, source.position + 2);
+        assert_eq!(duplicated.pr_labels, r#"["bug","ui"]"#);
+        assert_eq!(
+            duplicated.checklist.as_deref(),
+            Some(r#"[{"id":"one","text":"Check","checked":false}]"#)
+        );
+        assert_eq!(
+            duplicated.trigger_overrides.as_deref(),
+            Some(r#"{"skip_triggers":true}"#)
+        );
+        assert_eq!(duplicated.trigger_prompt.as_deref(), Some("custom prompt"));
+        assert_eq!(
+            duplicated.dependencies.as_deref(),
+            Some(r#"[{"taskId":"dep"}]"#)
+        );
+        assert!(duplicated.blocked);
+        assert!(duplicated.agent_session_id.is_none());
+        assert_eq!(duplicated.pipeline_state, "idle");
+        assert!(duplicated.worktree_path.is_none());
+    }
 }
