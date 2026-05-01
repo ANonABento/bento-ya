@@ -373,6 +373,7 @@ fn execute_action(
         TriggerActionV2::CreatePr { base_branch } => {
             execute_create_pr(conn, app, task, column, base_branch.as_deref())
         }
+        TriggerActionV2::BatchWait => execute_batch_wait(conn, app, task, column),
         TriggerActionV2::AutoMerge { base_branch } => {
             execute_auto_merge(conn, app, task, column, base_branch.as_deref())
         }
