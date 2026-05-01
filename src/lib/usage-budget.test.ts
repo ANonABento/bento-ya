@@ -1,28 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import type { UsageRecord } from '@/lib/ipc/usage'
+import type { ModelUsageSummary } from '@/lib/ipc/usage'
 import {
   buildUsageDismissKey,
-  findDailyUsageBudgetWarnings,
   findUsageBudgetWarnings,
   getModelBudgetKey,
   localDayBounds,
   todayLocalDateKey,
 } from './usage-budget'
 
-function usageRecord(overrides: Partial<UsageRecord>): UsageRecord {
+function modelUsage(overrides: Partial<ModelUsageSummary>): ModelUsageSummary {
   return {
-    id: 'usage-1',
-    workspaceId: 'ws-1',
-    taskId: null,
-    sessionId: null,
     provider: 'anthropic',
     model: 'sonnet',
     inputTokens: 100,
     outputTokens: 50,
     costUsd: 0.8,
-    columnName: null,
-    durationSeconds: 0,
-    createdAt: '2026-05-01T12:00:00Z',
+    recordCount: 1,
     ...overrides,
   }
 }
@@ -48,18 +41,16 @@ describe('usage-budget', () => {
 
   it('aggregates aliases and returns warnings at the 80 percent threshold', () => {
     const key = getModelBudgetKey('claude-sonnet-4-6-20260217', 'anthropic')
-    const warnings = findDailyUsageBudgetWarnings(
+    const warnings = findUsageBudgetWarnings(
       [
-        usageRecord({ id: 'usage-1', model: 'sonnet', costUsd: 0.35 }),
-        usageRecord({
-          id: 'usage-2',
+        modelUsage({ model: 'sonnet', costUsd: 0.35 }),
+        modelUsage({
           model: 'claude-sonnet-4-6-20260217',
           costUsd: 0.45,
           inputTokens: 200,
         }),
       ],
       { [key]: 1 },
-      new Date(2026, 4, 1, 12),
     )
 
     expect(warnings).toHaveLength(1)
@@ -74,15 +65,14 @@ describe('usage-budget', () => {
     })
   })
 
-  it('ignores prior-day records and models without positive budgets', () => {
+  it('ignores models without positive budgets', () => {
     const key = getModelBudgetKey('sonnet', 'anthropic')
-    const warnings = findDailyUsageBudgetWarnings(
+    const warnings = findUsageBudgetWarnings(
       [
-        usageRecord({ id: 'usage-1', costUsd: 10, createdAt: '2026-04-30T23:00:00Z' }),
-        usageRecord({ id: 'usage-2', model: 'haiku', costUsd: 10 }),
+        modelUsage({ costUsd: 10 }),
+        modelUsage({ model: 'haiku', costUsd: 10 }),
       ],
-      { [key]: 1, [getModelBudgetKey('haiku', 'anthropic')]: 0 },
-      new Date(2026, 4, 1, 12),
+      { [key]: 0, [getModelBudgetKey('haiku', 'anthropic')]: 0 },
     )
 
     expect(warnings).toEqual([])
@@ -92,14 +82,12 @@ describe('usage-budget', () => {
     const key = getModelBudgetKey('sonnet', 'anthropic')
     const warnings = findUsageBudgetWarnings(
       [
-        {
-          provider: 'anthropic',
-          model: 'sonnet',
+        modelUsage({
           costUsd: 8,
           inputTokens: 1000,
           outputTokens: 2000,
           recordCount: 2500,
-        },
+        }),
       ],
       { [key]: 10 },
     )

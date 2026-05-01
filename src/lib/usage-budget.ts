@@ -1,5 +1,5 @@
 import { canonicalModelUsageKey, getModelMetadata } from '@/lib/model-metadata'
-import type { ModelUsageSummary, UsageRecord } from '@/lib/ipc/usage'
+import type { ModelUsageSummary } from '@/lib/ipc/usage'
 
 export const USAGE_BUDGET_WARNING_THRESHOLD = 0.8
 
@@ -17,7 +17,7 @@ export type UsageBudgetWarning = {
 }
 
 export function todayLocalDateKey(date = new Date()): string {
-  const year = date.getFullYear()
+  const year = String(date.getFullYear())
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
@@ -48,20 +48,8 @@ export function buildUsageDismissKey(
   return `usage-budget-warning-dismissed:${workspaceId}:${dateKey}:${warningKey}`
 }
 
-export function findDailyUsageBudgetWarnings(
-  records: UsageRecord[],
-  budgetsUsd: Record<string, number> | undefined,
-  date = new Date(),
-): UsageBudgetWarning[] {
-  const dateKey = todayLocalDateKey(date)
-  return findUsageBudgetWarnings(
-    records.filter((record) => todayLocalDateKey(new Date(record.createdAt)) === dateKey),
-    budgetsUsd,
-  )
-}
-
 export function findUsageBudgetWarnings(
-  usage: Array<ModelUsageSummary | UsageRecord>,
+  usage: ModelUsageSummary[],
   budgetsUsd: Record<string, number> | undefined,
 ): UsageBudgetWarning[] {
   const enabledBudgets = Object.entries(budgetsUsd ?? {}).filter(

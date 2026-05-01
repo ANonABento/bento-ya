@@ -22,6 +22,56 @@ type SettingsState = {
   resetToDefaults: () => void
 }
 
+type PersistedSettings = Omit<
+  Partial<Settings>,
+  | 'agent'
+  | 'model'
+  | 'voice'
+  | 'git'
+  | 'appearance'
+  | 'cards'
+  | 'terminal'
+  | 'panel'
+  | 'gestures'
+  | 'advanced'
+  | 'workspaceDefaults'
+> & {
+  agent?: Partial<Settings['agent']>
+  model?: Partial<Settings['model']>
+  voice?: Partial<Settings['voice']>
+  git?: Partial<Settings['git']>
+  appearance?: Partial<Settings['appearance']>
+  cards?: Partial<Settings['cards']>
+  terminal?: Partial<Settings['terminal']>
+  panel?: Partial<Settings['panel']>
+  gestures?: Partial<Settings['gestures']>
+  advanced?: Partial<Settings['advanced']>
+  workspaceDefaults?: Partial<Settings['workspaceDefaults']>
+}
+
+type PersistedSettingsState = {
+  global?: PersistedSettings
+  workspaceOverrides?: SettingsState['workspaceOverrides']
+}
+
+function mergeSettings(settings: PersistedSettings | undefined): Settings {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    agent: { ...DEFAULT_SETTINGS.agent, ...settings?.agent },
+    model: { ...DEFAULT_SETTINGS.model, ...settings?.model },
+    voice: { ...DEFAULT_SETTINGS.voice, ...settings?.voice },
+    git: { ...DEFAULT_SETTINGS.git, ...settings?.git },
+    appearance: { ...DEFAULT_SETTINGS.appearance, ...settings?.appearance },
+    cards: { ...DEFAULT_SETTINGS.cards, ...settings?.cards },
+    terminal: { ...DEFAULT_SETTINGS.terminal, ...settings?.terminal },
+    panel: { ...DEFAULT_SETTINGS.panel, ...settings?.panel },
+    gestures: { ...DEFAULT_SETTINGS.gestures, ...settings?.gestures },
+    advanced: { ...DEFAULT_SETTINGS.advanced, ...settings?.advanced },
+    workspaceDefaults: { ...DEFAULT_SETTINGS.workspaceDefaults, ...settings?.workspaceDefaults },
+  }
+}
+
 export const useSettingsStore = create<SettingsState>()(
   devtools(
     persist(
@@ -100,6 +150,15 @@ export const useSettingsStore = create<SettingsState>()(
           global: state.global,
           workspaceOverrides: state.workspaceOverrides,
         }),
+        merge: (persistedState, currentState) => {
+          const persisted = persistedState as PersistedSettingsState | undefined
+          return {
+            ...currentState,
+            ...persisted,
+            global: mergeSettings(persisted?.global),
+            workspaceOverrides: persisted?.workspaceOverrides ?? currentState.workspaceOverrides,
+          }
+        },
       },
     ),
     { name: 'settings-store' },

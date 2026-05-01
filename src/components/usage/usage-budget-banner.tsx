@@ -16,7 +16,7 @@ type Props = {
 const USAGE_REFRESH_INTERVAL_MS = 60_000
 
 export function UsageBudgetBanner({ workspaceId }: Props) {
-  const budgetsUsd = useSettingsStore((s) => s.global.model.dailyBudgetsUsd ?? {})
+  const budgetsUsd = useSettingsStore((s) => s.global.model.dailyBudgetsUsd)
   const openSettings = useSettingsStore((s) => s.openSettings)
   const setActiveTab = useSettingsStore((s) => s.setActiveTab)
   const [usage, setUsage] = useState<ModelUsageSummary[]>([])

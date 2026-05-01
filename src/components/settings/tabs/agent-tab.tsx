@@ -86,7 +86,7 @@ export function AgentTab() {
 
   const updateDailyBudget = (budgetKey: string, value: string) => {
     const parsed = Number.parseFloat(value)
-    const nextBudgets = { ...(model.dailyBudgetsUsd ?? {}) }
+    const nextBudgets = { ...model.dailyBudgetsUsd }
 
     if (!Number.isFinite(parsed) || parsed <= 0) {
       Reflect.deleteProperty(nextBudgets, budgetKey)
@@ -616,7 +616,7 @@ export function AgentTab() {
           <div className="space-y-2">
             {budgetModels.map((entry) => {
               const budgetKey = getModelBudgetKey(entry.id, entry.provider)
-              const budget = model.dailyBudgetsUsd?.[budgetKey]
+              const budget = model.dailyBudgetsUsd[budgetKey]
               const providerName = model.providers.find((provider) => provider.id === entry.provider)?.name ?? entry.provider
 
               return (
