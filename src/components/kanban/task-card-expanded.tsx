@@ -1,5 +1,5 @@
 import { motion } from 'motion/react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Task } from '@/types'
 import { useTaskDetail } from '@/hooks/use-task-detail'
 import * as ipc from '@/lib/ipc'
@@ -26,6 +26,7 @@ function TimeTrackingSection({
     task.estimatedHours == null ? '' : String(task.estimatedHours),
   )
   const [saving, setSaving] = useState(false)
+  const skipNextBlurSave = useRef(false)
 
   useEffect(() => {
     setEstimateInput(task.estimatedHours == null ? '' : String(task.estimatedHours))
@@ -75,10 +76,17 @@ function TimeTrackingSection({
               value={estimateInput}
               disabled={saving}
               onChange={(e) => { setEstimateInput(e.target.value) }}
-              onBlur={() => { void saveEstimate() }}
+              onBlur={() => {
+                if (skipNextBlurSave.current) {
+                  skipNextBlurSave.current = false
+                  return
+                }
+                void saveEstimate()
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') e.currentTarget.blur()
                 if (e.key === 'Escape') {
+                  skipNextBlurSave.current = true
                   setEstimateInput(task.estimatedHours == null ? '' : String(task.estimatedHours))
                   e.currentTarget.blur()
                 }

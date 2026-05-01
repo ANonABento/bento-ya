@@ -48,4 +48,17 @@ describe('TaskCardExpanded time tracking', () => {
     })
     expect(useTaskStore.getState().tasks[0]?.estimatedHours).toBe(3)
   })
+
+  it('cancels estimate edits with Escape without saving', () => {
+    const task = mockKanbanTask({ estimatedHours: 2, actualHours: 0.5 })
+
+    render(<TaskCardExpanded task={task} />)
+
+    const input = screen.getByLabelText('Estimate')
+    fireEvent.change(input, { target: { value: '5' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(input).toHaveValue(2)
+    expect(mockInvoke).not.toHaveBeenCalled()
+  })
 })
