@@ -169,8 +169,8 @@ pub fn duplicate_task(conn: &Connection, id: &str) -> SqlResult<Task> {
             ?3,
             priority,
             agent_mode,
-            branch_name,
-            files_touched,
+            NULL,
+            '[]',
             checklist,
             'idle',
             NULL,
@@ -206,7 +206,7 @@ pub fn duplicate_task(conn: &Connection, id: &str) -> SqlResult<Task> {
             0,
             model,
             NULL,
-            batch_id,
+            NULL,
             NULL,
             0,
             0
@@ -613,13 +613,16 @@ mod tests {
 
         db::update_task_agent_session(&conn, &source.id, Some(&session.id)).unwrap();
         conn.execute(
-            "UPDATE tasks SET pr_labels = ?1, checklist = ?2, trigger_overrides = ?3, trigger_prompt = ?4, dependencies = ?5, blocked = 1 WHERE id = ?6",
+            "UPDATE tasks SET pr_labels = ?1, checklist = ?2, trigger_overrides = ?3, trigger_prompt = ?4, dependencies = ?5, blocked = 1, branch_name = ?6, files_touched = ?7, batch_id = ?8 WHERE id = ?9",
             params![
                 r#"["bug","ui"]"#,
                 r#"[{"id":"one","text":"Check","checked":false}]"#,
                 r#"{"skip_triggers":true}"#,
                 "custom prompt",
                 r#"[{"taskId":"dep"}]"#,
+                "bentoya/source-branch",
+                r#"["src/main.rs"]"#,
+                "batch-source",
                 source.id,
             ],
         )
@@ -651,6 +654,9 @@ mod tests {
         );
         assert!(duplicated.blocked);
         assert!(duplicated.agent_session_id.is_none());
+        assert!(duplicated.branch_name.is_none());
+        assert_eq!(duplicated.files_touched, "[]");
+        assert!(duplicated.batch_id.is_none());
         assert_eq!(duplicated.pipeline_state, "idle");
         assert!(duplicated.worktree_path.is_none());
     }
