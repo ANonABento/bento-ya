@@ -71,7 +71,9 @@ pub fn run() {
     {
         builder = builder
             .plugin(tauri_plugin_updater::Builder::new().build())
-            .manage(commands::app_update::PendingUpdate(std::sync::Mutex::new(None)));
+            .manage(commands::app_update::PendingUpdate(std::sync::Mutex::new(
+                None,
+            )));
     }
 
     #[cfg(feature = "webdriver")]

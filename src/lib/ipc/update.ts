@@ -12,5 +12,5 @@ export async function checkForAppUpdate(): Promise<AppUpdateMetadata | null> {
 }
 
 export async function installAppUpdate(): Promise<void> {
-  return invoke<void>('install_app_update')
+  return invoke('install_app_update')
 }

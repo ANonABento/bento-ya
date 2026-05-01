@@ -3,7 +3,12 @@ import { AnimatePresence } from 'motion/react'
 import { initializeTheme } from '@/lib/theme'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSettingsStore } from '@/stores/settings-store'
-import { checkUpdateIfAvailable, installPendingUpdate, isTauriRuntime, type AppUpdateResult } from '@/lib/update'
+import {
+  checkUpdateIfAvailable,
+  installPendingUpdate,
+  isTauriRuntime,
+  type AppUpdateResult,
+} from '@/lib/update'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { usePrStatusPolling } from '@/hooks/use-pr-status-polling'
 import { useTaskSync } from '@/hooks/use-task-sync'
@@ -33,8 +38,12 @@ function App() {
   const [installCompleted, setInstallCompleted] = useState(false)
 
   // Keyboard shortcuts
-  const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
-  const toggleCommandPalette = useCallback(() => { setShowCommandPalette((prev) => !prev) }, [])
+  const toggleAbout = useCallback(() => {
+    setShowAbout((prev) => !prev)
+  }, [])
+  const toggleCommandPalette = useCallback(() => {
+    setShowCommandPalette((prev) => !prev)
+  }, [])
   const openSettings = useSettingsStore((s) => s.openSettings)
   useKeyboardShortcuts([
     { key: '/', meta: true, handler: toggleAbout },
@@ -104,7 +113,11 @@ function App() {
     <div className="flex h-screen flex-col bg-bg">
       {/* Onboarding wizard (full-screen overlay on first launch) */}
       {isFirstLaunch && (
-        <OnboardingWizard onComplete={() => { void load() }} />
+        <OnboardingWizard
+          onComplete={() => {
+            void load()
+          }}
+        />
       )}
 
       {/* Tab bar */}
@@ -139,29 +152,41 @@ function App() {
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-text-primary">Update available</div>
             <div className="mt-1 text-xs text-text-secondary">
-              Version <span className="font-mono text-text-primary">{appUpdate.version}</span> is available.
+              Version <span className="font-mono text-text-primary">{appUpdate.version}</span> is
+              available.
             </div>
             {appUpdate.body && (
-              <div className="mt-1.5 text-xs text-text-secondary whitespace-pre-wrap">{appUpdate.body}</div>
+              <div className="mt-1.5 text-xs text-text-secondary whitespace-pre-wrap">
+                {appUpdate.body}
+              </div>
             )}
           </div>
           <div className="flex flex-col gap-1.5">
             <button
-              onClick={() => { void installAppUpdate() }}
+              onClick={() => {
+                void installAppUpdate()
+              }}
               disabled={isInstallingAppUpdate}
-              className="rounded-lg border border-accent bg-accent/10 px-2.5 py-1 text-xs text-accent transition-colors hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg border border-accent bg-accent/10 px-2.5 py-1 text-xs text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+              style={{ cursor: isInstallingAppUpdate ? 'default' : 'pointer' }}
             >
               {isInstallingAppUpdate ? 'Installing…' : 'Install'}
             </button>
             <button
-              onClick={() => { setAppUpdate(null); setInstallCompleted(false) }}
+              onClick={() => {
+                setAppUpdate(null)
+                setInstallCompleted(false)
+              }}
               className="rounded-lg border border-border-default px-2.5 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-hover"
+              style={{ cursor: 'pointer' }}
             >
               Dismiss
             </button>
           </div>
           {appUpdateError && (
-            <div className="absolute inset-x-3 top-full mt-1 text-xs text-error">{appUpdateError}</div>
+            <div className="absolute inset-x-3 top-full mt-1 text-xs text-error">
+              {appUpdateError}
+            </div>
           )}
         </div>
       )}
@@ -169,24 +194,31 @@ function App() {
       {installCompleted && appUpdate && (
         <div className="fixed inset-x-0 top-4 z-[200] mx-auto flex w-full max-w-md rounded-lg border border-green-400/30 bg-surface p-3 shadow-lg">
           <p className="text-xs text-text-secondary">
-            Update installed for version <span className="font-mono text-text-primary">{appUpdate.version}</span>. Restart the app to use the new version.
+            Update installed for version{' '}
+            <span className="font-mono text-text-primary">{appUpdate.version}</span>. Restart the
+            app to use the new version.
           </p>
-        </div>
-      )}
-
-      {!isTauriRuntime() && appUpdateError && (
-        <div className="fixed inset-x-0 top-4 z-[200] mx-auto flex w-full max-w-md rounded-lg border border-error/30 bg-surface p-3 shadow-lg">
-          <p className="text-xs text-error">{appUpdateError}</p>
         </div>
       )}
 
       {/* Modals */}
       <AnimatePresence>
-        {showAbout && <AboutModal onClose={() => { setShowAbout(false) }} />}
+        {showAbout && (
+          <AboutModal
+            onClose={() => {
+              setShowAbout(false)
+            }}
+          />
+        )}
         {showCommandPalette && (
           <CommandPalette
-            onClose={() => { setShowCommandPalette(false) }}
-            onShowShortcuts={() => { setShowCommandPalette(false); setShowAbout(true) }}
+            onClose={() => {
+              setShowCommandPalette(false)
+            }}
+            onShowShortcuts={() => {
+              setShowCommandPalette(false)
+              setShowAbout(true)
+            }}
           />
         )}
       </AnimatePresence>

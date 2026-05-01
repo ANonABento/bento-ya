@@ -20,7 +20,10 @@ pub struct PendingUpdate(pub std::sync::Mutex<Option<Update>>);
 
 #[cfg(desktop)]
 #[tauri::command]
-pub async fn check_app_update(app: AppHandle, pending_update: State<'_, PendingUpdate>) -> Result<Option<AppUpdateMetadata>, String> {
+pub async fn check_app_update(
+    app: AppHandle,
+    pending_update: State<'_, PendingUpdate>,
+) -> Result<Option<AppUpdateMetadata>, String> {
     let update = app
         .updater()
         .map_err(|e| e.to_string())?
@@ -35,7 +38,10 @@ pub async fn check_app_update(app: AppHandle, pending_update: State<'_, PendingU
         date: pending.date.map(|date| date.to_string()),
     });
 
-    *pending_update.0.lock().map_err(|_| "Failed to access update cache".to_string())? = update;
+    *pending_update
+        .0
+        .lock()
+        .map_err(|_| "Failed to access update cache".to_string())? = update;
 
     Ok(metadata)
 }
@@ -49,7 +55,9 @@ pub async fn install_app_update(pending_update: State<'_, PendingUpdate>) -> Res
             .lock()
             .map_err(|_| "Failed to access update cache".to_string())?;
 
-        pending.take().ok_or_else(|| "No pending app update".to_string())?
+        pending
+            .take()
+            .ok_or_else(|| "No pending app update".to_string())?
     };
 
     update

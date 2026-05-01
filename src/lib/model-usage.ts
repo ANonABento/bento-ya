@@ -49,7 +49,13 @@ export function aggregateUsageByModel(
   return records.reduce<Record<string, ModelUsageStats>>((stats, record) => {
     const recordKey = `${record.provider}:${record.model}`
     const usageKey = index.exact.get(recordKey) ?? index.alias.get(recordKey) ?? recordKey
-    const existing = stats[usageKey] ?? { ...EMPTY_USAGE_STATS }
+    const existing = stats[usageKey] ?? {
+      calls: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      costUsd: 0,
+    }
     existing.calls += 1
     existing.inputTokens += record.inputTokens
     existing.outputTokens += record.outputTokens

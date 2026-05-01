@@ -244,12 +244,6 @@ impl AudioRecorder {
     }
 }
 
-impl Default for AudioRecorder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Simple linear interpolation resampling
 fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     if from_rate == to_rate || samples.is_empty() {
