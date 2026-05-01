@@ -43,6 +43,21 @@ describe('TaskCard quick-action keyboard behavior', () => {
     vi.clearAllMocks()
   })
 
+  it('routes command-click and shift-click through selection handling', () => {
+    const task = mockKanbanTask()
+    const onSelectionChange = vi.fn()
+    resetStores(task)
+
+    render(<TaskCard task={task} onSelectionChange={onSelectionChange} />)
+
+    fireEvent.click(screen.getByText('Test task'), { metaKey: true })
+    fireEvent.click(screen.getByText('Test task'), { shiftKey: true })
+
+    expect(onSelectionChange).toHaveBeenCalledTimes(2)
+    expect(onSelectionChange).toHaveBeenNthCalledWith(1, 't1', expect.objectContaining({ metaKey: true }))
+    expect(onSelectionChange).toHaveBeenNthCalledWith(2, 't1', expect.objectContaining({ shiftKey: true }))
+  })
+
   it('does not run card shortcuts for key events from quick-action buttons', () => {
     const task = mockKanbanTask()
     resetStores(task)
