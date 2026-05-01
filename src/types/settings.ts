@@ -31,6 +31,8 @@ export type ModelConfig = {
   providers: ProviderConfig[]
   /** Model IDs that are disabled (hidden from orchestrator dropdown) */
   disabledModels: string[]
+  /** Daily USD budget per canonical provider:model key */
+  dailyBudgetsUsd: Record<string, number>
 }
 
 export type McpServer = {
@@ -170,6 +172,7 @@ export const DEFAULT_SETTINGS: Settings = {
   model: {
     showCostEstimates: true,
     disabledModels: [],
+    dailyBudgetsUsd: {},
     providers: [
       {
         id: 'anthropic',

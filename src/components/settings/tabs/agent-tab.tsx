@@ -5,6 +5,7 @@ import { detectSingleCli, checkCliUpdate, type DetectedCli, type CliUpdateInfo }
 import { useModels } from '@/hooks/use-models'
 import { SettingSection, SettingRow, SettingInput, SettingSlider } from '@/components/shared/setting-components'
 import { Dropdown } from '@/components/shared/dropdown'
+import { getModelBudgetKey } from '@/lib/usage-budget'
 
 const PROVIDER_INFO: Record<string, { name: string; description: string; cliId: string }> = {
   anthropic: {
@@ -79,6 +80,22 @@ export function AgentTab() {
   const availableModels = allModels
     .filter((m) => enabledProviderIds.has(m.provider) && !disabledModelIds.has(m.id))
     .map((m) => m.id)
+  const budgetModels = allModels
+    .filter((m) => enabledProviderIds.has(m.provider) && !disabledModelIds.has(m.id))
+    .sort((a, b) => a.displayName.localeCompare(b.displayName))
+
+  const updateDailyBudget = (budgetKey: string, value: string) => {
+    const parsed = Number.parseFloat(value)
+    const nextBudgets = { ...(model.dailyBudgetsUsd ?? {}) }
+
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      Reflect.deleteProperty(nextBudgets, budgetKey)
+    } else {
+      nextBudgets[budgetKey] = parsed
+    }
+
+    updateGlobal('model', { ...model, dailyBudgetsUsd: nextBudgets })
+  }
 
   // Toggle provider enabled state
   const handleToggleProvider = (providerId: string, enabled: boolean) => {
@@ -584,6 +601,55 @@ export function AgentTab() {
           </SettingRow>
 
         </div>
+      </SettingSection>
+
+      <SettingSection
+        title="Daily Model Budgets"
+        description="Show a board warning when today's usage for a model reaches 80% of its budget."
+        border
+      >
+        {budgetModels.length === 0 ? (
+          <p className="rounded-lg border border-border-default px-3 py-4 text-sm text-text-secondary">
+            Enable a provider and model to set daily budgets.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {budgetModels.map((entry) => {
+              const budgetKey = getModelBudgetKey(entry.id, entry.provider)
+              const budget = model.dailyBudgetsUsd?.[budgetKey]
+              const providerName = model.providers.find((provider) => provider.id === entry.provider)?.name ?? entry.provider
+
+              return (
+                <div
+                  key={budgetKey}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-border-default bg-surface/50 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-text-primary">
+                      {entry.displayName}
+                    </div>
+                    <div className="truncate text-xs text-text-secondary">
+                      {providerName} · {entry.id}
+                    </div>
+                  </div>
+                  <label className="flex shrink-0 items-center gap-2">
+                    <span className="text-xs text-text-secondary">$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={budget === undefined ? '' : String(budget)}
+                      onChange={(event) => { updateDailyBudget(budgetKey, event.target.value) }}
+                      placeholder="0.00"
+                      className="w-24 rounded-lg border border-border-default bg-surface px-2 py-1.5 text-right text-sm tabular-nums text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+                      aria-label={`${entry.displayName} daily budget`}
+                    />
+                  </label>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </SettingSection>
     </div>
   )

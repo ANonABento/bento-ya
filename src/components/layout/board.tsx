@@ -26,6 +26,7 @@ import { useUIStore } from '@/stores/ui-store'
 import { CardPositionContext, useCardPositionProvider } from '@/hooks/use-card-positions'
 import { DepDragContext } from '@/hooks/use-dep-drag-context'
 import { BulkTaskToolbar } from '@/components/kanban/bulk-task-toolbar'
+import { UsageBudgetBanner } from '@/components/usage/usage-budget-banner'
 
 export function Board() {
   const panelDock = useUIStore((s) => s.panelDock)
@@ -218,6 +219,7 @@ export function Board() {
         <div className="flex h-full" data-board-container>
           {/* Board + orchestrator panel (left side, shrinks when task panel open) */}
           <div className="flex flex-1 flex-col overflow-hidden">
+            {activeWorkspaceId && <UsageBudgetBanner workspaceId={activeWorkspaceId} />}
             <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
               <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
                 {sortedColumns.map((col) => (

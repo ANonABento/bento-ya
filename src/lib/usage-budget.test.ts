@@ -1,0 +1,80 @@
+import { describe, expect, it } from 'vitest'
+import type { UsageRecord } from '@/lib/ipc/usage'
+import {
+  buildUsageDismissKey,
+  findDailyUsageBudgetWarnings,
+  getModelBudgetKey,
+  todayLocalDateKey,
+} from './usage-budget'
+
+function usageRecord(overrides: Partial<UsageRecord>): UsageRecord {
+  return {
+    id: 'usage-1',
+    workspaceId: 'ws-1',
+    taskId: null,
+    sessionId: null,
+    provider: 'anthropic',
+    model: 'sonnet',
+    inputTokens: 100,
+    outputTokens: 50,
+    costUsd: 0.8,
+    columnName: null,
+    durationSeconds: 0,
+    createdAt: '2026-05-01T12:00:00Z',
+    ...overrides,
+  }
+}
+
+describe('usage-budget', () => {
+  it('uses a stable local date key', () => {
+    expect(todayLocalDateKey(new Date(2026, 4, 1, 9))).toBe('2026-05-01')
+  })
+
+  it('builds a workspace and model scoped dismiss key', () => {
+    expect(buildUsageDismissKey('ws-1', '2026-05-01', 'anthropic:sonnet')).toBe(
+      'usage-budget-warning-dismissed:ws-1:2026-05-01:anthropic:sonnet',
+    )
+  })
+
+  it('aggregates aliases and returns warnings at the 80 percent threshold', () => {
+    const key = getModelBudgetKey('claude-sonnet-4-6-20260217', 'anthropic')
+    const warnings = findDailyUsageBudgetWarnings(
+      [
+        usageRecord({ id: 'usage-1', model: 'sonnet', costUsd: 0.35 }),
+        usageRecord({
+          id: 'usage-2',
+          model: 'claude-sonnet-4-6-20260217',
+          costUsd: 0.45,
+          inputTokens: 200,
+        }),
+      ],
+      { [key]: 1 },
+      new Date(2026, 4, 1, 12),
+    )
+
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({
+      key,
+      displayName: 'Claude Sonnet 4.6',
+      costUsd: 0.8,
+      budgetUsd: 1,
+      inputTokens: 300,
+      outputTokens: 100,
+      totalTokens: 400,
+    })
+  })
+
+  it('ignores prior-day records and models without positive budgets', () => {
+    const key = getModelBudgetKey('sonnet', 'anthropic')
+    const warnings = findDailyUsageBudgetWarnings(
+      [
+        usageRecord({ id: 'usage-1', costUsd: 10, createdAt: '2026-04-30T23:00:00Z' }),
+        usageRecord({ id: 'usage-2', model: 'haiku', costUsd: 10 }),
+      ],
+      { [key]: 1, [getModelBudgetKey('haiku', 'anthropic')]: 0 },
+      new Date(2026, 4, 1, 12),
+    )
+
+    expect(warnings).toEqual([])
+  })
+})
