@@ -65,6 +65,7 @@ export function Board() {
     .filter((c) => c.visible)
     .sort((a, b) => a.position - b.position)
   const columnIds = sortedColumns.map((c) => c.id)
+  const metricColumnIds = columnIds.join(',')
 
   const { activeItem, onDragStart, onDragOver, onDragEnd } = useDnd()
 
@@ -104,7 +105,7 @@ export function Board() {
     return () => {
       cancelled = true
     }
-  }, [activeWorkspaceId, tasks])
+  }, [activeWorkspaceId, tasks, metricColumnIds])
 
   // Resolve overlay content
   let overlayContent = null
