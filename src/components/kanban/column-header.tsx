@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useEffect } from 'react'
+import { memo, useState, useRef, useEffect, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { IconButton } from '@/components/shared/icon-button'
 
@@ -107,7 +107,7 @@ export const ColumnHeader = memo(function ColumnHeader({
   const menuRef = useRef<HTMLDivElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
   // Prevents blur from submitting after Enter or Escape already resolved the rename
-  const renameResolvedRef = useRef(false)
+  const renameResolvedRef = useRef<boolean>(false)
 
   useEffect(() => {
     if (isRenaming) {
@@ -136,6 +136,19 @@ export const ColumnHeader = memo(function ColumnHeader({
     if (renameResolvedRef.current) return
     renameResolvedRef.current = true
     setIsRenaming(false)
+  }
+
+  const handleRenameChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setRenameValue(e.target.value)
+  }
+
+  const handleRenameKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { e.preventDefault(); submitRename() }
+    if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
+  }
+
+  const stopInputPropagation = (e: ReactMouseEvent) => {
+    e.stopPropagation()
   }
 
   // Close menu when clicking outside
@@ -173,14 +186,11 @@ export const ColumnHeader = memo(function ColumnHeader({
             ref={renameInputRef}
             type="text"
             value={renameValue}
-            onChange={(e) => { setRenameValue(e.target.value) }}
+            onChange={handleRenameChange}
             onBlur={submitRename}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); submitRename() }
-              if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
-            }}
-            onMouseDown={(e) => { e.stopPropagation() }}
-            onClick={(e) => { e.stopPropagation() }}
+            onKeyDown={handleRenameKeyDown}
+            onMouseDown={stopInputPropagation}
+            onClick={stopInputPropagation}
             className="min-w-0 flex-1 bg-transparent text-xs font-semibold uppercase tracking-wider text-text-primary outline-none border-b border-accent pb-px"
           />
         ) : (
