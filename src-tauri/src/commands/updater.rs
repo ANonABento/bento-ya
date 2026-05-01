@@ -43,12 +43,13 @@ pub async fn install_update(app: AppHandle) -> Result<(), AppError> {
         .await
         .map_err(|e| AppError::CommandError(e.to_string()))?;
 
-    if let Some(update) = update {
-        update
-            .download_and_install(|_, _| {}, || {})
-            .await
-            .map_err(|e| AppError::CommandError(e.to_string()))?;
-    }
+    let update = update
+        .ok_or_else(|| AppError::CommandError("No update available".to_string()))?;
+
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| AppError::CommandError(e.to_string()))?;
 
     Ok(())
 }

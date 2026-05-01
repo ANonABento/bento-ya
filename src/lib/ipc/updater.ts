@@ -11,5 +11,5 @@ export async function checkForUpdate(): Promise<UpdateInfo | null> {
 }
 
 export async function installUpdate(): Promise<void> {
-  return invoke<void>('install_update')
+  await invoke('install_update')
 }

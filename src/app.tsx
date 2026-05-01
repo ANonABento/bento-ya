@@ -30,6 +30,7 @@ function App() {
   const [pendingUpdate, setPendingUpdate] = useState<UpdateInfo | null>(null)
   const [updateDismissed, setUpdateDismissed] = useState(false)
   const [installing, setInstalling] = useState(false)
+  const [installError, setInstallError] = useState<string | null>(null)
 
   // Keyboard shortcuts
   const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
@@ -50,10 +51,12 @@ function App() {
 
   const handleInstallUpdate = useCallback(async () => {
     setInstalling(true)
+    setInstallError(null)
     try {
       await installUpdate()
-    } catch {
+    } catch (err) {
       setInstalling(false)
+      setInstallError(err instanceof Error ? err.message : 'Update failed')
     }
   }, [])
 
@@ -106,7 +109,10 @@ function App() {
           >
             <div className="flex items-center justify-between bg-accent/10 border-b border-accent/20 px-4 py-2 text-sm">
               <span className="text-text-primary">
-                Update available: <span className="font-medium">v{pendingUpdate.version}</span>
+                {installError
+                  ? <span className="text-error">{installError}</span>
+                  : <>Update available: <span className="font-medium">v{pendingUpdate.version}</span></>
+                }
               </span>
               <div className="flex items-center gap-3">
                 <button
@@ -114,7 +120,7 @@ function App() {
                   disabled={installing}
                   className="rounded px-2.5 py-1 text-xs font-medium bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors"
                 >
-                  {installing ? 'Installing…' : 'Install & Restart'}
+                  {installing ? 'Installing…' : installError ? 'Retry' : 'Install & Restart'}
                 </button>
                 <button
                   onClick={() => { setUpdateDismissed(true) }}

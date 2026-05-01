@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { getVersion } from '@tauri-apps/api/app'
 import { checkForUpdate, installUpdate, type UpdateInfo } from '@/lib/ipc/updater'
 
 type CheckState = 'idle' | 'checking' | 'up-to-date' | 'available' | 'installing' | 'error'
@@ -7,6 +8,11 @@ export function UpdatesTab() {
   const [state, setState] = useState<CheckState>('idle')
   const [update, setUpdate] = useState<UpdateInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [currentVersion, setCurrentVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    getVersion().then(setCurrentVersion).catch(() => { /* non-critical */ })
+  }, [])
 
   const handleCheck = async () => {
     setState('checking')
@@ -47,7 +53,7 @@ export function UpdatesTab() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-text-primary">Current version</p>
-              <p className="text-xs text-text-secondary font-mono">0.1.0</p>
+              <p className="text-xs text-text-secondary font-mono">{currentVersion ?? '—'}</p>
             </div>
             <button
               onClick={() => { void handleCheck() }}
