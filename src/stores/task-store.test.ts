@@ -312,6 +312,7 @@ describe('task-store', () => {
           createMockTask({ id: 'task-1', columnId: 'col-1', position: 0 }),
           createMockTask({ id: 'task-2', columnId: 'col-1', position: 1 }),
           createMockTask({ id: 'task-3', columnId: 'col-2', position: 1 }),
+          createMockTask({ id: 'task-4', workspaceId: 'ws-2', columnId: 'col-1', position: 1 }),
         ],
       })
       const duplicatedTask = createMockTask({
@@ -325,10 +326,40 @@ describe('task-store', () => {
       await useTaskStore.getState().duplicate('task-1')
 
       const state = useTaskStore.getState()
-      expect(state.tasks).toHaveLength(4)
+      expect(state.tasks).toHaveLength(5)
       expect(state.tasks).toContainEqual(duplicatedTask)
       expect(state.tasks.find((task) => task.id === 'task-2')?.position).toBe(2)
       expect(state.tasks.find((task) => task.id === 'task-3')?.position).toBe(1)
+      expect(state.tasks.find((task) => task.id === 'task-4')?.position).toBe(1)
+    })
+
+    it('should not add or shift again if sync already loaded the duplicate', async () => {
+      const duplicatedTask = createMockTask({
+        id: 'task-dup',
+        title: 'Original Task (copy)',
+        columnId: 'col-1',
+        position: 1,
+      })
+      useTaskStore.setState({
+        tasks: [
+          createMockTask({ id: 'task-1', columnId: 'col-1', position: 0 }),
+          duplicatedTask,
+          createMockTask({ id: 'task-2', columnId: 'col-1', position: 2 }),
+        ],
+      })
+      mockIpc.duplicateTask.mockResolvedValueOnce({
+        ...duplicatedTask,
+        title: 'Original Task (copy updated)',
+      })
+
+      await useTaskStore.getState().duplicate('task-1')
+
+      const state = useTaskStore.getState()
+      expect(state.tasks).toHaveLength(3)
+      expect(state.tasks.find((task) => task.id === 'task-dup')?.title).toBe(
+        'Original Task (copy updated)',
+      )
+      expect(state.tasks.find((task) => task.id === 'task-2')?.position).toBe(2)
     })
 
     it('should return null for non-existent task', async () => {

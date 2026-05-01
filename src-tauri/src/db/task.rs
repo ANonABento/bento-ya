@@ -114,12 +114,12 @@ pub fn duplicate_task(conn: &Connection, id: &str) -> SqlResult<Task> {
             id, workspace_id, column_id, title, description, position, priority,
             agent_mode, files_touched, checklist, pipeline_state,
             pr_labels, notify_stakeholders, trigger_overrides, trigger_prompt,
-            dependencies, blocked, model, created_at, updated_at
+            dependencies, blocked, model, siege_max_iterations, created_at, updated_at
         ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7,
             ?8, ?9, ?10, 'idle',
             ?11, ?12, ?13, ?14,
-            ?15, ?16, ?17, ?18, ?19
+            ?15, ?16, ?17, ?18, ?19, ?20
         )",
         params![
             &copy_id,
@@ -139,6 +139,7 @@ pub fn duplicate_task(conn: &Connection, id: &str) -> SqlResult<Task> {
             original.dependencies.as_deref(),
             original.blocked as i64,
             original.model.as_deref(),
+            original.siege_max_iterations,
             &ts,
             &ts,
         ],

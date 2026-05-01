@@ -107,14 +107,18 @@ export const useTaskStore = create<TaskState>()(
 
         const task = await ipc.duplicateTask(id)
         set((s) => ({
-          tasks: [
-            ...s.tasks.map((existing) =>
-              existing.columnId === task.columnId && existing.position >= task.position
-                ? { ...existing, position: existing.position + 1 }
-                : existing,
-            ),
-            task,
-          ],
+          tasks: s.tasks.some((existing) => existing.id === task.id)
+            ? s.tasks.map((existing) => (existing.id === task.id ? task : existing))
+            : [
+                ...s.tasks.map((existing) =>
+                  existing.workspaceId === task.workspaceId &&
+                  existing.columnId === task.columnId &&
+                  existing.position >= task.position
+                    ? { ...existing, position: existing.position + 1 }
+                    : existing,
+                ),
+                task,
+              ],
         }))
         await useWorkspaceStore.getState().refreshWorkspace(original.workspaceId)
         return task
