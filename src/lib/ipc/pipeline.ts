@@ -1,6 +1,22 @@
 import { invoke, listen, type EventCallback, type UnlistenFn } from './invoke'
 import type { Task } from '@/types'
 
+// ─── Column metrics ────────────────────────────────────────────────────────
+
+export type ColumnMetrics = {
+  columnId: string
+  columnName: string
+  avgDurationSeconds: number
+  taskCount: number
+  successCount: number
+  failureCount: number
+  throughputPerDay: number
+}
+
+export async function getColumnMetrics(workspaceId: string): Promise<ColumnMetrics[]> {
+  return invoke<ColumnMetrics[]>('get_average_pipeline_timing', { workspaceId })
+}
+
 // ─── Pipeline commands ─────────────────────────────────────────────────────
 
 export type PipelineEvent = {

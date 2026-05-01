@@ -9,6 +9,7 @@ import { useTaskStore } from '@/stores/task-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useScriptStore } from '@/stores/script-store'
+import { useColumnMetricsStore } from '@/stores/column-metrics-store'
 import { queueBacklog, cancelBacklogQueue } from '@/lib/ipc/pipeline'
 import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
@@ -41,6 +42,7 @@ export const Column = memo(function Column({
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
   const getScriptName = useScriptStore((s) => s.getScriptName)
+  const columnMetrics = useColumnMetricsStore((s) => s.metricsById[column.id])
 
   // Memoize filtered tasks to prevent infinite loops
   const tasks = useMemo(
@@ -216,6 +218,7 @@ export const Column = memo(function Column({
             scriptTrigger={scriptTrigger}
             isBacklog={column.position === 0}
             batchQueue={batchQueueState.isQueuing ? { total: batchQueueState.total, completed: batchQueueState.completed } : undefined}
+            metrics={columnMetrics}
             onConfigure={handleConfigure}
             onDelete={handleDelete}
             onAddTask={handleAddTask}

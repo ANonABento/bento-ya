@@ -13,6 +13,7 @@ import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useScriptStore } from '@/stores/script-store'
+import { useColumnMetricsStore } from '@/stores/column-metrics-store'
 import { Column } from '@/components/kanban/column'
 import { DragOverlayContent } from '@/components/kanban/drag-overlay'
 import { DependencyLines } from '@/components/kanban/dependency-lines'
@@ -38,6 +39,7 @@ export function Board() {
   const bulkMoveTasks = useTaskStore((s) => s.bulkMove)
   const bulkRemoveTasks = useTaskStore((s) => s.bulkRemove)
   const loadScripts = useScriptStore((s) => s.load)
+  const loadColumnMetrics = useColumnMetricsStore((s) => s.load)
 
   const [newColumnId, setNewColumnId] = useState<string | null>(null)
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set())
@@ -112,8 +114,9 @@ export function Board() {
       void loadColumns(activeWorkspaceId)
       void loadTasks(activeWorkspaceId)
       void loadScripts()
+      void loadColumnMetrics(activeWorkspaceId)
     }
-  }, [activeWorkspaceId, loadColumns, loadTasks, loadScripts])
+  }, [activeWorkspaceId, loadColumns, loadTasks, loadScripts, loadColumnMetrics])
 
   useEffect(() => {
     setSelectedTaskIds((current) => {
