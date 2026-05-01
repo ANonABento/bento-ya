@@ -31,21 +31,25 @@ type ColumnHeaderProps = {
 }
 
 function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m`
+  if (seconds < 60) return `${String(Math.round(seconds))}s`
+  if (seconds < 3600) return `${String(Math.round(seconds / 60))}m`
   const h = Math.floor(seconds / 3600)
   const m = Math.round((seconds % 3600) / 60)
-  if (m === 0) return `${h}h`
-  return `${h}h ${m}m`
+  if (m === 0) return `${String(h)}h`
+  return `${String(h)}h ${String(m)}m`
+}
+
+function successRatePct(m: ColumnMetrics): number {
+  return Math.round((m.successCount / m.taskCount) * 100)
 }
 
 function buildMetricsTooltip(m: ColumnMetrics): string {
   const duration = formatDuration(m.avgDurationSeconds)
-  const rate = m.taskCount > 0 ? Math.round((m.successCount / m.taskCount) * 100) : 0
+  const rate = successRatePct(m)
   const throughput = m.throughputPerDay.toFixed(1)
   return [
     `Avg time: ${duration}`,
-    `Success rate: ${rate}% (${m.successCount}/${m.taskCount} tasks)`,
+    `Success rate: ${String(rate)}% (${String(m.successCount)}/${String(m.taskCount)} tasks)`,
     `Throughput: ${throughput} tasks/day`,
     `(last 30 days)`,
   ].join('\n')
@@ -287,7 +291,7 @@ export const ColumnHeader = memo(function ColumnHeader({
             </span>
             <span className="text-[10px] text-text-secondary/40">·</span>
             <span className="text-[10px] text-text-secondary/60 tabular-nums">
-              ✓ {metrics.taskCount > 0 ? Math.round((metrics.successCount / metrics.taskCount) * 100) : 0}%
+              ✓ {successRatePct(metrics)}%
             </span>
             <span className="text-[10px] text-text-secondary/40">·</span>
             <span className="text-[10px] text-text-secondary/60 tabular-nums">
