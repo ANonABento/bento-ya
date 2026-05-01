@@ -24,6 +24,7 @@ describe('ColumnHeader', () => {
     const input = screen.getByDisplayValue('Backlog')
     fireEvent.change(input, { target: { value: 'Ready' } })
     fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.blur(input)
 
     expect(onRename).toHaveBeenCalledTimes(1)
     expect(onRename).toHaveBeenCalledWith('Ready')
@@ -68,7 +69,11 @@ describe('ColumnHeader', () => {
       />
     )
 
-    fireEvent.contextMenu(screen.getByText('Backlog').closest('div')!)
+    const header = screen.getByText('Backlog').closest('div')
+    if (header === null) {
+      throw new Error('Expected column header container')
+    }
+    fireEvent.contextMenu(header)
 
     expect(screen.getByText('Configure')).toBeInTheDocument()
     expect(screen.getByText('Delete')).toBeInTheDocument()

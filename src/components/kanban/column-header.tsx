@@ -105,6 +105,7 @@ export const ColumnHeader = memo(function ColumnHeader({
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState(name)
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const isRenamingRef = useRef(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   // Close menu when clicking outside
@@ -130,21 +131,25 @@ export const ColumnHeader = memo(function ColumnHeader({
 
   const startRename = useCallback(() => {
     setRenameValue(name)
+    isRenamingRef.current = true
     setIsRenaming(true)
   }, [name])
 
   const finishRename = useCallback(() => {
-    if (isRenaming) {
-      const nextName = renameValue.trim()
-      if (nextName && nextName !== name) {
-        onRename(nextName)
-      }
-      setIsRenaming(false)
-      setRenameValue(name)
+    if (!isRenamingRef.current) {
+      return
     }
-  }, [isRenaming, name, onRename, renameValue])
+    isRenamingRef.current = false
+    const nextName = renameValue.trim()
+    if (nextName && nextName !== name) {
+      onRename(nextName)
+    }
+    setIsRenaming(false)
+    setRenameValue(name)
+  }, [name, onRename, renameValue])
 
   const cancelRename = useCallback(() => {
+    isRenamingRef.current = false
     setIsRenaming(false)
     setRenameValue(name)
   }, [name])
@@ -180,6 +185,7 @@ export const ColumnHeader = memo(function ColumnHeader({
         {isRenaming ? (
           <input
             ref={renameInputRef}
+            aria-label="Column name"
             value={renameValue}
             onChange={(event) => { setRenameValue(event.target.value) }}
             onBlur={finishRename}
@@ -294,6 +300,7 @@ export const ColumnHeader = memo(function ColumnHeader({
                       setShowMenu(false)
                       onConfigure()
                     }}
+                    style={{ cursor: 'pointer' }}
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
@@ -306,6 +313,7 @@ export const ColumnHeader = memo(function ColumnHeader({
                       setShowMenu(false)
                       onDelete()
                     }}
+                    style={{ cursor: 'pointer' }}
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-error hover:bg-error/10"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
@@ -341,12 +349,14 @@ export const ColumnHeader = memo(function ColumnHeader({
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => { setShowConfirm(false); }}
+                style={{ cursor: 'pointer' }}
                 className="rounded px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmRunAll}
+                style={{ cursor: 'pointer' }}
                 className="rounded bg-accent px-4 py-2 text-sm font-medium text-bg"
               >
                 Run All

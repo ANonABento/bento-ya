@@ -72,20 +72,22 @@ export const useColumnStore = create<ColumnState>()(
         const workspaceColumns = prev
           .filter((c) => c.workspaceId === workspaceId)
           .sort((a, b) => a.position - b.position)
+        const requestedIds = new Set(ids)
         const orderedIds = [
           ...ids,
           ...workspaceColumns
-            .filter((c) => !ids.includes(c.id))
+            .filter((c) => !requestedIds.has(c.id))
             .map((c) => c.id),
         ]
+        const positionById = new Map(orderedIds.map((id, position) => [id, position]))
         set((s) => ({
           columns: [
             ...s.columns.filter((c) => c.workspaceId !== workspaceId),
             ...s.columns
               .filter((c) => c.workspaceId === workspaceId)
               .map((c) => {
-                const nextPosition = orderedIds.indexOf(c.id)
-                return nextPosition >= 0 ? { ...c, position: nextPosition } : c
+                const nextPosition = positionById.get(c.id)
+                return nextPosition === undefined ? c : { ...c, position: nextPosition }
               })
               .sort((a, b) => a.position - b.position),
           ],

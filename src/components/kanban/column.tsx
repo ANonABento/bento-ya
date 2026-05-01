@@ -173,8 +173,8 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
     setShowDeleteConfirm(false)
   }, [activeWorkspaceId, column.id, loadTasks, remove])
 
-  const handleRename = useCallback(async (name: string) => {
-    await updateColumnAsync(column.id, { name })
+  const handleRename = useCallback((name: string) => {
+    void updateColumnAsync(column.id, { name })
   }, [column.id, updateColumnAsync])
 
   const handleAddTask = useCallback(() => {
@@ -255,6 +255,7 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
                     <div className="mt-2 flex justify-end gap-1">
                       <button
                         onClick={handleCancelAddTask}
+                        style={{ cursor: 'pointer' }}
                         className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover"
                       >
                         Cancel
@@ -262,6 +263,7 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
                       <button
                         onClick={() => void handleSubmitTask()}
                         disabled={!newTaskTitle.trim()}
+                        style={{ cursor: newTaskTitle.trim() ? 'pointer' : 'not-allowed' }}
                         className="rounded bg-accent px-2 py-1 text-xs font-medium text-bg disabled:opacity-50"
                       >
                         Add
@@ -310,18 +312,20 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
             </h3>
             <p className="mb-4 text-sm text-text-secondary">
               {tasks.length > 0
-                ? `This will also delete ${tasks.length} task${tasks.length === 1 ? '' : 's'} in this column.`
+                ? `This will also delete ${String(tasks.length)} task${tasks.length === 1 ? '' : 's'} in this column.`
                 : 'This column has no tasks.'}
             </p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => { setShowDeleteConfirm(false); }}
+                style={{ cursor: 'pointer' }}
                 className="rounded px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
               >
                 Cancel
               </button>
               <button
-                onClick={confirmDelete}
+                onClick={() => { void confirmDelete(); }}
+                style={{ cursor: 'pointer' }}
                 className="rounded bg-error px-4 py-2 text-sm font-medium text-white"
               >
                 Delete

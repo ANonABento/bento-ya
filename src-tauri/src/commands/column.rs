@@ -118,6 +118,7 @@ pub fn reorder_columns(
         .map(|column| column.id.as_str())
         .collect();
     let mut requested_ids = HashSet::new();
+    let mut ordered_ids = Vec::with_capacity(existing_columns.len());
     for column_id in &column_ids {
         if !requested_ids.insert(column_id.as_str()) {
             return Err(AppError::InvalidInput(format!(
@@ -131,11 +132,11 @@ pub fn reorder_columns(
                 column_id
             )));
         }
+        ordered_ids.push(column_id.clone());
     }
 
-    let mut ordered_ids = column_ids;
     for column in existing_columns {
-        if !ordered_ids.contains(&column.id) {
+        if !requested_ids.contains(column.id.as_str()) {
             ordered_ids.push(column.id);
         }
     }
