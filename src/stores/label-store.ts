@@ -40,7 +40,9 @@ export const useLabelStore = create<LabelState>()(
         set((s) => ({
           labels,
           taskLabels: groupAssignments(assignments),
-          selectedLabelId: labels.some((label) => label.id === s.selectedLabelId) ? s.selectedLabelId : null,
+          selectedLabelId: labels.some((label) => label.id === s.selectedLabelId)
+            ? s.selectedLabelId
+            : null,
           loaded: true,
         }))
       },
@@ -79,8 +81,16 @@ export const useLabelStore = create<LabelState>()(
       },
 
       setTaskLabels: async (taskId, labelIds) => {
-        const nextIds = await ipc.setTaskLabels(taskId, labelIds)
-        set((s) => ({ taskLabels: { ...s.taskLabels, [taskId]: nextIds } }))
+        const previousIds = get().taskLabels[taskId] ?? []
+        const optimisticIds = [...new Set(labelIds)]
+        set((s) => ({ taskLabels: { ...s.taskLabels, [taskId]: optimisticIds } }))
+        try {
+          const nextIds = await ipc.setTaskLabels(taskId, optimisticIds)
+          set((s) => ({ taskLabels: { ...s.taskLabels, [taskId]: nextIds } }))
+        } catch (error) {
+          set((s) => ({ taskLabels: { ...s.taskLabels, [taskId]: previousIds } }))
+          throw error
+        }
       },
 
       setSelectedLabelId: (id) => {

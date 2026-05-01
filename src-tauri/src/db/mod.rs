@@ -339,12 +339,21 @@ mod tests {
         let ws_b = insert_workspace(&conn, "B", "/tmp/b").unwrap();
         let col_a = insert_column(&conn, &ws_a.id, "Backlog", 0).unwrap();
         let task_a = insert_task(&conn, &ws_a.id, &col_a.id, "Task", None).unwrap();
+        let docs = create_label(&conn, &ws_a.id, "Docs", "#3b82f6").unwrap();
         let label_b = create_label(&conn, &ws_b.id, "Other", "#10b981").unwrap();
 
-        assert!(set_task_labels(&conn, &task_a.id, &[label_b.id]).is_err());
+        assert!(set_task_labels(&conn, &task_a.id, &[label_b.id.clone()]).is_err());
         assert!(list_label_ids_for_task(&conn, &task_a.id)
             .unwrap()
             .is_empty());
+
+        let assigned = set_task_labels(&conn, &task_a.id, &[docs.id.clone()]).unwrap();
+        assert_eq!(assigned, vec![docs.id.clone()]);
+        assert!(set_task_labels(&conn, &task_a.id, &[docs.id.clone(), label_b.id]).is_err());
+        assert_eq!(
+            list_label_ids_for_task(&conn, &task_a.id).unwrap(),
+            vec![docs.id]
+        );
     }
 
     #[test]

@@ -134,6 +134,39 @@ describe('label-store', () => {
     expect(useLabelStore.getState().taskLabels['task-1']).toEqual(['label-2', 'label-1'])
   })
 
+  it('updates task label assignments optimistically while IPC is pending', async () => {
+    let resolveAssignment: ((ids: string[]) => void) | undefined
+    mockIpc.setTaskLabels.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveAssignment = resolve
+      }),
+    )
+
+    const promise = useLabelStore.getState().setTaskLabels('task-1', ['label-1', 'label-1'])
+
+    expect(useLabelStore.getState().taskLabels['task-1']).toEqual(['label-1'])
+
+    resolveAssignment?.(['label-1'])
+    await promise
+
+    expect(useLabelStore.getState().taskLabels['task-1']).toEqual(['label-1'])
+  })
+
+  it('restores previous task label assignments when IPC fails', async () => {
+    useLabelStore.setState({
+      taskLabels: {
+        'task-1': ['label-1'],
+      },
+    })
+    mockIpc.setTaskLabels.mockRejectedValueOnce(new Error('Failed'))
+
+    await expect(useLabelStore.getState().setTaskLabels('task-1', ['label-2'])).rejects.toThrow(
+      'Failed',
+    )
+
+    expect(useLabelStore.getState().taskLabels['task-1']).toEqual(['label-1'])
+  })
+
   it('returns assigned label objects for a task', () => {
     useLabelStore.setState({
       labels: [

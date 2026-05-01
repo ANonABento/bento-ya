@@ -19,21 +19,29 @@ export function TaskLabelPicker({ taskId, labels }: TaskLabelPickerProps) {
   const selectedIds = useMemo(() => new Set(labelIds), [labelIds])
 
   const toggleLabel = async (labelId: string) => {
-    const next = selectedIds.has(labelId)
-      ? labelIds.filter((id) => id !== labelId)
-      : [...labelIds, labelId]
+    const currentLabelIds = useLabelStore.getState().taskLabels[taskId] ?? EMPTY_LABEL_IDS
+    const currentSelectedIds = new Set(currentLabelIds)
+    const next = currentSelectedIds.has(labelId)
+      ? currentLabelIds.filter((id) => id !== labelId)
+      : [...currentLabelIds, labelId]
     await setTaskLabels(taskId, next)
   }
 
   return (
     <div
       className="relative"
-      onClick={(e) => { e.stopPropagation() }}
-      onPointerDown={(e) => { e.stopPropagation() }}
+      onClick={(e) => {
+        e.stopPropagation()
+      }}
+      onPointerDown={(e) => {
+        e.stopPropagation()
+      }}
     >
       <button
         type="button"
-        onClick={() => { setOpen((value) => !value) }}
+        onClick={() => {
+          setOpen((value) => !value)
+        }}
         style={{ cursor: 'pointer' }}
         className="inline-flex h-5 w-5 items-center justify-center rounded border border-border-default text-[13px] leading-none text-text-secondary hover:border-accent hover:text-accent"
         title="Labels"
@@ -57,10 +65,15 @@ export function TaskLabelPicker({ taskId, labels }: TaskLabelPickerProps) {
                   <input
                     type="checkbox"
                     checked={selectedIds.has(label.id)}
-                    onChange={() => { void toggleLabel(label.id) }}
+                    onChange={() => {
+                      void toggleLabel(label.id)
+                    }}
                     className="h-3 w-3"
                   />
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: label.color }} />
+                  <span
+                    className="h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: label.color }}
+                  />
                   <span className="min-w-0 flex-1 truncate">{label.name}</span>
                 </label>
               ))}
@@ -69,7 +82,9 @@ export function TaskLabelPicker({ taskId, labels }: TaskLabelPickerProps) {
           {labels.length > 0 && (
             <button
               type="button"
-              onClick={() => { void setTaskLabels(taskId, []) }}
+              onClick={() => {
+                void setTaskLabels(taskId, [])
+              }}
               style={{ cursor: 'pointer' }}
               className="mt-2 w-full rounded px-2 py-1 text-left text-xs text-text-secondary hover:bg-surface-hover"
             >

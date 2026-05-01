@@ -99,7 +99,8 @@ pub fn set_task_labels(
     task_id: &str,
     label_ids: &[String],
 ) -> SqlResult<Vec<String>> {
-    let workspace_id: String = conn.query_row(
+    let tx = conn.unchecked_transaction()?;
+    let workspace_id: String = tx.query_row(
         "SELECT workspace_id FROM tasks WHERE id = ?1",
         params![task_id],
         |row| row.get(0),
@@ -113,7 +114,7 @@ pub fn set_task_labels(
     }
 
     for label_id in &unique_label_ids {
-        let count: i64 = conn.query_row(
+        let count: i64 = tx.query_row(
             "SELECT COUNT(*) FROM labels WHERE id = ?1 AND workspace_id = ?2",
             params![label_id, workspace_id],
             |row| row.get(0),
@@ -124,15 +125,16 @@ pub fn set_task_labels(
     }
 
     let ts = now();
-    conn.execute(
+    tx.execute(
         "DELETE FROM task_labels WHERE task_id = ?1",
         params![task_id],
     )?;
     for label_id in &unique_label_ids {
-        conn.execute(
+        tx.execute(
             "INSERT OR IGNORE INTO task_labels (task_id, label_id, created_at) VALUES (?1, ?2, ?3)",
             params![task_id, label_id, ts],
         )?;
     }
+    tx.commit()?;
     Ok(unique_label_ids)
 }
