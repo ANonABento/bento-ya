@@ -34,9 +34,14 @@ export function TaskTemplateDialog({ workspaceId, columnId, onClose }: TaskTempl
   const remove = useTaskTemplateStore((s) => s.remove)
   const createTask = useTaskTemplateStore((s) => s.createTask)
 
-  const templates = loadedWorkspaceId === workspaceId
-    ? rawTemplates.filter((template) => template.workspaceId === workspaceId)
-    : []
+  const templates = useMemo(
+    () => (
+      loadedWorkspaceId === workspaceId
+        ? rawTemplates.filter((template) => template.workspaceId === workspaceId)
+        : []
+    ),
+    [loadedWorkspaceId, rawTemplates, workspaceId],
+  )
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [title, setTitle] = useState('')

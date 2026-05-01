@@ -205,7 +205,7 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
           isDragging ? 'opacity-50' : ''
         }`}
       >
-        <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
+        <div {...attributes} {...listeners} style={{ cursor: 'grab' }}>
           <ColumnHeader
             name={column.name}
             icon={column.icon || 'list'}

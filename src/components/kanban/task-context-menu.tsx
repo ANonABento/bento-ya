@@ -113,9 +113,10 @@ function MenuItemComponent({ item, onClose }: { item: MenuItem; onClose: () => v
     <button
       onClick={handleClick}
       disabled={item.disabled}
+      style={{ cursor: item.disabled ? 'not-allowed' : undefined }}
       className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors ${
         item.disabled
-          ? 'text-text-secondary/50 cursor-not-allowed'
+          ? 'text-text-secondary/50'
           : item.variant === 'danger'
             ? 'text-error hover:bg-error/10'
             : 'text-text-primary hover:bg-surface-hover'

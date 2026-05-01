@@ -4,6 +4,7 @@ import type { TaskTemplate } from '@/types'
 import * as ipc from '@/lib/ipc'
 import { useTaskStore } from '@/stores/task-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import type { TaskTemplateUpdate } from '@/lib/ipc/task-template'
 
 type TaskTemplateState = {
   templates: TaskTemplate[]
@@ -11,7 +12,7 @@ type TaskTemplateState = {
   loadingWorkspaceId: string | null
   load: (workspaceId: string) => Promise<void>
   saveFromTask: (taskId: string) => Promise<TaskTemplate>
-  update: (id: string, updates: { title: string; description?: string | null; labels: string; model?: string | null }) => Promise<TaskTemplate>
+  update: (id: string, updates: TaskTemplateUpdate) => Promise<TaskTemplate>
   remove: (id: string) => Promise<void>
   createTask: (templateId: string, columnId: string) => Promise<void>
 }
