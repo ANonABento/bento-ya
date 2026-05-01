@@ -5,7 +5,7 @@ const MIN_ZOOM = 0.2
 const MAX_ZOOM = 5
 const ZOOM_STEP = 0.1
 
-const inRange = (value: number): number => {
+const normalizeZoom = (value: number): number => {
   if (!Number.isFinite(value) || value <= 0) {
     return 1
   }
@@ -24,7 +24,7 @@ const readPersistedZoom = (): number | null => {
     if (raw === null || raw.trim() === '') return null
     const parsed = Number(raw)
     if (!Number.isFinite(parsed)) return null
-    return inRange(parsed)
+    return normalizeZoom(parsed)
   } catch {
     return null
   }
@@ -32,7 +32,7 @@ const readPersistedZoom = (): number | null => {
 
 const writePersistedZoom = (zoom: number): void => {
   try {
-    window.localStorage.setItem(WINDOW_ZOOM_KEY, String(inRange(zoom)))
+    window.localStorage.setItem(WINDOW_ZOOM_KEY, String(normalizeZoom(zoom)))
   } catch {
     // Ignore localStorage failures in restricted environments.
   }
@@ -66,11 +66,12 @@ export async function initializeWindowZoomState(): Promise<void> {
   cleanupWindowZoomState = null
 
   const webview = getCurrentWebview()
-  let currentZoom = readPersistedZoom() ?? 1
+  const persistedZoom = readPersistedZoom()
+  let currentZoom = persistedZoom ?? 1
   let zoomQueue = Promise.resolve()
 
   const applyZoom = (zoom: number): Promise<void> => {
-    const nextZoom = inRange(zoom)
+    const nextZoom = normalizeZoom(zoom)
     currentZoom = nextZoom
 
     const setAndPersist = async (): Promise<void> => {
@@ -82,7 +83,6 @@ export async function initializeWindowZoomState(): Promise<void> {
     return zoomQueue
   }
 
-  const persistedZoom = readPersistedZoom()
   if (persistedZoom !== null) {
     await applyZoom(persistedZoom).catch(() => undefined)
   }
