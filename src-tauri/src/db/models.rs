@@ -99,6 +99,12 @@ pub struct Task {
     pub blocked: bool,
     /// Per-task git worktree path (absolute). When set, agents use this as cwd instead of workspace.repo_path.
     pub worktree_path: Option<String>,
+    /// GitHub issue number this task was created from (for sync).
+    pub github_issue_number: Option<i64>,
+    /// Whether a "done" comment has been posted on the linked GitHub issue.
+    pub github_issue_commented: bool,
+    /// Whether the linked PR URL has been posted on the linked GitHub issue.
+    pub github_issue_pr_linked: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -301,6 +307,40 @@ pub struct UsageSummary {
     pub total_input_tokens: i64,
     pub total_output_tokens: i64,
     pub total_cost_usd: f64,
+    pub record_count: i64,
+}
+
+/// Daily cost aggregation for time-series charts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyCost {
+    pub date: String,
+    pub cost_usd: f64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub record_count: i64,
+}
+
+/// Cost aggregated by column (pipeline stage).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnCost {
+    pub column_name: String,
+    pub cost_usd: f64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub record_count: i64,
+}
+
+/// Cost aggregated by task (top spenders).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskCost {
+    pub task_id: String,
+    pub task_title: String,
+    pub cost_usd: f64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
     pub record_count: i64,
 }
 

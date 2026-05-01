@@ -1,14 +1,14 @@
-import type { CreatePrAction } from '@/types'
+import type { BaseBranchAction } from '@/types'
 
-type CreatePrActionEditorProps = {
-  action: CreatePrAction
-  setAction: (value: CreatePrAction) => void
+type BaseBranchActionEditorProps = {
+  action: BaseBranchAction
+  setAction: (value: BaseBranchAction) => void
 }
 
-export function CreatePrActionEditor({
+export function BaseBranchActionEditor({
   action,
   setAction,
-}: CreatePrActionEditorProps) {
+}: BaseBranchActionEditorProps) {
   return (
     <div className="rounded-lg border border-border-default bg-bg/50 p-3">
       <label className="mb-1 block text-xs font-medium text-text-secondary">

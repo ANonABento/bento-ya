@@ -1,8 +1,10 @@
-import type { Task } from '@/types'
-import type { ReviewStatus } from '@/types'
+import { useState } from 'react'
+import type { Task, ReviewStatus } from '@/types'
 import type { AttentionItem } from '@/stores/attention-store'
 import { ATTENTION_LABELS } from '@/stores/attention-store'
 import { REVIEW_STATUS_LABELS } from '@/constants/status'
+import { Tooltip } from '@/components/shared/tooltip'
+import { parsePipelineError } from '@/lib/pipeline-error-utils'
 
 /** Attention/needs-attention banner */
 export function AttentionBanner({ attention }: { attention: AttentionItem }) {
@@ -65,7 +67,7 @@ export function QualityGateBanner({ reviewStatus }: { reviewStatus: ReviewStatus
   )
 }
 
-/** Pipeline error banner with retry button */
+/** Pipeline error banner with retry button and expandable "Why did this fail?" panel */
 export function PipelineErrorBanner({
   task,
   onRetry,
@@ -73,21 +75,66 @@ export function PipelineErrorBanner({
   task: Task
   onRetry: () => void
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const rawError = task.pipelineError ?? ''
+  const parsed = parsePipelineError(rawError)
+
   return (
-    <div className="flex items-center gap-1.5 rounded bg-error/10 px-2 py-1 text-xs text-error">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
-        <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm.75-8.25a.75.75 0 0 0-1.5 0v3.5a.75.75 0 0 0 1.5 0v-3.5ZM8 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
-      </svg>
-      <span className="truncate flex-1">{task.pipelineError}{task.retryCount > 0 && ` (${String(task.retryCount)} retries)`}</span>
-      <button
-        onClick={(e) => {
-          e.stopPropagation()
-          onRetry()
-        }}
-        className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-error/20 hover:bg-error/30 transition-colors"
-      >
-        Retry
-      </button>
+    <div className="rounded bg-error/10 text-xs text-error">
+      <div className="flex items-center gap-1.5 px-2 py-1">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
+          <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm.75-8.25a.75.75 0 0 0-1.5 0v3.5a.75.75 0 0 0 1.5 0v-3.5ZM8 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+        </svg>
+        <Tooltip content={rawError || parsed.friendlyMessage} side="top" wrap delay={400}>
+          <span className="truncate flex-1 cursor-default">
+            {parsed.friendlyMessage}
+            {task.retryCount > 0 && ` (${String(task.retryCount)} retries)`}
+          </span>
+        </Tooltip>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            setExpanded((v) => !v)
+          }}
+          className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium text-error/70 hover:text-error hover:bg-error/20 transition-colors"
+        >
+          Why?
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onRetry()
+          }}
+          className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-error/20 hover:bg-error/30 transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+      {expanded && (
+        <div
+          className="px-2 pb-2 space-y-1.5"
+          onClick={(e) => { e.stopPropagation() }}
+        >
+          <ul className="space-y-0.5">
+            {parsed.suggestedFixes.map((fix) => (
+              <li key={fix} className="flex items-start gap-1 text-error/70">
+                <span className="mt-0.5 shrink-0">→</span>
+                <span>{fix}</span>
+              </li>
+            ))}
+          </ul>
+          {rawError && (
+            <details className="mt-1">
+              <summary className="cursor-pointer text-error/50 hover:text-error/70 transition-colors">
+                Raw error
+              </summary>
+              <p className="mt-1 break-all text-error/50 font-mono text-[10px] leading-relaxed">
+                {rawError}
+              </p>
+            </details>
+          )}
+        </div>
+      )}
     </div>
   )
 }

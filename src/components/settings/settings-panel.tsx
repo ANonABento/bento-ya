@@ -8,6 +8,7 @@ import { BoardTab } from './tabs/board-tab'
 import { VoiceTab } from './tabs/voice-tab'
 import { AdvancedTab } from './tabs/advanced-tab'
 import { GitTab } from './tabs/git-tab'
+import { GithubTab } from './tabs/github-tab'
 import { ShortcutsTab } from './tabs/shortcuts-tab'
 
 // SVG Icons for settings tabs
@@ -49,6 +50,11 @@ const icons: Record<string, React.ReactNode> = {
       <path fillRule="evenodd" d="M8.34 1.804A1 1 0 0 1 9.32 1h1.36a1 1 0 0 1 .98.804l.295 1.473c.497.144.971.342 1.416.587l1.25-.834a1 1 0 0 1 1.262.125l.962.962a1 1 0 0 1 .125 1.262l-.834 1.25c.245.445.443.919.587 1.416l1.473.295a1 1 0 0 1 .804.98v1.36a1 1 0 0 1-.804.98l-1.473.295a6.95 6.95 0 0 1-.587 1.416l.834 1.25a1 1 0 0 1-.125 1.262l-.962.962a1 1 0 0 1-1.262.125l-1.25-.834a6.953 6.953 0 0 1-1.416.587l-.295 1.473a1 1 0 0 1-.98.804H9.32a1 1 0 0 1-.98-.804l-.295-1.473a6.957 6.957 0 0 1-1.416-.587l-1.25.834a1 1 0 0 1-1.262-.125l-.962-.962a1 1 0 0 1-.125-1.262l.834-1.25a6.957 6.957 0 0 1-.587-1.416l-1.473-.295A1 1 0 0 1 1 10.68V9.32a1 1 0 0 1 .804-.98l1.473-.295c.144-.497.342-.971.587-1.416l-.834-1.25a1 1 0 0 1 .125-1.262l.962-.962A1 1 0 0 1 5.38 3.03l1.25.834a6.957 6.957 0 0 1 1.416-.587l.295-1.473ZM13 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" clipRule="evenodd" />
     </svg>
   ),
+  github: (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+      <path fillRule="evenodd" d="M10 1.944A10.065 10.065 0 0 0 0 12.01c0 4.44 2.865 8.207 6.84 9.537.5.093.683-.217.683-.483 0-.237-.009-.868-.013-1.703-2.782.605-3.369-1.342-3.369-1.342-.454-1.156-1.11-1.463-1.11-1.463-.908-.621.069-.608.069-.608 1.004.071 1.532 1.03 1.532 1.03.891 1.529 2.341 1.088 2.91.832.092-.647.35-1.089.636-1.34-2.22-.253-4.556-1.11-4.556-4.944 0-1.091.39-1.984 1.03-2.682-.103-.253-.447-1.27.097-2.647 0 0 .84-.269 2.75 1.025A9.577 9.577 0 0 1 10 6.836c.85.004 1.705.114 2.504.337 1.909-1.294 2.748-1.025 2.748-1.025.546 1.377.202 2.394.1 2.647.64.698 1.028 1.591 1.028 2.682 0 3.842-2.34 4.688-4.566 4.935.359.309.678.919.678 1.852 0 1.337-.012 2.415-.012 2.742 0 .268.18.58.688.482A10.07 10.07 0 0 0 20 12.01 10.065 10.065 0 0 0 10 1.944Z" clipRule="evenodd" />
+    </svg>
+  ),
 }
 
 const TABS = [
@@ -58,6 +64,7 @@ const TABS = [
   { id: 'mcp', label: 'Connect' },
   { id: 'board', label: 'Board' },
   { id: 'voice', label: 'Voice' },
+  { id: 'github', label: 'GitHub' },
   { id: 'advanced', label: 'Advanced' },
 ] as const
 
@@ -81,6 +88,8 @@ export function SettingsPanel() {
         return <BoardTab />
       case 'voice':
         return <VoiceTab />
+      case 'github':
+        return <GithubTab />
       case 'advanced':
         return (
           <div className="space-y-8">

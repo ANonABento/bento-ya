@@ -1,6 +1,6 @@
 use rusqlite::{params, Connection, Result as SqlResult};
 
-use super::models::{UsageRecord, UsageSummary};
+use super::models::{ColumnCost, DailyCost, TaskCost, UsageRecord, UsageSummary};
 use super::{new_id, now};
 
 pub const PROVIDER_ANTHROPIC: &str = "anthropic";
@@ -130,6 +130,97 @@ pub fn get_task_usage_summary(conn: &Connection, task_id: &str) -> SqlResult<Usa
             record_count: row.get(3)?,
         }),
     )
+}
+
+/// Daily cost aggregation for the past N days (for time-series charts).
+pub fn get_workspace_daily_costs(
+    conn: &Connection,
+    workspace_id: &str,
+    days: i64,
+) -> SqlResult<Vec<DailyCost>> {
+    let mut stmt = conn.prepare(
+        "SELECT DATE(created_at) as date,
+                COALESCE(SUM(cost_usd), 0.0) as cost_usd,
+                COALESCE(SUM(input_tokens), 0) as input_tokens,
+                COALESCE(SUM(output_tokens), 0) as output_tokens,
+                COUNT(*) as record_count
+         FROM usage_records
+         WHERE workspace_id = ?1
+           AND created_at >= DATE('now', '-' || ?2 || ' days')
+         GROUP BY DATE(created_at)
+         ORDER BY date ASC",
+    )?;
+    let rows = stmt.query_map(params![workspace_id, days], |row| {
+        Ok(DailyCost {
+            date: row.get(0)?,
+            cost_usd: row.get(1)?,
+            input_tokens: row.get(2)?,
+            output_tokens: row.get(3)?,
+            record_count: row.get(4)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Cost aggregated by column name.
+pub fn get_workspace_column_costs(
+    conn: &Connection,
+    workspace_id: &str,
+) -> SqlResult<Vec<ColumnCost>> {
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(column_name, 'Untracked') as column_name,
+                COALESCE(SUM(cost_usd), 0.0) as cost_usd,
+                COALESCE(SUM(input_tokens), 0) as input_tokens,
+                COALESCE(SUM(output_tokens), 0) as output_tokens,
+                COUNT(*) as record_count
+         FROM usage_records
+         WHERE workspace_id = ?1
+         GROUP BY column_name
+         ORDER BY cost_usd DESC",
+    )?;
+    let rows = stmt.query_map(params![workspace_id], |row| {
+        Ok(ColumnCost {
+            column_name: row.get(0)?,
+            cost_usd: row.get(1)?,
+            input_tokens: row.get(2)?,
+            output_tokens: row.get(3)?,
+            record_count: row.get(4)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Cost aggregated by task (top N tasks by cost), with task title from JOIN.
+pub fn get_workspace_task_costs(
+    conn: &Connection,
+    workspace_id: &str,
+    limit: i64,
+) -> SqlResult<Vec<TaskCost>> {
+    let mut stmt = conn.prepare(
+        "SELECT u.task_id,
+                COALESCE(t.title, 'Unknown Task') as task_title,
+                COALESCE(SUM(u.cost_usd), 0.0) as cost_usd,
+                COALESCE(SUM(u.input_tokens), 0) as input_tokens,
+                COALESCE(SUM(u.output_tokens), 0) as output_tokens,
+                COUNT(*) as record_count
+         FROM usage_records u
+         LEFT JOIN tasks t ON t.id = u.task_id
+         WHERE u.workspace_id = ?1 AND u.task_id IS NOT NULL
+         GROUP BY u.task_id
+         ORDER BY cost_usd DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![workspace_id, limit], |row| {
+        Ok(TaskCost {
+            task_id: row.get(0)?,
+            task_title: row.get(1)?,
+            cost_usd: row.get(2)?,
+            input_tokens: row.get(3)?,
+            output_tokens: row.get(4)?,
+            record_count: row.get(5)?,
+        })
+    })?;
+    rows.collect()
 }
 
 pub fn delete_workspace_usage(conn: &Connection, workspace_id: &str) -> SqlResult<()> {

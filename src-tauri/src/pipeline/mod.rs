@@ -118,6 +118,50 @@ pub fn emit_tasks_changed(app: &AppHandle, workspace_id: &str, reason: &str) {
     );
 }
 
+fn column_is_terminal(conn: &Connection, column: &Column) -> Result<bool, AppError> {
+    if column.name.eq_ignore_ascii_case("done") {
+        return Ok(true);
+    }
+
+    Ok(db::get_next_column(conn, &column.workspace_id, column.position)?.is_none())
+}
+
+/// Clean up the per-task worktree after a task reaches the terminal Done column.
+///
+/// This intentionally leaves branch deletion to the merge flow. The worktree path
+/// is cleared only after git reports the worktree was removed.
+pub fn cleanup_task_worktree_if_terminal(
+    conn: &Connection,
+    task: &Task,
+    column: &Column,
+    reason: &str,
+) -> Result<Task, AppError> {
+    if task.worktree_path.as_deref().unwrap_or("").is_empty() || !column_is_terminal(conn, column)?
+    {
+        return Ok(task.clone());
+    }
+
+    let workspace = db::get_workspace(conn, &task.workspace_id)?;
+    match crate::git::branch_manager::remove_task_worktree(&workspace.repo_path, &task.id) {
+        Ok(()) => {
+            log::info!(
+                "[worktree-cleanup] Removed worktree for completed task {} ({})",
+                task.id,
+                reason
+            );
+            Ok(db::update_task_worktree_path(conn, &task.id, None)?)
+        }
+        Err(e) => {
+            log::warn!(
+                "[worktree-cleanup] Failed to remove worktree for completed task {}: {}",
+                task.id,
+                e
+            );
+            Ok(task.clone())
+        }
+    }
+}
+
 /// Payload sent to webhook URLs
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -536,6 +580,8 @@ pub fn try_auto_advance(
             ).map_err(AppError::from)?;
 
             let updated_task = db::get_task(conn, &task.id)?;
+            let updated_task =
+                cleanup_task_worktree_if_terminal(conn, &updated_task, &next_col, "auto_advance")?;
 
             emit_pipeline(
                 app,
@@ -883,6 +929,9 @@ mod tests {
             dependencies: None,
             blocked: false,
             worktree_path: None,
+            github_issue_number: None,
+            github_issue_commented: false,
+            github_issue_pr_linked: false,
             created_at: "2024-01-01T00:00:00Z".into(),
             updated_at: "2024-01-01T00:00:00Z".into(),
         }

@@ -1,4 +1,4 @@
-use crate::db::{self, AppState, UsageRecord, UsageSummary};
+use crate::db::{self, AppState, ColumnCost, DailyCost, TaskCost, UsageRecord, UsageSummary};
 use crate::error::AppError;
 use tauri::State;
 
@@ -93,4 +93,42 @@ pub fn clear_workspace_usage(state: State<AppState>, workspace_id: String) -> Re
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::delete_workspace_usage(&conn, &workspace_id).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn get_workspace_daily_costs(
+    state: State<AppState>,
+    workspace_id: String,
+    days: Option<i64>,
+) -> Result<Vec<DailyCost>, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    db::get_workspace_daily_costs(&conn, &workspace_id, days.unwrap_or(30)).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn get_workspace_column_costs(
+    state: State<AppState>,
+    workspace_id: String,
+) -> Result<Vec<ColumnCost>, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    db::get_workspace_column_costs(&conn, &workspace_id).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn get_workspace_task_costs(
+    state: State<AppState>,
+    workspace_id: String,
+    limit: Option<i64>,
+) -> Result<Vec<TaskCost>, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    db::get_workspace_task_costs(&conn, &workspace_id, limit.unwrap_or(10)).map_err(AppError::from)
 }
