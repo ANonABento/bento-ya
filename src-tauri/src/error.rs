@@ -16,6 +16,12 @@ pub enum AppError {
     CommandError(String),
 }
 
+impl From<tauri_plugin_updater::Error> for AppError {
+    fn from(err: tauri_plugin_updater::Error) -> Self {
+        AppError::CommandError(err.to_string())
+    }
+}
+
 impl From<rusqlite::Error> for AppError {
     fn from(err: rusqlite::Error) -> Self {
         match err {

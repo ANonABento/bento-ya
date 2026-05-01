@@ -10,6 +10,7 @@ import { AdvancedTab } from './tabs/advanced-tab'
 import { GitTab } from './tabs/git-tab'
 import { GithubTab } from './tabs/github-tab'
 import { ShortcutsTab } from './tabs/shortcuts-tab'
+import { UpdatesTab } from './tabs/updates-tab'
 
 // SVG Icons for settings tabs
 const icons: Record<string, React.ReactNode> = {
@@ -55,6 +56,11 @@ const icons: Record<string, React.ReactNode> = {
       <path fillRule="evenodd" d="M10 1.944A10.065 10.065 0 0 0 0 12.01c0 4.44 2.865 8.207 6.84 9.537.5.093.683-.217.683-.483 0-.237-.009-.868-.013-1.703-2.782.605-3.369-1.342-3.369-1.342-.454-1.156-1.11-1.463-1.11-1.463-.908-.621.069-.608.069-.608 1.004.071 1.532 1.03 1.532 1.03.891 1.529 2.341 1.088 2.91.832.092-.647.35-1.089.636-1.34-2.22-.253-4.556-1.11-4.556-4.944 0-1.091.39-1.984 1.03-2.682-.103-.253-.447-1.27.097-2.647 0 0 .84-.269 2.75 1.025A9.577 9.577 0 0 1 10 6.836c.85.004 1.705.114 2.504.337 1.909-1.294 2.748-1.025 2.748-1.025.546 1.377.202 2.394.1 2.647.64.698 1.028 1.591 1.028 2.682 0 3.842-2.34 4.688-4.566 4.935.359.309.678.919.678 1.852 0 1.337-.012 2.415-.012 2.742 0 .268.18.58.688.482A10.07 10.07 0 0 0 20 12.01 10.065 10.065 0 0 0 10 1.944Z" clipRule="evenodd" />
     </svg>
   ),
+  updates: (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+      <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0V5.36l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
+    </svg>
+  ),
 }
 
 const TABS = [
@@ -65,6 +71,7 @@ const TABS = [
   { id: 'board', label: 'Board' },
   { id: 'voice', label: 'Voice' },
   { id: 'github', label: 'GitHub' },
+  { id: 'updates', label: 'Updates' },
   { id: 'advanced', label: 'Advanced' },
 ] as const
 
@@ -90,6 +97,8 @@ export function SettingsPanel() {
         return <VoiceTab />
       case 'github':
         return <GithubTab />
+      case 'updates':
+        return <UpdatesTab />
       case 'advanced':
         return (
           <div className="space-y-8">

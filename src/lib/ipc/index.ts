@@ -17,6 +17,7 @@ export * from './siege'
 export * from './github'
 export * from './terminal'
 export * from './models'
+export * from './updater'
 
 // Re-export listen and types that consumers use directly
 export { listen, type UnlistenFn, type EventCallback } from './invoke'
