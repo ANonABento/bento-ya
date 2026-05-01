@@ -6,6 +6,8 @@ use crate::chat::registry::SharedSessionRegistry;
 use crate::chat::session::{SessionConfig, SessionState, TransportType, UnifiedChatSession};
 use crate::db::{self, AgentMessage, AppState};
 use crate::error::AppError;
+use crate::llm::{calculate_cost, types::TokenUsage as LlmTokenUsage};
+use std::sync::{Arc, Mutex};
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -272,13 +274,14 @@ pub async fn stream_agent_chat(
     }
 
     // 2. Build agent system prompt
-    let system_prompt = {
+    let (system_prompt, task_workspace_id) = {
         let conn = state
             .db
             .lock()
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         let task = db::get_task(&conn, &task_id)?;
-        format!(
+        let task_workspace_id = task.workspace_id.clone();
+        let system_prompt = format!(
             r#"You are an AI assistant helping with the task: "{}"
 
 Task Description:
@@ -288,7 +291,8 @@ Work in the current directory. You have access to tools for reading/editing file
 Be concise and helpful."#,
             task.title,
             task.description.unwrap_or_default()
-        )
+        );
+        (system_prompt, task_workspace_id)
     };
 
     // 3. Get or create session, configure it, then release lock before long await
@@ -327,9 +331,16 @@ Be concise and helpful."#,
     // Send message WITHOUT holding the registry lock
     let task_id_for_events = task_id.clone();
     let app_for_events = app.clone();
+    let final_usage = Arc::new(Mutex::new(None::<crate::chat::events::TokenUsage>));
+    let final_usage_for_events = final_usage.clone();
 
     let (full_response, captured_cli_session_id) = session
         .send_message(&message, move |event| {
+            if let ChatEvent::Result(usage) = &event {
+                if let Ok(mut lock) = final_usage_for_events.lock() {
+                    *lock = Some(usage.clone());
+                }
+            }
             emit_agent_event(&app_for_events, &task_id_for_events, event);
         })
         .await
@@ -347,6 +358,7 @@ Be concise and helpful."#,
             .db
             .lock()
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let mut agent_session_id = None;
 
         if let Some(cli_sid) = &captured_cli_session_id {
             let agent_session = db::get_or_create_agent_session_for_task(
@@ -355,9 +367,10 @@ Be concise and helpful."#,
                 "claude",
                 Some(&working_dir),
             )?;
+            agent_session_id = Some(agent_session.id.clone());
             db::update_agent_session_cli(
                 &conn,
-                &agent_session.id,
+                agent_session.id.as_str(),
                 Some(cli_sid),
                 Some(&model),
                 effort_level.as_deref(),
@@ -374,6 +387,32 @@ Be concise and helpful."#,
             None,
             None,
         )?;
+
+        if let Some(usage) = final_usage.lock().ok().and_then(|usage| usage.clone()) {
+            let resolved_model = usage
+                .model
+                .unwrap_or_else(|| model.clone());
+            let cost = calculate_cost(
+                &resolved_model,
+                &LlmTokenUsage {
+                    input_tokens: usage.input_tokens,
+                    output_tokens: usage.output_tokens,
+                },
+            );
+            let _ = db::insert_usage_record(
+                &conn,
+                &task_workspace_id,
+                Some(&task_id),
+                agent_session_id.as_deref(),
+                "anthropic",
+                &resolved_model,
+                usage.input_tokens,
+                usage.output_tokens,
+                cost,
+                None,
+                0,
+            );
+        }
     }
 
     // 5. Emit completion event

@@ -4,8 +4,9 @@ use crate::chat::{
 };
 use crate::db::{self, AppState};
 use crate::error::AppError;
-use crate::llm::{execute_tools, parse_cli_action_blocks};
+use crate::llm::{calculate_cost, execute_tools, parse_cli_action_blocks, types::TokenUsage};
 use tauri::{AppHandle, Emitter, State};
+use std::sync::{Arc, Mutex};
 
 use super::{
     db_conn, session_registry_key,
@@ -28,6 +29,7 @@ pub(super) async fn stream_via_unified_cli(
     resume_id: Option<&str>,
 ) -> Result<(), AppError> {
     let registry_key = session_registry_key(workspace_id, session_id);
+    let final_usage = Arc::new(Mutex::new(None::<crate::chat::events::TokenUsage>));
 
     let (full_response, captured_cli_session_id) = {
         let mut registry = session_registry.lock().await;
@@ -80,8 +82,14 @@ pub(super) async fn stream_via_unified_cli(
         let chat_session_id = session_id.to_string();
         let app_for_events = app.clone();
 
+        let final_usage_for_events = final_usage.clone();
         let result = session
             .send_message(&full_message, move |event| {
+                if let ChatEvent::Result(usage) = &event {
+                    if let Ok(mut lock) = final_usage_for_events.lock() {
+                        *lock = Some(usage.clone());
+                    }
+                }
                 emit_orchestrator_cli_event(&app_for_events, &ws_id, &chat_session_id, event);
             })
             .await;
@@ -102,8 +110,14 @@ pub(super) async fn stream_via_unified_cli(
                     let ws_id2 = workspace_id.to_string();
                     let chat_session_id2 = session_id.to_string();
                     let app_retry = app.clone();
+                    let final_usage_retry = final_usage.clone();
                     session
                         .send_message(&full_message, move |event| {
+                            if let ChatEvent::Result(usage) = &event {
+                                if let Ok(mut lock) = final_usage_retry.lock() {
+                                    *lock = Some(usage.clone());
+                                }
+                            }
                             emit_orchestrator_cli_event(
                                 &app_retry,
                                 &ws_id2,
@@ -124,8 +138,14 @@ pub(super) async fn stream_via_unified_cli(
                 let ws_id2 = workspace_id.to_string();
                 let chat_session_id2 = session_id.to_string();
                 let app_retry = app.clone();
+                let final_usage_retry = final_usage.clone();
                 session
                     .send_message(&full_message, move |event| {
+                        if let ChatEvent::Result(usage) = &event {
+                            if let Ok(mut lock) = final_usage_retry.lock() {
+                                *lock = Some(usage.clone());
+                            }
+                        }
                         emit_orchestrator_cli_event(&app_retry, &ws_id2, &chat_session_id2, event);
                     })
                     .await
@@ -137,6 +157,32 @@ pub(super) async fn stream_via_unified_cli(
     if let Some(cli_sid) = &captured_cli_session_id {
         let conn = db_conn(&state)?;
         let _ = db::update_chat_session_cli_id(&conn, session_id, Some(cli_sid));
+    }
+
+    if let Some(usage) = final_usage.lock().ok().and_then(|usage| usage.clone()) {
+        let resolved_model = usage.model.unwrap_or_else(|| model.to_string());
+        let cost = calculate_cost(
+            &resolved_model,
+            &TokenUsage {
+                input_tokens: usage.input_tokens,
+                output_tokens: usage.output_tokens,
+            },
+        );
+
+        let conn = db_conn(&state)?;
+        let _ = db::insert_usage_record(
+            &conn,
+            workspace_id,
+            None,
+            Some(orch_session_id),
+            "anthropic",
+            &resolved_model,
+            usage.input_tokens,
+            usage.output_tokens,
+            cost,
+            None,
+            0,
+        );
     }
 
     {
