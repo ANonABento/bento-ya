@@ -63,6 +63,7 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
   const [columnCosts, setColumnCosts] = useState<ColumnCost[]>([])
   const [taskCosts, setTaskCosts] = useState<TaskCost[]>([])
   const [workspaceCosts, setWorkspaceCosts] = useState<WorkspaceCost[]>([])
+  const [workspaceCostsLoading, setWorkspaceCostsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview')
 
   useEffect(() => {
@@ -73,6 +74,8 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
 
   useEffect(() => {
     if (allWorkspaces.length === 0) return
+    let cancelled = false
+    setWorkspaceCostsLoading(true)
     void Promise.all(
       allWorkspaces.map(async (ws) => {
         const s = await getWorkspaceUsageSummary(ws.id)
@@ -86,8 +89,14 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
         } satisfies WorkspaceCost
       }),
     ).then((costs) => {
+      if (cancelled) return
       setWorkspaceCosts(costs.sort((a, b) => b.totalCostUsd - a.totalCostUsd))
+    }).catch(() => {
+      // non-critical: workspace cost summaries will just remain empty
+    }).finally(() => {
+      if (!cancelled) setWorkspaceCostsLoading(false)
     })
+    return () => { cancelled = true }
   }, [allWorkspaces])
 
   const modelStats = useMemo((): ModelStats[] => {
@@ -403,7 +412,9 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
               {activeTab === 'workspace' && (
                 <div className="rounded-xl border border-border-default bg-bg p-4">
                   <h3 className="mb-4 font-semibold text-text-primary">Cost by Workspace</h3>
-                  {workspaceCosts.length === 0 ? (
+                  {workspaceCostsLoading ? (
+                    <p className="text-sm text-text-secondary">Loading workspace costs...</p>
+                  ) : workspaceCosts.length === 0 ? (
                     <p className="text-sm text-text-secondary">No workspace data available</p>
                   ) : (
                     <div className="space-y-3">
