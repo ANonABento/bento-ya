@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useEffect } from 'react'
+import { memo, useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { IconButton } from '@/components/shared/icon-button'
 
@@ -22,6 +22,7 @@ type ColumnHeaderProps = {
   batchQueue?: BatchQueueState
   onConfigure: () => void
   onDelete: () => void
+  onRename: (name: string) => void
   onAddTask: () => void
   onRunAll?: () => void
   onCancelQueue?: () => void
@@ -94,12 +95,16 @@ export const ColumnHeader = memo(function ColumnHeader({
   batchQueue,
   onConfigure,
   onDelete,
+  onRename,
   onAddTask,
   onRunAll,
   onCancelQueue,
 }: ColumnHeaderProps) {
   const [showMenu, setShowMenu] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState(name)
+  const renameInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
   // Close menu when clicking outside
@@ -123,6 +128,40 @@ export const ColumnHeader = memo(function ColumnHeader({
     onRunAll?.()
   }
 
+  const startRename = useCallback(() => {
+    setRenameValue(name)
+    setIsRenaming(true)
+  }, [name])
+
+  const finishRename = useCallback(() => {
+    if (isRenaming) {
+      const nextName = renameValue.trim()
+      if (nextName && nextName !== name) {
+        onRename(nextName)
+      }
+      setIsRenaming(false)
+      setRenameValue(name)
+    }
+  }, [isRenaming, name, onRename, renameValue])
+
+  const cancelRename = useCallback(() => {
+    setIsRenaming(false)
+    setRenameValue(name)
+  }, [name])
+
+  useEffect(() => {
+    if (!isRenaming) {
+      setRenameValue(name)
+    }
+  }, [isRenaming, name])
+
+  useEffect(() => {
+    if (isRenaming) {
+      renameInputRef.current?.focus()
+      renameInputRef.current?.select()
+    }
+  }, [isRenaming])
+
   return (
     <>
       <div className="flex items-center gap-2 px-3 py-2">
@@ -132,9 +171,35 @@ export const ColumnHeader = memo(function ColumnHeader({
         >
           {getIcon(icon)}
         </span>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary truncate">
-          {name}
-        </h3>
+        {isRenaming ? (
+          <input
+            ref={renameInputRef}
+            value={renameValue}
+            onChange={(event) => { setRenameValue(event.target.value) }}
+            onBlur={finishRename}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                finishRename()
+              }
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                cancelRename()
+              }
+            }}
+            onClick={(event) => { event.stopPropagation() }}
+            className="h-5 w-32 rounded border border-border-default bg-surface px-1.5 text-xs font-semibold uppercase tracking-wider text-text-secondary"
+          />
+        ) : (
+          <h3
+            style={{ cursor: 'text' }}
+            className="max-w-40 text-xs font-semibold uppercase tracking-wider text-text-secondary select-none truncate"
+            onDoubleClick={startRename}
+            title={name}
+          >
+            {name}
+          </h3>
+        )}
         <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
           {taskCount}
         </span>

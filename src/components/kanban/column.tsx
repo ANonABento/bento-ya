@@ -32,6 +32,7 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
+  const updateColumnAsync = useColumnStore((s) => s.updateColumnAsync)
   const getScriptName = useScriptStore((s) => s.getScriptName)
 
   // Memoize filtered tasks to prevent infinite loops
@@ -160,17 +161,17 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
   }, [])
 
   const handleDelete = useCallback(() => {
-    if (tasks.length > 0) {
-      setShowDeleteConfirm(true)
-    } else {
-      void remove(column.id)
-    }
-  }, [column.id, tasks.length, remove])
+    setShowDeleteConfirm(true)
+  }, [])
 
-  const confirmDelete = useCallback(() => {
-    void remove(column.id)
+  const confirmDelete = useCallback(async () => {
+    await remove(column.id)
     setShowDeleteConfirm(false)
   }, [column.id, remove])
+
+  const handleRename = useCallback(async (name: string) => {
+    await updateColumnAsync(column.id, { name })
+  }, [column.id, updateColumnAsync])
 
   const handleAddTask = useCallback(() => {
     setShowAddTask(true)
@@ -210,6 +211,7 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
             batchQueue={batchQueueState.isQueuing ? { total: batchQueueState.total, completed: batchQueueState.completed } : undefined}
             onConfigure={handleConfigure}
             onDelete={handleDelete}
+            onRename={handleRename}
             onAddTask={handleAddTask}
             onRunAll={() => { void handleRunAll(); }}
             onCancelQueue={() => { void handleCancelQueue(); }}
