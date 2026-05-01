@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     batch_id TEXT,
     files_touched TEXT DEFAULT '[]',
     checklist TEXT,
+    estimated_hours REAL,
+    actual_hours REAL NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,

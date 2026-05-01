@@ -3,8 +3,8 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use super::models::Task;
 use super::{new_id, now};
 
-/// Shared SELECT columns for tasks (49 fields).
-const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked";
+/// Shared SELECT columns for tasks (51 fields).
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, estimated_hours, COALESCE((SELECT ROUND(SUM(MAX((julianday(agent_sessions.updated_at) - julianday(agent_sessions.created_at)) * 24.0, 0.0)), 4) FROM agent_sessions WHERE agent_sessions.task_id = tasks.id), actual_hours, 0.0) AS actual_hours, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked";
 
 /// Generate a sortable task batch identifier for staging PR workflows.
 pub fn generate_batch_id() -> String {
@@ -22,51 +22,53 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         position: row.get(5)?,
         priority: row.get(6)?,
         agent_mode: row.get(7)?,
-        agent_status: row.get(40)?,
-        queued_at: row.get(41)?,
+        agent_status: row.get(42)?,
+        queued_at: row.get(43)?,
         branch_name: row.get(8)?,
-        batch_id: row.get(45)?,
+        batch_id: row.get(47)?,
         files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
         checklist: row.get(10)?,
+        estimated_hours: row.get(11)?,
+        actual_hours: row.get::<_, Option<f64>>(12)?.unwrap_or(0.0),
         pipeline_state: row
-            .get::<_, Option<String>>(11)?
+            .get::<_, Option<String>>(13)?
             .unwrap_or_else(|| "idle".to_string()),
-        pipeline_triggered_at: row.get(12)?,
-        pipeline_error: row.get(13)?,
-        retry_count: row.get::<_, Option<i64>>(42)?.unwrap_or(0),
-        model: row.get(43)?,
-        agent_session_id: row.get(14)?,
-        last_script_exit_code: row.get(15)?,
-        review_status: row.get(16)?,
-        pr_number: row.get(17)?,
-        pr_url: row.get(18)?,
-        siege_iteration: row.get::<_, Option<i64>>(19)?.unwrap_or(0),
-        siege_active: row.get::<_, Option<i64>>(20)?.unwrap_or(0) != 0,
-        siege_max_iterations: row.get::<_, Option<i64>>(21)?.unwrap_or(5),
-        siege_last_checked: row.get(22)?,
-        pr_mergeable: row.get(23)?,
-        pr_ci_status: row.get(24)?,
-        pr_review_decision: row.get(25)?,
-        pr_comment_count: row.get::<_, Option<i64>>(26)?.unwrap_or(0),
-        pr_is_draft: row.get::<_, Option<i64>>(27)?.unwrap_or(0) != 0,
+        pipeline_triggered_at: row.get(14)?,
+        pipeline_error: row.get(15)?,
+        retry_count: row.get::<_, Option<i64>>(44)?.unwrap_or(0),
+        model: row.get(45)?,
+        agent_session_id: row.get(16)?,
+        last_script_exit_code: row.get(17)?,
+        review_status: row.get(18)?,
+        pr_number: row.get(19)?,
+        pr_url: row.get(20)?,
+        siege_iteration: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
+        siege_active: row.get::<_, Option<i64>>(22)?.unwrap_or(0) != 0,
+        siege_max_iterations: row.get::<_, Option<i64>>(23)?.unwrap_or(5),
+        siege_last_checked: row.get(24)?,
+        pr_mergeable: row.get(25)?,
+        pr_ci_status: row.get(26)?,
+        pr_review_decision: row.get(27)?,
+        pr_comment_count: row.get::<_, Option<i64>>(28)?.unwrap_or(0),
+        pr_is_draft: row.get::<_, Option<i64>>(29)?.unwrap_or(0) != 0,
         pr_labels: row
-            .get::<_, Option<String>>(28)?
+            .get::<_, Option<String>>(30)?
             .unwrap_or_else(|| "[]".to_string()),
-        pr_last_fetched: row.get(29)?,
-        pr_head_sha: row.get(30)?,
-        notify_stakeholders: row.get(31)?,
-        notification_sent_at: row.get(32)?,
-        trigger_overrides: row.get(33)?,
-        trigger_prompt: row.get(34)?,
-        last_output: row.get(35)?,
-        dependencies: row.get(36)?,
-        blocked: row.get::<_, Option<i64>>(37)?.unwrap_or(0) != 0,
-        worktree_path: row.get(44)?,
-        github_issue_number: row.get(46)?,
-        github_issue_commented: row.get::<_, Option<i64>>(47)?.unwrap_or(0) != 0,
-        github_issue_pr_linked: row.get::<_, Option<i64>>(48)?.unwrap_or(0) != 0,
-        created_at: row.get(38)?,
-        updated_at: row.get(39)?,
+        pr_last_fetched: row.get(31)?,
+        pr_head_sha: row.get(32)?,
+        notify_stakeholders: row.get(33)?,
+        notification_sent_at: row.get(34)?,
+        trigger_overrides: row.get(35)?,
+        trigger_prompt: row.get(36)?,
+        last_output: row.get(37)?,
+        dependencies: row.get(38)?,
+        blocked: row.get::<_, Option<i64>>(39)?.unwrap_or(0) != 0,
+        worktree_path: row.get(46)?,
+        github_issue_number: row.get(48)?,
+        github_issue_commented: row.get::<_, Option<i64>>(49)?.unwrap_or(0) != 0,
+        github_issue_pr_linked: row.get::<_, Option<i64>>(50)?.unwrap_or(0) != 0,
+        created_at: row.get(40)?,
+        updated_at: row.get(41)?,
     })
 }
 
@@ -161,6 +163,19 @@ pub fn update_task(
             ts,
             id,
         ],
+    )?;
+    get_task(conn, id)
+}
+
+pub fn update_task_time_tracking(
+    conn: &Connection,
+    id: &str,
+    estimated_hours: Option<f64>,
+) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET estimated_hours = ?1, updated_at = ?2 WHERE id = ?3",
+        params![estimated_hours, ts, id],
     )?;
     get_task(conn, id)
 }

@@ -1,0 +1,2 @@
+ALTER TABLE tasks ADD COLUMN estimated_hours REAL;
+ALTER TABLE tasks ADD COLUMN actual_hours REAL NOT NULL DEFAULT 0;

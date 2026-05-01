@@ -350,6 +350,8 @@ mod tests {
             batch_id: None,
             files_touched: "[]".to_string(),
             checklist: None,
+            estimated_hours: None,
+            actual_hours: 0.0,
             pipeline_state: "idle".to_string(),
             pipeline_triggered_at: None,
             pipeline_error: None,

@@ -76,6 +76,8 @@ export const mockTask = (overrides: Partial<Task> = {}): Task => ({
   prLastFetched: null,
   prHeadSha: null,
   checklist: null,
+  estimatedHours: null,
+  actualHours: 0,
   notifyStakeholders: null,
   notificationSentAt: null,
   triggerOverrides: null,

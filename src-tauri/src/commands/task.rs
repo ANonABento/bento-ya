@@ -89,7 +89,7 @@ pub fn list_tasks(state: State<AppState>, workspace_id: String) -> Result<Vec<Ta
     Ok(db::list_tasks(&conn, &workspace_id)?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 #[allow(clippy::too_many_arguments)]
 pub fn update_task(
     _app: AppHandle,
@@ -102,6 +102,7 @@ pub fn update_task(
     agent_mode: Option<Option<String>>,
     priority: Option<String>,
     model: Option<Option<String>>,
+    estimated_hours: Option<Option<f64>>,
 ) -> Result<Task, AppError> {
     if let Some(ref t) = title {
         if t.trim().is_empty() {
@@ -114,6 +115,13 @@ pub fn update_task(
         if pos < 0 {
             return Err(AppError::InvalidInput(
                 "Position must be non-negative".to_string(),
+            ));
+        }
+    }
+    if let Some(Some(hours)) = estimated_hours {
+        if !hours.is_finite() || hours < 0.0 {
+            return Err(AppError::InvalidInput(
+                "Estimated hours must be a non-negative number".to_string(),
             ));
         }
     }
@@ -145,6 +153,10 @@ pub fn update_task(
         )
         .map_err(AppError::from)?;
         task = db::get_task(&conn, &id)?;
+    }
+
+    if let Some(hours) = estimated_hours {
+        task = db::update_task_time_tracking(&conn, &id, hours)?;
     }
 
     Ok(task)
