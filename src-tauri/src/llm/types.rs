@@ -158,3 +158,16 @@ pub fn get_model_pricing(alias_or_id: &str) -> Option<(f64, f64)> {
     let full_id = resolve_model_id(alias_or_id);
     crate::models::metadata::get_pricing(&full_id)
 }
+
+/// Infer a stable provider id for usage records from the CLI path and model id.
+pub fn infer_provider_id(cli_path: &str, model: &str) -> &'static str {
+    let cli_and_model = format!("{cli_path} {model}").to_lowercase();
+    if cli_and_model.contains("codex")
+        || cli_and_model.contains("openai")
+        || cli_and_model.contains("gpt")
+    {
+        "openai"
+    } else {
+        "anthropic"
+    }
+}

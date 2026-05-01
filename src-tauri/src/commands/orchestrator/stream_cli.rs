@@ -1,10 +1,12 @@
 use crate::chat::{
-    ChatEvent, ChefSession, SessionConfig, SharedSessionRegistry, ToolStatus, TransportType,
-    UnifiedChatSession,
+    events::TokenUsage as ChatTokenUsage, ChatEvent, ChefSession, SessionConfig,
+    SharedSessionRegistry, ToolStatus, TransportType, UnifiedChatSession,
 };
 use crate::db::{self, AppState};
 use crate::error::AppError;
-use crate::llm::{calculate_cost, execute_tools, parse_cli_action_blocks, types::TokenUsage};
+use crate::llm::{
+    calculate_cost, execute_tools, infer_provider_id, parse_cli_action_blocks, types::TokenUsage,
+};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
 
@@ -14,6 +16,16 @@ use super::{
         OrchestratorEvent, StreamChunkPayload, ThinkingPayload, ToolCallPayload, ToolResultPayload,
     },
 };
+
+type SharedTokenUsage = Arc<Mutex<Option<ChatTokenUsage>>>;
+
+fn remember_result_usage(final_usage: &SharedTokenUsage, event: &ChatEvent) {
+    if let ChatEvent::Result(usage) = event {
+        if let Ok(mut lock) = final_usage.lock() {
+            *lock = Some(usage.clone());
+        }
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn stream_via_unified_cli(
@@ -29,7 +41,8 @@ pub(super) async fn stream_via_unified_cli(
     resume_id: Option<&str>,
 ) -> Result<(), AppError> {
     let registry_key = session_registry_key(workspace_id, session_id);
-    let final_usage = Arc::new(Mutex::new(None::<crate::chat::events::TokenUsage>));
+    let final_usage = Arc::new(Mutex::new(None::<ChatTokenUsage>));
+    let usage_provider = infer_provider_id(cli_path, model);
 
     let (full_response, captured_cli_session_id) = {
         let mut registry = session_registry.lock().await;
@@ -85,11 +98,7 @@ pub(super) async fn stream_via_unified_cli(
         let final_usage_for_events = final_usage.clone();
         let result = session
             .send_message(&full_message, move |event| {
-                if let ChatEvent::Result(usage) = &event {
-                    if let Ok(mut lock) = final_usage_for_events.lock() {
-                        *lock = Some(usage.clone());
-                    }
-                }
+                remember_result_usage(&final_usage_for_events, &event);
                 emit_orchestrator_cli_event(&app_for_events, &ws_id, &chat_session_id, event);
             })
             .await;
@@ -113,11 +122,7 @@ pub(super) async fn stream_via_unified_cli(
                     let final_usage_retry = final_usage.clone();
                     session
                         .send_message(&full_message, move |event| {
-                            if let ChatEvent::Result(usage) = &event {
-                                if let Ok(mut lock) = final_usage_retry.lock() {
-                                    *lock = Some(usage.clone());
-                                }
-                            }
+                            remember_result_usage(&final_usage_retry, &event);
                             emit_orchestrator_cli_event(
                                 &app_retry,
                                 &ws_id2,
@@ -141,11 +146,7 @@ pub(super) async fn stream_via_unified_cli(
                 let final_usage_retry = final_usage.clone();
                 session
                     .send_message(&full_message, move |event| {
-                        if let ChatEvent::Result(usage) = &event {
-                            if let Ok(mut lock) = final_usage_retry.lock() {
-                                *lock = Some(usage.clone());
-                            }
-                        }
+                        remember_result_usage(&final_usage_retry, &event);
                         emit_orchestrator_cli_event(&app_retry, &ws_id2, &chat_session_id2, event);
                     })
                     .await
@@ -175,7 +176,7 @@ pub(super) async fn stream_via_unified_cli(
             workspace_id,
             None,
             Some(orch_session_id),
-            "anthropic",
+            usage_provider,
             &resolved_model,
             usage.input_tokens,
             usage.output_tokens,

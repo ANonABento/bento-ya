@@ -25,6 +25,19 @@ const COMING_SOON = [
   { name: 'Local Models', description: 'Ollama, LM Studio, etc.' },
 ]
 
+function withoutModelBudget(
+  budgets: Record<string, number>,
+  modelId: string,
+): Record<string, number> {
+  const nextBudgets: Record<string, number> = {}
+  for (const [key, budget] of Object.entries(budgets)) {
+    if (key !== modelId) {
+      nextBudgets[key] = budget
+    }
+  }
+  return nextBudgets
+}
+
 export function AgentTab() {
   const global = useSettingsStore((s) => s.global)
   const updateGlobal = useSettingsStore((s) => s.updateGlobal)
@@ -86,24 +99,28 @@ export function AgentTab() {
   }, [allModels])
 
   const updateBudget = (modelId: string, value: string) => {
-    const nextBudgets = { ...(model.dailyTokenBudgets ?? {}) }
     const trimmed = value.trim()
     if (trimmed === '') {
-      delete nextBudgets[modelId]
-      updateGlobal('model', { ...model, dailyTokenBudgets: nextBudgets })
+      updateGlobal('model', {
+        ...model,
+        dailyTokenBudgets: withoutModelBudget(model.dailyTokenBudgets, modelId),
+      })
       return
     }
 
-    const parsed = Number.parseInt(trimmed, 10)
-    if (Number.isFinite(parsed) && parsed > 0) {
+    const parsed = Number(trimmed)
+    if (Number.isInteger(parsed) && parsed > 0) {
+      const nextBudgets = { ...model.dailyTokenBudgets }
       nextBudgets[modelId] = parsed
       updateGlobal('model', { ...model, dailyTokenBudgets: nextBudgets })
       return
     }
 
     if (trimmed === '0') {
-      delete nextBudgets[modelId]
-      updateGlobal('model', { ...model, dailyTokenBudgets: nextBudgets })
+      updateGlobal('model', {
+        ...model,
+        dailyTokenBudgets: withoutModelBudget(model.dailyTokenBudgets, modelId),
+      })
     }
   }
 
@@ -557,7 +574,7 @@ export function AgentTab() {
         {budgetableModels.length > 0 ? (
           <div className="space-y-3">
             {budgetableModels.map((m) => {
-              const budgetValue = model.dailyTokenBudgets?.[m.id]
+              const budgetValue = model.dailyTokenBudgets[m.id]
               const displayValue = budgetValue ? String(budgetValue) : ''
 
               return (

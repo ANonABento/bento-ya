@@ -35,6 +35,28 @@ function getUtcDateKey() {
   return new Date().toISOString().slice(0, 10)
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function parseDismissedWarningStorage(raw: string | null): Record<string, string[]> {
+  if (!raw) return {}
+
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!isRecord(parsed)) return {}
+
+    const result: Record<string, string[]> = {}
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue
+      result[key] = value.filter((modelId): modelId is string => typeof modelId === 'string')
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
 export function Board() {
   const panelDock = useUIStore((s) => s.panelDock)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -62,7 +84,7 @@ export function Board() {
   const { isChatOpen, activeTaskId, closeChat } = useChatPanel()
   const collapseTask = useUIStore((s) => s.collapseTask)
   const model = useSettingsStore((s) => s.global.model)
-  const budgets = model.dailyTokenBudgets ?? {}
+  const budgets = model.dailyTokenBudgets
   const [today, setToday] = useState(getUtcDateKey)
   const usageByModel = useWorkspaceUsageByModel(activeWorkspaceId ?? '', {
     enabled: !!activeWorkspaceId,
@@ -102,34 +124,15 @@ export function Board() {
       return
     }
 
-    try {
-      const raw = localStorage.getItem(USAGE_WARNING_DISMISSED_STORAGE_KEY)
-      if (!raw) {
-        setDismissedWarnings(new Set())
-        setLoadedDismissalStorageKey(storageKey)
-        return
-      }
-
-      const parsed = JSON.parse(raw)
-      const saved = parsed?.[storageKey]
-      if (!Array.isArray(saved)) {
-        setDismissedWarnings(new Set())
-        setLoadedDismissalStorageKey(storageKey)
-        return
-      }
-
-      const values = new Set<string>()
-      for (const modelId of saved) {
-        if (typeof modelId === 'string') {
-          values.add(`${storageKey}|${modelId}`)
-        }
-      }
-      setDismissedWarnings(values)
-      setLoadedDismissalStorageKey(storageKey)
-    } catch {
-      setDismissedWarnings(new Set())
-      setLoadedDismissalStorageKey(storageKey)
+    const storage = parseDismissedWarningStorage(
+      localStorage.getItem(USAGE_WARNING_DISMISSED_STORAGE_KEY),
+    )
+    const values = new Set<string>()
+    for (const modelId of storage[storageKey] ?? []) {
+      values.add(`${storageKey}|${modelId}`)
     }
+    setDismissedWarnings(values)
+    setLoadedDismissalStorageKey(storageKey)
   }, [activeWorkspaceId, storageKey])
 
   // Unified close: collapse card + close chat (used by back button, Escape, re-click)
@@ -168,19 +171,9 @@ export function Board() {
 
   useEffect(() => {
     if (!activeWorkspaceId || loadedDismissalStorageKey !== storageKey) return
-    let rawPayload: Record<string, string[]> = {}
-
-    try {
-      const existingRaw = localStorage.getItem(USAGE_WARNING_DISMISSED_STORAGE_KEY)
-      if (existingRaw) {
-        const existing = JSON.parse(existingRaw)
-        if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
-          rawPayload = existing as Record<string, string[]>
-        }
-      }
-    } catch {
-      rawPayload = {}
-    }
+    const rawPayload = parseDismissedWarningStorage(
+      localStorage.getItem(USAGE_WARNING_DISMISSED_STORAGE_KEY),
+    )
 
     const nextModelIds: string[] = []
     dismissedWarnings.forEach((value) => {

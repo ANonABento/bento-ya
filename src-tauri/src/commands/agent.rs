@@ -1,15 +1,25 @@
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::chat::events::{ChatEvent, ToolStatus};
+use crate::chat::events::{ChatEvent, TokenUsage as ChatTokenUsage, ToolStatus};
 use crate::chat::registry::SharedSessionRegistry;
 use crate::chat::session::{SessionConfig, SessionState, TransportType, UnifiedChatSession};
 use crate::db::{self, AgentMessage, AppState};
 use crate::error::AppError;
-use crate::llm::{calculate_cost, types::TokenUsage as LlmTokenUsage};
+use crate::llm::{calculate_cost, infer_provider_id, types::TokenUsage as LlmTokenUsage};
 use std::sync::{Arc, Mutex};
 
 // ─── Types ────────────────────────────────────────────────────────────────
+
+type SharedTokenUsage = Arc<Mutex<Option<ChatTokenUsage>>>;
+
+fn remember_result_usage(final_usage: &SharedTokenUsage, event: &ChatEvent) {
+    if let ChatEvent::Result(usage) = event {
+        if let Ok(mut lock) = final_usage.lock() {
+            *lock = Some(usage.clone());
+        }
+    }
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -254,6 +264,7 @@ pub async fn stream_agent_chat(
     effort_level: Option<String>,
 ) -> Result<(), AppError> {
     let model = model.unwrap_or_else(|| "sonnet".to_string());
+    let usage_provider = infer_provider_id(&cli_path, &model);
 
     // 1. Save user message to DB
     {
@@ -331,16 +342,12 @@ Be concise and helpful."#,
     // Send message WITHOUT holding the registry lock
     let task_id_for_events = task_id.clone();
     let app_for_events = app.clone();
-    let final_usage = Arc::new(Mutex::new(None::<crate::chat::events::TokenUsage>));
+    let final_usage = Arc::new(Mutex::new(None::<ChatTokenUsage>));
     let final_usage_for_events = final_usage.clone();
 
     let (full_response, captured_cli_session_id) = session
         .send_message(&message, move |event| {
-            if let ChatEvent::Result(usage) = &event {
-                if let Ok(mut lock) = final_usage_for_events.lock() {
-                    *lock = Some(usage.clone());
-                }
-            }
+            remember_result_usage(&final_usage_for_events, &event);
             emit_agent_event(&app_for_events, &task_id_for_events, event);
         })
         .await
@@ -402,7 +409,7 @@ Be concise and helpful."#,
                 &task_workspace_id,
                 Some(&task_id),
                 agent_session_id.as_deref(),
-                "anthropic",
+                usage_provider,
                 &resolved_model,
                 usage.input_tokens,
                 usage.output_tokens,
