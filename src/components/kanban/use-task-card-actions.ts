@@ -59,6 +59,20 @@ export function useTaskCardActions(task: Task) {
     void duplicateTask(task.id)
   }, [task.id, duplicateTask])
 
+  const handleSaveAsTemplate = useCallback(async () => {
+    const title = window.prompt('Template title', `${task.title} (template)`)
+    if (title === null) return
+
+    const trimmedTitle = title.trim()
+    if (!trimmedTitle) return
+
+    try {
+      await ipc.saveTaskAsTemplate(task.id, trimmedTitle)
+    } catch (err) {
+      console.error('Failed to save template:', err)
+    }
+  }, [task.id, task.title])
+
   const handleToggleAgent = useCallback(() => {
     if (task.agentStatus === 'running') {
       updateTask(task.id, { agentStatus: 'stopped' })
@@ -89,6 +103,7 @@ export function useTaskCardActions(task: Task) {
     handleArchiveTask,
     handleDeleteTask,
     handleDuplicateTask,
+    handleSaveAsTemplate,
     handleToggleAgent,
     handleRetryPipeline,
   }

@@ -20,6 +20,7 @@ export type {
   CliType,
 } from './column'
 export type { Task, TaskChecklistItem, PipelineState, ReviewStatus, PrCiStatus, PrReviewDecision, PrMergeable } from './task'
+export type { TaskTemplate } from './task-template'
 export type { AgentSession, AgentStatus, AgentMode, AgentMessage } from './agent'
 export type { Script, ScriptStep, BashStep, AgentStep, CheckStep, StepType } from './script'
 export { parseSteps } from './script'

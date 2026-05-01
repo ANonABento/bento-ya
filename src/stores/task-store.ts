@@ -17,6 +17,7 @@ type TaskState = {
   move: (id: string, targetColumnId: string, position: number) => Promise<void>
   reorder: (columnId: string, ids: string[]) => Promise<void>
   updateTask: (id: string, updates: Partial<Task>) => void
+  createFromTemplate: (workspaceId: string, columnId: string, templateId: string) => Promise<Task>
   getByColumn: (columnId: string) => Task[]
   duplicate: (id: string) => Promise<Task | null>
 }
@@ -151,6 +152,17 @@ export const useTaskStore = create<TaskState>()(
         } catch {
           set({ tasks: prev })
         }
+      },
+
+      createFromTemplate: async (workspaceId, columnId, templateId) => {
+        const task = await ipc.createTaskFromTemplate(
+          workspaceId,
+          columnId,
+          templateId,
+        )
+        set((s) => ({ tasks: [...s.tasks, task] }))
+        await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+        return task
       },
 
       updateTask: (id, updates) => {

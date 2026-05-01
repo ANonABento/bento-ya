@@ -19,6 +19,7 @@ pub mod history;
 pub mod orchestrator_session;
 pub mod pipeline_timing;
 pub mod script;
+pub mod task_template;
 pub mod task;
 pub mod usage;
 pub mod workspace;
@@ -38,6 +39,7 @@ pub use history::*;
 pub use orchestrator_session::*;
 pub use pipeline_timing::*;
 pub use script::*;
+pub use task_template::*;
 pub use task::*;
 pub use usage::*;
 pub use workspace::*;
@@ -144,6 +146,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("031_task_batch_id", include_str!("migrations/031_task_batch_id.sql")),
         ("032_github_sync", include_str!("migrations/032_github_sync.sql")),
         ("033_github_issue_unique", include_str!("migrations/033_github_issue_unique.sql")),
+        ("034_task_templates", include_str!("migrations/034_task_templates.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -207,7 +210,52 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
         // We have 35 migrations, including split 019 and 030 migration files.
-        assert_eq!(count, 35);
+        assert_eq!(count, 36);
+    }
+
+    #[test]
+    fn test_task_template_crud() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let template = insert_task_template(
+            &conn,
+            &ws.id,
+            "Bug fix template",
+            Some("Quick template"),
+            "[\"bug\"]",
+            Some("gpt-4"),
+        )
+        .unwrap();
+        assert_eq!(template.title, "Bug fix template");
+        assert_eq!(template.workspace_id, ws.id);
+
+        let fetched = get_task_template(&conn, &template.id).unwrap();
+        assert_eq!(fetched.title, template.title);
+        assert_eq!(fetched.description, template.description);
+
+        let mut templates = list_task_templates(&conn, &ws.id).unwrap();
+        assert_eq!(templates.len(), 1);
+
+        let updated = update_task_template(
+            &conn,
+            &template.id,
+            Some("Updated template"),
+            Some(Some("Updated description")),
+            Some("[\"bug\",\"fast\"]"),
+            Some(Some("opus")),
+        )
+        .unwrap();
+        assert_eq!(updated.title, "Updated template");
+        assert_eq!(updated.description.as_deref(), Some("Updated description"));
+        assert_eq!(updated.labels, "[\"bug\",\"fast\"]");
+        assert_eq!(updated.model.as_deref(), Some("opus"));
+
+        templates = list_task_templates(&conn, &ws.id).unwrap();
+        assert_eq!(templates.len(), 1);
+
+        delete_task_template(&conn, &template.id).unwrap();
+        templates = list_task_templates(&conn, &ws.id).unwrap();
+        assert!(templates.is_empty());
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::db::{self, AppState, Task};
+use crate::db::{self, AppState, Task, TaskTemplate};
 use crate::error::AppError;
 use crate::pipeline;
 use serde::{Deserialize, Serialize};
@@ -87,6 +87,165 @@ pub fn list_tasks(state: State<AppState>, workspace_id: String) -> Result<Vec<Ta
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::list_tasks(&conn, &workspace_id)?)
+}
+
+#[tauri::command]
+pub fn list_task_templates(
+    state: State<AppState>,
+    workspace_id: String,
+) -> Result<Vec<TaskTemplate>, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::list_task_templates(&conn, &workspace_id)?)
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn create_task_template(
+    state: State<AppState>,
+    workspace_id: String,
+    title: String,
+    description: Option<String>,
+    labels: Option<String>,
+    model: Option<String>,
+) -> Result<TaskTemplate, AppError> {
+    if title.trim().is_empty() {
+        return Err(AppError::InvalidInput(
+            "Template title cannot be empty".to_string(),
+        ));
+    }
+
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let labels = labels.unwrap_or_else(|| "[]".to_string());
+    Ok(db::insert_task_template(
+        &conn,
+        &workspace_id,
+        title.trim(),
+        description.as_deref(),
+        labels.as_str(),
+        model.as_deref(),
+    )?)
+}
+
+#[tauri::command]
+pub fn save_task_as_template(
+    state: State<AppState>,
+    task_id: String,
+    title: Option<String>,
+) -> Result<TaskTemplate, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let task = db::get_task(&conn, &task_id)?;
+    let title = title.unwrap_or_else(|| task.title.clone());
+
+    if title.trim().is_empty() {
+        return Err(AppError::InvalidInput(
+            "Template title cannot be empty".to_string(),
+        ));
+    }
+
+    db::insert_task_template(
+        &conn,
+        &task.workspace_id,
+        title.trim(),
+        task.description.as_deref(),
+        &task.pr_labels,
+        task.model.as_deref(),
+    )
+    .map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn update_task_template(
+    state: State<AppState>,
+    id: String,
+    title: Option<String>,
+    description: Option<Option<String>>,
+    labels: Option<String>,
+    model: Option<Option<String>>,
+) -> Result<TaskTemplate, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let description = description.as_ref().map(|value| value.as_deref());
+    let model = model.as_ref().map(|value| value.as_deref());
+    db::update_task_template(
+        &conn,
+        &id,
+        title.as_deref(),
+        description,
+        labels.as_deref(),
+        model,
+    )
+    .map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn delete_task_template(state: State<AppState>, id: String) -> Result<(), AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    db::delete_task_template(&conn, &id)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn create_task_from_template(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    workspace_id: String,
+    column_id: String,
+    template_id: String,
+) -> Result<Task, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let template = db::get_task_template(&conn, &template_id)?;
+    if template.workspace_id != workspace_id {
+        return Err(AppError::InvalidInput(
+            "Template does not belong to the selected workspace".to_string(),
+        ));
+    }
+
+    let column = db::get_column(&conn, &column_id)?;
+    if column.workspace_id != workspace_id {
+        return Err(AppError::InvalidInput(
+            "Column does not belong to the selected workspace".to_string(),
+        ));
+    }
+
+    let task = db::insert_task(
+        &conn,
+        &workspace_id,
+        &column_id,
+        template.title.as_str(),
+        template.description.as_deref(),
+    )?;
+
+    let ts = db::now();
+    conn.execute(
+        "UPDATE tasks SET pr_labels = ?1, model = ?2, updated_at = ?3 WHERE id = ?4",
+        rusqlite::params![template.labels, template.model, ts, task.id],
+    )
+    .map_err(AppError::from)?;
+
+    let task = db::get_task(&conn, &task.id)?;
+    let task = pipeline::fire_trigger(&conn, &app, &task, &column)?;
+    pipeline::emit_tasks_changed(&app, &workspace_id, "task_created_from_template");
+    Ok(task)
 }
 
 #[tauri::command]

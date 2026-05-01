@@ -521,6 +521,7 @@ export const TaskCard = memo(function TaskCard({
         onMoveToColumn={actions.handleMoveToColumn}
         onOpenTask={openTaskDetail}
         onDuplicateTask={actions.handleDuplicateTask}
+        onSaveAsTemplate={actions.handleSaveAsTemplate}
         onArchiveTask={actions.handleArchiveTask}
         onDeleteTask={actions.handleDeleteTask}
         onRunAgent={actions.handleRunAgent}

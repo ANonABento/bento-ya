@@ -9,10 +9,12 @@ import { useTaskStore } from '@/stores/task-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useScriptStore } from '@/stores/script-store'
+import type { TaskTemplate } from '@/types'
 import { queueBacklog, cancelBacklogQueue } from '@/lib/ipc/pipeline'
 import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
+import * as ipc from '@/lib/ipc'
 
 type BatchQueueLocalState = {
   isQueuing: boolean
@@ -40,6 +42,7 @@ export const Column = memo(function Column({
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
+  const createFromTemplate = useTaskStore((s) => s.createFromTemplate)
   const getScriptName = useScriptStore((s) => s.getScriptName)
 
   // Memoize filtered tasks to prevent infinite loops
@@ -71,8 +74,15 @@ export const Column = memo(function Column({
   const [showConfigDialog, setShowConfigDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showAddTask, setShowAddTask] = useState(false)
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false)
+  const [templates, setTemplates] = useState<TaskTemplate[]>([])
+  const [templatesLoading, setTemplatesLoading] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const addTaskInputRef = useRef<HTMLInputElement>(null)
+  const [templateTitle, setTemplateTitle] = useState('')
+  const [templateDescription, setTemplateDescription] = useState('')
+  const [templateLabels, setTemplateLabels] = useState('[]')
+  const [templateModel, setTemplateModel] = useState('')
 
   // Batch queue state
   const [batchQueueState, setBatchQueueState] = useState<BatchQueueLocalState>(
@@ -191,9 +201,93 @@ export const Column = memo(function Column({
     setShowAddTask(false)
   }, [newTaskTitle, activeWorkspaceId, column.id, addTask])
 
+  const loadTemplates = useCallback(async () => {
+    if (!activeWorkspaceId) return
+    setTemplatesLoading(true)
+    try {
+      const nextTemplates = await ipc.listTaskTemplates(activeWorkspaceId)
+      setTemplates(nextTemplates)
+    } catch (error) {
+      console.error('[Column] Failed to load task templates:', error)
+      setTemplates([])
+    } finally {
+      setTemplatesLoading(false)
+    }
+  }, [activeWorkspaceId])
+
+  useEffect(() => {
+    if (showTemplatePicker) {
+      void loadTemplates()
+    }
+  }, [showTemplatePicker, loadTemplates])
+
   const handleCancelAddTask = useCallback(() => {
     setNewTaskTitle('')
     setShowAddTask(false)
+  }, [])
+
+  const handleCreateFromTemplate = useCallback(async (templateId: string) => {
+    if (!activeWorkspaceId) return
+    await createFromTemplate(activeWorkspaceId, column.id, templateId)
+    setShowTemplatePicker(false)
+    setTemplateTitle('')
+    setTemplateDescription('')
+    setTemplateLabels('[]')
+    setTemplateModel('')
+  }, [activeWorkspaceId, column.id, createFromTemplate])
+
+  const handleSaveTemplate = useCallback(async () => {
+    if (!activeWorkspaceId) return
+    if (!templateTitle.trim()) return
+    try {
+      const nextTemplate = await ipc.createTaskTemplate(
+        activeWorkspaceId,
+        templateTitle.trim(),
+        templateDescription || undefined,
+        templateLabels || '[]',
+        templateModel || undefined,
+      )
+      setTemplates((prev) => [nextTemplate, ...prev])
+      setTemplateTitle('')
+      setTemplateDescription('')
+      setTemplateLabels('[]')
+      setTemplateModel('')
+    } catch (error) {
+      console.error('[Column] Failed to create template:', error)
+    }
+  }, [activeWorkspaceId, templateTitle, templateDescription, templateLabels, templateModel])
+
+  const handleDeleteTemplate = useCallback(async (templateId: string) => {
+    try {
+      await ipc.deleteTaskTemplate(templateId)
+      await loadTemplates()
+    } catch (error) {
+      console.error('[Column] Failed to delete template:', error)
+    }
+  }, [loadTemplates])
+
+  const handleEditTemplate = useCallback(async (template: TaskTemplate) => {
+    const nextTitle = window.prompt('Template title', template.title)
+    if (nextTitle === null) return
+    const nextDescription = window.prompt('Template description', template.description ?? '')
+    if (nextDescription === null) return
+    const nextLabels = window.prompt('Template labels (JSON)', template.labels)
+    if (nextLabels === null) return
+    const nextModel = window.prompt('Template model (optional)', template.model ?? '')
+
+    try {
+      const nextTemplate = await ipc.updateTaskTemplate(template.id, {
+        title: nextTitle.trim() || template.title,
+        description: nextDescription,
+        labels: nextLabels,
+        model: nextModel || null,
+      })
+      setTemplates((prev) =>
+        prev.map((existing) => (existing.id === nextTemplate.id ? nextTemplate : existing)),
+      )
+    } catch (error) {
+      console.error('[Column] Failed to update template:', error)
+    }
   }, [])
 
   return (
@@ -219,10 +313,137 @@ export const Column = memo(function Column({
             onConfigure={handleConfigure}
             onDelete={handleDelete}
             onAddTask={handleAddTask}
+            onCreateFromTemplate={() => { setShowTemplatePicker(true) }}
             onRunAll={() => { void handleRunAll(); }}
             onCancelQueue={() => { void handleCancelQueue(); }}
           />
         </div>
+
+        {showTemplatePicker && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            onClick={() => { setShowTemplatePicker(false) }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="w-full max-w-xl rounded border border-border-default bg-surface p-4 shadow-xl"
+              onClick={(e) => { e.stopPropagation() }}
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-text-primary">
+                  Task templates
+                </h3>
+                <button
+                  onClick={() => { setShowTemplatePicker(false) }}
+                  className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-xs text-text-secondary">
+                  Title
+                  <input
+                    className="mt-1 w-full rounded border border-border-default bg-bg px-2 py-1 text-sm"
+                    value={templateTitle}
+                    onChange={(e) => { setTemplateTitle(e.target.value) }}
+                    placeholder="New template title"
+                  />
+                </label>
+                <label className="text-xs text-text-secondary">
+                  Model
+                  <input
+                    className="mt-1 w-full rounded border border-border-default bg-bg px-2 py-1 text-sm"
+                    value={templateModel}
+                    onChange={(e) => { setTemplateModel(e.target.value) }}
+                    placeholder="Optional model"
+                  />
+                </label>
+              </div>
+              <label className="mt-2 block text-xs text-text-secondary">
+                Description
+                <textarea
+                  className="mt-1 min-h-[68px] w-full rounded border border-border-default bg-bg px-2 py-1 text-sm"
+                  value={templateDescription}
+                  onChange={(e) => { setTemplateDescription(e.target.value) }}
+                  placeholder="Template description"
+                />
+              </label>
+              <label className="mt-2 block text-xs text-text-secondary">
+                Labels JSON
+                <input
+                  className="mt-1 w-full rounded border border-border-default bg-bg px-2 py-1 text-sm"
+                  value={templateLabels}
+                  onChange={(e) => { setTemplateLabels(e.target.value) }}
+                  placeholder="[]"
+                />
+              </label>
+              <div className="mt-3 flex justify-end">
+                <button
+                  onClick={() => {
+                    void handleSaveTemplate()
+                  }}
+                  className="rounded bg-accent px-2.5 py-1 text-xs font-medium text-bg"
+                >
+                  Save Template
+                </button>
+              </div>
+
+              <div className="mt-4 max-h-64 overflow-y-auto">
+                {templatesLoading ? (
+                  <p className="text-xs text-text-secondary">Loading templates...</p>
+                ) : templates.length === 0 ? (
+                  <p className="text-xs text-text-secondary">No templates yet.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {templates.map((template) => (
+                      <li
+                        key={template.id}
+                        className="rounded border border-border-default bg-surface-hover p-2"
+                      >
+                        <div className="mb-2">
+                          <div className="text-sm font-medium text-text-primary">
+                            {template.title}
+                          </div>
+                          {template.description && (
+                            <p className="text-xs text-text-secondary">{template.description}</p>
+                          )}
+                          <p className="mt-1 text-[11px] text-text-secondary/80">
+                            labels: {template.labels}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <button
+                            onClick={() => { void handleCreateFromTemplate(template.id) }}
+                            className="rounded bg-accent px-2 py-1 text-xs text-bg"
+                          >
+                            Create task
+                          </button>
+                          <button
+                            onClick={() => { void handleEditTemplate(template) }}
+                            className="rounded bg-surface border border-border-default px-2 py-1 text-xs text-text-secondary"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => {
+                              void handleDeleteTemplate(template.id)
+                            }}
+                            className="rounded bg-error px-2 py-1 text-xs text-white"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
 
         <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
           <div

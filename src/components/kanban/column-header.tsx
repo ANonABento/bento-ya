@@ -23,6 +23,7 @@ type ColumnHeaderProps = {
   onConfigure: () => void
   onDelete: () => void
   onAddTask: () => void
+  onCreateFromTemplate: () => void
   onRunAll?: () => void
   onCancelQueue?: () => void
 }
@@ -95,6 +96,7 @@ export const ColumnHeader = memo(function ColumnHeader({
   onConfigure,
   onDelete,
   onAddTask,
+  onCreateFromTemplate,
   onRunAll,
   onCancelQueue,
 }: ColumnHeaderProps) {
@@ -193,6 +195,22 @@ export const ColumnHeader = memo(function ColumnHeader({
             }
             onClick={onAddTask}
             tooltip="Add task"
+            tooltipSide="bottom"
+          />
+
+          {/* Add from template button */}
+          <IconButton
+            icon={
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                <path
+                  fillRule="evenodd"
+                  d="M4.5 2A1.5 1.5 0 0 0 3 3.5v13A1.5 1.5 0 0 0 4.5 18h11A1.5 1.5 0 0 0 17 16.5v-10.5l-5 5V16H5.5a.5.5 0 1 1 0-1h5.5v-3h-5.5a.5.5 0 0 1 0-1H11V6.5H5.5a.5.5 0 1 1 0-1H11V4.5H4.5a.5.5 0 1 1 0-1H12v1h.5a1.5 1.5 0 0 1 1.5 1.5v3.793l4-4V3.5A1.5 1.5 0 0 0 16 2H4.5zm3.5 2h5v3h-5V4zm0 4h5v4h-5V8zm0 5h5v2h-5v-2zm1 1.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0Z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            }
+            onClick={() => { onCreateFromTemplate() }}
+            tooltip="Create from template"
             tooltipSide="bottom"
           />
 
