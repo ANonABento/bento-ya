@@ -42,6 +42,10 @@ export const Column = memo(function Column({ column, showArchived = false, autoO
       .sort((a, b) => a.position - b.position),
     [allTasks, column.id, showArchived]
   )
+  const totalTasksInColumn = useMemo(
+    () => allTasks.filter((t) => t.columnId === column.id).length,
+    [allTasks, column.id]
+  )
   const taskIds = useMemo(() => tasks.map((t) => t.id), [tasks])
 
   const scriptTrigger = useMemo(() => {
@@ -161,12 +165,12 @@ export const Column = memo(function Column({ column, showArchived = false, autoO
   }, [])
 
   const handleDelete = useCallback(() => {
-    if (tasks.length > 0) {
+    if (totalTasksInColumn > 0) {
       setShowDeleteConfirm(true)
     } else {
       void remove(column.id)
     }
-  }, [column.id, tasks.length, remove])
+  }, [column.id, totalTasksInColumn, remove])
 
   const confirmDelete = useCallback(() => {
     void remove(column.id)
@@ -304,7 +308,7 @@ export const Column = memo(function Column({ column, showArchived = false, autoO
               Delete Column?
             </h3>
             <p className="mb-4 text-sm text-text-secondary">
-              This column has {tasks.length} task(s). Deleting it will also remove all tasks.
+              This column has {totalTasksInColumn} task(s). Deleting it will also remove all tasks.
             </p>
             <div className="flex justify-end gap-2">
               <button

@@ -1,6 +1,6 @@
 /** Hook for drag-and-drop task reordering across kanban columns (dnd-kit). */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import type {
   DragStartEvent,
   DragOverEvent,
@@ -15,7 +15,7 @@ type ActiveItem =
   | { type: 'column'; id: string }
   | { type: 'task'; id: string }
 
-export function useDnd() {
+export function useDnd(showArchived = false) {
   const [activeItem, setActiveItem] = useState<ActiveItem | null>(null)
   const columns = useColumnStore((s) => s.columns)
   const reorderColumns = useColumnStore((s) => s.reorder)
@@ -23,11 +23,16 @@ export function useDnd() {
   const moveTask = useTaskStore((s) => s.move)
   const reorderTasks = useTaskStore((s) => s.reorder)
 
+  const visibleTasks = useMemo(
+    () => showArchived ? tasks : tasks.filter((t) => !t.archivedAt),
+    [showArchived, tasks],
+  )
+
   const findColumnOfTask = useCallback(
     (taskId: UniqueIdentifier): string | undefined => {
-      return tasks.find((t) => t.id === taskId)?.columnId
+      return visibleTasks.find((t) => t.id === taskId)?.columnId
     },
-    [tasks],
+    [visibleTasks],
   )
 
   const onDragStart = useCallback((event: DragStartEvent) => {
@@ -68,7 +73,7 @@ export function useDnd() {
       if (!activeColumn || !overColumn || activeColumn === overColumn) return
 
       // Moving task to a different column
-      const overColumnTasks = tasks
+      const overColumnTasks = visibleTasks
         .filter((t) => t.columnId === overColumn)
         .sort((a, b) => a.position - b.position)
 
@@ -77,7 +82,7 @@ export function useDnd() {
 
       void moveTask(activeTaskId, overColumn, newPosition)
     },
-    [findColumnOfTask, tasks, moveTask],
+    [findColumnOfTask, visibleTasks, moveTask],
   )
 
   const onDragEnd = useCallback(
@@ -107,7 +112,7 @@ export function useDnd() {
         const columnId = findColumnOfTask(String(active.id))
         if (!columnId) return
 
-        const columnTasks = tasks
+        const columnTasks = visibleTasks
           .filter((t) => t.columnId === columnId)
           .sort((a, b) => a.position - b.position)
         const taskIds = columnTasks.map((t) => t.id)
@@ -119,7 +124,7 @@ export function useDnd() {
         }
       }
     },
-    [columns, tasks, findColumnOfTask, reorderColumns, reorderTasks],
+    [columns, visibleTasks, findColumnOfTask, reorderColumns, reorderTasks],
   )
 
   return { activeItem, onDragStart, onDragOver, onDragEnd }

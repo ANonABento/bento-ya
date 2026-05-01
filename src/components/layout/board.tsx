@@ -66,7 +66,7 @@ export function Board() {
     .sort((a, b) => a.position - b.position)
   const columnIds = sortedColumns.map((c) => c.id)
 
-  const { activeItem, onDragStart, onDragOver, onDragEnd } = useDnd()
+  const { activeItem, onDragStart, onDragOver, onDragEnd } = useDnd(showArchived)
   const archivedTaskCount = tasks.filter((task) => task.archivedAt).length
 
   const sensors = useSensors(
