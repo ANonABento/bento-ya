@@ -15,6 +15,10 @@ function formatHours(hours: number) {
   return `${hours.toFixed(hours < 10 ? 1 : 0)}h`
 }
 
+function formatEstimateInput(estimatedHours: number | null) {
+  return estimatedHours == null ? '' : String(estimatedHours)
+}
+
 function TimeTrackingSection({
   task,
   onUpdate,
@@ -22,26 +26,25 @@ function TimeTrackingSection({
   task: Task
   onUpdate: (id: string, updates: Partial<Task>) => void
 }) {
-  const [estimateInput, setEstimateInput] = useState(
-    task.estimatedHours == null ? '' : String(task.estimatedHours),
-  )
+  const [estimateInput, setEstimateInput] = useState(formatEstimateInput(task.estimatedHours))
   const [saving, setSaving] = useState(false)
   const skipNextBlurSave = useRef(false)
 
   useEffect(() => {
-    setEstimateInput(task.estimatedHours == null ? '' : String(task.estimatedHours))
-  }, [task.estimatedHours])
+    setEstimateInput(formatEstimateInput(task.estimatedHours))
+  }, [task.id, task.estimatedHours])
 
   const estimatedHours = task.estimatedHours
-  const actualHours = task.actualHours ?? 0
+  const actualHours = task.actualHours
   const estimateInputId = `task-${task.id}-estimated-hours`
-  const overEstimate = estimatedHours != null && estimatedHours > 0 && actualHours > estimatedHours * 2
+  const overEstimate =
+    estimatedHours != null && estimatedHours > 0 && actualHours > estimatedHours * 2
 
   async function saveEstimate() {
     const trimmed = estimateInput.trim()
     const parsedEstimate = trimmed === '' ? null : Number(trimmed)
     if (parsedEstimate != null && (!Number.isFinite(parsedEstimate) || parsedEstimate < 0)) {
-      setEstimateInput(task.estimatedHours == null ? '' : String(task.estimatedHours))
+      setEstimateInput(formatEstimateInput(task.estimatedHours))
       return
     }
     const nextEstimate: number | null = parsedEstimate
@@ -53,7 +56,7 @@ function TimeTrackingSection({
       onUpdate(task.id, updated)
     } catch (err) {
       console.error('Failed to save task estimate:', err)
-      setEstimateInput(task.estimatedHours == null ? '' : String(task.estimatedHours))
+      setEstimateInput(formatEstimateInput(task.estimatedHours))
     } finally {
       setSaving(false)
     }
@@ -75,7 +78,9 @@ function TimeTrackingSection({
               step="0.25"
               value={estimateInput}
               disabled={saving}
-              onChange={(e) => { setEstimateInput(e.target.value) }}
+              onChange={(e) => {
+                setEstimateInput(e.target.value)
+              }}
               onBlur={() => {
                 if (skipNextBlurSave.current) {
                   skipNextBlurSave.current = false
@@ -87,7 +92,7 @@ function TimeTrackingSection({
                 if (e.key === 'Enter') e.currentTarget.blur()
                 if (e.key === 'Escape') {
                   skipNextBlurSave.current = true
-                  setEstimateInput(task.estimatedHours == null ? '' : String(task.estimatedHours))
+                  setEstimateInput(formatEstimateInput(task.estimatedHours))
                   e.currentTarget.blur()
                 }
               }}
@@ -101,11 +106,12 @@ function TimeTrackingSection({
           <span className="text-[10px] font-medium uppercase tracking-wider text-text-secondary">
             Actual
           </span>
-          <div className={`flex h-7 items-center rounded-md border px-2 text-xs font-medium ${
-            overEstimate
-              ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
-              : 'border-border-default bg-surface-hover text-text-primary'
-          }`}
+          <div
+            className={`flex h-7 items-center rounded-md border px-2 text-xs font-medium ${
+              overEstimate
+                ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                : 'border-border-default bg-surface-hover text-text-primary'
+            }`}
           >
             {formatHours(actualHours)}
           </div>
@@ -135,13 +141,13 @@ export function TaskCardExpanded({ task }: { task: Task }) {
       <div
         className="border-t border-border-default bg-surface-hover/30 px-3 py-2 space-y-2 overflow-y-auto"
         style={{ maxHeight: EXPANDED_MAX_HEIGHT }}
-        onClick={(e) => { e.stopPropagation() }}
+        onClick={(e) => {
+          e.stopPropagation()
+        }}
       >
         {/* Full description */}
         {task.description && (
-          <p className="text-xs leading-relaxed text-text-secondary">
-            {task.description}
-          </p>
+          <p className="text-xs leading-relaxed text-text-secondary">{task.description}</p>
         )}
 
         <TimeTrackingSection task={task} onUpdate={updateTask} />
@@ -150,7 +156,15 @@ export function TaskCardExpanded({ task }: { task: Task }) {
         <div className="flex items-center gap-2 flex-wrap">
           {task.branch && (
             <div className="flex items-center gap-1.5">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" className="text-text-secondary shrink-0">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                className="text-text-secondary shrink-0"
+              >
                 <circle cx="4" cy="3" r="1.5" />
                 <circle cx="8" cy="9" r="1.5" />
                 <path d="M4 4.5V7.5C4 8.5 5 9 8 9M8 7.5V3" />
@@ -159,7 +173,10 @@ export function TaskCardExpanded({ task }: { task: Task }) {
                 {task.branch}
               </span>
               {task.worktreePath && (
-                <span className="rounded bg-purple-500/10 px-1 py-0.5 text-[10px] font-medium text-purple-400" title={task.worktreePath}>
+                <span
+                  className="rounded bg-purple-500/10 px-1 py-0.5 text-[10px] font-medium text-purple-400"
+                  title={task.worktreePath}
+                >
                   worktree
                 </span>
               )}
@@ -197,7 +214,6 @@ export function TaskCardExpanded({ task }: { task: Task }) {
           </h4>
           <CommitsSection commits={commits} />
         </div>
-
       </div>
     </motion.div>
   )

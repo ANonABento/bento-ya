@@ -26,22 +26,30 @@ export function GithubTab() {
   // Load last-synced timestamp on mount
   useEffect(() => {
     if (!activeWorkspaceId) return
-    ipc.getGithubSyncState(activeWorkspaceId)
-      .then((s) => { setLastSyncedAt(s?.lastSyncedAt ?? null) })
-      .catch(() => { /* not yet synced */ })
+    ipc
+      .getGithubSyncState(activeWorkspaceId)
+      .then((s) => {
+        setLastSyncedAt(s?.lastSyncedAt ?? null)
+      })
+      .catch(() => {
+        /* not yet synced */
+      })
   }, [activeWorkspaceId])
 
-  const updateConfig = useCallback(async (patch: Partial<WorkspaceConfig>) => {
-    if (!workspace) return
-    const merged = { ...config, ...patch }
-    try {
-      const updated = await ipc.updateWorkspaceConfig(workspace.id, JSON.stringify(merged))
-      await updateWorkspace(workspace.id, { config: updated.config })
-      setMessage({ type: 'success', text: 'GitHub settings saved' })
-    } catch {
-      setMessage({ type: 'error', text: 'Failed to save GitHub settings' })
-    }
-  }, [workspace, config, updateWorkspace])
+  const updateConfig = useCallback(
+    async (patch: Partial<WorkspaceConfig>) => {
+      if (!workspace) return
+      const merged = { ...config, ...patch }
+      try {
+        const updated = await ipc.updateWorkspaceConfig(workspace.id, JSON.stringify(merged))
+        await updateWorkspace(workspace.id, { config: updated.config })
+        setMessage({ type: 'success', text: 'GitHub settings saved' })
+      } catch {
+        setMessage({ type: 'error', text: 'Failed to save GitHub settings' })
+      }
+    },
+    [workspace, config, updateWorkspace],
+  )
 
   const handleSyncNow = useCallback(async () => {
     if (!workspace) return
@@ -52,7 +60,7 @@ export function GithubTab() {
       setLastSyncedAt(new Date().toISOString())
       setMessage({
         type: 'success',
-        text: `Synced: ${result.tasksCreated} task(s) created, ${result.issuesFetched} issue(s) fetched`,
+        text: `Synced: ${String(result.tasksCreated)} task(s) created, ${String(result.issuesFetched)} issue(s) fetched`,
       })
     } catch (err) {
       setMessage({
@@ -91,14 +99,19 @@ export function GithubTab() {
         </div>
       )}
 
-      <SettingSection title="GitHub Issues Sync" description="Pull open GitHub issues as tasks and push status back when tasks complete">
+      <SettingSection
+        title="GitHub Issues Sync"
+        description="Pull open GitHub issues as tasks and push status back when tasks complete"
+      >
         <div className="space-y-4">
           <SettingRow label="Enable Sync" description="Automatically sync every 5 minutes">
             <button
               type="button"
               role="switch"
               aria-checked={config.githubSyncEnabled ?? false}
-              onClick={() => { void updateConfig({ githubSyncEnabled: !(config.githubSyncEnabled ?? false) }) }}
+              onClick={() => {
+                void updateConfig({ githubSyncEnabled: !(config.githubSyncEnabled ?? false) })
+              }}
               className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-accent/20 ${
                 (config.githubSyncEnabled ?? false) ? 'bg-accent' : 'bg-border-default'
               }`}
@@ -115,17 +128,24 @@ export function GithubTab() {
             <input
               type="text"
               value={config.githubRepo ?? ''}
-              onChange={(e) => { void updateConfig({ githubRepo: e.target.value }) }}
+              onChange={(e) => {
+                void updateConfig({ githubRepo: e.target.value })
+              }}
               placeholder="owner/repo"
               className="w-48 rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
             />
           </SettingRow>
 
-          <SettingRow label="Label Filter" description="Only sync issues with this label (leave blank for all)">
+          <SettingRow
+            label="Label Filter"
+            description="Only sync issues with this label (leave blank for all)"
+          >
             <input
               type="text"
               value={config.githubLabelFilter ?? ''}
-              onChange={(e) => { void updateConfig({ githubLabelFilter: e.target.value }) }}
+              onChange={(e) => {
+                void updateConfig({ githubLabelFilter: e.target.value })
+              }}
               placeholder="e.g. bento"
               className="w-48 rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
             />
@@ -138,35 +158,53 @@ export function GithubTab() {
           <SettingRow label="Inbox Column" description="New issues are created in this column">
             <select
               value={config.githubInboxColumnId ?? ''}
-              onChange={(e) => { void updateConfig({ githubInboxColumnId: e.target.value }) }}
+              onChange={(e) => {
+                void updateConfig({ githubInboxColumnId: e.target.value })
+              }}
               className="rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
             >
               {columnOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
               ))}
             </select>
           </SettingRow>
 
-          <SettingRow label="Done Column" description="Tasks here trigger a 'resolved' comment on the linked issue">
+          <SettingRow
+            label="Done Column"
+            description="Tasks here trigger a 'resolved' comment on the linked issue"
+          >
             <select
               value={config.githubDoneColumnId ?? ''}
-              onChange={(e) => { void updateConfig({ githubDoneColumnId: e.target.value }) }}
+              onChange={(e) => {
+                void updateConfig({ githubDoneColumnId: e.target.value })
+              }}
               className="rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
             >
               {columnOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
               ))}
             </select>
           </SettingRow>
 
-          <SettingRow label="PR Column" description="Tasks here with a PR URL post a link comment on the issue">
+          <SettingRow
+            label="PR Column"
+            description="Tasks here with a PR URL post a link comment on the issue"
+          >
             <select
               value={config.githubPrColumnId ?? ''}
-              onChange={(e) => { void updateConfig({ githubPrColumnId: e.target.value }) }}
+              onChange={(e) => {
+                void updateConfig({ githubPrColumnId: e.target.value })
+              }}
               className="rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
             >
               {columnOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
               ))}
             </select>
           </SettingRow>
@@ -177,7 +215,9 @@ export function GithubTab() {
         <div className="flex items-center gap-4">
           <button
             type="button"
-            onClick={() => { void handleSyncNow() }}
+            onClick={() => {
+              void handleSyncNow()
+            }}
             disabled={isSyncing || !config.githubRepo}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
           >
@@ -189,7 +229,9 @@ export function GithubTab() {
             </span>
           )}
           {!config.githubRepo && (
-            <span className="text-xs text-text-secondary">Set a repository above to enable sync</span>
+            <span className="text-xs text-text-secondary">
+              Set a repository above to enable sync
+            </span>
           )}
         </div>
       </SettingSection>
