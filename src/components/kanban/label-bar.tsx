@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type SyntheticEvent } from 'react'
 import type { Label } from '@/types'
 import { useLabelStore } from '@/stores/label-store'
 
@@ -32,7 +32,7 @@ export function LabelBar({ workspaceId, selectedLabelId, onSelectLabel }: LabelB
     }
   }, [onSelectLabel, selectedLabel, selectedLabelId])
 
-  async function handleCreate(event: FormEvent) {
+  async function handleCreate(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!name.trim()) return
     await addLabel(workspaceId, name.trim(), color)

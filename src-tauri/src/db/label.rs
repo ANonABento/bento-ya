@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Result as SqlResult};
 use std::collections::BTreeSet;
 
 use super::models::Label;
@@ -55,6 +55,40 @@ pub fn list_task_labels(conn: &Connection, task_id: &str) -> SqlResult<Vec<Label
          ORDER BY l.name COLLATE NOCASE ASC",
     )?;
     let rows = stmt.query_map(params![task_id], map_label_row)?;
+    rows.collect()
+}
+
+pub fn list_labels_for_tasks(
+    conn: &Connection,
+    task_ids: &[String],
+) -> SqlResult<Vec<(String, Label)>> {
+    if task_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let placeholders = vec!["?"; task_ids.len()].join(", ");
+    let sql = format!(
+        "SELECT tl.task_id, l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at
+         FROM task_labels tl
+         JOIN labels l ON l.id = tl.label_id
+         WHERE tl.task_id IN ({})
+         ORDER BY tl.task_id ASC, l.name COLLATE NOCASE ASC",
+        placeholders
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(task_ids), |row| {
+        Ok((
+            row.get(0)?,
+            Label {
+                id: row.get(1)?,
+                workspace_id: row.get(2)?,
+                name: row.get(3)?,
+                color: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            },
+        ))
+    })?;
     rows.collect()
 }
 
