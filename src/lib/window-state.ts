@@ -16,9 +16,12 @@ const inRange = (value: number): number => {
 const hasTauriInternals = (): boolean =>
   typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
+let cleanupWindowZoomState: (() => void) | null = null
+
 const readPersistedZoom = (): number | null => {
   try {
     const raw = window.localStorage.getItem(WINDOW_ZOOM_KEY)
+    if (raw === null || raw.trim() === '') return null
     const parsed = Number(raw)
     if (!Number.isFinite(parsed)) return null
     return inRange(parsed)
@@ -59,13 +62,24 @@ export async function initializeWindowZoomState(): Promise<void> {
     return
   }
 
+  cleanupWindowZoomState?.()
+  cleanupWindowZoomState = null
+
   const webview = getCurrentWebview()
   let currentZoom = readPersistedZoom() ?? 1
+  let zoomQueue = Promise.resolve()
 
-  const applyZoom = async (zoom: number): Promise<void> => {
-    currentZoom = inRange(zoom)
-    await webview.setZoom(currentZoom)
-    writePersistedZoom(currentZoom)
+  const applyZoom = (zoom: number): Promise<void> => {
+    const nextZoom = inRange(zoom)
+    currentZoom = nextZoom
+
+    const setAndPersist = async (): Promise<void> => {
+      await webview.setZoom(nextZoom)
+      writePersistedZoom(nextZoom)
+    }
+
+    zoomQueue = zoomQueue.then(setAndPersist, setAndPersist)
+    return zoomQueue
   }
 
   const persistedZoom = readPersistedZoom()
@@ -85,8 +99,14 @@ export async function initializeWindowZoomState(): Promise<void> {
 
   const cleanup = (): void => {
     window.removeEventListener('keydown', handleKeyDown)
+    window.removeEventListener('pagehide', cleanup)
+    window.removeEventListener('beforeunload', cleanup)
+    if (cleanupWindowZoomState === cleanup) {
+      cleanupWindowZoomState = null
+    }
   }
 
-  window.addEventListener('pagehide', cleanup, { once: true })
-  window.addEventListener('beforeunload', cleanup, { once: true })
+  cleanupWindowZoomState = cleanup
+  window.addEventListener('pagehide', cleanup)
+  window.addEventListener('beforeunload', cleanup)
 }
