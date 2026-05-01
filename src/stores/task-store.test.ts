@@ -16,6 +16,7 @@ vi.mock('./workspace-store', () => ({
 vi.mock('@/lib/ipc', () => ({
   getTasks: vi.fn(),
   createTask: vi.fn(),
+  duplicateTask: vi.fn(),
   deleteTask: vi.fn(),
   bulkUpdateTasks: vi.fn(),
   moveTask: vi.fn(),
@@ -380,30 +381,25 @@ describe('task-store', () => {
       })
     })
 
-    it('should create a copy of the task with "(Copy)" suffix', async () => {
+    it('should duplicate task', async () => {
       const duplicatedTask = createMockTask({
         id: 'task-dup',
-        title: 'Original Task (Copy)',
+        title: 'Original Task (copy)',
         description: 'Some description',
       })
-      mockIpc.createTask.mockResolvedValueOnce(duplicatedTask)
+      mockIpc.duplicateTask.mockResolvedValueOnce(duplicatedTask)
       refreshWorkspace.mockResolvedValueOnce(undefined)
 
       const result = await useTaskStore.getState().duplicate('task-1')
 
       expect(result).toEqual(duplicatedTask)
-      expect(mockIpc.createTask).toHaveBeenCalledWith(
-        'ws-1',
-        'col-1',
-        'Original Task (Copy)',
-        'Some description',
-      )
+      expect(mockIpc.duplicateTask).toHaveBeenCalledWith('task-1')
       expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
     })
 
     it('should add duplicated task to store', async () => {
-      const duplicatedTask = createMockTask({ id: 'task-dup', title: 'Original Task (Copy)' })
-      mockIpc.createTask.mockResolvedValueOnce(duplicatedTask)
+      const duplicatedTask = createMockTask({ id: 'task-dup', title: 'Original Task (copy)' })
+      mockIpc.duplicateTask.mockResolvedValueOnce(duplicatedTask)
 
       await useTaskStore.getState().duplicate('task-1')
 
@@ -412,23 +408,39 @@ describe('task-store', () => {
       expect(state.tasks).toContainEqual(duplicatedTask)
     })
 
-    it('should not add extra "(Copy)" if title already ends with it', async () => {
+    it('should shift following tasks in the same column', async () => {
       useTaskStore.setState({
-        tasks: [createMockTask({ id: 'task-1', title: 'Already Copied (Copy)' })],
+        tasks: [
+          createMockTask({ id: 'task-1', columnId: 'col-1', position: 0 }),
+          createMockTask({ id: 'task-2', columnId: 'col-1', position: 1 }),
+          createMockTask({ id: 'task-3', columnId: 'col-2', position: 1 }),
+        ],
       })
-      const duplicatedTask = createMockTask({ id: 'task-dup', title: 'Already Copied (Copy)' })
-      mockIpc.createTask.mockResolvedValueOnce(duplicatedTask)
+      const duplicatedTask = createMockTask({
+        id: 'task-dup',
+        columnId: 'col-1',
+        position: 1,
+        title: 'Original Task (copy)',
+      })
+      mockIpc.duplicateTask.mockResolvedValueOnce(duplicatedTask)
 
       await useTaskStore.getState().duplicate('task-1')
 
-      expect(mockIpc.createTask).toHaveBeenCalledWith('ws-1', 'col-1', 'Already Copied (Copy)', '')
+      const tasks = useTaskStore.getState().tasks
+      expect(tasks.find((task) => task.id === 'task-2')?.position).toBe(2)
+      expect(tasks.find((task) => task.id === 'task-3')?.position).toBe(1)
+      expect(useTaskStore.getState().getByColumn('col-1').map((task) => task.id)).toEqual([
+        'task-1',
+        'task-dup',
+        'task-2',
+      ])
     })
 
     it('should return null for non-existent task', async () => {
       const result = await useTaskStore.getState().duplicate('non-existent')
 
       expect(result).toBeNull()
-      expect(mockIpc.createTask).not.toHaveBeenCalled()
+      expect(mockIpc.duplicateTask).not.toHaveBeenCalled()
     })
   })
 })

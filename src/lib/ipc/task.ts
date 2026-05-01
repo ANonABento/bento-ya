@@ -51,6 +51,10 @@ export async function reorderTasks(columnId: string, taskIds: string[]): Promise
   return invoke<Task[]>('reorder_tasks', { columnId, taskIds })
 }
 
+export async function duplicateTask(id: string): Promise<Task> {
+  return invoke<Task>('duplicate_task', { id })
+}
+
 export async function deleteTask(id: string): Promise<void> {
   return invoke('delete_task', { id })
 }

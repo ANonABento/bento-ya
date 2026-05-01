@@ -71,6 +71,23 @@ pub async fn create_task(
     Ok(task)
 }
 
+#[tauri::command(rename_all = "camelCase")]
+pub fn duplicate_task(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Task, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let task = db::duplicate_task(&conn, &id)?;
+
+    pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_duplicated");
+    Ok(task)
+}
+
 #[tauri::command]
 pub fn get_task(state: State<AppState>, id: String) -> Result<Task, AppError> {
     let conn = state
