@@ -90,7 +90,7 @@ export const Column = memo(function Column({ column, showArchived = false, autoO
   }, [allTasks, batchQueueState.isQueuing, batchQueueState.queuedTaskIds, batchQueueState.total, batchQueueState.completed])
 
   const handleRunAll = useCallback(async () => {
-    const ids = tasks.map((t) => t.id)
+    const ids = tasks.filter((t) => !t.archivedAt).map((t) => t.id)
     if (ids.length === 0) return
     try {
       await queueBacklog(ids)
