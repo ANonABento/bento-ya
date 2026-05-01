@@ -63,6 +63,7 @@ pub enum TriggerActionV2 {
         #[serde(default)]
         base_branch: Option<String>,
     },
+    BatchWait,
     None,
 }
 
