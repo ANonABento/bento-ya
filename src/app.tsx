@@ -17,6 +17,7 @@ import { ChecklistPanel } from '@/components/checklist/checklist-panel'
 import { AboutModal } from '@/components/about/about-modal'
 import { CommandPalette } from '@/components/command-palette/command-palette'
 import { SkeletonLoader } from '@/components/shared/skeleton-loader'
+import { CostDashboardPanel } from '@/components/usage'
 
 function App() {
   const loaded = useWorkspaceStore((s) => s.loaded)
@@ -26,6 +27,9 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [showAbout, setShowAbout] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const [showCostDashboard, setShowCostDashboard] = useState(
+    () => window.location.hash === '#cost-dashboard',
+  )
 
   // Keyboard shortcuts
   const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
@@ -54,6 +58,19 @@ function App() {
     return cleanup
   }, [])
 
+  useEffect(() => {
+    const handleHashChange = () => {
+      setShowCostDashboard(window.location.hash === '#cost-dashboard')
+    }
+
+    handleHashChange()
+    window.addEventListener('hashchange', handleHashChange)
+
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange)
+    }
+  }, [])
+
   // Load workspaces on mount
   useEffect(() => {
     load().catch((err: unknown) => {
@@ -72,7 +89,11 @@ function App() {
       )}
 
       {/* Tab bar */}
-      <TabBar />
+      <TabBar
+        openCostDashboard={() => {
+          window.location.hash = '#cost-dashboard'
+        }}
+      />
 
       {/* Main content */}
       <main className="flex-1 overflow-hidden">
@@ -94,6 +115,15 @@ function App() {
       {/* Slide-over panels */}
       <SettingsPanel />
       <ChecklistPanel />
+      <AnimatePresence>
+        {showCostDashboard && (
+          <CostDashboardPanel
+            onClose={() => {
+              window.location.hash = ''
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Modals */}
       <AnimatePresence>

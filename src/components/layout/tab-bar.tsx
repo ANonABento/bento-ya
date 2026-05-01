@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   DndContext,
@@ -22,12 +22,13 @@ import { useAttentionStore } from '@/stores/attention-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useChecklistStore } from '@/stores/checklist-store'
 import { Tooltip } from '@/components/shared/tooltip'
-import { CostDashboardPanel } from '@/components/usage'
 import type { Workspace } from '@/types'
 import { AddWorkspaceDialog } from './add-workspace-dialog'
 import { useTabBarNavigation } from './use-tab-bar-navigation'
 
-const COST_DASHBOARD_HASH = '#cost-dashboard'
+type TabBarProps = {
+  openCostDashboard: () => void
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -259,7 +260,7 @@ function CostDashboardButton({ onClick }: { onClick: () => void }) {
 
 // ─── TabBar ─────────────────────────────────────────────────────────────────
 
-export function TabBar() {
+export function TabBar({ openCostDashboard }: TabBarProps) {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const setActive = useWorkspaceStore((s) => s.setActive)
@@ -270,7 +271,6 @@ export function TabBar() {
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
-  const [showCostDashboard, setShowCostDashboard] = useState(() => window.location.hash === COST_DASHBOARD_HASH)
 
   const sortedWorkspaces = [...workspaces].sort((a, b) => a.tabOrder - b.tabOrder)
   const workspaceIds = sortedWorkspaces.map((w) => w.id)
@@ -288,19 +288,6 @@ export function TabBar() {
     remove,
     openAddDialog: () => { setShowAddDialog(true) },
   })
-
-  useEffect(() => {
-    const handleHashChange = () => {
-      setShowCostDashboard(window.location.hash === COST_DASHBOARD_HASH)
-    }
-
-    handleHashChange()
-    window.addEventListener('hashchange', handleHashChange)
-
-    return () => {
-      window.removeEventListener('hashchange', handleHashChange)
-    }
-  }, [])
 
   // ─── Drag Handlers ──────────────────────────────────────────────────────────
 
@@ -374,7 +361,7 @@ export function TabBar() {
           />
           <CostDashboardButton
             onClick={() => {
-              window.location.hash = COST_DASHBOARD_HASH
+              openCostDashboard()
             }}
           />
           <ChecklistButton />
@@ -390,15 +377,6 @@ export function TabBar() {
           }}
         />
       )}
-      <AnimatePresence>
-        {showCostDashboard && (
-          <CostDashboardPanel
-            onClose={() => {
-              window.location.hash = ''
-            }}
-          />
-        )}
-      </AnimatePresence>
     </>
   )
 }
