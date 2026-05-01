@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { useWorkspaceUsage } from '@/hooks/use-workspace-usage'
-import { formatUsageCost, formatUsageTokens } from '@/lib/usage'
+import { formatUsageCost, formatUsageTokens, shortModelName } from '@/lib/usage'
 
 type Props = {
   workspaceId: string
@@ -115,7 +115,7 @@ export function CostBadge({ workspaceId, onOpenDashboard }: Props) {
                         >
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-text-secondary">
-                              {record.model.split('/').pop()}
+                              {shortModelName(record.model)}
                             </span>
                           </div>
                           <div className="flex items-center gap-3">

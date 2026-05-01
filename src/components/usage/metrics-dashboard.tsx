@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import { useWorkspaceUsage } from '@/hooks/use-workspace-usage'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { formatUsageCost, formatUsageDate, formatUsageTokens } from '@/lib/usage'
+import { formatUsageCost, formatUsageDate, formatUsageTokens, shortModelName } from '@/lib/usage'
 import {
   type ColumnCost,
   type DailyCost,
   type TaskCost,
+  type UsageSummary,
   getWorkspaceColumnCosts,
   getWorkspaceDailyCosts,
   getWorkspaceTaskCosts,
@@ -26,14 +27,7 @@ type ModelStats = {
   count: number
 }
 
-type WorkspaceCost = {
-  workspaceId: string
-  workspaceName: string
-  totalCostUsd: number
-  totalInputTokens: number
-  totalOutputTokens: number
-  recordCount: number
-}
+type WorkspaceCost = UsageSummary & { workspaceId: string; workspaceName: string }
 
 type ActiveTab = 'overview' | 'model' | 'column' | 'task' | 'workspace'
 
@@ -49,15 +43,11 @@ const TABS: { id: ActiveTab; label: string }[] = [
   { id: 'workspace', label: 'All Workspaces' },
 ]
 
-function shortModelName(model: string): string {
-  return model.split('/').pop() ?? model
-}
-
 export function MetricsDashboard({ workspaceId, onClose }: Props) {
   const { summary, records, isLoading, error } = useWorkspaceUsage(workspaceId, {
     limit: 1000,
   })
-  const allWorkspaces = useWorkspaceStore((s) => s.workspaces)
+  const workspacesKey = useWorkspaceStore((s) => s.workspaces.map((w) => w.id).join(','))
 
   const [dailyCosts, setDailyCosts] = useState<DailyCost[]>([])
   const [columnCosts, setColumnCosts] = useState<ColumnCost[]>([])
@@ -73,20 +63,14 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
   }, [workspaceId])
 
   useEffect(() => {
-    if (allWorkspaces.length === 0) return
+    const workspaces = useWorkspaceStore.getState().workspaces
+    if (workspaces.length === 0) return
     let cancelled = false
     setWorkspaceCostsLoading(true)
     void Promise.all(
-      allWorkspaces.map(async (ws) => {
+      workspaces.map(async (ws) => {
         const s = await getWorkspaceUsageSummary(ws.id)
-        return {
-          workspaceId: ws.id,
-          workspaceName: ws.name,
-          totalCostUsd: s.totalCostUsd,
-          totalInputTokens: s.totalInputTokens,
-          totalOutputTokens: s.totalOutputTokens,
-          recordCount: s.recordCount,
-        } satisfies WorkspaceCost
+        return { workspaceId: ws.id, workspaceName: ws.name, ...s } satisfies WorkspaceCost
       }),
     ).then((costs) => {
       if (cancelled) return
@@ -97,7 +81,7 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
       if (!cancelled) setWorkspaceCostsLoading(false)
     })
     return () => { cancelled = true }
-  }, [allWorkspaces])
+  }, [workspacesKey])
 
   const modelStats = useMemo((): ModelStats[] => {
     const map = new Map<string, ModelStats>()
