@@ -304,6 +304,43 @@ mod tests {
     }
 
     #[test]
+    fn test_task_actual_hours_recalculated_from_agent_sessions() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Working", 0).unwrap();
+        let task = insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+        let first = insert_agent_session(&conn, &task.id, "claude", Some("/tmp")).unwrap();
+        let second = insert_agent_session(&conn, &task.id, "codex", Some("/tmp")).unwrap();
+
+        conn.execute(
+            "UPDATE agent_sessions SET created_at = ?1, updated_at = ?2 WHERE id = ?3",
+            params![
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T01:30:00Z",
+                first.id
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE agent_sessions SET created_at = ?1, updated_at = ?2 WHERE id = ?3",
+            params![
+                "2026-01-01T02:00:00Z",
+                "2026-01-01T04:15:00Z",
+                second.id
+            ],
+        )
+        .unwrap();
+
+        recalculate_task_actual_hours(&conn, &task.id).unwrap();
+        let task = get_task(&conn, &task.id).unwrap();
+        assert!((task.actual_hours - 3.75).abs() < f64::EPSILON);
+
+        delete_agent_session(&conn, &first.id).unwrap();
+        let task = get_task(&conn, &task.id).unwrap();
+        assert!((task.actual_hours - 2.25).abs() < f64::EPSILON);
+    }
+
+    #[test]
     fn test_cascade_delete() {
         let conn = init_test().unwrap();
         let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();

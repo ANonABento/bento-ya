@@ -117,6 +117,13 @@ pub fn update_task(
             ));
         }
     }
+    if let Some(hours) = estimated_hours {
+        if !hours.is_finite() || hours < 0.0 {
+            return Err(AppError::InvalidInput(
+                "Estimated hours must be a non-negative number".to_string(),
+            ));
+        }
+    }
 
     let conn = state
         .db
@@ -149,11 +156,6 @@ pub fn update_task(
 
     // Update estimated hours if provided
     if let Some(hours) = estimated_hours {
-        if !hours.is_finite() || hours < 0.0 {
-            return Err(AppError::InvalidInput(
-                "Estimated hours must be a non-negative number".to_string(),
-            ));
-        }
         let ts = db::now();
         conn.execute(
             "UPDATE tasks SET estimated_hours = ?1, updated_at = ?2 WHERE id = ?3",
