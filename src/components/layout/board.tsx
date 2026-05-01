@@ -222,24 +222,24 @@ export function Board() {
           {/* Board + orchestrator panel (left side, shrinks when task panel open) */}
           <div className="flex flex-1 flex-col overflow-hidden">
             {/* Board header: filters and controls */}
-          <div className="flex shrink-0 items-center justify-end border-b border-border-default px-3 py-1">
-            <button
-              onClick={() => { setShowArchived(!showArchived) }}
-              className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors ${
-                showArchived
-                  ? 'bg-accent/15 text-accent'
-                  : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-              }`}
-            >
-              <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M2 3a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H2Z" />
-                <path fillRule="evenodd" d="M2 7.5h16l-.811 7.71a2 2 0 0 1-1.99 1.79H4.802a2 2 0 0 1-1.99-1.79L2 7.5Zm5.22 1.72a.75.75 0 0 1 1.06 0L10 10.94l1.72-1.72a.75.75 0 1 1 1.06 1.06l-2.25 2.25a.75.75 0 0 1-1.06 0l-2.25-2.25a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-              </svg>
-              {showArchived ? 'Hide archived' : 'Show archived'}
-            </button>
-          </div>
+            <div className="flex shrink-0 items-center justify-end border-b border-border-default px-3 py-1">
+              <button
+                onClick={() => { setShowArchived(!showArchived) }}
+                className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors ${
+                  showArchived
+                    ? 'bg-accent/15 text-accent'
+                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                }`}
+              >
+                <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M2 3a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H2Z" />
+                  <path fillRule="evenodd" d="M2 7.5h16l-.811 7.71a2 2 0 0 1-1.99 1.79H4.802a2 2 0 0 1-1.99-1.79L2 7.5Zm5.22 1.72a.75.75 0 0 1 1.06 0L10 10.94l1.72-1.72a.75.75 0 1 1 1.06 1.06l-2.25 2.25a.75.75 0 0 1-1.06 0l-2.25-2.25a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                </svg>
+                {showArchived ? 'Hide archived' : 'Show archived'}
+              </button>
+            </div>
 
-          <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
+            <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
               <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
                 {sortedColumns.map((col) => (
                   <Column

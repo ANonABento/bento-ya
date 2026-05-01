@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use super::models::Task;
 use super::{new_id, now};
 
-/// Shared SELECT columns for tasks (49 fields).
+/// Shared SELECT columns for tasks (50 fields).
 const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked, archived_at";
 
 /// Generate a sortable task batch identifier for staging PR workflows.
@@ -313,7 +313,7 @@ pub fn update_task_agent_status(
 /// Get tasks with agent_status = 'queued' ordered by queued_at (oldest first)
 pub fn get_queued_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        &format!("SELECT {} FROM tasks WHERE workspace_id = ?1 AND agent_status = 'queued' ORDER BY queued_at ASC", TASK_COLUMNS),
+        &format!("SELECT {} FROM tasks WHERE workspace_id = ?1 AND agent_status = 'queued' AND archived_at IS NULL ORDER BY queued_at ASC", TASK_COLUMNS),
     )?;
     let rows = stmt.query_map(params![workspace_id], map_task_row)?;
     rows.collect()
@@ -444,7 +444,7 @@ pub fn mark_task_notification_sent(conn: &Connection, id: &str) -> SqlResult<Tas
 pub fn get_next_queued_task(conn: &Connection, workspace_id: &str) -> SqlResult<Option<Task>> {
     let result = conn.query_row(
         &format!(
-            "SELECT {} FROM tasks WHERE workspace_id = ?1 AND queued_at IS NOT NULL AND pipeline_state = 'idle' AND column_id IN (SELECT id FROM columns WHERE name = 'Backlog' AND workspace_id = ?1) ORDER BY position LIMIT 1",
+            "SELECT {} FROM tasks WHERE workspace_id = ?1 AND queued_at IS NOT NULL AND pipeline_state = 'idle' AND archived_at IS NULL AND column_id IN (SELECT id FROM columns WHERE name = 'Backlog' AND workspace_id = ?1) ORDER BY position LIMIT 1",
             TASK_COLUMNS
         ),
         params![workspace_id],

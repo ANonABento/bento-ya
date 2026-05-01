@@ -192,26 +192,32 @@ export const useTaskStore = create<TaskState>()(
       },
 
       archive: async (id) => {
-        const prev = get().tasks
+        const workspaceId = get().tasks.find((t) => t.id === id)?.workspaceId
         try {
           const updated = await ipc.archiveTask(id)
           set((s) => ({
             tasks: s.tasks.map((t) => (t.id === id ? updated : t)),
           }))
-        } catch {
-          set({ tasks: prev })
+          if (workspaceId) {
+            await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+          }
+        } catch (err) {
+          console.error('Failed to archive task:', err)
         }
       },
 
       unarchive: async (id) => {
-        const prev = get().tasks
+        const workspaceId = get().tasks.find((t) => t.id === id)?.workspaceId
         try {
           const updated = await ipc.unarchiveTask(id)
           set((s) => ({
             tasks: s.tasks.map((t) => (t.id === id ? updated : t)),
           }))
-        } catch {
-          set({ tasks: prev })
+          if (workspaceId) {
+            await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+          }
+        } catch (err) {
+          console.error('Failed to unarchive task:', err)
         }
       },
     }),
