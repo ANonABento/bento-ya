@@ -60,7 +60,11 @@ export function AgentTab() {
   })
 
   useEffect(() => {
-    localStorage.setItem('agent-tab-coming-soon-collapsed', String(comingSoonCollapsed))
+    try {
+      localStorage.setItem('agent-tab-coming-soon-collapsed', String(comingSoonCollapsed))
+    } catch {
+      // Ignore storage failures; this only affects local UI persistence.
+    }
   }, [comingSoonCollapsed])
 
   const updateAgent = (updates: Partial<AgentConfig>) => {
@@ -254,7 +258,7 @@ export function AgentTab() {
                   style={{ cursor: provider.enabled ? 'pointer' : 'default' }}
                   onClick={() => { handleToggleExpanded(provider.id) }}
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3" style={{ cursor: 'inherit' }}>
                     {/* Chevron (only when enabled) */}
                     {provider.enabled && (
                       <svg
@@ -264,6 +268,7 @@ export function AgentTab() {
                         className={`h-4 w-4 text-text-secondary transition-transform ${
                           isExpanded ? 'rotate-90' : ''
                         }`}
+                        style={{ cursor: 'inherit' }}
                       >
                         <path
                           fillRule="evenodd"
@@ -272,16 +277,24 @@ export function AgentTab() {
                         />
                       </svg>
                     )}
-                    <div className="text-left">
-                      <span className={`text-sm font-medium ${provider.enabled ? 'text-text-primary' : 'text-text-secondary'}`}>
+                    <div className="text-left" style={{ cursor: 'inherit' }}>
+                      <span
+                        className={`text-sm font-medium ${provider.enabled ? 'text-text-primary' : 'text-text-secondary'}`}
+                        style={{ cursor: 'inherit' }}
+                      >
                         {info.name}
                         {providerModelCount > 0 && (
-                          <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/20 px-1 text-[10px] font-medium text-accent">
+                          <span
+                            className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/20 px-1 text-[10px] font-medium text-accent"
+                            style={{ cursor: 'inherit' }}
+                          >
                             {providerModelCount}
                           </span>
                         )}
                       </span>
-                      <p className="text-xs text-text-secondary">{info.description}</p>
+                      <p className="text-xs text-text-secondary" style={{ cursor: 'inherit' }}>
+                        {info.description}
+                      </p>
                     </div>
                   </div>
 
@@ -294,11 +307,13 @@ export function AgentTab() {
                     className={`relative h-6 w-11 rounded-full transition-colors ${
                       provider.enabled ? 'bg-accent' : 'bg-surface-hover'
                     }`}
+                    style={{ cursor: 'pointer' }}
                   >
                     <span
                       className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all ${
                         provider.enabled ? 'left-6' : 'left-1'
                       }`}
+                      style={{ cursor: 'inherit' }}
                     />
                   </button>
                 </div>
@@ -554,8 +569,9 @@ export function AgentTab() {
         <button
           onClick={() => { setComingSoonCollapsed(!comingSoonCollapsed) }}
           className="flex w-full items-center justify-between mb-2 -mt-2"
+          style={{ cursor: 'pointer' }}
         >
-          <span className="text-xs text-text-secondary">
+          <span className="text-xs text-text-secondary" style={{ cursor: 'inherit' }}>
             {comingSoonCollapsed ? 'Show upcoming providers' : 'Hide upcoming providers'}
           </span>
           <svg
@@ -565,6 +581,7 @@ export function AgentTab() {
             className={`h-4 w-4 text-text-secondary transition-transform ${
               comingSoonCollapsed ? '' : 'rotate-180'
             }`}
+            style={{ cursor: 'inherit' }}
           >
             <path
               fillRule="evenodd"
