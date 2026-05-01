@@ -48,6 +48,18 @@ describe('getColumnTriggers', () => {
     expect(result).toEqual(triggers)
   })
 
+  it('should parse auto_merge trigger actions', () => {
+    const triggers = {
+      on_entry: { type: 'auto_merge' as const, base_branch: 'main' },
+      on_exit: { type: 'none' as const },
+      exit_criteria: { type: 'manual' as const, auto_advance: false },
+    }
+    const column = createMockColumn(JSON.stringify(triggers) as unknown as Column['triggers'])
+
+    const result = getColumnTriggers(column)
+    expect(result).toEqual(triggers)
+  })
+
   it('should return DEFAULT_TRIGGERS when triggers is undefined', () => {
     const column = createMockColumn(undefined)
 

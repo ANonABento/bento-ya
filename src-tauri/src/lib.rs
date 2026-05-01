@@ -261,6 +261,9 @@ pub fn run() {
             // Recover stale pipeline work from the previous app instance.
             resume_stale_pipeline_tasks(app.handle().clone());
 
+            // Warn about orphaned Bento worktrees once a day.
+            start_nightly_worktree_sweep(app.handle().clone());
+
             // Recover tmux sessions from previous app instance
             recover_tmux_sessions(app.handle().clone());
 
@@ -277,6 +280,110 @@ pub fn run() {
 
     // Cleanup port file on exit
     api::cleanup();
+}
+
+fn is_terminal_column_for_sweep(column: &db::Column, max_position: i64) -> bool {
+    column.name.eq_ignore_ascii_case("done") || column.position == max_position
+}
+
+fn warn_stale_worktrees_once(app: &tauri::AppHandle) {
+    use std::collections::{HashMap, HashSet};
+
+    let state: tauri::State<db::AppState> = app.state();
+    let conn = match state.db.lock() {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("[worktree-sweep] DB lock failed: {}", e);
+            return;
+        }
+    };
+
+    let workspaces = match db::list_workspaces(&conn) {
+        Ok(workspaces) => workspaces,
+        Err(e) => {
+            log::warn!("[worktree-sweep] Failed to list workspaces: {}", e);
+            return;
+        }
+    };
+
+    for workspace in workspaces {
+        if workspace.repo_path.is_empty() {
+            continue;
+        }
+
+        let columns = match db::list_columns(&conn, &workspace.id) {
+            Ok(columns) => columns,
+            Err(e) => {
+                log::warn!(
+                    "[worktree-sweep] Failed to list columns for workspace {}: {}",
+                    workspace.id,
+                    e
+                );
+                continue;
+            }
+        };
+        let max_position = columns.iter().map(|col| col.position).max().unwrap_or(-1);
+        let columns_by_id: HashMap<_, _> = columns
+            .iter()
+            .map(|column| (column.id.as_str(), column))
+            .collect();
+
+        let tasks = match db::list_tasks(&conn, &workspace.id) {
+            Ok(tasks) => tasks,
+            Err(e) => {
+                log::warn!(
+                    "[worktree-sweep] Failed to list tasks for workspace {}: {}",
+                    workspace.id,
+                    e
+                );
+                continue;
+            }
+        };
+
+        let referenced_worktrees: HashSet<String> = tasks
+            .iter()
+            .filter(|task| !task.worktree_path.as_deref().unwrap_or("").is_empty())
+            .filter(|task| {
+                columns_by_id
+                    .get(task.column_id.as_str())
+                    .map(|column| !is_terminal_column_for_sweep(column, max_position))
+                    .unwrap_or(true)
+            })
+            .map(|task| format!("bentoya-{}", task.id))
+            .collect();
+
+        let worktrees = match git::branch_manager::list_worktrees(&workspace.repo_path) {
+            Ok(worktrees) => worktrees,
+            Err(e) => {
+                log::warn!(
+                    "[worktree-sweep] Failed to list git worktrees for '{}': {}",
+                    workspace.repo_path,
+                    e
+                );
+                continue;
+            }
+        };
+
+        for worktree in worktrees {
+            if !referenced_worktrees.contains(&worktree) {
+                log::warn!(
+                    "[worktree-sweep] Worktree '{}' in '{}' is not referenced by any non-Done task",
+                    worktree,
+                    workspace.repo_path
+                );
+            }
+        }
+    }
+}
+
+fn start_nightly_worktree_sweep(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        warn_stale_worktrees_once(&app);
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(24 * 60 * 60)).await;
+            warn_stale_worktrees_once(&app);
+        }
+    });
 }
 
 /// Recover tmux sessions from a previous app instance.

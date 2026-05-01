@@ -11,6 +11,8 @@ export type {
   TriggerTaskActionType,
   RunScriptAction,
   CreatePrAction,
+  AutoMergeAction,
+  BaseBranchAction,
   NoneAction,
   ExitCriteria,
   ExitCriteriaType,

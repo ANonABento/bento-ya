@@ -296,6 +296,13 @@ pub async fn move_task(
             Some(&target_column),
         );
 
+        let task = pipeline::cleanup_task_worktree_if_terminal(
+            &conn,
+            &task,
+            &target_column,
+            "manual_move",
+        )?;
+
         // Notify frontend to refresh task store
         pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_moved");
 

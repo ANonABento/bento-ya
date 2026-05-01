@@ -36,6 +36,7 @@ export const ACTION_TYPES: { value: ActionType; label: string; description: stri
   { value: 'spawn_cli', label: 'Spawn CLI', description: 'Run AI agent with command' },
   { value: 'move_column', label: 'Move Column', description: 'Move task to another column' },
   { value: 'create_pr', label: 'Create PR', description: 'Open a GitHub pull request' },
+  { value: 'auto_merge', label: 'Auto Merge', description: 'Merge PR and finish task' },
 ]
 
 export const CLI_TYPES: { value: CliType; label: string }[] = [

@@ -59,6 +59,10 @@ pub enum TriggerActionV2 {
         #[serde(default)]
         base_branch: Option<String>,
     },
+    AutoMerge {
+        #[serde(default)]
+        base_branch: Option<String>,
+    },
     None,
 }
 
@@ -369,6 +373,9 @@ fn execute_action(
         }
         TriggerActionV2::CreatePr { base_branch } => {
             execute_create_pr(conn, app, task, column, base_branch.as_deref())
+        }
+        TriggerActionV2::AutoMerge { base_branch } => {
+            execute_auto_merge(conn, app, task, column, base_branch.as_deref())
         }
         TriggerActionV2::None => Ok(task.clone()),
     }
@@ -887,6 +894,8 @@ fn execute_move_column(
         );
 
         let moved_task = db::get_task(conn, &task.id)?;
+        let moved_task =
+            super::cleanup_task_worktree_if_terminal(conn, &moved_task, &col, "move_column")?;
         super::emit_tasks_changed(app, &task.workspace_id, "trigger_move_column");
         let _ = super::fire_trigger(conn, app, &moved_task, &col);
         return Ok(db::get_task(conn, &task.id)?);
@@ -1318,6 +1327,118 @@ fn maybe_create_ready_batch_pr(
             e
         ),
     }
+}
+
+fn done_column(conn: &Connection, workspace_id: &str) -> Result<Option<Column>, AppError> {
+    let columns = db::list_columns(conn, workspace_id)?;
+    Ok(columns
+        .iter()
+        .find(|col| col.name.eq_ignore_ascii_case("done"))
+        .cloned()
+        .or_else(|| columns.last().cloned()))
+}
+
+fn execute_auto_merge(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    column: &Column,
+    base_branch: Option<&str>,
+) -> Result<Task, AppError> {
+    let workspace = db::get_workspace(conn, &task.workspace_id)?;
+    let base_branch = base_branch.unwrap_or("main");
+    let batch_id = task.batch_id.as_deref().and_then(normalize_batch_id);
+    let selector = if let Some(batch_id) = batch_id.as_deref() {
+        staging_branch_for_batch(batch_id)
+    } else if let Some(pr_url) = task.pr_url.as_deref() {
+        pr_url.to_string()
+    } else if let Some(pr_number) = task.pr_number {
+        pr_number.to_string()
+    } else if let Some(branch_name) = task.branch_name.as_deref() {
+        branch_name.to_string()
+    } else {
+        return super::handle_trigger_failure(
+            conn,
+            app,
+            task,
+            column,
+            "Cannot auto-merge: task has no batch, PR, or branch reference",
+        );
+    };
+
+    let updated_task = db::update_task_pipeline_state(
+        conn,
+        &task.id,
+        PipelineState::Running.as_str(),
+        Some(&db::now()),
+        None,
+    )?;
+    emit_pipeline(
+        app,
+        EVT_RUNNING,
+        &task.id,
+        &column.id,
+        PipelineState::Running,
+        Some(format!("Merging PR for {}", selector)),
+    );
+
+    let output = run_command(
+        &workspace.repo_path,
+        "gh",
+        &["pr", "merge", &selector, "--squash", "--delete-branch"],
+    )
+    .map_err(AppError::CommandError)?;
+    if !output.status.success() {
+        return super::handle_trigger_failure(
+            conn,
+            app,
+            &updated_task,
+            column,
+            &format!(
+                "auto_merge failed for {} into {}: {}",
+                selector,
+                base_branch,
+                command_stderr(&output)
+            ),
+        );
+    }
+
+    let Some(done_col) = done_column(conn, &task.workspace_id)? else {
+        return super::handle_trigger_failure(
+            conn,
+            app,
+            &updated_task,
+            column,
+            "Cannot auto-merge: workspace has no columns",
+        );
+    };
+
+    let tasks = if let Some(batch_id) = batch_id.as_deref() {
+        db::list_tasks_by_batch_id(conn, &task.workspace_id, batch_id)?
+    } else {
+        vec![updated_task]
+    };
+
+    let mut last_updated = None;
+    for batch_task in tasks {
+        let moved = db::append_task_to_column(conn, &batch_task.id, &done_col.id)?;
+        let cleaned =
+            super::cleanup_task_worktree_if_terminal(conn, &moved, &done_col, "auto_merge")?;
+        let _ = super::dependencies::check_dependents(conn, app, &cleaned);
+        last_updated = Some(cleaned);
+    }
+
+    emit_pipeline(
+        app,
+        EVT_ADVANCED,
+        &task.id,
+        &done_col.id,
+        PipelineState::Idle,
+        Some(format!("Merged {} and moved task(s) to Done", selector)),
+    );
+    super::emit_tasks_changed(app, &task.workspace_id, "auto_merge_done");
+
+    Ok(last_updated.unwrap_or_else(|| task.clone()))
 }
 
 fn execute_create_pr(
@@ -2178,6 +2299,7 @@ mod tests {
             r#"{"type":"trigger_task","target_task":"task-123","action":"unblock"}"#,
             r#"{"type":"run_script","script_id":"test-1"}"#,
             r#"{"type":"create_pr","base_branch":"main"}"#,
+            r#"{"type":"auto_merge","base_branch":"main"}"#,
             r#"{"type":"none"}"#,
         ];
         for json in variants {
