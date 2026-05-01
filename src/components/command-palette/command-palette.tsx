@@ -81,6 +81,13 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
   const openSettings = useSettingsStore((s) => s.openSettings)
   const setActiveTab = useSettingsStore((s) => s.setActiveTab)
 
+  const createTaskFromSearch = useCallback(() => {
+    const firstColumn = [...columns].sort((a, b) => a.position - b.position)[0]
+    if (firstColumn && activeWorkspaceId) {
+      void addTask(activeWorkspaceId, firstColumn.id, search || 'New Task', '')
+    }
+  }, [activeWorkspaceId, addTask, columns, search])
+
   // Build command list
   const commands = useMemo<Command[]>(() => {
     const cmds: Command[] = []
@@ -110,12 +117,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
       label: 'Create new task',
       category: 'Tasks',
       shortcut: ['Cmd', 'Enter'],
-      action: () => {
-        const firstColumn = columns.sort((a, b) => a.position - b.position)[0]
-        if (firstColumn && activeWorkspaceId) {
-          void addTask(activeWorkspaceId, firstColumn.id, search || 'New Task', '')
-        }
-      },
+      action: createTaskFromSearch,
     })
 
     // Tasks: duplicate active task
@@ -188,7 +190,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
     }
 
     return cmds
-  }, [tasks, columns, workspaces, activeWorkspaceId, activeTaskId, search, focusTask, closeChat, addTask, duplicateTask, setActiveWorkspace, togglePanel, openSettings, setActiveTab, onShowShortcuts])
+  }, [tasks, workspaces, activeWorkspaceId, activeTaskId, search, focusTask, closeChat, duplicateTask, setActiveWorkspace, togglePanel, openSettings, setActiveTab, onShowShortcuts, createTaskFromSearch])
 
   // Filter commands
   const filtered = useMemo(() => {
@@ -242,6 +244,11 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
         break
       case 'Enter':
         e.preventDefault()
+        if (e.metaKey || e.ctrlKey) {
+          createTaskFromSearch()
+          onClose()
+          break
+        }
         if (flatList[selectedIndex]) {
           executeCommand(flatList[selectedIndex])
         }
@@ -251,7 +258,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
         onClose()
         break
     }
-  }, [flatList, selectedIndex, executeCommand, onClose])
+  }, [flatList, selectedIndex, executeCommand, onClose, createTaskFromSearch])
 
   // Track flat index for rendering
   let flatIndex = -1
