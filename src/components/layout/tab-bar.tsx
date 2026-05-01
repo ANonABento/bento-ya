@@ -23,6 +23,7 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { useChecklistStore } from '@/stores/checklist-store'
 import { Tooltip } from '@/components/shared/tooltip'
 import type { Workspace } from '@/types'
+import { CostBadge, MetricsDashboard } from '@/components/usage'
 import { AddWorkspaceDialog } from './add-workspace-dialog'
 import { useTabBarNavigation } from './use-tab-bar-navigation'
 
@@ -241,6 +242,7 @@ export function TabBar() {
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
+  const [showDashboard, setShowDashboard] = useState(false)
 
   const sortedWorkspaces = [...workspaces].sort((a, b) => a.tabOrder - b.tabOrder)
   const workspaceIds = sortedWorkspaces.map((w) => w.id)
@@ -322,7 +324,7 @@ export function TabBar() {
           </DndContext>
         </div>
 
-        {/* Right: add workspace + checklist + settings */}
+        {/* Right: add workspace + checklist + cost + settings */}
         <div className="ml-auto flex items-center gap-1">
           <AddTabButton
             onClick={() => {
@@ -330,16 +332,28 @@ export function TabBar() {
             }}
           />
           <ChecklistButton />
+          {activeWorkspaceId && (
+            <CostBadge
+              workspaceId={activeWorkspaceId}
+              onOpenDashboard={() => { setShowDashboard(true) }}
+            />
+          )}
           <SettingsButton />
         </div>
       </header>
 
-      {/* Add workspace dialog - simple placeholder for now */}
       {showAddDialog && (
         <AddWorkspaceDialog
           onClose={() => {
             setShowAddDialog(false)
           }}
+        />
+      )}
+
+      {showDashboard && activeWorkspaceId && (
+        <MetricsDashboard
+          workspaceId={activeWorkspaceId}
+          onClose={() => { setShowDashboard(false) }}
         />
       )}
     </>
