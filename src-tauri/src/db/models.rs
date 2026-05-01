@@ -313,6 +313,18 @@ pub struct UsageSummary {
     pub record_count: i64,
 }
 
+/// Usage aggregated by provider/model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelUsageSummary {
+    pub provider: String,
+    pub model: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cost_usd: f64,
+    pub record_count: i64,
+}
+
 /// Daily cost aggregation for time-series charts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

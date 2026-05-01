@@ -532,6 +532,7 @@ const mockCommands: Record<string, CommandHandler> = {
     totalCostUsd: 0,
     recordCount: 0,
   }),
+  get_workspace_model_usage_between: () => [],
   get_task_usage_summary: () => ({
     totalInputTokens: 0,
     totalOutputTokens: 0,

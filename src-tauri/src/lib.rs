@@ -209,6 +209,7 @@ pub fn run() {
             commands::usage::get_workspace_usage,
             commands::usage::get_task_usage,
             commands::usage::get_workspace_usage_summary,
+            commands::usage::get_workspace_model_usage_between,
             commands::usage::get_task_usage_summary,
             commands::usage::clear_workspace_usage,
             commands::usage::get_workspace_daily_costs,

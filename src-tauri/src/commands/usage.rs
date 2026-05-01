@@ -1,4 +1,6 @@
-use crate::db::{self, AppState, ColumnCost, DailyCost, TaskCost, UsageRecord, UsageSummary};
+use crate::db::{
+    self, AppState, ColumnCost, DailyCost, ModelUsageSummary, TaskCost, UsageRecord, UsageSummary,
+};
 use crate::error::AppError;
 use tauri::State;
 
@@ -72,6 +74,21 @@ pub fn get_workspace_usage_summary(
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     db::get_workspace_usage_summary(&conn, &workspace_id).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn get_workspace_model_usage_between(
+    state: State<AppState>,
+    workspace_id: String,
+    start_at: String,
+    end_at: String,
+) -> Result<Vec<ModelUsageSummary>, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    db::get_workspace_model_usage_between(&conn, &workspace_id, &start_at, &end_at)
+        .map_err(AppError::from)
 }
 
 #[tauri::command]
