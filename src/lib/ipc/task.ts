@@ -55,6 +55,20 @@ export async function deleteTask(id: string): Promise<void> {
   return invoke('delete_task', { id })
 }
 
+export async function bulkUpdateTasks(
+  taskIds: string[],
+  updates: {
+    targetColumnId?: string
+    delete?: boolean
+  },
+): Promise<Task[]> {
+  return invoke<Task[]>('bulk_update_tasks', {
+    taskIds,
+    targetColumnId: updates.targetColumnId,
+    delete: updates.delete,
+  })
+}
+
 // ─── Review actions ─────────────────────────────────────────────────────────
 
 export async function approveTask(id: string): Promise<Task> {

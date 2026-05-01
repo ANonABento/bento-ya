@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect, useCallback, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -25,6 +25,7 @@ import { useChatPanel } from '@/hooks/use-chat-panel'
 import { useUIStore } from '@/stores/ui-store'
 import { CardPositionContext, useCardPositionProvider } from '@/hooks/use-card-positions'
 import { DepDragContext } from '@/hooks/use-dep-drag-context'
+import { BulkTaskToolbar } from '@/components/kanban/bulk-task-toolbar'
 
 export function Board() {
   const panelDock = useUIStore((s) => s.panelDock)
@@ -34,9 +35,13 @@ export function Board() {
   const addColumn = useColumnStore((s) => s.add)
   const loadTasks = useTaskStore((s) => s.load)
   const tasks = useTaskStore((s) => s.tasks)
+  const bulkMoveTasks = useTaskStore((s) => s.bulkMove)
+  const bulkRemoveTasks = useTaskStore((s) => s.bulkRemove)
   const loadScripts = useScriptStore((s) => s.load)
 
   const [newColumnId, setNewColumnId] = useState<string | null>(null)
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set())
+  const [lastSelectedTaskId, setLastSelectedTaskId] = useState<string | null>(null)
 
   const handleAddColumn = useCallback(() => {
     if (!activeWorkspaceId) return
@@ -59,10 +64,34 @@ export function Board() {
     collapseTask()
   }, [closeChat, collapseTask])
 
-  const sortedColumns = columns
-    .filter((c) => c.visible)
-    .sort((a, b) => a.position - b.position)
-  const columnIds = sortedColumns.map((c) => c.id)
+  const sortedColumns = useMemo(
+    () => columns
+      .filter((c) => c.visible)
+      .sort((a, b) => a.position - b.position),
+    [columns],
+  )
+  const columnIds = useMemo(() => sortedColumns.map((c) => c.id), [sortedColumns])
+  const visibleTaskOrder = useMemo(
+    () => sortedColumns.flatMap((column) =>
+      tasks
+        .filter((task) => task.columnId === column.id)
+        .sort((a, b) => a.position - b.position)
+        .map((task) => task.id),
+    ),
+    [sortedColumns, tasks],
+  )
+  const selectedTasks = useMemo(
+    () => tasks.filter((task) => selectedTaskIds.has(task.id)),
+    [selectedTaskIds, tasks],
+  )
+  const selectedColumnIds = useMemo(
+    () => new Set(selectedTasks.map((task) => task.columnId)),
+    [selectedTasks],
+  )
+  const archiveColumnId = useMemo(() => sortedColumns.find((column) => {
+    const name = column.name.toLowerCase()
+    return column.icon === 'archive' || ['archive', 'archived', 'stale', 'cancelled', 'deprecated'].includes(name)
+  })?.id ?? null, [sortedColumns])
 
   const { activeItem, onDragStart, onDragOver, onDragEnd } = useDnd()
 
@@ -77,12 +106,92 @@ export function Board() {
 
   useEffect(() => {
     setHoveredTaskId(null)
+    setSelectedTaskIds(new Set())
+    setLastSelectedTaskId(null)
     if (activeWorkspaceId) {
       void loadColumns(activeWorkspaceId)
       void loadTasks(activeWorkspaceId)
       void loadScripts()
     }
   }, [activeWorkspaceId, loadColumns, loadTasks, loadScripts])
+
+  useEffect(() => {
+    setSelectedTaskIds((current) => {
+      const validIds = new Set(tasks.map((task) => task.id))
+      const next = new Set([...current].filter((id) => validIds.has(id)))
+      return next.size === current.size ? current : next
+    })
+  }, [tasks])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setSelectedTaskIds(new Set())
+      setLastSelectedTaskId(null)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => { window.removeEventListener('keydown', handleKeyDown) }
+  }, [])
+
+  const handleTaskSelectionChange = useCallback((taskId: string, event: ReactMouseEvent<HTMLElement>) => {
+    setSelectedTaskIds((current) => {
+      if (event.shiftKey && lastSelectedTaskId) {
+        const startIndex = visibleTaskOrder.indexOf(lastSelectedTaskId)
+        const endIndex = visibleTaskOrder.indexOf(taskId)
+        if (startIndex !== -1 && endIndex !== -1) {
+          const [start, end] = startIndex < endIndex
+            ? [startIndex, endIndex]
+            : [endIndex, startIndex]
+          return new Set([...current, ...visibleTaskOrder.slice(start, end + 1)])
+        }
+      }
+
+      const next = new Set(current)
+      if (event.metaKey || event.ctrlKey) {
+        if (next.has(taskId)) {
+          next.delete(taskId)
+        } else {
+          next.add(taskId)
+        }
+      } else {
+        next.clear()
+        next.add(taskId)
+      }
+      return next
+    })
+    setLastSelectedTaskId(taskId)
+  }, [lastSelectedTaskId, visibleTaskOrder])
+
+  const handleBulkMove = useCallback((targetColumnId: string) => {
+    const ids = [...selectedTaskIds]
+    if (ids.length === 0) return
+    void bulkMoveTasks(ids, targetColumnId).then((success) => {
+      if (success) {
+        setSelectedTaskIds(new Set())
+        setLastSelectedTaskId(null)
+      }
+    })
+  }, [bulkMoveTasks, selectedTaskIds])
+
+  const handleBulkDelete = useCallback(() => {
+    const ids = [...selectedTaskIds]
+    if (ids.length === 0) return
+    const taskCount = ids.length.toString()
+    const confirmed = window.confirm(`Delete ${taskCount} selected task${ids.length === 1 ? '' : 's'}?`)
+    if (!confirmed) return
+    void bulkRemoveTasks(ids).then((success) => {
+      if (success) {
+        setSelectedTaskIds(new Set())
+        setLastSelectedTaskId(null)
+      }
+    })
+  }, [bulkRemoveTasks, selectedTaskIds])
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedTaskIds(new Set())
+    setLastSelectedTaskId(null)
+  }, [])
 
   // Resolve overlay content
   let overlayContent = null
@@ -117,6 +226,8 @@ export function Board() {
                     column={col}
                     autoOpenConfig={col.id === newColumnId}
                     onConfigOpened={col.id === newColumnId ? () => { setNewColumnId(null) } : undefined}
+                    selectedTaskIds={selectedTaskIds}
+                    onTaskSelectionChange={handleTaskSelectionChange}
                   />
                 ))}
               </SortableContext>
@@ -154,6 +265,18 @@ export function Board() {
           {/* Task side panel (slides in from right, board stays visible) */}
           <TaskSidePanel taskId={activeTaskId} onClose={handleCloseAll} />
         </div>
+        <BulkTaskToolbar
+          selectedCount={selectedTaskIds.size}
+          columns={sortedColumns}
+          currentColumnIds={selectedColumnIds}
+          archiveColumnId={archiveColumnId}
+          onMoveToColumn={handleBulkMove}
+          onArchive={() => {
+            if (archiveColumnId) handleBulkMove(archiveColumnId)
+          }}
+          onDelete={handleBulkDelete}
+          onClear={handleClearSelection}
+        />
         <DragOverlay dropAnimation={null}>
           {overlayContent}
         </DragOverlay>
