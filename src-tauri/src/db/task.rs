@@ -105,8 +105,8 @@ pub fn duplicate_task(conn: &Connection, id: &str) -> SqlResult<Task> {
     let tx = conn.unchecked_transaction()?;
 
     tx.execute(
-        "UPDATE tasks SET position = position + 1 WHERE column_id = ?1 AND position >= ?2",
-        params![source_task.column_id, duplicate_position],
+        "UPDATE tasks SET position = position + 1, updated_at = ?3 WHERE column_id = ?1 AND position >= ?2",
+        params![source_task.column_id, duplicate_position, ts],
     )?;
 
     tx.execute(
@@ -189,7 +189,7 @@ pub fn duplicate_task(conn: &Connection, id: &str) -> SqlResult<Task> {
             NULL,
             0,
             0,
-            pr_labels,
+            '[]',
             NULL,
             NULL,
             notify_stakeholders,
@@ -638,7 +638,7 @@ mod tests {
         assert_eq!(duplicated.column_id, column.id);
         assert_eq!(duplicated.position, source.position + 1);
         assert_eq!(shifted.position, source.position + 2);
-        assert_eq!(duplicated.pr_labels, r#"["bug","ui"]"#);
+        assert_eq!(duplicated.pr_labels, "[]");
         assert_eq!(
             duplicated.checklist.as_deref(),
             Some(r#"[{"id":"one","text":"Check","checked":false}]"#)

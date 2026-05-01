@@ -82,10 +82,9 @@ pub fn duplicate_task(
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    let source_task = db::get_task(&conn, &id)?;
-    let task = db::duplicate_task(&conn, &source_task.id)?;
+    let task = db::duplicate_task(&conn, &id)?;
 
-    pipeline::emit_tasks_changed(&app, &source_task.workspace_id, "task_duplicated");
+    pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_duplicated");
     Ok(task)
 }
 
