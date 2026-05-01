@@ -210,7 +210,7 @@ export const ColumnHeader = memo(function ColumnHeader({
               </svg>
             }
             onClick={() => { onCreateFromTemplate() }}
-            tooltip="Create from template"
+            tooltip="New from template"
             tooltipSide="bottom"
           />
 

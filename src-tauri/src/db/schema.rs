@@ -45,6 +45,19 @@ CREATE TABLE IF NOT EXISTS tasks (
     FOREIGN KEY (column_id) REFERENCES columns(id) ON DELETE CASCADE
 )";
 
+pub const CREATE_TASK_TEMPLATES: &str = "
+CREATE TABLE IF NOT EXISTS task_templates (
+    id TEXT PRIMARY KEY NOT NULL,
+    workspace_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    labels TEXT NOT NULL DEFAULT '[]',
+    model TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+)";
+
 pub const CREATE_AGENT_SESSIONS: &str = "
 CREATE TABLE IF NOT EXISTS agent_sessions (
     id TEXT PRIMARY KEY NOT NULL,
@@ -64,6 +77,7 @@ pub const CREATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_columns_workspace ON columns(workspace_id, position)",
     "CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_tasks_column ON tasks(column_id, position)",
+    "CREATE INDEX IF NOT EXISTS idx_task_templates_workspace ON task_templates(workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_agent_sessions_task ON agent_sessions(task_id)",
 ];
 

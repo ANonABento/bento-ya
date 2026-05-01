@@ -173,16 +173,25 @@ pub fn update_task_template(
     labels: Option<String>,
     model: Option<Option<String>>,
 ) -> Result<TaskTemplate, AppError> {
+    if let Some(ref next_title) = title {
+        if next_title.trim().is_empty() {
+            return Err(AppError::InvalidInput(
+                "Template title cannot be empty".to_string(),
+            ));
+        }
+    }
+
     let conn = state
         .db
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     let description = description.as_ref().map(|value| value.as_deref());
     let model = model.as_ref().map(|value| value.as_deref());
+    let trimmed_title = title.as_ref().map(|value| value.trim());
     db::update_task_template(
         &conn,
         &id,
-        title.as_deref(),
+        trimmed_title,
         description,
         labels.as_deref(),
         model,
