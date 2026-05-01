@@ -144,6 +144,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("031_task_batch_id", include_str!("migrations/031_task_batch_id.sql")),
         ("032_github_sync", include_str!("migrations/032_github_sync.sql")),
         ("033_github_issue_unique", include_str!("migrations/033_github_issue_unique.sql")),
+        ("034_task_time_tracking", include_str!("migrations/034_task_time_tracking.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -206,8 +207,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 35 migrations, including split 019 and 030 migration files.
-        assert_eq!(count, 35);
+        // We have 36 migrations, including split 019 and 030 migration files.
+        assert_eq!(count, 36);
     }
 
     #[test]
@@ -264,6 +265,8 @@ mod tests {
         assert_eq!(task.description.as_deref(), Some("Critical issue"));
         assert_eq!(task.position, 0);
         assert_eq!(task.priority, "medium");
+        assert_eq!(task.estimated_hours, None);
+        assert_eq!(task.actual_hours, 0.0);
 
         // Second task gets position 1
         let task2 = insert_task(&conn, &ws.id, &col.id, "Add feature", None).unwrap();
@@ -279,6 +282,31 @@ mod tests {
         delete_task(&conn, &task.id).unwrap();
         let tasks = list_tasks(&conn, &ws.id).unwrap();
         assert_eq!(tasks.len(), 1);
+    }
+
+    #[test]
+    fn test_task_time_tracking() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Working", 0).unwrap();
+        let task = insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+
+        let updated = update_task_time_tracking(&conn, &task.id, Some(2.5)).unwrap();
+        assert_eq!(updated.estimated_hours, Some(2.5));
+
+        let session = insert_agent_session(&conn, &task.id, "claude", Some("/tmp")).unwrap();
+        conn.execute(
+            "UPDATE agent_sessions SET created_at = ?1, updated_at = ?2 WHERE id = ?3",
+            params![
+                "2024-01-01 00:00:00",
+                "2024-01-01 01:30:00",
+                session.id,
+            ],
+        )
+        .unwrap();
+
+        let tracked = get_task(&conn, &task.id).unwrap();
+        assert!((tracked.actual_hours - 1.5).abs() < 0.001);
     }
 
     #[test]

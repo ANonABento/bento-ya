@@ -100,6 +100,8 @@ export interface Task {
   branch_name: string | null
   files_touched: string
   checklist: string | null
+  estimated_hours: number | null
+  actual_hours: number
   pipeline_state: string
   pipeline_triggered_at: string | null
   pipeline_error: string | null

@@ -64,6 +64,8 @@ pub struct Task {
     pub batch_id: Option<String>,
     pub files_touched: String,
     pub checklist: Option<String>,
+    pub estimated_hours: Option<f64>,
+    pub actual_hours: f64,
     pub pipeline_state: String,
     pub pipeline_triggered_at: Option<String>,
     pub pipeline_error: Option<String>,
