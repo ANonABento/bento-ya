@@ -14,9 +14,21 @@ import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard'
 import { TabBar } from '@/components/layout/tab-bar'
 import { SettingsPanel } from '@/components/settings/settings-panel'
 import { ChecklistPanel } from '@/components/checklist/checklist-panel'
-import { AboutModal } from '@/components/about/about-modal'
 import { CommandPalette } from '@/components/command-palette/command-palette'
+import { ShortcutsModal } from '@/components/shortcuts-modal'
 import { SkeletonLoader } from '@/components/shared/skeleton-loader'
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+
+  const tagName = target.tagName
+  return (
+    tagName === 'INPUT' ||
+    tagName === 'TEXTAREA' ||
+    tagName === 'SELECT' ||
+    target.isContentEditable
+  )
+}
 
 function App() {
   const loaded = useWorkspaceStore((s) => s.loaded)
@@ -24,18 +36,32 @@ function App() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const load = useWorkspaceStore((s) => s.load)
   const [error, setError] = useState<string | null>(null)
-  const [showAbout, setShowAbout] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
 
   // Keyboard shortcuts
-  const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
   const toggleCommandPalette = useCallback(() => { setShowCommandPalette((prev) => !prev) }, [])
+  const openShortcuts = useCallback(() => { setShowShortcuts(true) }, [])
   const openSettings = useSettingsStore((s) => s.openSettings)
   useKeyboardShortcuts([
-    { key: '/', meta: true, handler: toggleAbout },
+    { key: '/', meta: true, handler: openShortcuts },
     { key: 'k', meta: true, handler: toggleCommandPalette },
     { key: ',', meta: true, handler: openSettings },
   ])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
+      if (event.key !== '?' || event.metaKey || event.ctrlKey || event.altKey) return
+      if (isEditableTarget(event.target)) return
+
+      event.preventDefault()
+      openShortcuts()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => { window.removeEventListener('keydown', handleKeyDown) }
+  }, [openShortcuts])
 
   // Auto-detect CLI paths on startup
   useAutoDetectClis()
@@ -97,11 +123,11 @@ function App() {
 
       {/* Modals */}
       <AnimatePresence>
-        {showAbout && <AboutModal onClose={() => { setShowAbout(false) }} />}
+        {showShortcuts && <ShortcutsModal onClose={() => { setShowShortcuts(false) }} />}
         {showCommandPalette && (
           <CommandPalette
             onClose={() => { setShowCommandPalette(false) }}
-            onShowShortcuts={() => { setShowCommandPalette(false); setShowAbout(true) }}
+            onShowShortcuts={() => { setShowCommandPalette(false); setShowShortcuts(true) }}
           />
         )}
       </AnimatePresence>
