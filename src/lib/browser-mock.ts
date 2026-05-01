@@ -524,6 +524,7 @@ const mockCommands: Record<string, CommandHandler> = {
     totalCostUsd: 0,
     recordCount: 0,
   }),
+  get_workspace_usage_by_model_for_date: () => [],
   get_task_usage_summary: () => ({
     totalInputTokens: 0,
     totalOutputTokens: 0,

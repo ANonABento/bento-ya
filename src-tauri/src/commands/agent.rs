@@ -389,9 +389,7 @@ Be concise and helpful."#,
         )?;
 
         if let Some(usage) = final_usage.lock().ok().and_then(|usage| usage.clone()) {
-            let resolved_model = usage
-                .model
-                .unwrap_or_else(|| model.clone());
+            let resolved_model = usage.model.unwrap_or_else(|| model.clone());
             let cost = calculate_cost(
                 &resolved_model,
                 &LlmTokenUsage {
@@ -399,7 +397,7 @@ Be concise and helpful."#,
                     output_tokens: usage.output_tokens,
                 },
             );
-            let _ = db::insert_usage_record(
+            let record = db::insert_usage_record(
                 &conn,
                 &task_workspace_id,
                 Some(&task_id),
@@ -411,7 +409,8 @@ Be concise and helpful."#,
                 cost,
                 None,
                 0,
-            );
+            )?;
+            let _ = app.emit("usage:recorded", &record);
         }
     }
 

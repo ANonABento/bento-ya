@@ -31,6 +31,10 @@ import { ModelUsageWarningBanner } from '@/components/usage/model-usage-warning-
 
 const USAGE_WARNING_DISMISSED_STORAGE_KEY = 'token-usage-warning-dismissed-v1'
 
+function getUtcDateKey() {
+  return new Date().toISOString().slice(0, 10)
+}
+
 export function Board() {
   const panelDock = useUIStore((s) => s.panelDock)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -58,8 +62,8 @@ export function Board() {
   const { isChatOpen, activeTaskId, closeChat } = useChatPanel()
   const collapseTask = useUIStore((s) => s.collapseTask)
   const model = useSettingsStore((s) => s.global.model)
-  const budgets = model.dailyTokenBudgets
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const budgets = model.dailyTokenBudgets ?? {}
+  const [today, setToday] = useState(getUtcDateKey)
   const usageByModel = useWorkspaceUsageByModel(activeWorkspaceId ?? '', {
     enabled: !!activeWorkspaceId,
     date: today,
@@ -71,6 +75,25 @@ export function Board() {
     if (!activeWorkspaceId) return ''
     return `${activeWorkspaceId}|${today}`
   }, [activeWorkspaceId, today])
+
+  useEffect(() => {
+    const scheduleNextUtcDay = () => {
+      const now = new Date()
+      const nextUtcMidnight = Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate() + 1,
+      )
+      return window.setTimeout(() => {
+        setToday(getUtcDateKey())
+      }, Math.max(nextUtcMidnight - now.getTime(), 1_000))
+    }
+
+    const timer = scheduleNextUtcDay()
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [today])
 
   useEffect(() => {
     if (!activeWorkspaceId) {

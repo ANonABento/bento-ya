@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useSettingsStore } from './settings-store'
+import { normalizeSettings, useSettingsStore } from './settings-store'
 import { DEFAULT_SETTINGS } from '@/types/settings'
 
 // Mock appearance module
@@ -148,6 +148,21 @@ describe('settings-store', () => {
 
       expect(effective.appearance.accentColor).toBe('#FF0000')
       expect(effective.appearance.theme).toBe(DEFAULT_SETTINGS.appearance.theme)
+    })
+  })
+
+  describe('normalizeSettings', () => {
+    it('fills new nested defaults for older persisted settings', () => {
+      const normalized = normalizeSettings({
+        model: {
+          showCostEstimates: false,
+          disabledModels: [],
+          providers: DEFAULT_SETTINGS.model.providers,
+        },
+      } as unknown as Partial<typeof DEFAULT_SETTINGS>)
+
+      expect(normalized.model.showCostEstimates).toBe(false)
+      expect(normalized.model.dailyTokenBudgets).toEqual({})
     })
   })
 

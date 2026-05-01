@@ -1,4 +1,4 @@
-import { invoke } from './invoke'
+import { invoke, listen, type EventCallback, type UnlistenFn } from './invoke'
 
 // ─── Usage tracking commands ─────────────────────────────────────────────────
 
@@ -92,3 +92,6 @@ export async function getTaskUsageSummary(taskId: string): Promise<UsageSummary>
 export async function clearWorkspaceUsage(workspaceId: string): Promise<void> {
   return invoke('clear_workspace_usage', { workspaceId })
 }
+
+export const onUsageRecorded = (cb: EventCallback<UsageRecord>): Promise<UnlistenFn> =>
+  listen<UsageRecord>('usage:recorded', cb)

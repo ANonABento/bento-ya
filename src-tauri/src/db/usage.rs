@@ -174,6 +174,30 @@ pub fn delete_workspace_usage(conn: &Connection, workspace_id: &str) -> SqlResul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
+    use rusqlite::Connection;
+
+    fn setup_usage_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE usage_records (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                task_id TEXT,
+                session_id TEXT,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                cost_usd REAL NOT NULL,
+                column_name TEXT,
+                duration_seconds INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+        conn
+    }
 
     #[test]
     fn test_estimate_cost_opus() {
@@ -203,5 +227,66 @@ mod tests {
     fn test_estimate_cost_zero_tokens() {
         let cost = estimate_cost("claude-opus-4-20250514", 0, 0);
         assert!((cost - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_get_workspace_usage_by_model_for_date() {
+        let conn = setup_usage_conn();
+        insert_usage_record(
+            &conn,
+            "ws-1",
+            None,
+            None,
+            PROVIDER_ANTHROPIC,
+            "claude-sonnet",
+            100,
+            50,
+            0.25,
+            None,
+            0,
+        )
+        .unwrap();
+        insert_usage_record(
+            &conn,
+            "ws-1",
+            None,
+            None,
+            PROVIDER_ANTHROPIC,
+            "claude-sonnet",
+            25,
+            25,
+            0.10,
+            None,
+            0,
+        )
+        .unwrap();
+        insert_usage_record(
+            &conn,
+            "ws-1",
+            None,
+            None,
+            PROVIDER_ANTHROPIC,
+            "claude-opus",
+            10,
+            5,
+            0.50,
+            None,
+            0,
+        )
+        .unwrap();
+
+        let today = Utc::now().date_naive().to_string();
+        let summaries = get_workspace_usage_by_model_for_date(&conn, "ws-1", &today).unwrap();
+
+        assert_eq!(summaries.len(), 2);
+        assert_eq!(summaries[0].model, "claude-opus");
+        assert_eq!(summaries[0].total_input_tokens, 10);
+        assert_eq!(summaries[0].total_output_tokens, 5);
+        assert_eq!(summaries[0].record_count, 1);
+        assert_eq!(summaries[1].model, "claude-sonnet");
+        assert_eq!(summaries[1].total_input_tokens, 125);
+        assert_eq!(summaries[1].total_output_tokens, 75);
+        assert!((summaries[1].total_cost_usd - 0.35).abs() < 0.001);
+        assert_eq!(summaries[1].record_count, 2);
     }
 }

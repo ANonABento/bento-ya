@@ -223,7 +223,7 @@ pub(super) async fn stream_via_api(
         )?;
 
         let cost = calculate_cost(model, &response.usage);
-        let _ = db::insert_usage_record(
+        let record = db::insert_usage_record(
             &conn,
             workspace_id,
             None,
@@ -235,7 +235,8 @@ pub(super) async fn stream_via_api(
             cost,
             None,
             0,
-        );
+        )?;
+        let _ = app.emit("usage:recorded", &record);
 
         let _ = db::update_orchestrator_session(&conn, orch_session_id, Some("idle"), None);
 

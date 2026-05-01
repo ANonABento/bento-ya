@@ -1,11 +1,12 @@
 use crate::db::{self, AppState, UsageByModelDailySummary, UsageRecord, UsageSummary};
 use crate::error::AppError;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub fn record_usage(
     state: State<AppState>,
+    app: AppHandle,
     workspace_id: String,
     task_id: Option<String>,
     session_id: Option<String>,
@@ -21,7 +22,7 @@ pub fn record_usage(
         .db
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    db::insert_usage_record(
+    let record = db::insert_usage_record(
         &conn,
         &workspace_id,
         task_id.as_deref(),
@@ -34,7 +35,9 @@ pub fn record_usage(
         column_name.as_deref(),
         duration_seconds.unwrap_or(0),
     )
-    .map_err(AppError::from)
+    .map_err(AppError::from)?;
+    let _ = app.emit("usage:recorded", &record);
+    Ok(record)
 }
 
 #[tauri::command]
@@ -84,8 +87,7 @@ pub fn get_workspace_usage_by_model_for_date(
         .db
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    db::get_workspace_usage_by_model_for_date(&conn, &workspace_id, &date)
-        .map_err(AppError::from)
+    db::get_workspace_usage_by_model_for_date(&conn, &workspace_id, &date).map_err(AppError::from)
 }
 
 #[tauri::command]

@@ -5,8 +5,8 @@ use crate::chat::{
 use crate::db::{self, AppState};
 use crate::error::AppError;
 use crate::llm::{calculate_cost, execute_tools, parse_cli_action_blocks, types::TokenUsage};
-use tauri::{AppHandle, Emitter, State};
 use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Emitter, State};
 
 use super::{
     db_conn, session_registry_key,
@@ -170,7 +170,7 @@ pub(super) async fn stream_via_unified_cli(
         );
 
         let conn = db_conn(&state)?;
-        let _ = db::insert_usage_record(
+        let record = db::insert_usage_record(
             &conn,
             workspace_id,
             None,
@@ -182,7 +182,8 @@ pub(super) async fn stream_via_unified_cli(
             cost,
             None,
             0,
-        );
+        )?;
+        let _ = app.emit("usage:recorded", &record);
     }
 
     {

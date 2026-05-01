@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getWorkspaceUsageByModelForDate, type UsageByModelSummary } from '@/lib/ipc'
+import { getWorkspaceUsageByModelForDate, onUsageRecorded, type UsageByModelSummary } from '@/lib/ipc'
 
 type UseWorkspaceUsageByModelOptions = {
   enabled?: boolean
@@ -58,6 +58,29 @@ export function useWorkspaceUsageByModel(
     }
     void refresh()
   }, [enabled, workspaceId, refresh])
+
+  useEffect(() => {
+    if (!enabled || !workspaceId) return
+
+    let disposed = false
+    let unlisten: (() => void) | null = null
+    void onUsageRecorded((record) => {
+      if (record.workspaceId === workspaceId && record.createdAt.slice(0, 10) === date) {
+        void refresh()
+      }
+    }).then((cleanup) => {
+      if (disposed) {
+        cleanup()
+        return
+      }
+      unlisten = cleanup
+    })
+
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [date, enabled, refresh, workspaceId])
 
   return {
     summaries,

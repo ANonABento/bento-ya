@@ -86,7 +86,7 @@ export function AgentTab() {
   }, [allModels])
 
   const updateBudget = (modelId: string, value: string) => {
-    const nextBudgets = { ...model.dailyTokenBudgets }
+    const nextBudgets = { ...(model.dailyTokenBudgets ?? {}) }
     const trimmed = value.trim()
     if (trimmed === '') {
       delete nextBudgets[modelId]
@@ -557,7 +557,7 @@ export function AgentTab() {
         {budgetableModels.length > 0 ? (
           <div className="space-y-3">
             {budgetableModels.map((m) => {
-              const budgetValue = model.dailyTokenBudgets[m.id]
+              const budgetValue = model.dailyTokenBudgets?.[m.id]
               const displayValue = budgetValue ? String(budgetValue) : ''
 
               return (

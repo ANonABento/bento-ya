@@ -22,6 +22,35 @@ type SettingsState = {
   resetToDefaults: () => void
 }
 
+type PersistedSettingsState = Partial<Pick<SettingsState, 'global' | 'workspaceOverrides'>>
+
+export function normalizeSettings(settings: Partial<Settings> | undefined): Settings {
+  const model = settings?.model
+
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    agent: { ...DEFAULT_SETTINGS.agent, ...settings?.agent },
+    model: {
+      ...DEFAULT_SETTINGS.model,
+      ...model,
+      dailyTokenBudgets: {
+        ...DEFAULT_SETTINGS.model.dailyTokenBudgets,
+        ...model?.dailyTokenBudgets,
+      },
+    },
+    voice: { ...DEFAULT_SETTINGS.voice, ...settings?.voice },
+    git: { ...DEFAULT_SETTINGS.git, ...settings?.git },
+    appearance: { ...DEFAULT_SETTINGS.appearance, ...settings?.appearance },
+    cards: { ...DEFAULT_SETTINGS.cards, ...settings?.cards },
+    terminal: { ...DEFAULT_SETTINGS.terminal, ...settings?.terminal },
+    panel: { ...DEFAULT_SETTINGS.panel, ...settings?.panel },
+    gestures: { ...DEFAULT_SETTINGS.gestures, ...settings?.gestures },
+    advanced: { ...DEFAULT_SETTINGS.advanced, ...settings?.advanced },
+    workspaceDefaults: { ...DEFAULT_SETTINGS.workspaceDefaults, ...settings?.workspaceDefaults },
+  }
+}
+
 export const useSettingsStore = create<SettingsState>()(
   devtools(
     persist(
@@ -100,6 +129,15 @@ export const useSettingsStore = create<SettingsState>()(
           global: state.global,
           workspaceOverrides: state.workspaceOverrides,
         }),
+        merge: (persisted, current) => {
+          const persistedState = persisted as PersistedSettingsState | undefined
+
+          return {
+            ...current,
+            global: normalizeSettings(persistedState?.global),
+            workspaceOverrides: persistedState?.workspaceOverrides ?? {},
+          }
+        },
       },
     ),
     { name: 'settings-store' },
