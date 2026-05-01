@@ -804,12 +804,15 @@ pub async fn queue_backlog(
         .ok_or_else(|| AppError::InvalidInput("No 'Backlog' column found".to_string()))?;
 
     // Get first N tasks from Backlog ordered by position
-    let backlog_tasks = db::list_tasks_by_column(&conn, &backlog_column.id)?;
+    let backlog_tasks: Vec<Task> = db::list_tasks_by_column(&conn, &backlog_column.id)?
+        .into_iter()
+        .filter(|task| task.archived_at.is_none())
+        .collect();
     let to_queue: Vec<&Task> = backlog_tasks.iter().take(count as usize).collect();
 
     if to_queue.is_empty() {
         return Err(AppError::InvalidInput(
-            "No tasks in Backlog to queue".to_string(),
+            "No unarchived tasks in Backlog to queue".to_string(),
         ));
     }
 

@@ -298,6 +298,29 @@ mod tests {
     }
 
     #[test]
+    fn test_archived_tasks_are_excluded_from_agent_queues() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Backlog", 0).unwrap();
+        let archived_task = insert_task(&conn, &ws.id, &col.id, "Archived", None).unwrap();
+        let active_task = insert_task(&conn, &ws.id, &col.id, "Active", None).unwrap();
+        let queued_at = now();
+
+        update_task_agent_status(&conn, &archived_task.id, Some("queued"), Some(&queued_at))
+            .unwrap();
+        set_task_archived(&conn, &archived_task.id, true).unwrap();
+        update_task_agent_status(&conn, &active_task.id, Some("queued"), Some(&queued_at))
+            .unwrap();
+
+        let queued = get_queued_tasks(&conn, &ws.id).unwrap();
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].id, active_task.id);
+
+        let next = get_next_queued_task(&conn, &ws.id).unwrap().unwrap();
+        assert_eq!(next.id, active_task.id);
+    }
+
+    #[test]
     fn test_agent_session_crud() {
         let conn = init_test().unwrap();
         let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();

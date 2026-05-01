@@ -69,6 +69,12 @@ export function Board() {
   const { activeItem, onDragStart, onDragOver, onDragEnd } = useDnd(showArchived)
   const archivedTaskCount = tasks.filter((task) => task.archivedAt).length
 
+  useEffect(() => {
+    if (archivedTaskCount === 0 && showArchived) {
+      setShowArchived(false)
+    }
+  }, [archivedTaskCount, showArchived])
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 8 },

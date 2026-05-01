@@ -320,7 +320,7 @@ pub fn update_task_agent_status(
 /// Get tasks with agent_status = 'queued' ordered by queued_at (oldest first)
 pub fn get_queued_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        &format!("SELECT {} FROM tasks WHERE workspace_id = ?1 AND agent_status = 'queued' ORDER BY queued_at ASC", TASK_COLUMNS),
+        &format!("SELECT {} FROM tasks WHERE workspace_id = ?1 AND agent_status = 'queued' AND archived_at IS NULL ORDER BY queued_at ASC", TASK_COLUMNS),
     )?;
     let rows = stmt.query_map(params![workspace_id], map_task_row)?;
     rows.collect()
@@ -451,7 +451,7 @@ pub fn mark_task_notification_sent(conn: &Connection, id: &str) -> SqlResult<Tas
 pub fn get_next_queued_task(conn: &Connection, workspace_id: &str) -> SqlResult<Option<Task>> {
     let result = conn.query_row(
         &format!(
-            "SELECT {} FROM tasks WHERE workspace_id = ?1 AND queued_at IS NOT NULL AND pipeline_state = 'idle' AND column_id IN (SELECT id FROM columns WHERE name = 'Backlog' AND workspace_id = ?1) ORDER BY position LIMIT 1",
+            "SELECT {} FROM tasks WHERE workspace_id = ?1 AND queued_at IS NOT NULL AND pipeline_state = 'idle' AND archived_at IS NULL AND column_id IN (SELECT id FROM columns WHERE name = 'Backlog' AND workspace_id = ?1) ORDER BY position LIMIT 1",
             TASK_COLUMNS
         ),
         params![workspace_id],
