@@ -1,4 +1,3 @@
-import { canonicalModelUsageKey } from '@/lib/model-metadata'
 import type { UsageRecord } from '@/lib/ipc/usage'
 
 export type ModelUsageStats = {
@@ -17,9 +16,40 @@ export const EMPTY_USAGE_STATS: ModelUsageStats = {
   costUsd: 0,
 }
 
-export function aggregateUsageByModel(records: UsageRecord[]): Record<string, ModelUsageStats> {
+export type ComparableUsageModel = {
+  providerId: string
+  id: string
+  alias: string | null
+}
+
+export type ModelUsageIndex = {
+  exact: Map<string, string>
+  alias: Map<string, string>
+}
+
+export function buildModelUsageIndex(models: ComparableUsageModel[]): ModelUsageIndex {
+  const exact = new Map<string, string>()
+  const alias = new Map<string, string>()
+
+  for (const model of models) {
+    const usageKey = `${model.providerId}:${model.id}`
+    exact.set(usageKey, usageKey)
+
+    if (model.alias) {
+      alias.set(`${model.providerId}:${model.alias}`, usageKey)
+    }
+  }
+
+  return { exact, alias }
+}
+
+export function aggregateUsageByModel(
+  records: UsageRecord[],
+  index: ModelUsageIndex,
+): Record<string, ModelUsageStats> {
   return records.reduce<Record<string, ModelUsageStats>>((stats, record) => {
-    const usageKey = canonicalModelUsageKey(record.model, record.provider)
+    const recordKey = `${record.provider}:${record.model}`
+    const usageKey = index.exact.get(recordKey) ?? index.alias.get(recordKey) ?? recordKey
     const existing = stats[usageKey] ?? { ...EMPTY_USAGE_STATS }
     existing.calls += 1
     existing.inputTokens += record.inputTokens

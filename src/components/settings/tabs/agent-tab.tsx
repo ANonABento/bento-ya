@@ -3,8 +3,17 @@ import { useSettingsStore } from '@/stores/settings-store'
 import type { AgentConfig, ProviderConfig } from '@/types/settings'
 import { detectSingleCli, checkCliUpdate, type DetectedCli, type CliUpdateInfo } from '@/lib/ipc'
 import { useModels } from '@/hooks/use-models'
-import { SettingSection, SettingRow, SettingInput, SettingSlider } from '@/components/shared/setting-components'
+import {
+  SettingSection,
+  SettingRow,
+  SettingInput,
+  SettingSlider,
+} from '@/components/shared/setting-components'
 import { Dropdown } from '@/components/shared/dropdown'
+import {
+  ModelComparisonSection,
+  type ComparableModel,
+} from '@/components/settings/tabs/model-comparison-section'
 
 const PROVIDER_INFO: Record<string, { name: string; description: string; cliId: string }> = {
   anthropic: {
@@ -32,9 +41,17 @@ export function AgentTab() {
   const model = global.model
 
   // Dynamic model registry
-  const { models: allModels, lastFetched, source: modelSource, refresh: refreshModels } = useModels()
+  const {
+    models: allModels,
+    lastFetched,
+    source: modelSource,
+    refresh: refreshModels,
+  } = useModels()
   const [refreshing, setRefreshing] = useState(false)
-  const [refreshStatus, setRefreshStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [refreshStatus, setRefreshStatus] = useState<{
+    message: string
+    type: 'success' | 'error'
+  } | null>(null)
 
   // CLI detection state per provider
   const [detectedClis, setDetectedClis] = useState<Record<string, DetectedCli>>({})
@@ -67,9 +84,7 @@ export function AgentTab() {
   }
 
   const updateProvider = (providerId: string, updates: Partial<ProviderConfig>) => {
-    const providers = model.providers.map((p) =>
-      p.id === providerId ? { ...p, ...updates } : p
-    )
+    const providers = model.providers.map((p) => (p.id === providerId ? { ...p, ...updates } : p))
     updateGlobal('model', { ...model, providers })
   }
 
@@ -79,6 +94,28 @@ export function AgentTab() {
   const availableModels = allModels
     .filter((m) => enabledProviderIds.has(m.provider) && !disabledModelIds.has(m.id))
     .map((m) => m.id)
+  const providerNames = new Map(
+    model.providers.map((provider) => [
+      provider.id,
+      PROVIDER_INFO[provider.id]?.name ?? provider.id,
+    ]),
+  )
+  const comparisonModels: ComparableModel[] = allModels
+    .filter((m) => enabledProviderIds.has(m.provider) && !disabledModelIds.has(m.id))
+    .map((m) => ({
+      providerId: m.provider,
+      providerName: providerNames.get(m.provider) ?? PROVIDER_INFO[m.provider]?.name ?? m.provider,
+      id: m.id,
+      displayName: m.displayName,
+      alias: m.alias,
+      tier: m.tier,
+      contextWindow: m.contextWindow,
+      maxOutputTokens: m.maxOutputTokens,
+      inputCostPerM: m.inputCostPerM,
+      outputCostPerM: m.outputCostPerM,
+      capabilities: m.capabilities,
+      isNew: m.isNew,
+    }))
 
   // Toggle provider enabled state
   const handleToggleProvider = (providerId: string, enabled: boolean) => {
@@ -95,14 +132,23 @@ export function AgentTab() {
     setExpanded((prev) => ({ ...prev, [providerId]: willExpand }))
 
     // Check for CLI updates when expanding in CLI mode (once per session)
-    if (willExpand && provider.connectionMode === 'cli' && !cliUpdates[providerId] && !checkingUpdate[providerId]) {
+    if (
+      willExpand &&
+      provider.connectionMode === 'cli' &&
+      !cliUpdates[providerId] &&
+      !checkingUpdate[providerId]
+    ) {
       const cliId = PROVIDER_INFO[providerId]?.cliId
       if (cliId) {
         setCheckingUpdate((prev) => ({ ...prev, [providerId]: true }))
         void checkCliUpdate(cliId)
-          .then((info) => { setCliUpdates((prev) => ({ ...prev, [providerId]: info })) })
+          .then((info) => {
+            setCliUpdates((prev) => ({ ...prev, [providerId]: info }))
+          })
           .catch(() => {})
-          .finally(() => { setCheckingUpdate((prev) => ({ ...prev, [providerId]: false })) })
+          .finally(() => {
+            setCheckingUpdate((prev) => ({ ...prev, [providerId]: false }))
+          })
       }
     }
   }
@@ -160,9 +206,10 @@ export function AgentTab() {
                 setRefreshStatus(null)
                 void refreshModels().then((result) => {
                   if (result.success) {
-                    const msg = result.newModels.length > 0
-                      ? `Found ${String(result.newModels.length)} new: ${result.newModels.join(', ')}`
-                      : `${String(result.modelCount)} models up to date`
+                    const msg =
+                      result.newModels.length > 0
+                        ? `Found ${String(result.newModels.length)} new: ${result.newModels.join(', ')}`
+                        : `${String(result.modelCount)} models up to date`
                     setRefreshStatus({ message: msg, type: 'success' })
                   } else {
                     setRefreshStatus({
@@ -172,7 +219,9 @@ export function AgentTab() {
                   }
                   setRefreshing(false)
                   // Auto-dismiss after 5s
-                  setTimeout(() => { setRefreshStatus(null) }, 5000)
+                  setTimeout(() => {
+                    setRefreshStatus(null)
+                  }, 5000)
                 })
               }}
               disabled={refreshing}
@@ -181,8 +230,19 @@ export function AgentTab() {
               {refreshing ? (
                 <>
                   <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
                   </svg>
                   Checking...
                 </>
@@ -224,7 +284,9 @@ export function AgentTab() {
                 <div
                   className="flex items-center justify-between p-3"
                   style={{ cursor: provider.enabled ? 'pointer' : 'default' }}
-                  onClick={() => { handleToggleExpanded(provider.id) }}
+                  onClick={() => {
+                    handleToggleExpanded(provider.id)
+                  }}
                 >
                   <div className="flex items-center gap-3">
                     {/* Chevron (only when enabled) */}
@@ -245,7 +307,9 @@ export function AgentTab() {
                       </svg>
                     )}
                     <div className="text-left">
-                      <span className={`text-sm font-medium ${provider.enabled ? 'text-text-primary' : 'text-text-secondary'}`}>
+                      <span
+                        className={`text-sm font-medium ${provider.enabled ? 'text-text-primary' : 'text-text-secondary'}`}
+                      >
                         {info.name}
                         {providerModelCount > 0 && (
                           <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/20 px-1 text-[10px] font-medium text-accent">
@@ -285,7 +349,9 @@ export function AgentTab() {
                       </label>
                       <div className="flex gap-2">
                         <button
-                          onClick={() => { void handleCliModeSelect(provider.id) }}
+                          onClick={() => {
+                            void handleCliModeSelect(provider.id)
+                          }}
                           disabled={detecting[provider.id]}
                           className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
                             provider.connectionMode === 'cli'
@@ -296,8 +362,19 @@ export function AgentTab() {
                           {detecting[provider.id] ? (
                             <span className="flex items-center justify-center gap-2">
                               <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                />
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                />
                               </svg>
                               Detecting...
                             </span>
@@ -306,7 +383,9 @@ export function AgentTab() {
                           )}
                         </button>
                         <button
-                          onClick={() => { updateProvider(provider.id, { connectionMode: 'api' }) }}
+                          onClick={() => {
+                            updateProvider(provider.id, { connectionMode: 'api' })
+                          }}
                           className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
                             provider.connectionMode === 'api'
                               ? 'border-accent bg-accent/10 text-text-primary'
@@ -325,8 +404,17 @@ export function AgentTab() {
                           CLI Path
                           {provider.cliPath && (
                             <span className="flex items-center gap-1 text-green-500">
-                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-                                <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 16 16"
+                                fill="currentColor"
+                                className="h-3 w-3"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z"
+                                  clipRule="evenodd"
+                                />
                               </svg>
                               Auto-detected
                             </span>
@@ -334,7 +422,9 @@ export function AgentTab() {
                         </label>
                         <SettingInput
                           value={provider.cliPath ?? ''}
-                          onChange={(value) => { updateProvider(provider.id, { cliPath: value }) }}
+                          onChange={(value) => {
+                            updateProvider(provider.id, { cliPath: value })
+                          }}
                           placeholder={provider.id === 'anthropic' ? 'claude' : 'codex'}
                           mono
                         />
@@ -345,57 +435,86 @@ export function AgentTab() {
                         )}
 
                         {/* Version + Update — single row */}
-                        {provider.cliPath && (() => {
-                          const update = cliUpdates[provider.id]
-                          const isChecking = checkingUpdate[provider.id]
-                          const updateCommand = update?.updateCommand
-                          return (
-                            <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
-                              {isChecking ? (
-                                <span className="flex items-center gap-1 text-text-secondary">
-                                  <svg className="h-2.5 w-2.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                                  </svg>
-                                  checking...
-                                </span>
-                              ) : update ? (
-                                <span className="flex items-center gap-1.5">
-                                  <span className="font-mono text-text-secondary">{update.currentVersion}</span>
-                                  {update.hasUpdate ? (
-                                    <>
-                                      <span className="text-text-secondary">→</span>
-                                      <span className="font-mono text-yellow-400">{update.latestVersion}</span>
-                                      {updateCommand && (
-                                        <button
-                                          onClick={() => {
-                                            void navigator.clipboard.writeText(updateCommand)
-                                            setCopiedCmd(provider.id)
-                                            setTimeout(() => { setCopiedCmd(null) }, 2000)
-                                          }}
-                                          className="ml-0.5 rounded border border-yellow-500/30 px-1 py-0.5 text-[10px] text-yellow-400 transition-colors hover:bg-yellow-500/10"
-                                          title={updateCommand}
-                                        >
-                                          {copiedCmd === provider.id ? '✓ copied' : (
-                                            <span className="flex items-center gap-1">
-                                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5">
-                                                <path d="M5.5 3.5A1.5 1.5 0 0 1 7 2h2.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 1 .439 1.061V9.5A1.5 1.5 0 0 1 12 11V8.621a3 3 0 0 0-.879-2.121L9 4.379A3 3 0 0 0 6.879 3.5H5.5Z" />
-                                                <path d="M4 5a1.5 1.5 0 0 0-1.5 1.5v6A1.5 1.5 0 0 0 4 14h5a1.5 1.5 0 0 0 1.5-1.5V8.621a1.5 1.5 0 0 0-.44-1.06L7.94 5.439A1.5 1.5 0 0 0 6.878 5H4Z" />
-                                              </svg>
-                                              upgrade cmd
-                                            </span>
-                                          )}
-                                        </button>
-                                      )}
-                                    </>
-                                  ) : (
-                                    <span className="text-green-400">✓ latest</span>
-                                  )}
-                                </span>
-                              ) : null}
-                            </div>
-                          )
-                        })()}
+                        {provider.cliPath &&
+                          (() => {
+                            const update = cliUpdates[provider.id]
+                            const isChecking = checkingUpdate[provider.id]
+                            const updateCommand = update?.updateCommand
+                            return (
+                              <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
+                                {isChecking ? (
+                                  <span className="flex items-center gap-1 text-text-secondary">
+                                    <svg
+                                      className="h-2.5 w-2.5 animate-spin"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                    >
+                                      <circle
+                                        className="opacity-25"
+                                        cx="12"
+                                        cy="12"
+                                        r="10"
+                                        stroke="currentColor"
+                                        strokeWidth="4"
+                                      />
+                                      <path
+                                        className="opacity-75"
+                                        fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                      />
+                                    </svg>
+                                    checking...
+                                  </span>
+                                ) : update ? (
+                                  <span className="flex items-center gap-1.5">
+                                    <span className="font-mono text-text-secondary">
+                                      {update.currentVersion}
+                                    </span>
+                                    {update.hasUpdate ? (
+                                      <>
+                                        <span className="text-text-secondary">→</span>
+                                        <span className="font-mono text-yellow-400">
+                                          {update.latestVersion}
+                                        </span>
+                                        {updateCommand && (
+                                          <button
+                                            onClick={() => {
+                                              void navigator.clipboard.writeText(updateCommand)
+                                              setCopiedCmd(provider.id)
+                                              setTimeout(() => {
+                                                setCopiedCmd(null)
+                                              }, 2000)
+                                            }}
+                                            className="ml-0.5 rounded border border-yellow-500/30 px-1 py-0.5 text-[10px] text-yellow-400 transition-colors hover:bg-yellow-500/10"
+                                            title={updateCommand}
+                                          >
+                                            {copiedCmd === provider.id ? (
+                                              '✓ copied'
+                                            ) : (
+                                              <span className="flex items-center gap-1">
+                                                <svg
+                                                  xmlns="http://www.w3.org/2000/svg"
+                                                  viewBox="0 0 16 16"
+                                                  fill="currentColor"
+                                                  className="h-2.5 w-2.5"
+                                                >
+                                                  <path d="M5.5 3.5A1.5 1.5 0 0 1 7 2h2.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 1 .439 1.061V9.5A1.5 1.5 0 0 1 12 11V8.621a3 3 0 0 0-.879-2.121L9 4.379A3 3 0 0 0 6.879 3.5H5.5Z" />
+                                                  <path d="M4 5a1.5 1.5 0 0 0-1.5 1.5v6A1.5 1.5 0 0 0 4 14h5a1.5 1.5 0 0 0 1.5-1.5V8.621a1.5 1.5 0 0 0-.44-1.06L7.94 5.439A1.5 1.5 0 0 0 6.878 5H4Z" />
+                                                </svg>
+                                                upgrade cmd
+                                              </span>
+                                            )}
+                                          </button>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <span className="text-green-400">✓ latest</span>
+                                    )}
+                                  </span>
+                                ) : null}
+                              </div>
+                            )
+                          })()}
                       </div>
                     )}
 
@@ -419,98 +538,114 @@ export function AgentTab() {
                     )}
 
                     {/* Available Models with toggles */}
-                    {providerModels.length > 0 && (() => {
-                      const disabledSet = new Set(model.disabledModels)
-                      const enabledCount = providerModels.filter((m) => !disabledSet.has(m.id)).length
-                      const allEnabled = enabledCount === providerModels.length
+                    {providerModels.length > 0 &&
+                      (() => {
+                        const disabledSet = new Set(model.disabledModels)
+                        const enabledCount = providerModels.filter(
+                          (m) => !disabledSet.has(m.id),
+                        ).length
+                        const allEnabled = enabledCount === providerModels.length
 
-                      const toggleModel = (modelId: string) => {
-                        const current = new Set(model.disabledModels)
-                        if (current.has(modelId)) {
-                          current.delete(modelId)
-                        } else {
-                          current.add(modelId)
-                        }
-                        updateGlobal('model', { ...model, disabledModels: [...current] })
-                      }
-
-                      const toggleAll = (enable: boolean) => {
-                        if (enable) {
-                          // Remove all this provider's models from disabled
+                        const toggleModel = (modelId: string) => {
                           const current = new Set(model.disabledModels)
-                          for (const m of providerModels) current.delete(m.id)
-                          updateGlobal('model', { ...model, disabledModels: [...current] })
-                        } else {
-                          // Add all this provider's models to disabled
-                          const current = new Set(model.disabledModels)
-                          for (const m of providerModels) current.add(m.id)
+                          if (current.has(modelId)) {
+                            current.delete(modelId)
+                          } else {
+                            current.add(modelId)
+                          }
                           updateGlobal('model', { ...model, disabledModels: [...current] })
                         }
-                      }
 
-                      return (
-                        <div>
-                          <div className="mb-2 flex items-center justify-between">
-                            <label className="text-xs font-medium text-text-secondary">
-                              Models ({enabledCount}/{providerModels.length})
-                            </label>
-                            <button
-                              onClick={() => { toggleAll(!allEnabled) }}
-                              className="text-[10px] text-text-secondary transition-colors hover:text-text-primary"
-                            >
-                              {allEnabled ? 'Deselect all' : 'Select all'}
-                            </button>
-                          </div>
-                          <div className="space-y-0.5">
-                            {providerModels.map((m) => {
-                              const enabled = !disabledSet.has(m.id)
-                              return (
-                                <div
-                                  key={m.id}
-                                  className={`flex items-center justify-between rounded-md px-2.5 py-1.5 transition-opacity ${
-                                    enabled ? 'bg-surface-hover/50' : 'bg-surface-hover/20 opacity-50'
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    {/* Toggle */}
-                                    <button
-                                      onClick={() => { toggleModel(m.id) }}
-                                      className={`relative h-4 w-7 rounded-full transition-colors ${
-                                        enabled ? 'bg-accent' : 'bg-surface-hover'
-                                      }`}
-                                    >
-                                      <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${
-                                        enabled ? 'left-3.5' : 'left-0.5'
-                                      }`} />
-                                    </button>
-                                    <span className={`h-1.5 w-1.5 rounded-full ${
-                                      m.tier === 'flagship' ? 'bg-purple-400' :
-                                      m.tier === 'fast' ? 'bg-green-400' : 'bg-blue-400'
-                                    }`} />
-                                    <span className="text-xs font-medium text-text-primary">
-                                      {m.displayName}
+                        const toggleAll = (enable: boolean) => {
+                          if (enable) {
+                            // Remove all this provider's models from disabled
+                            const current = new Set(model.disabledModels)
+                            for (const m of providerModels) current.delete(m.id)
+                            updateGlobal('model', { ...model, disabledModels: [...current] })
+                          } else {
+                            // Add all this provider's models to disabled
+                            const current = new Set(model.disabledModels)
+                            for (const m of providerModels) current.add(m.id)
+                            updateGlobal('model', { ...model, disabledModels: [...current] })
+                          }
+                        }
+
+                        return (
+                          <div>
+                            <div className="mb-2 flex items-center justify-between">
+                              <label className="text-xs font-medium text-text-secondary">
+                                Models ({enabledCount}/{providerModels.length})
+                              </label>
+                              <button
+                                onClick={() => {
+                                  toggleAll(!allEnabled)
+                                }}
+                                className="text-[10px] text-text-secondary transition-colors hover:text-text-primary"
+                              >
+                                {allEnabled ? 'Deselect all' : 'Select all'}
+                              </button>
+                            </div>
+                            <div className="space-y-0.5">
+                              {providerModels.map((m) => {
+                                const enabled = !disabledSet.has(m.id)
+                                return (
+                                  <div
+                                    key={m.id}
+                                    className={`flex items-center justify-between rounded-md px-2.5 py-1.5 transition-opacity ${
+                                      enabled
+                                        ? 'bg-surface-hover/50'
+                                        : 'bg-surface-hover/20 opacity-50'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      {/* Toggle */}
+                                      <button
+                                        onClick={() => {
+                                          toggleModel(m.id)
+                                        }}
+                                        className={`relative h-4 w-7 rounded-full transition-colors ${
+                                          enabled ? 'bg-accent' : 'bg-surface-hover'
+                                        }`}
+                                      >
+                                        <span
+                                          className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${
+                                            enabled ? 'left-3.5' : 'left-0.5'
+                                          }`}
+                                        />
+                                      </button>
+                                      <span
+                                        className={`h-1.5 w-1.5 rounded-full ${
+                                          m.tier === 'flagship'
+                                            ? 'bg-purple-400'
+                                            : m.tier === 'fast'
+                                              ? 'bg-green-400'
+                                              : 'bg-blue-400'
+                                        }`}
+                                      />
+                                      <span className="text-xs font-medium text-text-primary">
+                                        {m.displayName}
+                                      </span>
+                                      {m.alias && (
+                                        <span className="rounded bg-surface-hover px-1 py-0.5 text-[10px] font-mono text-text-secondary">
+                                          {m.alias}
+                                        </span>
+                                      )}
+                                      {m.isNew && (
+                                        <span className="rounded bg-accent/20 px-1 py-0.5 text-[10px] font-medium text-accent">
+                                          New
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-[10px] text-text-secondary">
+                                      {String(Math.round(m.contextWindow / 1000))}k
                                     </span>
-                                    {m.alias && (
-                                      <span className="rounded bg-surface-hover px-1 py-0.5 text-[10px] font-mono text-text-secondary">
-                                        {m.alias}
-                                      </span>
-                                    )}
-                                    {m.isNew && (
-                                      <span className="rounded bg-accent/20 px-1 py-0.5 text-[10px] font-medium text-accent">
-                                        New
-                                      </span>
-                                    )}
                                   </div>
-                                  <span className="text-[10px] text-text-secondary">
-                                    {String(Math.round(m.contextWindow / 1000))}k
-                                  </span>
-                                </div>
-                              )
-                            })}
+                                )
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      )
-                    })()}
+                        )
+                      })()}
                   </div>
                 )}
               </div>
@@ -519,13 +654,18 @@ export function AgentTab() {
         </div>
       </SettingSection>
 
+      <ModelComparisonSection models={comparisonModels} />
+
       {/* Coming Soon */}
       <SettingSection title="Coming Soon">
         <button
-          onClick={() => { setComingSoonCollapsed(!comingSoonCollapsed) }}
+          onClick={() => {
+            setComingSoonCollapsed(!comingSoonCollapsed)
+          }}
           className="flex w-full items-center justify-between mb-2 -mt-2"
+          style={{ cursor: 'pointer' }}
         >
-          <span className="text-xs text-text-secondary">
+          <span className="text-xs text-text-secondary" style={{ cursor: 'inherit' }}>
             {comingSoonCollapsed ? 'Show upcoming providers' : 'Hide upcoming providers'}
           </span>
           <svg
@@ -535,6 +675,7 @@ export function AgentTab() {
             className={`h-4 w-4 text-text-secondary transition-transform ${
               comingSoonCollapsed ? '' : 'rotate-180'
             }`}
+            style={{ cursor: 'inherit' }}
           >
             <path
               fillRule="evenodd"
@@ -562,14 +703,24 @@ export function AgentTab() {
       <SettingSection title="Orchestrator" border>
         <div className="space-y-4">
           {/* Model Selection */}
-          <SettingRow label="Model Selection" description="Auto lets the orchestrator choose the best model per task" vertical>
+          <SettingRow
+            label="Model Selection"
+            description="Auto lets the orchestrator choose the best model per task"
+            vertical
+          >
             <Dropdown
               options={[
-                { value: 'auto', label: 'Auto', description: 'Orchestrator chooses best model per task' },
+                {
+                  value: 'auto',
+                  label: 'Auto',
+                  description: 'Orchestrator chooses best model per task',
+                },
                 ...availableModels.map((m) => ({ value: m, label: m })),
               ]}
               value={agent.modelSelection}
-              onChange={(value) => { updateAgent({ modelSelection: value }) }}
+              onChange={(value) => {
+                updateAgent({ modelSelection: value })
+              }}
             />
           </SettingRow>
 
@@ -577,12 +728,13 @@ export function AgentTab() {
           <SettingRow label="Max Concurrent Agents" vertical>
             <SettingSlider
               value={agent.maxConcurrentAgents}
-              onChange={(value) => { updateAgent({ maxConcurrentAgents: value }) }}
+              onChange={(value) => {
+                updateAgent({ maxConcurrentAgents: value })
+              }}
               min={1}
               max={50}
             />
           </SettingRow>
-
         </div>
       </SettingSection>
     </div>

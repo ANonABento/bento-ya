@@ -12,11 +12,11 @@ export function formatUsageTokens(count: number): string {
 }
 
 export function formatPricePerMillion(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return '--'
+  if (value === null || !Number.isFinite(value) || value < 0) return '--'
   return `$${value.toFixed(value < 1 ? 2 : 0)}`
 }
 
 export function formatTokenLimit(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return '--'
+  if (value === null || !Number.isFinite(value) || value < 0) return '--'
   return formatUsageTokens(value)
 }

@@ -1,19 +1,28 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import type { ModelTier } from '@/lib/ipc/models'
 import { getWorkspaceUsage, type UsageRecord } from '@/lib/ipc/usage'
+import { aggregateUsageByModel, buildModelUsageIndex, EMPTY_USAGE_STATS } from '@/lib/model-usage'
 import {
-  canonicalModelUsageKey,
-  formatModelLimit,
-  formatModelPrice,
-  getModelMetadata,
-} from '@/lib/model-metadata'
-import { aggregateUsageByModel, EMPTY_USAGE_STATS } from '@/lib/model-usage'
-import { formatUsageCost, formatUsageTokens } from '@/lib/usage-format'
+  formatPricePerMillion,
+  formatTokenLimit,
+  formatUsageCost,
+  formatUsageTokens,
+} from '@/lib/usage-format'
 
 export type ComparableModel = {
   providerId: string
   providerName: string
-  modelId: string
+  id: string
+  displayName: string
+  alias: string | null
+  tier: ModelTier
+  contextWindow: number
+  maxOutputTokens: number
+  inputCostPerM: number | null
+  outputCostPerM: number | null
+  capabilities: string[]
+  isNew: boolean
 }
 
 const STORAGE_KEY = 'agent-tab-model-comparison-collapsed'
@@ -85,7 +94,11 @@ export function ModelComparisonSection({ models }: Props) {
     }
   }, [activeWorkspaceId, collapsed, modelCount])
 
-  const usageByModel = useMemo(() => aggregateUsageByModel(records), [records])
+  const usageIndex = useMemo(() => buildModelUsageIndex(models), [models])
+  const usageByModel = useMemo(
+    () => aggregateUsageByModel(records, usageIndex),
+    [records, usageIndex],
+  )
 
   return (
     <section className="border-t border-border-default pt-6">
@@ -154,43 +167,48 @@ export function ModelComparisonSection({ models }: Props) {
                   </thead>
                   <tbody className="divide-y divide-border-default">
                     {models.map((model) => {
-                      const metadata = getModelMetadata(model.modelId, model.providerId)
                       const usage =
-                        usageByModel[canonicalModelUsageKey(model.modelId, model.providerId)] ??
-                        EMPTY_USAGE_STATS
+                        usageByModel[`${model.providerId}:${model.id}`] ?? EMPTY_USAGE_STATS
 
                       return (
-                        <tr
-                          key={`${model.providerId}:${model.modelId}`}
-                          className="text-text-primary"
-                        >
+                        <tr key={`${model.providerId}:${model.id}`} className="text-text-primary">
                           <td className="px-3 py-3 text-text-secondary">{model.providerName}</td>
                           <td className="px-3 py-3">
-                            <div className="font-medium">{metadata.displayName}</div>
+                            <div className="flex items-center gap-1.5 font-medium">
+                              <span>{model.displayName}</span>
+                              {model.isNew && (
+                                <span className="rounded bg-accent/20 px-1 py-0.5 text-[10px] font-medium text-accent">
+                                  New
+                                </span>
+                              )}
+                            </div>
                             <div
                               className="mt-0.5 max-w-48 truncate font-mono text-[11px] text-text-secondary"
-                              title={metadata.id}
+                              title={model.id}
                             >
-                              {metadata.id}
+                              {model.id}
                             </div>
+                            {model.alias && (
+                              <div className="mt-0.5 font-mono text-[11px] text-text-secondary">
+                                alias: {model.alias}
+                              </div>
+                            )}
                           </td>
-                          <td className="px-3 py-3 capitalize text-text-secondary">
-                            {metadata.tier}
+                          <td className="px-3 py-3 capitalize text-text-secondary">{model.tier}</td>
+                          <td className="px-3 py-3 text-right tabular-nums text-text-secondary">
+                            {formatPricePerMillion(model.inputCostPerM)}
                           </td>
                           <td className="px-3 py-3 text-right tabular-nums text-text-secondary">
-                            {formatModelPrice(metadata.inputCostPerMillion)}
+                            {formatPricePerMillion(model.outputCostPerM)}
                           </td>
                           <td className="px-3 py-3 text-right tabular-nums text-text-secondary">
-                            {formatModelPrice(metadata.outputCostPerMillion)}
+                            {formatTokenLimit(model.contextWindow)}
                           </td>
                           <td className="px-3 py-3 text-right tabular-nums text-text-secondary">
-                            {formatModelLimit(metadata.contextWindow)}
-                          </td>
-                          <td className="px-3 py-3 text-right tabular-nums text-text-secondary">
-                            {formatModelLimit(metadata.maxOutputTokens)}
+                            {formatTokenLimit(model.maxOutputTokens)}
                           </td>
                           <td className="px-3 py-3">
-                            <CapabilityBadges capabilities={metadata.capabilities} />
+                            <CapabilityBadges capabilities={model.capabilities} />
                           </td>
                           <td className="px-3 py-3 text-right tabular-nums text-text-secondary">
                             {usage.calls}
