@@ -92,6 +92,22 @@ describe('App keyboard shortcuts', () => {
     expect(screen.getByRole('dialog', { name: /keyboard shortcuts/i })).toBeInTheDocument()
   })
 
+  it('closes the keyboard shortcuts modal when Escape is pressed', async () => {
+    render(<App />)
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('list_workspaces', undefined)
+    })
+
+    fireEvent.keyDown(window, { key: '?', shiftKey: true })
+    expect(screen.getByRole('dialog', { name: /keyboard shortcuts/i })).toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /keyboard shortcuts/i })).not.toBeInTheDocument()
+    })
+  })
+
   it('does not open the keyboard shortcuts modal while typing in an input', async () => {
     render(<App />)
     await waitFor(() => {
