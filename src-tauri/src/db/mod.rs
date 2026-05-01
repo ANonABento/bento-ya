@@ -279,6 +279,25 @@ mod tests {
     }
 
     #[test]
+    fn test_task_archive_unarchive_and_delete() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Backlog", 0).unwrap();
+        let task = insert_task(&conn, &ws.id, &col.id, "Archive me", None).unwrap();
+        assert!(task.archived_at.is_none());
+
+        let archived = set_task_archived(&conn, &task.id, true).unwrap();
+        assert!(archived.archived_at.is_some());
+        assert_eq!(get_task(&conn, &task.id).unwrap().archived_at, archived.archived_at);
+
+        let unarchived = set_task_archived(&conn, &task.id, false).unwrap();
+        assert!(unarchived.archived_at.is_none());
+
+        delete_task(&conn, &task.id).unwrap();
+        assert!(get_task(&conn, &task.id).is_err());
+    }
+
+    #[test]
     fn test_agent_session_crud() {
         let conn = init_test().unwrap();
         let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
