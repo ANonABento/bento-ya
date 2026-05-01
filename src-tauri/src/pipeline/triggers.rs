@@ -252,7 +252,6 @@ pub(crate) fn effective_on_entry_trigger(task: &Task, column: &Column) -> Option
     resolve_trigger(&triggers, task, "on_entry")
 }
 
-#[cfg(test)]
 pub(crate) fn has_effective_on_entry_trigger(task: &Task, column: &Column) -> bool {
     effective_on_entry_trigger(task, column).is_some()
 }
@@ -378,6 +377,223 @@ fn execute_action(
             execute_auto_merge(conn, app, task, column, base_branch.as_deref())
         }
         TriggerActionV2::None => Ok(task.clone()),
+    }
+}
+
+/// BatchWait: when a task enters the Staging column, check whether ALL tasks in this batch
+/// have a PR. If so, ensure the staging→main umbrella PR exists. Auto-advance the task
+/// regardless (other batch members may still be in flight; their batch_wait fire will
+/// re-check and create the umbrella PR when the last one arrives).
+fn execute_batch_wait(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    column: &Column,
+) -> Result<Task, AppError> {
+    let workspace = db::get_workspace(conn, &task.workspace_id)?;
+    let task = ensure_task_batch_id(conn, task)?;
+    let batch_id = task
+        .batch_id
+        .as_deref()
+        .and_then(normalize_batch_id)
+        .unwrap_or_else(db::generate_batch_id);
+    let staging_branch = staging_branch_for_batch(&batch_id);
+    let base_branch = "main".to_string();
+
+    if !workspace.repo_path.is_empty() {
+        maybe_create_ready_batch_pr(
+            conn,
+            &workspace.repo_path,
+            &task.workspace_id,
+            &batch_id,
+            &base_branch,
+            &staging_branch,
+        );
+    }
+
+    // Auto-advance to next column (Merge) so auto_merge can poll for completion.
+    let next = db::list_columns(conn, &task.workspace_id)?
+        .into_iter()
+        .find(|c| c.position == column.position + 1);
+    if let Some(next_col) = next {
+        let updated = db::update_task(
+            conn,
+            &task.id,
+            None,
+            None,
+            Some(&next_col.id),
+            None,
+            None,
+            None,
+        )?;
+        let _ = app.emit_to(tauri::EventTarget::any(), "tasks:changed", &task.workspace_id);
+        return Ok(updated);
+    }
+    Ok(task)
+}
+
+/// AutoMerge: when task enters Merge column, check the batch's umbrella PR. If CI passed,
+/// squash-merge to main, then move all batch tasks to Done. Otherwise leave for next sweep.
+fn execute_auto_merge(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    column: &Column,
+    base_branch: Option<&str>,
+) -> Result<Task, AppError> {
+    let workspace = db::get_workspace(conn, &task.workspace_id)?;
+    let batch_id = match task.batch_id.as_deref().and_then(normalize_batch_id) {
+        Some(id) => id,
+        None => return Ok(task.clone()),
+    };
+    let staging_branch = staging_branch_for_batch(&batch_id);
+    let base = base_branch.unwrap_or("main");
+
+    if workspace.repo_path.is_empty() {
+        return Ok(task.clone());
+    }
+
+    // First check if a recent merged umbrella PR exists for this staging branch.
+    // If so, batch is done — move all tasks to Done.
+    if let Ok(merged_out) = run_command(
+        &workspace.repo_path,
+        "gh",
+        &[
+            "pr",
+            "list",
+            "--state",
+            "merged",
+            "--base",
+            base,
+            "--head",
+            &staging_branch,
+            "--json",
+            "number",
+            "--jq",
+            ".[0].number",
+            "--limit",
+            "1",
+        ],
+    ) {
+        let merged_stdout = String::from_utf8_lossy(&merged_out.stdout);
+        if let Ok(num) = merged_stdout.trim().parse::<i64>() {
+            log::info!(
+                "[auto_merge] Found already-merged PR #{} for batch {}, marking tasks Done",
+                num,
+                batch_id
+            );
+            mark_batch_done(conn, app, &task.workspace_id, &batch_id);
+            return Ok(task.clone());
+        }
+    }
+
+    // Find the umbrella PR number
+    let pr_num_out = match run_command(
+        &workspace.repo_path,
+        "gh",
+        &[
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--base",
+            base,
+            "--head",
+            &staging_branch,
+            "--json",
+            "number,statusCheckRollup",
+            "--jq",
+            ".[0]",
+        ],
+    ) {
+        Ok(o) => o,
+        Err(e) => {
+            log::warn!("[auto_merge] gh pr list error: {}", e);
+            return Ok(task.clone());
+        }
+    };
+    if !pr_num_out.status.success() {
+        log::warn!(
+            "[auto_merge] gh pr list failed for {}: {}",
+            staging_branch,
+            command_stderr(&pr_num_out)
+        );
+        return Ok(task.clone());
+    }
+    let stdout = String::from_utf8_lossy(&pr_num_out.stdout);
+    let parsed: serde_json::Value = match serde_json::from_str(stdout.trim()) {
+        Ok(v) => v,
+        Err(_) => return Ok(task.clone()),
+    };
+    let pr_num = match parsed.get("number").and_then(|n| n.as_i64()) {
+        Some(n) => n,
+        None => return Ok(task.clone()),
+    };
+    let ci_state = parsed
+        .pointer("/statusCheckRollup/0/conclusion")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if ci_state != "SUCCESS" {
+        log::info!(
+            "[auto_merge] PR #{} CI not green yet (got {}); will retry",
+            pr_num,
+            ci_state
+        );
+        return Ok(task.clone());
+    }
+
+    // Merge it
+    let merge_out = match run_command(
+        &workspace.repo_path,
+        "gh",
+        &[
+            "pr",
+            "merge",
+            &pr_num.to_string(),
+            "--squash",
+            "--delete-branch",
+        ],
+    ) {
+        Ok(o) => o,
+        Err(e) => {
+            log::warn!("[auto_merge] gh pr merge error: {}", e);
+            return Ok(task.clone());
+        }
+    };
+    if !merge_out.status.success() {
+        log::warn!(
+            "[auto_merge] gh pr merge {} failed: {}",
+            pr_num,
+            command_stderr(&merge_out)
+        );
+        return Ok(task.clone());
+    }
+
+    log::info!("[auto_merge] Merged PR #{} for batch {}", pr_num, batch_id);
+    mark_batch_done(conn, app, &task.workspace_id, &batch_id);
+    Ok(task.clone())
+}
+
+fn mark_batch_done(conn: &Connection, app: &AppHandle, workspace_id: &str, batch_id: &str) {
+    let done_col = db::list_columns(conn, workspace_id)
+        .ok()
+        .and_then(|cols| cols.into_iter().find(|c| c.name == "Done"));
+    if let Some(done) = done_col {
+        if let Ok(batch_tasks) = db::list_tasks_by_batch_id(conn, workspace_id, batch_id) {
+            for bt in batch_tasks {
+                let _ = db::update_task(
+                    conn,
+                    &bt.id,
+                    None,
+                    None,
+                    Some(&done.id),
+                    None,
+                    None,
+                    None,
+                );
+            }
+            let _ = app.emit_to(tauri::EventTarget::any(), "tasks:changed", workspace_id);
+        }
     }
 }
 
