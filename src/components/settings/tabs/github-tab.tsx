@@ -52,7 +52,7 @@ export function GithubTab() {
       setLastSyncedAt(new Date().toISOString())
       setMessage({
         type: 'success',
-        text: `Synced: ${result.tasksCreated} task(s) created, ${result.issuesFetched} issue(s) fetched`,
+        text: `Synced: ${String(result.tasksCreated)} task(s) created, ${String(result.issuesFetched)} issue(s) fetched`,
       })
     } catch (err) {
       setMessage({

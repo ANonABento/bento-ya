@@ -2,22 +2,16 @@ use crate::db::{self, AppState, Task, TaskTemplate};
 use crate::error::AppError;
 use crate::pipeline;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::HashSet;
 use std::process::Command;
 use tauri::{AppHandle, State};
 
-fn validate_template_labels(labels: &str) -> Result<(), AppError> {
-    let value: Value = serde_json::from_str(labels).map_err(|_| {
-        AppError::InvalidInput("Template labels must be a JSON array of strings".to_string())
-    })?;
+const INVALID_TEMPLATE_LABELS_MESSAGE: &str = "Template labels must be a JSON array of strings";
 
-    match value {
-        Value::Array(items) if items.iter().all(Value::is_string) => Ok(()),
-        _ => Err(AppError::InvalidInput(
-            "Template labels must be a JSON array of strings".to_string(),
-        )),
-    }
+fn validate_template_labels(labels: &str) -> Result<(), AppError> {
+    serde_json::from_str::<Vec<String>>(labels)
+        .map(|_| ())
+        .map_err(|_| AppError::InvalidInput(INVALID_TEMPLATE_LABELS_MESSAGE.to_string()))
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -103,7 +97,7 @@ pub fn list_tasks(state: State<AppState>, workspace_id: String) -> Result<Vec<Ta
     Ok(db::list_tasks(&conn, &workspace_id)?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn list_task_templates(
     state: State<AppState>,
     workspace_id: String,
@@ -115,7 +109,7 @@ pub fn list_task_templates(
     Ok(db::list_task_templates(&conn, &workspace_id)?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 #[allow(clippy::too_many_arguments)]
 pub fn create_task_template(
     state: State<AppState>,
@@ -148,7 +142,7 @@ pub fn create_task_template(
     )?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn save_task_as_template(
     state: State<AppState>,
     task_id: String,
@@ -180,7 +174,7 @@ pub fn save_task_as_template(
     .map_err(AppError::from)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn update_task_template(
     state: State<AppState>,
     id: String,
@@ -236,7 +230,7 @@ mod tests {
     }
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub fn delete_task_template(state: State<AppState>, id: String) -> Result<(), AppError> {
     let conn = state
         .db
@@ -246,7 +240,7 @@ pub fn delete_task_template(state: State<AppState>, id: String) -> Result<(), Ap
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn create_task_from_template(
     app: AppHandle,
     state: State<'_, AppState>,
