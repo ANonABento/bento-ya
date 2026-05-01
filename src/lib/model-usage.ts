@@ -27,16 +27,20 @@ export type ModelUsageIndex = {
   alias: Map<string, string>
 }
 
+export function modelUsageKey(providerId: string, modelId: string): string {
+  return `${providerId}:${modelId}`
+}
+
 export function buildModelUsageIndex(models: ComparableUsageModel[]): ModelUsageIndex {
   const exact = new Map<string, string>()
   const alias = new Map<string, string>()
 
   for (const model of models) {
-    const usageKey = `${model.providerId}:${model.id}`
+    const usageKey = modelUsageKey(model.providerId, model.id)
     exact.set(usageKey, usageKey)
 
     if (model.alias) {
-      alias.set(`${model.providerId}:${model.alias}`, usageKey)
+      alias.set(modelUsageKey(model.providerId, model.alias), usageKey)
     }
   }
 
@@ -48,7 +52,7 @@ export function aggregateUsageByModel(
   index: ModelUsageIndex,
 ): Record<string, ModelUsageStats> {
   return records.reduce<Record<string, ModelUsageStats>>((stats, record) => {
-    const recordKey = `${record.provider}:${record.model}`
+    const recordKey = modelUsageKey(record.provider, record.model)
     const usageKey = index.exact.get(recordKey) ?? index.alias.get(recordKey) ?? recordKey
     const existing = stats[usageKey] ?? { ...EMPTY_USAGE_STATS }
     existing.calls += 1

@@ -11,7 +11,7 @@ const EXPANDED_MAX_HEIGHT = 400
 
 function formatHours(value: number | null | undefined): string {
   if (value == null) {
-    return '—'
+    return '--'
   }
 
   const rounded = Math.round(value * 10) / 10
@@ -20,17 +20,15 @@ function formatHours(value: number | null | undefined): string {
 
 export function TaskCardExpanded({ task }: { task: Task }) {
   const { updateTask, changes, commits, loading } = useTaskDetail(task)
-  const [estimatedInput, setEstimatedInput] = useState(
-    task.estimatedHours != null ? String(task.estimatedHours) : '',
-  )
+  const [estimatedInput, setEstimatedInput] = useState(String(task.estimatedHours))
   const [savingEstimate, setSavingEstimate] = useState(false)
 
   useEffect(() => {
-    setEstimatedInput(task.estimatedHours != null ? String(task.estimatedHours) : '')
+    setEstimatedInput(String(task.estimatedHours))
   }, [task.estimatedHours])
 
-  const estimatedHours = task.estimatedHours ?? 0
-  const actualHours = task.actualHours ?? 0
+  const estimatedHours = task.estimatedHours
+  const actualHours = task.actualHours
   const isOverBudget = estimatedHours > 0 && actualHours > estimatedHours * 2
 
   const saveEstimatedHours = useCallback(async () => {
@@ -38,9 +36,7 @@ export function TaskCardExpanded({ task }: { task: Task }) {
     const nextEstimate = trimmed === '' ? 0 : Number(trimmed)
 
     if (Number.isNaN(nextEstimate) || !Number.isFinite(nextEstimate) || nextEstimate < 0) {
-      setEstimatedInput(
-        task.estimatedHours != null ? String(task.estimatedHours) : '',
-      )
+      setEstimatedInput(String(task.estimatedHours))
       return
     }
 
@@ -55,13 +51,11 @@ export function TaskCardExpanded({ task }: { task: Task }) {
       })
       updateTask(task.id, updated)
     } catch {
-      setEstimatedInput(
-        task.estimatedHours != null ? String(task.estimatedHours) : '',
-      )
+      setEstimatedInput(String(task.estimatedHours))
     } finally {
       setSavingEstimate(false)
     }
-  }, [estimatedInput, estimatedHours, task, updateTask])
+  }, [estimatedInput, estimatedHours, task.id, task.estimatedHours, updateTask])
 
   return (
     <motion.div
@@ -75,20 +69,28 @@ export function TaskCardExpanded({ task }: { task: Task }) {
       <div
         className="border-t border-border-default bg-surface-hover/30 px-3 py-2 space-y-2 overflow-y-auto"
         style={{ maxHeight: EXPANDED_MAX_HEIGHT }}
-        onClick={(e) => { e.stopPropagation() }}
+        onClick={(e) => {
+          e.stopPropagation()
+        }}
       >
         {/* Full description */}
         {task.description && (
-          <p className="text-xs leading-relaxed text-text-secondary">
-            {task.description}
-          </p>
+          <p className="text-xs leading-relaxed text-text-secondary">{task.description}</p>
         )}
 
         {/* Branch & status */}
         <div className="flex items-center gap-2 flex-wrap">
           {task.branch && (
             <div className="flex items-center gap-1.5">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" className="text-text-secondary shrink-0">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                className="text-text-secondary shrink-0"
+              >
                 <circle cx="4" cy="3" r="1.5" />
                 <circle cx="8" cy="9" r="1.5" />
                 <path d="M4 4.5V7.5C4 8.5 5 9 8 9M8 7.5V3" />
@@ -97,7 +99,10 @@ export function TaskCardExpanded({ task }: { task: Task }) {
                 {task.branch}
               </span>
               {task.worktreePath && (
-                <span className="rounded bg-purple-500/10 px-1 py-0.5 text-[10px] font-medium text-purple-400" title={task.worktreePath}>
+                <span
+                  className="rounded bg-purple-500/10 px-1 py-0.5 text-[10px] font-medium text-purple-400"
+                  title={task.worktreePath}
+                >
                   worktree
                 </span>
               )}
@@ -124,8 +129,12 @@ export function TaskCardExpanded({ task }: { task: Task }) {
                 min="0"
                 step="0.25"
                 value={estimatedInput}
-                onChange={(e) => { setEstimatedInput(e.target.value) }}
-                onBlur={() => { void saveEstimatedHours() }}
+                onChange={(e) => {
+                  setEstimatedInput(e.target.value)
+                }}
+                onBlur={() => {
+                  void saveEstimatedHours()
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault()
@@ -146,9 +155,7 @@ export function TaskCardExpanded({ task }: { task: Task }) {
           </div>
 
           {isOverBudget && (
-            <p className="mt-2 text-[11px] text-warning">
-              Actual time is more than 2x estimated.
-            </p>
+            <p className="mt-2 text-[11px] text-warning">Actual time is more than 2x estimated.</p>
           )}
         </div>
 
@@ -177,7 +184,6 @@ export function TaskCardExpanded({ task }: { task: Task }) {
           </h4>
           <CommitsSection commits={commits} />
         </div>
-
       </div>
     </motion.div>
   )

@@ -47,23 +47,23 @@ export type Task = {
   prReviewDecision: PrReviewDecision | null
   prCommentCount: number
   prIsDraft: boolean
-  prLabels: string  // JSON array
+  prLabels: string // JSON array
   prLastFetched: string | null
   prHeadSha: string | null
   // Task checklist (JSON array of TaskChecklistItem)
   checklist: string | null
   // Notification fields
-  notifyStakeholders: string | null  // JSON array of stakeholder names/emails
+  notifyStakeholders: string | null // JSON array of stakeholder names/emails
   notificationSentAt: string | null
   // Trigger override fields (V1 column triggers)
-  triggerOverrides: string | null  // JSON - task-level trigger overrides
-  triggerPrompt: string | null     // Custom prompt fed to agent
-  lastOutput: string | null        // Last output from trigger execution
-  dependencies: string | null      // JSON array of dependency specs
-  blocked: boolean                 // Whether task is blocked by dependencies
-  worktreePath: string | null      // Per-task git worktree path (absolute)
-  estimatedHours?: number
-  actualHours?: number
+  triggerOverrides: string | null // JSON - task-level trigger overrides
+  triggerPrompt: string | null // Custom prompt fed to agent
+  lastOutput: string | null // Last output from trigger execution
+  dependencies: string | null // JSON array of dependency specs
+  blocked: boolean // Whether task is blocked by dependencies
+  worktreePath: string | null // Per-task git worktree path (absolute)
+  estimatedHours: number
+  actualHours: number
   position: number
   createdAt: string
   updatedAt: string
@@ -89,7 +89,7 @@ export type PrComment = {
 
 export type PrStatus = {
   number: number
-  state: string         // OPEN, CLOSED, MERGED
+  state: string // OPEN, CLOSED, MERGED
   reviewDecision: string | null // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED
   comments: PrComment[]
   unresolvedCount: number

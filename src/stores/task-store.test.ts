@@ -70,6 +70,8 @@ const createMockTask = (overrides: Partial<Task> = {}): Task => ({
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
   ...overrides,
+  estimatedHours: overrides.estimatedHours ?? 0,
+  actualHours: overrides.actualHours ?? 0,
 })
 
 describe('task-store', () => {

@@ -184,6 +184,24 @@ pub fn update_task(
     get_task(conn, id)
 }
 
+pub fn update_task_model(conn: &Connection, id: &str, model: Option<&str>) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET model = ?1, updated_at = ?2 WHERE id = ?3",
+        params![model, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+pub fn update_task_estimated_hours(conn: &Connection, id: &str, hours: f64) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET estimated_hours = ?1, updated_at = ?2 WHERE id = ?3",
+        params![hours, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
 pub fn delete_task(conn: &Connection, id: &str) -> SqlResult<()> {
     conn.execute("DELETE FROM tasks WHERE id = ?1", params![id])?;
     Ok(())

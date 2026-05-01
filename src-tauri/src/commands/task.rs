@@ -145,24 +145,12 @@ pub fn update_task(
 
     // Update model if provided
     if let Some(ref m) = model {
-        let ts = db::now();
-        conn.execute(
-            "UPDATE tasks SET model = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![m.as_deref(), ts, id],
-        )
-        .map_err(AppError::from)?;
-        task = db::get_task(&conn, &id)?;
+        task = db::update_task_model(&conn, &id, m.as_deref())?;
     }
 
     // Update estimated hours if provided
     if let Some(hours) = estimated_hours {
-        let ts = db::now();
-        conn.execute(
-            "UPDATE tasks SET estimated_hours = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![hours, ts, id],
-        )
-        .map_err(AppError::from)?;
-        task = db::get_task(&conn, &id)?;
+        task = db::update_task_estimated_hours(&conn, &id, hours)?;
     }
 
     Ok(task)

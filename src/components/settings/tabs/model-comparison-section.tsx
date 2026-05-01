@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { ModelTier } from '@/lib/ipc/models'
 import { getWorkspaceUsage, type UsageRecord } from '@/lib/ipc/usage'
-import { aggregateUsageByModel, buildModelUsageIndex, EMPTY_USAGE_STATS } from '@/lib/model-usage'
+import {
+  aggregateUsageByModel,
+  buildModelUsageIndex,
+  EMPTY_USAGE_STATS,
+  modelUsageKey,
+} from '@/lib/model-usage'
 import {
   formatPricePerMillion,
   formatTokenLimit,
@@ -181,10 +186,13 @@ export function ModelComparisonSection({ models }: Props) {
                   <tbody className="divide-y divide-border-default">
                     {models.map((model) => {
                       const usage =
-                        usageByModel[`${model.providerId}:${model.id}`] ?? EMPTY_USAGE_STATS
+                        usageByModel[modelUsageKey(model.providerId, model.id)] ?? EMPTY_USAGE_STATS
 
                       return (
-                        <tr key={`${model.providerId}:${model.id}`} className="text-text-primary">
+                        <tr
+                          key={modelUsageKey(model.providerId, model.id)}
+                          className="text-text-primary"
+                        >
                           <td className="px-3 py-3 text-text-secondary">{model.providerName}</td>
                           <td className="px-3 py-3">
                             <div className="flex items-center gap-1.5 font-medium">
