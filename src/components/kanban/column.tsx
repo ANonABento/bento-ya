@@ -42,8 +42,7 @@ export const Column = memo(function Column({
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
   const getScriptName = useScriptStore((s) => s.getScriptName)
-  const getMetrics = useColumnMetricsStore((s) => s.getMetrics)
-  const columnMetrics = getMetrics(column.id)
+  const columnMetrics = useColumnMetricsStore((s) => s.metricsById[column.id])
 
   // Memoize filtered tasks to prevent infinite loops
   const tasks = useMemo(

@@ -7,6 +7,7 @@
 import { useEffect, useRef } from 'react'
 import { listen, type UnlistenFn } from '@/lib/ipc'
 import { useTaskStore } from '@/stores/task-store'
+import { useColumnMetricsStore } from '@/stores/column-metrics-store'
 
 type TasksChangedPayload = {
   workspaceId: string
@@ -15,6 +16,7 @@ type TasksChangedPayload = {
 
 export function useTaskSync(workspaceId: string | null) {
   const loadTasks = useTaskStore((s) => s.load)
+  const loadMetrics = useColumnMetricsStore((s) => s.load)
   const unlistenRef = useRef<UnlistenFn | null>(null)
 
   useEffect(() => {
@@ -26,6 +28,7 @@ export function useTaskSync(workspaceId: string | null) {
       if (cancelled) return
       if (payload.workspaceId === workspaceId) {
         void loadTasks(workspaceId)
+        void loadMetrics(workspaceId)
       }
     }).then((unlisten) => {
       if (cancelled) {
@@ -40,5 +43,5 @@ export function useTaskSync(workspaceId: string | null) {
       unlistenRef.current?.()
       unlistenRef.current = null
     }
-  }, [workspaceId, loadTasks])
+  }, [workspaceId, loadTasks, loadMetrics])
 }
