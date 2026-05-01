@@ -3,6 +3,8 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use super::models::{ColumnMetrics, ColumnTimingAverage, PipelineTiming};
 use super::{new_id, now};
 
+const COLUMN_METRICS_WINDOW_DAYS: i64 = 30;
+
 /// Map a database row to a PipelineTiming struct.
 fn map_timing_row(row: &rusqlite::Row) -> rusqlite::Result<PipelineTiming> {
     Ok(PipelineTiming {
@@ -130,6 +132,7 @@ pub fn get_average_pipeline_timing(
 
 /// Get board header metrics for every column in a workspace.
 pub fn get_column_metrics(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<ColumnMetrics>> {
+    let window_modifier = format!("-{COLUMN_METRICS_WINDOW_DAYS} days");
     let mut stmt = conn.prepare(
         "WITH timing_metrics AS (
              SELECT pt.column_id AS column_id,
@@ -141,7 +144,7 @@ pub fn get_column_metrics(conn: &Connection, workspace_id: &str) -> SqlResult<Ve
              JOIN tasks t ON t.id = pt.task_id
              WHERE t.workspace_id = ?1
                AND pt.duration_seconds IS NOT NULL
-               AND datetime(pt.exited_at) >= datetime('now', '-30 days')
+               AND datetime(pt.exited_at) >= datetime('now', ?2)
              GROUP BY pt.column_id
          ),
          session_metrics AS (
@@ -154,7 +157,7 @@ pub fn get_column_metrics(conn: &Connection, workspace_id: &str) -> SqlResult<Ve
              JOIN tasks t ON t.id = agent_sessions.task_id
              WHERE t.workspace_id = ?1
                AND agent_sessions.exit_code IS NOT NULL
-               AND datetime(agent_sessions.updated_at) >= datetime('now', '-30 days')
+               AND datetime(agent_sessions.updated_at) >= datetime('now', ?2)
              GROUP BY t.column_id
          )
          SELECT c.id,
@@ -169,7 +172,7 @@ pub fn get_column_metrics(conn: &Connection, workspace_id: &str) -> SqlResult<Ve
          WHERE c.workspace_id = ?1
          ORDER BY c.position ASC",
     )?;
-    let rows = stmt.query_map(params![workspace_id], |row| {
+    let rows = stmt.query_map(params![workspace_id, window_modifier], |row| {
         let sample_count: i64 = row.get(5)?;
         let success_count: i64 = row.get(3)?;
         let success_rate = if sample_count > 0 {
@@ -183,7 +186,7 @@ pub fn get_column_metrics(conn: &Connection, workspace_id: &str) -> SqlResult<Ve
             column_name: row.get(1)?,
             avg_duration_seconds: row.get(2)?,
             success_rate,
-            throughput_per_day: sample_count as f64 / 30.0,
+            throughput_per_day: (sample_count as f64) / (COLUMN_METRICS_WINDOW_DAYS as f64),
             sample_count,
             success_count,
             retry_count: row.get(4)?,

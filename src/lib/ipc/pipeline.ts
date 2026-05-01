@@ -11,6 +11,8 @@ export type PipelineEvent = {
   message: string | null
 }
 
+export const COLUMN_METRICS_WINDOW_DAYS = 30
+
 export type ColumnMetrics = {
   columnId: string
   columnName: string

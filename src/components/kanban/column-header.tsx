@@ -1,7 +1,7 @@
 import { memo, useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { IconButton } from '@/components/shared/icon-button'
-import type { ColumnMetrics } from '@/lib/ipc/pipeline'
+import { COLUMN_METRICS_WINDOW_DAYS, type ColumnMetrics } from '@/lib/ipc/pipeline'
 
 type ScriptTriggerInfo = {
   scriptName: string
@@ -31,9 +31,9 @@ type ColumnHeaderProps = {
 
 function formatDuration(seconds: number) {
   if (!Number.isFinite(seconds) || seconds <= 0) return '0m'
-  if (seconds < 60) return `${Math.round(seconds)}s`
+  if (seconds < 60) return `${String(Math.round(seconds))}s`
   const minutes = seconds / 60
-  if (minutes < 60) return `${Math.round(minutes)}m`
+  if (minutes < 60) return `${String(Math.round(minutes))}m`
   const hours = minutes / 60
   if (hours < 24) return `${hours.toFixed(hours < 10 ? 1 : 0)}h`
   const days = hours / 24
@@ -42,7 +42,7 @@ function formatDuration(seconds: number) {
 
 function formatRate(value: number) {
   if (!Number.isFinite(value) || value <= 0) return '0%'
-  return `${Math.round(value)}%`
+  return `${String(Math.round(value))}%`
 }
 
 function formatThroughput(value: number) {
@@ -52,15 +52,18 @@ function formatThroughput(value: number) {
 }
 
 function ColumnMetricsCard({ metrics }: { metrics?: ColumnMetrics }) {
-  const avgDuration = formatDuration(metrics?.avgDurationSeconds ?? 0)
-  const successRate = formatRate(metrics?.successRate ?? 0)
-  const throughput = formatThroughput(metrics?.throughputPerDay ?? 0)
+  const avgDuration = metrics ? formatDuration(metrics.avgDurationSeconds) : '--'
+  const successRate = metrics ? formatRate(metrics.successRate) : '--'
+  const throughput = metrics ? formatThroughput(metrics.throughputPerDay) : '--'
   const sampleCount = metrics?.sampleCount ?? 0
   const successCount = metrics?.successCount ?? 0
   const retryCount = metrics?.retryCount ?? 0
-  const detail = sampleCount > 0
-    ? `Last 30 days: ${sampleCount} completed sample${sampleCount === 1 ? '' : 's'}, ${successCount} reached the next column without retry, ${retryCount} retried.`
-    : 'Last 30 days: no completed samples for this column yet.'
+  const windowDays = String(COLUMN_METRICS_WINDOW_DAYS)
+  const detail = !metrics
+    ? `Last ${windowDays} days: metrics are loading.`
+    : sampleCount > 0
+    ? `Last ${windowDays} days: ${String(sampleCount)} completed sample${sampleCount === 1 ? '' : 's'}, ${String(successCount)} reached the next column without retry, ${String(retryCount)} retried.`
+    : `Last ${windowDays} days: no completed samples for this column yet.`
 
   return (
     <div

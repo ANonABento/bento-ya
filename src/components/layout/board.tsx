@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect, useCallback, useMemo, useState } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -61,11 +61,29 @@ export function Board() {
     collapseTask()
   }, [closeChat, collapseTask])
 
-  const sortedColumns = columns
-    .filter((c) => c.visible)
-    .sort((a, b) => a.position - b.position)
-  const columnIds = sortedColumns.map((c) => c.id)
+  const sortedColumns = useMemo(
+    () => columns.filter((c) => c.visible).sort((a, b) => a.position - b.position),
+    [columns],
+  )
+  const columnIds = useMemo(() => sortedColumns.map((c) => c.id), [sortedColumns])
   const metricColumnIds = columnIds.join(',')
+  const metricsRefreshKey = useMemo(
+    () =>
+      tasks
+        .map((task) =>
+          [
+            task.id,
+            task.columnId,
+            task.pipelineState,
+            task.retryCount,
+            task.agentStatus,
+            task.lastScriptExitCode,
+            task.updatedAt,
+          ].join(':'),
+        )
+        .join('|'),
+    [tasks],
+  )
 
   const { activeItem, onDragStart, onDragOver, onDragEnd } = useDnd()
 
@@ -98,14 +116,14 @@ export function Board() {
         if (cancelled) return
         setColumnMetrics(Object.fromEntries(metrics.map((metric) => [metric.columnId, metric])))
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         if (cancelled) return
         console.error('[Board] Failed to refresh column metrics:', err)
       })
     return () => {
       cancelled = true
     }
-  }, [activeWorkspaceId, tasks, metricColumnIds])
+  }, [activeWorkspaceId, metricColumnIds, metricsRefreshKey])
 
   // Resolve overlay content
   let overlayContent = null
