@@ -8,6 +8,7 @@ import { usePrStatusPolling } from '@/hooks/use-pr-status-polling'
 import { useTaskSync } from '@/hooks/use-task-sync'
 import { useAgentStreamingSync } from '@/hooks/use-agent-streaming-sync'
 import { useAutoDetectClis } from '@/hooks/use-cli-path'
+import { useUpdater } from '@/hooks/use-updater'
 import { Board } from '@/components/layout/board'
 import { WorkspaceSetup } from '@/components/layout/workspace-setup'
 import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard'
@@ -17,7 +18,6 @@ import { ChecklistPanel } from '@/components/checklist/checklist-panel'
 import { AboutModal } from '@/components/about/about-modal'
 import { CommandPalette } from '@/components/command-palette/command-palette'
 import { SkeletonLoader } from '@/components/shared/skeleton-loader'
-import { checkForUpdate, installUpdate, type UpdateInfo } from '@/lib/ipc/updater'
 
 function App() {
   const loaded = useWorkspaceStore((s) => s.loaded)
@@ -27,10 +27,14 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [showAbout, setShowAbout] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
-  const [pendingUpdate, setPendingUpdate] = useState<UpdateInfo | null>(null)
-  const [updateDismissed, setUpdateDismissed] = useState(false)
-  const [installing, setInstalling] = useState(false)
-  const [installError, setInstallError] = useState<string | null>(null)
+  const {
+    pendingUpdate,
+    dismissed: updateDismissed,
+    installing,
+    error: installError,
+    dismiss: dismissUpdate,
+    install: handleInstallUpdate,
+  } = useUpdater()
 
   // Keyboard shortcuts
   const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
@@ -41,24 +45,6 @@ function App() {
     { key: 'k', meta: true, handler: toggleCommandPalette },
     { key: ',', meta: true, handler: openSettings },
   ])
-
-  // Check for updates on launch (non-blocking, silent on failure)
-  useEffect(() => {
-    checkForUpdate().then((info) => {
-      if (info) setPendingUpdate(info)
-    }).catch(() => { /* ignore update check failures silently */ })
-  }, [])
-
-  const handleInstallUpdate = useCallback(async () => {
-    setInstalling(true)
-    setInstallError(null)
-    try {
-      await installUpdate()
-    } catch (err) {
-      setInstalling(false)
-      setInstallError(err instanceof Error ? err.message : 'Update failed')
-    }
-  }, [])
 
   // Auto-detect CLI paths on startup
   useAutoDetectClis()
@@ -116,14 +102,14 @@ function App() {
               </span>
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => { void handleInstallUpdate() }}
+                  onClick={handleInstallUpdate}
                   disabled={installing}
                   className="rounded px-2.5 py-1 text-xs font-medium bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors"
                 >
                   {installing ? 'Installing…' : installError ? 'Retry' : 'Install & Restart'}
                 </button>
                 <button
-                  onClick={() => { setUpdateDismissed(true) }}
+                  onClick={dismissUpdate}
                   className="text-text-secondary hover:text-text-primary transition-colors"
                   aria-label="Dismiss"
                 >

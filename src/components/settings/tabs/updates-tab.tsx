@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { getVersion } from '@tauri-apps/api/app'
 import { checkForUpdate, installUpdate, type UpdateInfo } from '@/lib/ipc/updater'
 
@@ -14,34 +14,33 @@ export function UpdatesTab() {
     getVersion().then(setCurrentVersion).catch(() => { /* non-critical */ })
   }, [])
 
-  const handleCheck = async () => {
+  const handleCheck = useCallback(() => {
     setState('checking')
     setError(null)
     setUpdate(null)
-    try {
-      const result = await checkForUpdate()
-      if (result) {
-        setUpdate(result)
-        setState('available')
-      } else {
-        setState('up-to-date')
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-      setState('error')
-    }
-  }
+    checkForUpdate()
+      .then((result) => {
+        if (result) {
+          setUpdate(result)
+          setState('available')
+        } else {
+          setState('up-to-date')
+        }
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : String(err))
+        setState('error')
+      })
+  }, [])
 
-  const handleInstall = async () => {
+  const handleInstall = useCallback(() => {
     setState('installing')
     setError(null)
-    try {
-      await installUpdate()
-    } catch (err) {
+    installUpdate().catch((err: unknown) => {
       setError(err instanceof Error ? err.message : String(err))
       setState('error')
-    }
-  }
+    })
+  }, [])
 
   const installing = state === 'installing'
 
@@ -56,7 +55,7 @@ export function UpdatesTab() {
               <p className="text-xs text-text-secondary font-mono">{currentVersion ?? '—'}</p>
             </div>
             <button
-              onClick={() => { void handleCheck() }}
+              onClick={handleCheck}
               disabled={state === 'checking' || state === 'installing'}
               className="rounded px-3 py-1.5 text-sm font-medium bg-accent text-white hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
@@ -82,7 +81,7 @@ export function UpdatesTab() {
                   )}
                 </div>
                 <button
-                  onClick={() => { void handleInstall() }}
+                  onClick={handleInstall}
                   disabled={installing}
                   className="rounded px-3 py-1.5 text-sm font-medium bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors"
                 >

@@ -14,15 +14,8 @@ pub struct UpdateInfo {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn check_for_update(app: AppHandle) -> Result<Option<UpdateInfo>, AppError> {
-    let updater = app
-        .updater_builder()
-        .build()
-        .map_err(|e| AppError::CommandError(e.to_string()))?;
-
-    let update = updater
-        .check()
-        .await
-        .map_err(|e| AppError::CommandError(e.to_string()))?;
+    let updater = app.updater_builder().build()?;
+    let update = updater.check().await?;
 
     Ok(update.map(|u| UpdateInfo {
         version: u.version,
@@ -33,23 +26,12 @@ pub async fn check_for_update(app: AppHandle) -> Result<Option<UpdateInfo>, AppE
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn install_update(app: AppHandle) -> Result<(), AppError> {
-    let updater = app
-        .updater_builder()
-        .build()
-        .map_err(|e| AppError::CommandError(e.to_string()))?;
+    let updater = app.updater_builder().build()?;
+    let update = updater.check().await?;
+    let update =
+        update.ok_or_else(|| AppError::CommandError("No update available".to_string()))?;
 
-    let update = updater
-        .check()
-        .await
-        .map_err(|e| AppError::CommandError(e.to_string()))?;
-
-    let update = update
-        .ok_or_else(|| AppError::CommandError("No update available".to_string()))?;
-
-    update
-        .download_and_install(|_, _| {}, || {})
-        .await
-        .map_err(|e| AppError::CommandError(e.to_string()))?;
+    update.download_and_install(|_, _| {}, || {}).await?;
 
     Ok(())
 }
