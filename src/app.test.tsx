@@ -73,6 +73,19 @@ describe('App keyboard shortcuts overlay', () => {
     expect(screen.queryByRole('dialog', { name: 'Keyboard Shortcuts' })).not.toBeInTheDocument()
   })
 
+  it('does not open global command shortcuts while typing in an input', () => {
+    render(
+      <>
+        <input aria-label="Task title" />
+        <App />
+      </>,
+    )
+
+    fireEvent.keyDown(screen.getByLabelText('Task title'), { key: '/', metaKey: true })
+
+    expect(screen.queryByRole('dialog', { name: 'Keyboard Shortcuts' })).not.toBeInTheDocument()
+  })
+
   it('opens shortcuts from Cmd+/ and closes them with Escape', async () => {
     render(<App />)
 

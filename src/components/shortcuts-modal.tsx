@@ -6,78 +6,78 @@ type Props = {
 }
 
 type ShortcutItem = {
-  keys: string[]
-  desc: string
+  keys: readonly string[]
+  description: string
 }
 
 type ShortcutSection = {
   category: string
-  items: ShortcutItem[]
+  items: readonly ShortcutItem[]
 }
 
-const SHORTCUTS: ShortcutSection[] = [
+const SHORTCUTS = [
   {
     category: 'Global',
     items: [
-      { keys: ['?'], desc: 'Open keyboard shortcuts' },
-      { keys: ['Cmd', '/'], desc: 'Open keyboard shortcuts' },
-      { keys: ['Cmd', 'K'], desc: 'Open command palette / search' },
-      { keys: ['Cmd', ','], desc: 'Open settings' },
-      { keys: ['Cmd', 'J'], desc: 'Toggle chef panel' },
-      { keys: ['Esc'], desc: 'Close modal, panel, menu, or expanded task' },
+      { keys: ['?'], description: 'Open keyboard shortcuts' },
+      { keys: ['Cmd', '/'], description: 'Open keyboard shortcuts' },
+      { keys: ['Cmd', 'K'], description: 'Open command palette / search' },
+      { keys: ['Cmd', ','], description: 'Open settings' },
+      { keys: ['Cmd', 'J'], description: 'Toggle chef panel' },
+      { keys: ['Esc'], description: 'Close modal, panel, menu, or expanded task' },
     ],
   },
   {
     category: 'Workspaces',
     items: [
-      { keys: ['Cmd', '1-9'], desc: 'Switch to workspace 1-9' },
-      { keys: ['Cmd', 'T'], desc: 'New workspace' },
-      { keys: ['Cmd', 'W'], desc: 'Close current workspace' },
-      { keys: ['Ctrl', 'Tab'], desc: 'Next workspace' },
-      { keys: ['Ctrl', 'Shift', 'Tab'], desc: 'Previous workspace' },
+      { keys: ['Cmd', '1-9'], description: 'Switch to workspace 1-9' },
+      { keys: ['Cmd', 'T'], description: 'New workspace' },
+      { keys: ['Cmd', 'W'], description: 'Close current workspace' },
+      { keys: ['Ctrl', 'Tab'], description: 'Next workspace' },
+      { keys: ['Ctrl', 'Shift', 'Tab'], description: 'Previous workspace' },
     ],
   },
   {
     category: 'Tasks',
     items: [
-      { keys: ['Enter'], desc: 'Open selected task' },
-      { keys: ['Space'], desc: 'Run or stop agent for selected task' },
-      { keys: ['R'], desc: 'Retry failed pipeline for selected task' },
-      { keys: ['ArrowRight'], desc: 'Move selected task to the next column' },
-      { keys: ['D'], desc: 'Duplicate selected task' },
-      { keys: ['M'], desc: 'Open move task menu' },
-      { keys: ['L'], desc: 'Edit task dependencies' },
-      { keys: ['Cmd/Ctrl', 'Drag'], desc: 'Link task dependencies' },
-      { keys: ['Del'], desc: 'Delete selected task' },
-      { keys: ['Backspace'], desc: 'Delete selected task' },
+      { keys: ['Enter'], description: 'Open selected task' },
+      { keys: ['Space'], description: 'Run or stop agent for selected task' },
+      { keys: ['R'], description: 'Retry failed pipeline for selected task' },
+      { keys: ['ArrowRight'], description: 'Move selected task to the next column' },
+      { keys: ['D'], description: 'Duplicate selected task' },
+      { keys: ['M'], description: 'Open move task menu' },
+      { keys: ['L'], description: 'Edit task dependencies' },
+      { keys: ['Cmd/Ctrl', 'Drag'], description: 'Link task dependencies' },
+      { keys: ['Del'], description: 'Delete selected task' },
+      { keys: ['Backspace'], description: 'Delete selected task' },
     ],
   },
   {
     category: 'Command Palette',
     items: [
-      { keys: ['ArrowDown'], desc: 'Select next command' },
-      { keys: ['ArrowUp'], desc: 'Select previous command' },
-      { keys: ['Enter'], desc: 'Run selected command' },
-      { keys: ['Cmd', 'Enter'], desc: 'Create task from search text' },
+      { keys: ['ArrowDown'], description: 'Select next command' },
+      { keys: ['ArrowUp'], description: 'Select previous command' },
+      { keys: ['Enter'], description: 'Run selected command' },
+      { keys: ['Cmd', 'Enter'], description: 'Create task from search text' },
     ],
   },
   {
     category: 'Chat & Input',
     items: [
-      { keys: ['Cmd', 'L'], desc: 'Close agent chat panel' },
-      { keys: ['Enter'], desc: 'Send message or submit task title' },
-      { keys: ['Shift', 'Enter'], desc: 'Insert a new line in chat' },
+      { keys: ['Cmd', 'L'], description: 'Close agent chat panel' },
+      { keys: ['Enter'], description: 'Send message or submit task title' },
+      { keys: ['Shift', 'Enter'], description: 'Insert a new line in chat' },
     ],
   },
   {
     category: 'Terminal',
     items: [
-      { keys: ['Ctrl', 'C'], desc: 'Interrupt running process' },
+      { keys: ['Ctrl', 'C'], description: 'Interrupt running process' },
     ],
   },
-]
+] satisfies readonly ShortcutSection[]
 
-function KbdSequence({ keys }: { keys: string[] }) {
+function KbdSequence({ keys }: { keys: readonly string[] }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
       {keys.map((key, index) => (
@@ -155,8 +155,8 @@ export function ShortcutsModal({ onClose }: Props) {
                 </h3>
                 <div className="space-y-1.5">
                   {section.items.map((item) => (
-                    <div key={`${section.category}-${item.keys.join('+')}-${item.desc}`} className="grid grid-cols-[1fr_auto] items-center gap-3 text-sm">
-                      <span className="min-w-0 text-text-secondary">{item.desc}</span>
+                    <div key={`${section.category}-${item.keys.join('+')}-${item.description}`} className="grid grid-cols-[1fr_auto] items-center gap-3 text-sm">
+                      <span className="min-w-0 text-text-secondary">{item.description}</span>
                       <KbdSequence keys={item.keys} />
                     </div>
                   ))}

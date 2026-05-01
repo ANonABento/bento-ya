@@ -1,4 +1,4 @@
-export function isEditableTarget(target: EventTarget | null) {
+export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
 
   const tagName = target.tagName
