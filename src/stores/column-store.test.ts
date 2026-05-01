@@ -90,18 +90,18 @@ describe('column-store', () => {
       useColumnStore.setState({
         columns: [
           createMockColumn({ id: 'col-1', position: 0 }),
-          createMockColumn({ id: 'col-2', position: 1 }),
+          createMockColumn({ id: 'col-2', position: 2 }),
         ],
         loaded: true,
       })
 
-      const newColumn = createMockColumn({ id: 'col-3', name: 'Third', position: 2 })
+      const newColumn = createMockColumn({ id: 'col-3', name: 'Third', position: 3 })
       mockIpc.createColumn.mockResolvedValueOnce(newColumn)
       refreshWorkspace.mockResolvedValueOnce(undefined)
 
       await useColumnStore.getState().add('ws-1', 'Third')
 
-      expect(mockIpc.createColumn).toHaveBeenCalledWith('ws-1', 'Third', 2)
+      expect(mockIpc.createColumn).toHaveBeenCalledWith('ws-1', 'Third', 3)
       expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
     })
   })
@@ -161,6 +161,26 @@ describe('column-store', () => {
       expect(state.columns[2]!.id).toBe('col-2')
       expect(state.columns[2]!.position).toBe(2)
       expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
+    })
+
+    it('should preserve hidden columns during visible-column reorder', async () => {
+      useColumnStore.setState({
+        columns: [
+          createMockColumn({ id: 'col-1', position: 0 }),
+          createMockColumn({ id: 'col-2', position: 1, visible: false }),
+          createMockColumn({ id: 'col-3', position: 2 }),
+        ],
+        loaded: true,
+      })
+      mockIpc.reorderColumns.mockResolvedValueOnce(undefined as unknown as Column[])
+      refreshWorkspace.mockResolvedValueOnce(undefined)
+
+      await useColumnStore.getState().reorder('ws-1', ['col-3', 'col-1'])
+
+      const state = useColumnStore.getState()
+      expect(state.columns.map((c) => c.id)).toEqual(['col-3', 'col-1', 'col-2'])
+      expect(state.columns.find((c) => c.id === 'col-2')?.visible).toBe(false)
+      expect(state.columns.find((c) => c.id === 'col-2')?.position).toBe(2)
     })
 
     it('should revert on IPC error', async () => {

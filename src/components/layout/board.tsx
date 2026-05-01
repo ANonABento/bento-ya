@@ -40,7 +40,13 @@ export function Board() {
 
   const handleAddColumn = useCallback(() => {
     if (!activeWorkspaceId) return
-    const name = `Column ${String(columns.length + 1)}`
+    const existingNames = new Set(columns.map((column) => column.name.toLowerCase()))
+    let nextColumnNumber = columns.length + 1
+    let name = `Column ${String(nextColumnNumber)}`
+    while (existingNames.has(name.toLowerCase())) {
+      nextColumnNumber += 1
+      name = `Column ${String(nextColumnNumber)}`
+    }
     void addColumn(activeWorkspaceId, name).then((col) => {
       setNewColumnId(col.id)
     })
@@ -125,6 +131,7 @@ export function Board() {
               {!isChatOpen && (
                 <button
                   onClick={handleAddColumn}
+                  style={{ cursor: 'pointer' }}
                   className="group flex h-full w-[280px] min-w-[200px] shrink-0 flex-col items-center justify-center gap-2 border-r border-dashed border-border-default bg-surface/10 text-text-secondary/40 transition-all hover:border-accent/50 hover:bg-accent/10 hover:text-accent"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-8 w-8">

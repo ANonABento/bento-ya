@@ -43,7 +43,10 @@ export const useColumnStore = create<ColumnState>()(
       },
 
       add: async (workspaceId, name) => {
-        const position = get().columns.length
+        const workspaceColumns = get().columns.filter((c) => c.workspaceId === workspaceId)
+        const position = workspaceColumns.length === 0
+          ? 0
+          : Math.max(...workspaceColumns.map((c) => c.position)) + 1
         const column = await ipc.createColumn(workspaceId, name, position)
         set((s) => ({ columns: [...s.columns, column] }))
         await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
@@ -66,13 +69,26 @@ export const useColumnStore = create<ColumnState>()(
 
       reorder: async (workspaceId, ids) => {
         const prev = get().columns
+        const workspaceColumns = prev
+          .filter((c) => c.workspaceId === workspaceId)
+          .sort((a, b) => a.position - b.position)
+        const orderedIds = [
+          ...ids,
+          ...workspaceColumns
+            .filter((c) => !ids.includes(c.id))
+            .map((c) => c.id),
+        ]
         set((s) => ({
-          columns: ids
-            .map((id, i) => {
-              const c = s.columns.find((col) => col.id === id)
-              return c ? { ...c, position: i } : undefined
-            })
-            .filter((c): c is Column => c !== undefined),
+          columns: [
+            ...s.columns.filter((c) => c.workspaceId !== workspaceId),
+            ...s.columns
+              .filter((c) => c.workspaceId === workspaceId)
+              .map((c) => {
+                const nextPosition = orderedIds.indexOf(c.id)
+                return nextPosition >= 0 ? { ...c, position: nextPosition } : c
+              })
+              .sort((a, b) => a.position - b.position),
+          ],
         }))
         try {
           await ipc.reorderColumns(workspaceId, ids)

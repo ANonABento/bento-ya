@@ -111,16 +111,18 @@ pub fn reorder_columns(
         .db
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    let tx = conn
-        .unchecked_transaction()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let existing_columns = db::list_columns(&conn, &workspace_id)?;
+    let mut ordered_ids = column_ids;
+    for column in existing_columns {
+        if !ordered_ids.contains(&column.id) {
+            ordered_ids.push(column.id);
+        }
+    }
 
-    for (i, col_id) in column_ids.iter().enumerate() {
+    for (i, col_id) in ordered_ids.iter().enumerate() {
         db::update_column(&conn, col_id, None, None, Some(i as i64), None, None, None)?;
     }
 
-    tx.commit()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     Ok(db::list_columns(&conn, &workspace_id)?)
 }
 
@@ -130,22 +132,6 @@ pub fn delete_column(state: State<AppState>, id: String) -> Result<(), AppError>
         .db
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-    // Check if column has tasks
-    let task_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM tasks WHERE column_id = ?1",
-            rusqlite::params![id],
-            |row| row.get(0),
-        )
-        .map_err(AppError::from)?;
-
-    if task_count > 0 {
-        return Err(AppError::InvalidInput(format!(
-            "Column has {} task(s). Move or delete them first.",
-            task_count
-        )));
-    }
 
     db::delete_column(&conn, &id)?;
     Ok(())

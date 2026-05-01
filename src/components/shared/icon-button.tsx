@@ -41,7 +41,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         ref={ref}
         onClick={onClick}
         disabled={disabled}
-        className={`flex items-center justify-center rounded transition-colors ${sizeClasses[size]} ${variantClasses[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
+        style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
+        className={`flex items-center justify-center rounded transition-colors ${sizeClasses[size]} ${variantClasses[variant]} ${disabled ? 'opacity-50' : ''} ${className}`}
       >
         {icon}
       </button>

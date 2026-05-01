@@ -30,6 +30,7 @@ type ColumnProps = {
 export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpened }: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
+  const loadTasks = useTaskStore((s) => s.load)
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
   const updateColumnAsync = useColumnStore((s) => s.updateColumnAsync)
@@ -166,8 +167,11 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
 
   const confirmDelete = useCallback(async () => {
     await remove(column.id)
+    if (activeWorkspaceId) {
+      await loadTasks(activeWorkspaceId)
+    }
     setShowDeleteConfirm(false)
-  }, [column.id, remove])
+  }, [activeWorkspaceId, column.id, loadTasks, remove])
 
   const handleRename = useCallback(async (name: string) => {
     await updateColumnAsync(column.id, { name })
@@ -200,7 +204,7 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
           isDragging ? 'opacity-50' : ''
         }`}
       >
-        <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
+        <div {...attributes} {...listeners} style={{ cursor: 'grab' }}>
           <ColumnHeader
             name={column.name}
             icon={column.icon || 'list'}
@@ -305,7 +309,9 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
               Delete Column?
             </h3>
             <p className="mb-4 text-sm text-text-secondary">
-              This column has {tasks.length} task(s). Deleting it will also remove all tasks.
+              {tasks.length > 0
+                ? `This will also delete ${tasks.length} task${tasks.length === 1 ? '' : 's'} in this column.`
+                : 'This column has no tasks.'}
             </p>
             <div className="flex justify-end gap-2">
               <button
