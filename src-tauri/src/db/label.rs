@@ -1,4 +1,5 @@
 use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
+use std::collections::BTreeSet;
 
 use super::models::Label;
 use super::{new_id, now};
@@ -89,7 +90,13 @@ pub fn set_task_labels(conn: &Connection, task_id: &str, label_ids: &[String]) -
         |row| row.get(0),
     )?;
 
-    for label_id in label_ids {
+    let unique_label_ids: Vec<&String> = label_ids
+        .iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+
+    for label_id in &unique_label_ids {
         let exists = conn
             .query_row(
                 "SELECT 1 FROM labels WHERE id = ?1 AND workspace_id = ?2",
@@ -109,7 +116,7 @@ pub fn set_task_labels(conn: &Connection, task_id: &str, label_ids: &[String]) -
         params![task_id],
     )?;
     let ts = now();
-    for label_id in label_ids {
+    for label_id in unique_label_ids {
         tx.execute(
             "INSERT INTO task_labels (task_id, label_id, created_at) VALUES (?1, ?2, ?3)",
             params![task_id, label_id, ts],

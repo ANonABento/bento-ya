@@ -303,7 +303,25 @@ mod tests {
         assert_eq!(updated.name, "Defect");
         assert_eq!(get_task(&conn, &task.id).unwrap().labels[0].name, "Defect");
 
+        set_task_labels(&conn, &task.id, &[label.id.clone(), label.id.clone()]).unwrap();
+        assert_eq!(get_task(&conn, &task.id).unwrap().labels.len(), 1);
+
         delete_label(&conn, &label.id).unwrap();
+        assert!(get_task(&conn, &task.id).unwrap().labels.is_empty());
+    }
+
+    #[test]
+    fn test_task_labels_reject_cross_workspace_labels() {
+        let conn = init_test().unwrap();
+        let ws_a = insert_workspace(&conn, "A", "/tmp/a").unwrap();
+        let ws_b = insert_workspace(&conn, "B", "/tmp/b").unwrap();
+        let col_a = insert_column(&conn, &ws_a.id, "Backlog", 0).unwrap();
+        let task = insert_task(&conn, &ws_a.id, &col_a.id, "Fix bug", None).unwrap();
+        let label_b = insert_label(&conn, &ws_b.id, "Other", "#3b82f6").unwrap();
+
+        let result = set_task_labels(&conn, &task.id, &[label_b.id]);
+
+        assert!(matches!(result, Err(rusqlite::Error::QueryReturnedNoRows)));
         assert!(get_task(&conn, &task.id).unwrap().labels.is_empty());
     }
 

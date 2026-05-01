@@ -6,6 +6,7 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { usePrStatusPolling } from '@/hooks/use-pr-status-polling'
 import { useTaskSync } from '@/hooks/use-task-sync'
+import { useLabelSync } from '@/hooks/use-label-sync'
 import { useAgentStreamingSync } from '@/hooks/use-agent-streaming-sync'
 import { useAutoDetectClis } from '@/hooks/use-cli-path'
 import { Board } from '@/components/layout/board'
@@ -45,6 +46,7 @@ function App() {
 
   // Task sync (re-fetches task store when backend mutates tasks)
   useTaskSync(activeWorkspaceId)
+  useLabelSync(activeWorkspaceId)
 
   // Agent streaming sync (routes agent events to streaming store for live card updates)
   useAgentStreamingSync()

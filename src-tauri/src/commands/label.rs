@@ -1,9 +1,27 @@
 use crate::db::{self, AppState, Label, Task};
 use crate::error::AppError;
 use crate::pipeline;
-use tauri::{AppHandle, State};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, State};
 
 const DEFAULT_LABEL_COLOR: &str = "#64748b";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LabelsChangedEvent {
+    workspace_id: String,
+    reason: String,
+}
+
+fn emit_labels_changed(app: &AppHandle, workspace_id: &str, reason: &str) {
+    let _ = app.emit(
+        "labels:changed",
+        &LabelsChangedEvent {
+            workspace_id: workspace_id.to_string(),
+            reason: reason.to_string(),
+        },
+    );
+}
 
 fn clean_name(name: &str) -> Result<String, AppError> {
     let name = name.trim();
@@ -44,6 +62,7 @@ pub fn list_labels(state: State<AppState>, workspace_id: String) -> Result<Vec<L
 
 #[tauri::command(rename_all = "camelCase")]
 pub fn create_label(
+    app: AppHandle,
     state: State<AppState>,
     workspace_id: String,
     name: String,
@@ -55,11 +74,14 @@ pub fn create_label(
         .db
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    Ok(db::insert_label(&conn, &workspace_id, &name, &color)?)
+    let label = db::insert_label(&conn, &workspace_id, &name, &color)?;
+    emit_labels_changed(&app, &workspace_id, "label_created");
+    Ok(label)
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub fn update_label(
+    app: AppHandle,
     state: State<AppState>,
     id: String,
     name: Option<String>,
@@ -71,12 +93,9 @@ pub fn update_label(
         .db
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    Ok(db::update_label(
-        &conn,
-        &id,
-        name.as_deref(),
-        color.as_deref(),
-    )?)
+    let label = db::update_label(&conn, &id, name.as_deref(), color.as_deref())?;
+    emit_labels_changed(&app, &label.workspace_id, "label_updated");
+    Ok(label)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -91,6 +110,7 @@ pub fn delete_label(app: AppHandle, state: State<AppState>, id: String) -> Resul
         db::delete_label(&conn, &id)?;
         workspace_id
     };
+    emit_labels_changed(&app, &workspace_id, "label_deleted");
     pipeline::emit_tasks_changed(&app, &workspace_id, "label_deleted");
     Ok(())
 }

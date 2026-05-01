@@ -5,7 +5,7 @@
 
 /* eslint-disable @typescript-eslint/no-unnecessary-condition -- Mock data uses ?? for defensive safety with unknown runtime args */
 
-import type { Workspace, Column, Task, AgentMode, AgentStatus, PipelineState } from '@/types'
+import type { Workspace, Column, Task, Label, AgentMode, AgentStatus, PipelineState } from '@/types'
 import { DEFAULT_TRIGGERS } from '@/types/column'
 
 // Check if we're running in Tauri or in a test environment
@@ -137,9 +137,14 @@ let mockTasks: Task[] = [
   },
 ]
 
+let mockLabels: Label[] = []
+
 let idCounter = 100
 
 const generateId = (prefix: string) => `${prefix}-${String(++idCounter)}`
+
+const sortMockLabels = (a: Label, b: Label) =>
+  a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 
 const getLastColumnId = (workspaceId: string) => {
   const columns = mockColumns
@@ -206,6 +211,7 @@ const mockCommands: Record<string, CommandHandler> = {
     mockWorkspaces = mockWorkspaces.filter((w) => w.id !== args?.id)
     mockColumns = mockColumns.filter((c) => c.workspaceId !== args?.id)
     mockTasks = mockTasks.filter((t) => t.workspaceId !== args?.id)
+    mockLabels = mockLabels.filter((label) => label.workspaceId !== args?.id)
   },
   reorder_workspaces: (args) => {
     const ids = args?.ids as string[]
@@ -354,6 +360,53 @@ const mockCommands: Record<string, CommandHandler> = {
       if (task) task.position = idx
     })
     return mockTasks.filter((t) => t.columnId === args?.columnId)
+  },
+
+  // Label commands
+  list_labels: (args) => {
+    return mockLabels
+      .filter((label) => label.workspaceId === args?.workspaceId)
+      .sort(sortMockLabels)
+  },
+  create_label: (args) => {
+    const label: Label = {
+      id: generateId('label'),
+      workspaceId: args?.workspaceId as string,
+      name: ((args?.name as string) || 'New label').trim(),
+      color: ((args?.color as string | undefined) || '#64748b').toLowerCase(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    mockLabels.push(label)
+    mockLabels.sort(sortMockLabels)
+    return label
+  },
+  update_label: (args) => {
+    const label = mockLabels.find((current) => current.id === args?.id)
+    if (!label) throw new Error('Label not found')
+    label.name = ((args?.name as string | undefined) ?? label.name).trim()
+    label.color = ((args?.color as string | undefined) ?? label.color).toLowerCase()
+    label.updatedAt = new Date().toISOString()
+    mockLabels.sort(sortMockLabels)
+    return label
+  },
+  delete_label: (args) => {
+    const id = args?.id as string
+    mockLabels = mockLabels.filter((label) => label.id !== id)
+    mockTasks = mockTasks.map((task) => ({
+      ...task,
+      labels: (task.labels ?? []).filter((label) => label.id !== id),
+    }))
+  },
+  set_task_labels: (args) => {
+    const task = mockTasks.find((current) => current.id === args?.taskId)
+    if (!task) throw new Error('Task not found')
+    const labelIds = new Set(args?.labelIds as string[])
+    task.labels = mockLabels.filter(
+      (label) => label.workspaceId === task.workspaceId && labelIds.has(label.id),
+    )
+    task.updatedAt = new Date().toISOString()
+    return task
   },
 
   // Settings
@@ -933,5 +986,6 @@ export function resetMockData() {
     },
   ]
 
+  mockLabels = []
   idCounter = 100
 }
