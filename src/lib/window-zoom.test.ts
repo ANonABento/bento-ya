@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { getCurrentWebviewMock, setZoomMock, invokeMock } = vi.hoisted(() => ({
   getCurrentWebviewMock: vi.fn(),
@@ -20,10 +20,18 @@ async function importWindowZoom() {
   return import('./window-zoom')
 }
 
-async function waitForAsyncZoom() {
+async function flushWindowZoomTasks() {
   for (let i = 0; i < 10; i += 1) {
     await Promise.resolve()
   }
+}
+
+function mockWindowZoomCommands(persistedZoom: number | null | Promise<number | null> = null) {
+  invokeMock.mockImplementation((cmd: string) => {
+    if (cmd === 'get_window_zoom') return Promise.resolve(persistedZoom)
+    if (cmd === 'set_window_zoom') return Promise.resolve(undefined)
+    return Promise.reject(new Error(`Unexpected command: ${cmd}`))
+  })
 }
 
 describe('window zoom persistence', () => {
@@ -32,11 +40,11 @@ describe('window zoom persistence', () => {
     vi.clearAllMocks()
     localStorage.clear()
     getCurrentWebviewMock.mockReturnValue({ setZoom: setZoomMock })
-    invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === 'get_window_zoom') return Promise.resolve(null)
-      if (cmd === 'set_window_zoom') return Promise.resolve(undefined)
-      return Promise.reject(new Error(`Unexpected command: ${cmd}`))
-    })
+    mockWindowZoomCommands()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('applies a legacy local zoom level on initialization', async () => {
@@ -44,7 +52,7 @@ describe('window zoom persistence', () => {
     const { initializeWindowZoom } = await importWindowZoom()
 
     initializeWindowZoom()
-    await waitForAsyncZoom()
+    await flushWindowZoomTasks()
 
     expect(setZoomMock).toHaveBeenCalledWith(1.25)
     expect(localStorage.getItem(STORAGE_KEY)).toBe('1.25')
@@ -53,15 +61,11 @@ describe('window zoom persistence', () => {
 
   it('prefers the persisted app zoom over legacy localStorage', async () => {
     localStorage.setItem(STORAGE_KEY, '1.25')
-    invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === 'get_window_zoom') return Promise.resolve(1.5)
-      if (cmd === 'set_window_zoom') return Promise.resolve(undefined)
-      return Promise.reject(new Error(`Unexpected command: ${cmd}`))
-    })
+    mockWindowZoomCommands(1.5)
     const { initializeWindowZoom } = await importWindowZoom()
 
     initializeWindowZoom()
-    await waitForAsyncZoom()
+    await flushWindowZoomTasks()
 
     expect(setZoomMock).toHaveBeenCalledWith(1.5)
     expect(localStorage.getItem(STORAGE_KEY)).toBe('1.5')
@@ -72,7 +76,7 @@ describe('window zoom persistence', () => {
 
     initializeWindowZoom()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '=', ctrlKey: true }))
-    await waitForAsyncZoom()
+    await flushWindowZoomTasks()
 
     expect(setZoomMock).toHaveBeenLastCalledWith(1.1)
     expect(localStorage.getItem(STORAGE_KEY)).toBe('1.1')
@@ -84,7 +88,7 @@ describe('window zoom persistence', () => {
 
     initializeWindowZoom()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '+', metaKey: true }))
-    await waitForAsyncZoom()
+    await flushWindowZoomTasks()
 
     expect(setZoomMock).toHaveBeenLastCalledWith(2)
     expect(localStorage.getItem(STORAGE_KEY)).toBe('2')
@@ -96,7 +100,7 @@ describe('window zoom persistence', () => {
 
     initializeWindowZoom()
     initializeWindowZoom()
-    await waitForAsyncZoom()
+    await flushWindowZoomTasks()
 
     const keydownRegistrations = addEventListenerSpy.mock.calls.filter(
       ([eventName]) => eventName === 'keydown',
@@ -114,15 +118,13 @@ describe('window zoom persistence', () => {
     const { initializeWindowZoom } = await importWindowZoom()
 
     initializeWindowZoom()
-    await waitForAsyncZoom()
+    await flushWindowZoomTasks()
 
     expect(setZoomMock).toHaveBeenCalledWith(1)
     expect(consoleError).toHaveBeenCalledWith(
       '[window-zoom] Failed to read stored zoom:',
       expect.any(Error),
     )
-
-    consoleError.mockRestore()
   })
 
   it('falls back to local zoom when persisted zoom cannot be read', async () => {
@@ -136,15 +138,13 @@ describe('window zoom persistence', () => {
     const { initializeWindowZoom } = await importWindowZoom()
 
     initializeWindowZoom()
-    await waitForAsyncZoom()
+    await flushWindowZoomTasks()
 
     expect(setZoomMock).toHaveBeenCalledWith(1.2)
     expect(consoleError).toHaveBeenCalledWith(
       '[window-zoom] Failed to read persisted zoom:',
       expect.any(Error),
     )
-
-    consoleError.mockRestore()
   })
 
   it('ignores a delayed persisted zoom after the user changes zoom', async () => {
@@ -164,7 +164,7 @@ describe('window zoom persistence', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '=', ctrlKey: true }))
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '-', ctrlKey: true }))
     resolvePersistedZoom(1.5)
-    await waitForAsyncZoom()
+    await flushWindowZoomTasks()
 
     expect(setZoomMock).not.toHaveBeenCalledWith(1.5)
     expect(setZoomMock).toHaveBeenLastCalledWith(1)
@@ -173,15 +173,11 @@ describe('window zoom persistence', () => {
 
   it('treats malformed persisted zoom as missing', async () => {
     localStorage.setItem(STORAGE_KEY, '1.2')
-    invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === 'get_window_zoom') return Promise.resolve(Number.NaN)
-      if (cmd === 'set_window_zoom') return Promise.resolve(undefined)
-      return Promise.reject(new Error(`Unexpected command: ${cmd}`))
-    })
+    mockWindowZoomCommands(Number.NaN)
     const { initializeWindowZoom } = await importWindowZoom()
 
     initializeWindowZoom()
-    await waitForAsyncZoom()
+    await flushWindowZoomTasks()
 
     expect(setZoomMock).toHaveBeenCalledWith(1.2)
     expect(invokeMock).toHaveBeenCalledWith('set_window_zoom', { zoom: 1.2 })

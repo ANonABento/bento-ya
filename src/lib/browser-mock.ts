@@ -360,7 +360,7 @@ const mockCommands: Record<string, CommandHandler> = {
   update_settings: () => undefined,
   get_window_zoom: () => mockWindowZoom,
   set_window_zoom: (args) => {
-    const zoom = args?.zoom as number
+    const zoom = typeof args?.zoom === 'number' ? args.zoom : null
     mockWindowZoom = Number.isFinite(zoom) ? zoom : 1
     return mockWindowZoom
   },
