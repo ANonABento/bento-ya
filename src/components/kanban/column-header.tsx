@@ -23,6 +23,7 @@ type ColumnHeaderProps = {
   onConfigure: () => void
   onDelete: () => void
   onAddTask: () => void
+  onRenameSubmit: (name: string) => void
   onRunAll?: () => void
   onCancelQueue?: () => void
 }
@@ -95,12 +96,40 @@ export const ColumnHeader = memo(function ColumnHeader({
   onConfigure,
   onDelete,
   onAddTask,
+  onRenameSubmit,
   onRunAll,
   onCancelQueue,
 }: ColumnHeaderProps) {
   const [showMenu, setShowMenu] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
+  const renameInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (isRenaming) {
+      renameInputRef.current?.focus()
+      renameInputRef.current?.select()
+    }
+  }, [isRenaming])
+
+  const handleNameDoubleClick = () => {
+    setRenameValue(name)
+    setIsRenaming(true)
+  }
+
+  const submitRename = () => {
+    const trimmed = renameValue.trim()
+    if (trimmed && trimmed !== name) {
+      onRenameSubmit(trimmed)
+    }
+    setIsRenaming(false)
+  }
+
+  const cancelRename = () => {
+    setIsRenaming(false)
+  }
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -132,9 +161,29 @@ export const ColumnHeader = memo(function ColumnHeader({
         >
           {getIcon(icon)}
         </span>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary truncate">
-          {name}
-        </h3>
+        {isRenaming ? (
+          <input
+            ref={renameInputRef}
+            type="text"
+            value={renameValue}
+            onChange={(e) => { setRenameValue(e.target.value) }}
+            onBlur={submitRename}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); submitRename() }
+              if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
+            }}
+            onMouseDown={(e) => { e.stopPropagation() }}
+            onClick={(e) => { e.stopPropagation() }}
+            className="min-w-0 flex-1 bg-transparent text-xs font-semibold uppercase tracking-wider text-text-primary outline-none border-b border-accent pb-px"
+          />
+        ) : (
+          <h3
+            className="min-w-0 flex-1 text-xs font-semibold uppercase tracking-wider text-text-secondary truncate cursor-default select-none"
+            onDoubleClick={handleNameDoubleClick}
+          >
+            {name}
+          </h3>
+        )}
         <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
           {taskCount}
         </span>
