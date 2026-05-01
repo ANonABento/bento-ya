@@ -1,15 +1,16 @@
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 
 const WINDOW_ZOOM_KEY = 'bento-window-zoom'
 const MIN_ZOOM = 0.2
 const MAX_ZOOM = 5
+const ZOOM_STEP = 0.1
 
 const inRange = (value: number): number => {
   if (!Number.isFinite(value) || value <= 0) {
     return 1
   }
-  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value))
+  const clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value))
+  return Math.round(clamped * 100) / 100
 }
 
 const hasTauriInternals = (): boolean =>
@@ -34,34 +35,58 @@ const writePersistedZoom = (zoom: number): void => {
   }
 }
 
+const getShortcutZoom = (event: KeyboardEvent, currentZoom: number): number | null => {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) {
+    return null
+  }
+
+  switch (event.key) {
+    case '+':
+    case '=':
+      return currentZoom + ZOOM_STEP
+    case '-':
+    case '_':
+      return currentZoom - ZOOM_STEP
+    case '0':
+      return 1
+    default:
+      return null
+  }
+}
+
 export async function initializeWindowZoomState(): Promise<void> {
   if (typeof window === 'undefined' || !hasTauriInternals()) {
     return
   }
 
   const webview = getCurrentWebview()
-  const windowApi = getCurrentWindow()
+  let currentZoom = readPersistedZoom() ?? 1
+
+  const applyZoom = async (zoom: number): Promise<void> => {
+    currentZoom = inRange(zoom)
+    await webview.setZoom(currentZoom)
+    writePersistedZoom(currentZoom)
+  }
 
   const persistedZoom = readPersistedZoom()
   if (persistedZoom !== null) {
-    await webview.setZoom(persistedZoom).catch(() => undefined)
+    await applyZoom(persistedZoom).catch(() => undefined)
   }
 
-  try {
-    const unlisten = await windowApi.onScaleChanged(({ payload }) => {
-      const scale = Number((payload as { scaleFactor?: unknown }).scaleFactor)
-      if (Number.isFinite(scale)) {
-        writePersistedZoom(scale)
-      }
-    })
-    window.addEventListener('pagehide', () => {
-      void unlisten()
-    })
-    window.addEventListener('beforeunload', () => {
-      void unlisten()
-    })
-  } catch {
-    // Ignore environments where scale-change tracking is unsupported.
+  const handleKeyDown = (event: KeyboardEvent): void => {
+    const nextZoom = getShortcutZoom(event, currentZoom)
+    if (nextZoom === null) return
+
+    event.preventDefault()
+    void applyZoom(nextZoom).catch(() => undefined)
   }
+
+  window.addEventListener('keydown', handleKeyDown)
+
+  const cleanup = (): void => {
+    window.removeEventListener('keydown', handleKeyDown)
+  }
+
+  window.addEventListener('pagehide', cleanup, { once: true })
+  window.addEventListener('beforeunload', cleanup, { once: true })
 }
-
