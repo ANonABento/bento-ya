@@ -41,6 +41,7 @@ export const Column = memo(function Column({
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
+  const updateColumnAsync = useColumnStore((s) => s.updateColumnAsync)
   const getScriptName = useScriptStore((s) => s.getScriptName)
   const columnMetrics = useColumnMetricsStore((s) => s.metricsById[column.id])
 
@@ -165,6 +166,10 @@ export const Column = memo(function Column({
     }
   }, [autoOpenConfig, onConfigOpened])
 
+  const handleRename = useCallback((newName: string) => {
+    void updateColumnAsync(column.id, { name: newName })
+  }, [column.id, updateColumnAsync])
+
   const handleConfigure = useCallback(() => {
     setShowConfigDialog(true)
   }, [])
@@ -222,6 +227,7 @@ export const Column = memo(function Column({
             onConfigure={handleConfigure}
             onDelete={handleDelete}
             onAddTask={handleAddTask}
+            onRenameSubmit={handleRename}
             onRunAll={() => { void handleRunAll(); }}
             onCancelQueue={() => { void handleCancelQueue(); }}
           />
