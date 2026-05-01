@@ -398,9 +398,13 @@ const mockCommands: Record<string, CommandHandler> = {
     if (!template) throw new Error('Template not found')
 
     template.title = (args?.title as string) ?? template.title
-    template.description = (args?.description as string | null | undefined) ?? template.description
+    if (args && 'description' in args) {
+      template.description = args.description as string | null
+    }
     template.labels = (args?.labels as string) ?? template.labels
-    template.model = (args?.model as string | null | undefined) ?? template.model
+    if (args && 'model' in args) {
+      template.model = args.model as string | null
+    }
     template.updatedAt = new Date().toISOString()
     return template
   },
@@ -1037,6 +1041,19 @@ export function resetMockData() {
       position: 1,
       createdAt: new Date(Date.now() - 86400000).toISOString(),
       updatedAt: new Date(Date.now() - 7200000).toISOString(),
+    },
+  ]
+
+  mockTaskTemplates = [
+    {
+      id: 'template-1',
+      workspaceId: 'ws-demo',
+      title: 'Bug fix',
+      description: 'Describe the defect, expected behavior, and validation steps.',
+      labels: JSON.stringify(['bug']),
+      model: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     },
   ]
 
