@@ -88,7 +88,7 @@ pub fn list_tasks(state: State<AppState>, workspace_id: String) -> Result<Vec<Ta
     Ok(db::list_tasks(&conn, &workspace_id)?)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 #[allow(clippy::too_many_arguments)]
 pub fn update_task(
     _app: AppHandle,

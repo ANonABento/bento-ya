@@ -130,6 +130,8 @@ let mockTasks: Task[] = [
     blocked: false,
     worktreePath: null,
     queuedAt: null,
+    estimatedHours: 0,
+    actualHours: 0,
     position: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -305,6 +307,8 @@ const mockCommands: Record<string, CommandHandler> = {
       blocked: false,
       worktreePath: null,
       queuedAt: null,
+      estimatedHours: (args?.estimatedHours as number) ?? 0,
+      actualHours: (args?.actualHours as number) ?? 0,
       position: mockTasks.filter((t) => t.columnId === args?.columnId).length,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -327,6 +331,12 @@ const mockCommands: Record<string, CommandHandler> = {
         (args?.pipelineTriggeredAt as string | null) ?? existing.pipelineTriggeredAt
       existing.pipelineError = (args?.pipelineError as string | null) ?? existing.pipelineError
       existing.position = (args?.position as number) ?? existing.position
+      if (args?.estimatedHours !== undefined) {
+        existing.estimatedHours = args.estimatedHours as number
+      }
+      if (args?.actualHours !== undefined) {
+        existing.actualHours = args.actualHours as number
+      }
       existing.updatedAt = new Date().toISOString()
       return existing
     }
