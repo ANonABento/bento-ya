@@ -5,7 +5,7 @@
 
 /* eslint-disable @typescript-eslint/no-unnecessary-condition -- Mock data uses ?? for defensive safety with unknown runtime args */
 
-import type { Workspace, Column, Task, AgentMode, AgentStatus, PipelineState } from '@/types'
+import type { Workspace, Column, Task, TaskTemplate, AgentMode, AgentStatus, PipelineState } from '@/types'
 import { DEFAULT_TRIGGERS } from '@/types/column'
 
 // Check if we're running in Tauri or in a test environment
@@ -131,6 +131,19 @@ let mockTasks: Task[] = [
     worktreePath: null,
     queuedAt: null,
     position: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+]
+
+let mockTaskTemplates: TaskTemplate[] = [
+  {
+    id: 'template-1',
+    workspaceId: 'ws-demo',
+    title: 'Bug fix',
+    description: 'Describe the defect, expected behavior, and validation steps.',
+    labels: JSON.stringify(['bug']),
+    model: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -352,6 +365,105 @@ const mockCommands: Record<string, CommandHandler> = {
       if (task) task.position = idx
     })
     return mockTasks.filter((t) => t.columnId === args?.columnId)
+  },
+
+  // Task template commands
+  list_task_templates: (args) =>
+    mockTaskTemplates
+      .filter((template) => template.workspaceId === args?.workspaceId)
+      .sort((a, b) => {
+        const updatedCompare = b.updatedAt.localeCompare(a.updatedAt)
+        return updatedCompare !== 0 ? updatedCompare : a.title.localeCompare(b.title)
+      }),
+  create_task_template_from_task: (args) => {
+    const task = mockTasks.find((item) => item.id === args?.taskId)
+    if (!task) throw new Error('Task not found')
+
+    const now = new Date().toISOString()
+    const template: TaskTemplate = {
+      id: generateId('template'),
+      workspaceId: task.workspaceId,
+      title: task.title,
+      description: task.description || null,
+      labels: task.prLabels,
+      model: task.model,
+      createdAt: now,
+      updatedAt: now,
+    }
+    mockTaskTemplates.push(template)
+    return template
+  },
+  update_task_template: (args) => {
+    const template = mockTaskTemplates.find((item) => item.id === args?.id)
+    if (!template) throw new Error('Template not found')
+
+    template.title = (args?.title as string) ?? template.title
+    template.description = (args?.description as string | null | undefined) ?? template.description
+    template.labels = (args?.labels as string) ?? template.labels
+    template.model = (args?.model as string | null | undefined) ?? template.model
+    template.updatedAt = new Date().toISOString()
+    return template
+  },
+  delete_task_template: (args) => {
+    mockTaskTemplates = mockTaskTemplates.filter((template) => template.id !== args?.id)
+  },
+  create_task_from_template: (args) => {
+    const template = mockTaskTemplates.find((item) => item.id === args?.templateId)
+    const column = mockColumns.find((item) => item.id === args?.columnId)
+    if (!template) throw new Error('Template not found')
+    if (!column) throw new Error('Column not found')
+    if (column.workspaceId !== template.workspaceId) {
+      throw new Error('Template and target column must belong to the same workspace')
+    }
+
+    const now = new Date().toISOString()
+    const task: Task = {
+      id: generateId('task'),
+      workspaceId: template.workspaceId,
+      columnId: column.id,
+      title: template.title,
+      description: template.description ?? '',
+      branch: null,
+      agentType: null,
+      agentMode: null,
+      agentStatus: null,
+      pipelineState: 'idle',
+      pipelineTriggeredAt: null,
+      pipelineError: null,
+      retryCount: 0,
+      model: template.model,
+      lastScriptExitCode: null,
+      reviewStatus: null,
+      prNumber: null,
+      prUrl: null,
+      siegeIteration: 0,
+      siegeActive: false,
+      siegeMaxIterations: 5,
+      siegeLastChecked: null,
+      prMergeable: null,
+      prCiStatus: null,
+      prReviewDecision: null,
+      prCommentCount: 0,
+      prIsDraft: false,
+      prLabels: template.labels,
+      prLastFetched: null,
+      prHeadSha: null,
+      checklist: null,
+      notifyStakeholders: null,
+      notificationSentAt: null,
+      triggerOverrides: null,
+      triggerPrompt: null,
+      lastOutput: null,
+      dependencies: null,
+      blocked: false,
+      worktreePath: null,
+      queuedAt: null,
+      position: mockTasks.filter((item) => item.columnId === column.id).length,
+      createdAt: now,
+      updatedAt: now,
+    }
+    mockTasks.push(task)
+    return task
   },
 
   // Settings

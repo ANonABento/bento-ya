@@ -16,6 +16,13 @@ type TaskTemplateState = {
   createTask: (templateId: string, columnId: string) => Promise<void>
 }
 
+function sortTemplates(templates: TaskTemplate[]) {
+  return [...templates].sort((a, b) => {
+    const updatedCompare = b.updatedAt.localeCompare(a.updatedAt)
+    return updatedCompare !== 0 ? updatedCompare : a.title.localeCompare(b.title)
+  })
+}
+
 export const useTaskTemplateStore = create<TaskTemplateState>()(
   devtools(
     (set, get) => ({
@@ -46,7 +53,7 @@ export const useTaskTemplateStore = create<TaskTemplateState>()(
         const template = await ipc.createTaskTemplateFromTask(taskId)
         set((state) => (
           state.loadedWorkspaceId === template.workspaceId
-            ? { templates: [template, ...state.templates] }
+            ? { templates: sortTemplates([template, ...state.templates.filter((item) => item.id !== template.id)]) }
             : state
         ))
         return template
@@ -55,7 +62,7 @@ export const useTaskTemplateStore = create<TaskTemplateState>()(
       update: async (id, updates) => {
         const template = await ipc.updateTaskTemplate(id, updates)
         set((state) => ({
-          templates: state.templates.map((item) => item.id === id ? template : item),
+          templates: sortTemplates(state.templates.map((item) => item.id === id ? template : item)),
         }))
         return template
       },
