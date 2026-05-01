@@ -7,6 +7,7 @@ type TooltipProps = {
   children: ReactNode
   side?: 'top' | 'bottom' | 'left' | 'right'
   delay?: number
+  wrap?: boolean
 }
 
 type Position = {
@@ -14,7 +15,7 @@ type Position = {
   left: number
 }
 
-export function Tooltip({ content, children, side = 'top', delay = 100 }: TooltipProps) {
+export function Tooltip({ content, children, side = 'top', delay = 100, wrap = false }: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false)
   const [position, setPosition] = useState<Position>({ top: 0, left: 0 })
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -124,7 +125,7 @@ export function Tooltip({ content, children, side = 'top', delay = 100 }: Toolti
                 top: position.top,
                 left: position.left,
               }}
-              className="z-[9999] whitespace-nowrap rounded-md bg-text-primary px-2 py-1 text-xs font-medium text-bg shadow-lg"
+              className={`z-[9999] rounded-md bg-text-primary px-2 py-1 text-xs font-medium text-bg shadow-lg ${wrap ? 'whitespace-pre-wrap max-w-xs' : 'whitespace-nowrap'}`}
             >
               {content}
             </motion.div>
