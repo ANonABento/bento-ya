@@ -286,6 +286,8 @@ mod tests {
         assert!(tables.contains(&"workspaces".to_string()));
         assert!(tables.contains(&"columns".to_string()));
         assert!(tables.contains(&"tasks".to_string()));
+        assert!(tables.contains(&"labels".to_string()));
+        assert!(tables.contains(&"task_labels".to_string()));
         assert!(tables.contains(&"agent_sessions".to_string()));
         assert!(tables.contains(&"_migrations".to_string()));
     }

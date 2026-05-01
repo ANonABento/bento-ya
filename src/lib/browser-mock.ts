@@ -5,7 +5,16 @@
 
 /* eslint-disable @typescript-eslint/no-unnecessary-condition -- Mock data uses ?? for defensive safety with unknown runtime args */
 
-import type { Workspace, Column, Task, AgentMode, AgentStatus, PipelineState } from '@/types'
+import type {
+  Workspace,
+  Column,
+  Task,
+  Label,
+  TaskLabelAssignment,
+  AgentMode,
+  AgentStatus,
+  PipelineState,
+} from '@/types'
 import { DEFAULT_TRIGGERS } from '@/types/column'
 
 // Check if we're running in Tauri or in a test environment
@@ -135,6 +144,9 @@ let mockTasks: Task[] = [
     updatedAt: new Date().toISOString(),
   },
 ]
+
+let mockLabels: Label[] = []
+let mockTaskLabels: TaskLabelAssignment[] = []
 
 let idCounter = 100
 
@@ -352,6 +364,59 @@ const mockCommands: Record<string, CommandHandler> = {
       if (task) task.position = idx
     })
     return mockTasks.filter((t) => t.columnId === args?.columnId)
+  },
+
+  // Label commands
+  list_labels: (args) => mockLabels.filter((label) => label.workspaceId === args?.workspaceId),
+  create_label: (args) => {
+    const now = new Date().toISOString()
+    const label: Label = {
+      id: generateId('label'),
+      workspaceId: args?.workspaceId as string,
+      name: args?.name as string,
+      color: args?.color as string,
+      createdAt: now,
+      updatedAt: now,
+    }
+    mockLabels.push(label)
+    mockLabels.sort((a, b) => a.name.localeCompare(b.name))
+    return label
+  },
+  update_label: (args) => {
+    const label = mockLabels.find((item) => item.id === args?.id)
+    if (!label) throw new Error('Label not found')
+    label.name = (args?.name as string) ?? label.name
+    label.color = (args?.color as string) ?? label.color
+    label.updatedAt = new Date().toISOString()
+    mockLabels.sort((a, b) => a.name.localeCompare(b.name))
+    return label
+  },
+  delete_label: (args) => {
+    mockLabels = mockLabels.filter((label) => label.id !== args?.id)
+    mockTaskLabels = mockTaskLabels.filter((assignment) => assignment.labelId !== args?.id)
+  },
+  list_task_label_assignments: (args) => {
+    const workspaceTaskIds = new Set(
+      mockTasks.filter((task) => task.workspaceId === args?.workspaceId).map((task) => task.id),
+    )
+    return mockTaskLabels.filter((assignment) => workspaceTaskIds.has(assignment.taskId))
+  },
+  set_task_labels: (args) => {
+    const taskId = args?.taskId as string
+    const task = mockTasks.find((item) => item.id === taskId)
+    if (!task) throw new Error('Task not found')
+    const labelIds = [...new Set(args?.labelIds as string[])]
+    const workspaceLabelIds = new Set(
+      mockLabels.filter((label) => label.workspaceId === task.workspaceId).map((label) => label.id),
+    )
+    if (labelIds.some((labelId) => !workspaceLabelIds.has(labelId))) {
+      throw new Error('Label not found')
+    }
+    mockTaskLabels = [
+      ...mockTaskLabels.filter((assignment) => assignment.taskId !== taskId),
+      ...labelIds.map((labelId) => ({ taskId, labelId })),
+    ]
+    return labelIds
   },
 
   // Settings
