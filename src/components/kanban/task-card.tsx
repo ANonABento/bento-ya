@@ -296,7 +296,7 @@ export const TaskCard = memo(function TaskCard({
       style={{
         ...style,
         cursor: 'pointer',
-        opacity: isDragging ? 0.4 : isDimmed ? 0.3 : task.blocked ? 0.7 : isInDoneColumn ? 0.6 : 1,
+        opacity: isDragging ? 0.4 : isDimmed ? 0.3 : task.blocked ? 0.7 : (task.archivedAt ? 0.45 : isInDoneColumn ? 0.6 : 1),
         transition: 'transform 200ms ease, opacity 200ms ease',
       }}
       onClick={handleClick}
@@ -411,6 +411,11 @@ export const TaskCard = memo(function TaskCard({
           <h4 className="flex-1 text-sm font-medium text-text-primary leading-snug line-clamp-2">
             {task.title}
           </h4>
+          {task.archivedAt && (
+            <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium bg-surface-hover text-text-secondary/70 border border-border-default">
+              archived
+            </span>
+          )}
         </div>
 
         {/* Description — hidden when expanded (expanded view shows full description) */}
@@ -522,6 +527,7 @@ export const TaskCard = memo(function TaskCard({
         onOpenTask={openTaskDetail}
         onDuplicateTask={actions.handleDuplicateTask}
         onArchiveTask={actions.handleArchiveTask}
+        onUnarchiveTask={actions.handleUnarchiveTask}
         onDeleteTask={actions.handleDeleteTask}
         onRunAgent={actions.handleRunAgent}
         onStopAgent={actions.handleStopAgent}

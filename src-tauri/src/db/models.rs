@@ -105,6 +105,8 @@ pub struct Task {
     pub github_issue_commented: bool,
     /// Whether the linked PR URL has been posted on the linked GitHub issue.
     pub github_issue_pr_linked: bool,
+    /// When this task was archived (soft delete). None = active task.
+    pub archived_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

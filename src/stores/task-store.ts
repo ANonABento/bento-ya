@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 type TaskState = {
   tasks: Task[]
   loaded: boolean
+  showArchived: boolean
 
   load: (workspaceId: string) => Promise<void>
   add: (workspaceId: string, columnId: string, title: string, description: string) => Promise<Task>
@@ -19,6 +20,9 @@ type TaskState = {
   updateTask: (id: string, updates: Partial<Task>) => void
   getByColumn: (columnId: string) => Task[]
   duplicate: (id: string) => Promise<Task | null>
+  setShowArchived: (show: boolean) => void
+  archive: (id: string) => Promise<void>
+  unarchive: (id: string) => Promise<void>
 }
 
 export const useTaskStore = create<TaskState>()(
@@ -26,6 +30,7 @@ export const useTaskStore = create<TaskState>()(
     (set, get) => ({
       tasks: [],
       loaded: false,
+      showArchived: false,
 
       load: async (workspaceId) => {
         const tasks = await ipc.getTasks(workspaceId)
@@ -180,6 +185,34 @@ export const useTaskStore = create<TaskState>()(
         set((s) => ({ tasks: [...s.tasks, task] }))
         await useWorkspaceStore.getState().refreshWorkspace(original.workspaceId)
         return task
+      },
+
+      setShowArchived: (show) => {
+        set({ showArchived: show })
+      },
+
+      archive: async (id) => {
+        const prev = get().tasks
+        try {
+          const updated = await ipc.archiveTask(id)
+          set((s) => ({
+            tasks: s.tasks.map((t) => (t.id === id ? updated : t)),
+          }))
+        } catch {
+          set({ tasks: prev })
+        }
+      },
+
+      unarchive: async (id) => {
+        const prev = get().tasks
+        try {
+          const updated = await ipc.unarchiveTask(id)
+          set((s) => ({
+            tasks: s.tasks.map((t) => (t.id === id ? updated : t)),
+          }))
+        } catch {
+          set({ tasks: prev })
+        }
       },
     }),
     { name: 'task-store' },

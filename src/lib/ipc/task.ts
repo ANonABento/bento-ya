@@ -55,6 +55,14 @@ export async function deleteTask(id: string): Promise<void> {
   return invoke('delete_task', { id })
 }
 
+export async function archiveTask(id: string): Promise<Task> {
+  return invoke<Task>('archive_task', { id })
+}
+
+export async function unarchiveTask(id: string): Promise<Task> {
+  return invoke<Task>('unarchive_task', { id })
+}
+
 export async function bulkUpdateTasks(
   taskIds: string[],
   updates: {

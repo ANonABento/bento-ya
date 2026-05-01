@@ -4,7 +4,7 @@ use super::models::Task;
 use super::{new_id, now};
 
 /// Shared SELECT columns for tasks (49 fields).
-const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked";
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked, archived_at";
 
 /// Generate a sortable task batch identifier for staging PR workflows.
 pub fn generate_batch_id() -> String {
@@ -65,6 +65,7 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         github_issue_number: row.get(46)?,
         github_issue_commented: row.get::<_, Option<i64>>(47)?.unwrap_or(0) != 0,
         github_issue_pr_linked: row.get::<_, Option<i64>>(48)?.unwrap_or(0) != 0,
+        archived_at: row.get(49)?,
         created_at: row.get(38)?,
         updated_at: row.get(39)?,
     })
@@ -461,6 +462,26 @@ pub fn clear_task_notification_sent(conn: &Connection, id: &str) -> SqlResult<Ta
     let ts = now();
     conn.execute(
         "UPDATE tasks SET notification_sent_at = NULL, updated_at = ?1 WHERE id = ?2",
+        params![ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Soft-archive a task by setting archived_at timestamp.
+pub fn archive_task(conn: &Connection, id: &str) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET archived_at = ?1, updated_at = ?2 WHERE id = ?3",
+        params![ts, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Restore an archived task by clearing archived_at.
+pub fn unarchive_task(conn: &Connection, id: &str) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET archived_at = NULL, updated_at = ?1 WHERE id = ?2",
         params![ts, id],
     )?;
     get_task(conn, id)
