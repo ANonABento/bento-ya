@@ -19,6 +19,23 @@ type TaskState = {
   duplicate: (id: string) => Promise<Task | null>
 }
 
+function insertDuplicatedTask(tasks: Task[], duplicatedTask: Task): Task[] {
+  if (tasks.some((task) => task.id === duplicatedTask.id)) {
+    return tasks.map((task) => (task.id === duplicatedTask.id ? duplicatedTask : task))
+  }
+
+  return [
+    ...tasks.map((task) =>
+      task.workspaceId === duplicatedTask.workspaceId &&
+      task.columnId === duplicatedTask.columnId &&
+      task.position >= duplicatedTask.position
+        ? { ...task, position: task.position + 1 }
+        : task,
+    ),
+    duplicatedTask,
+  ]
+}
+
 export const useTaskStore = create<TaskState>()(
   devtools(
     (set, get) => ({
@@ -107,18 +124,7 @@ export const useTaskStore = create<TaskState>()(
 
         const task = await ipc.duplicateTask(id)
         set((s) => ({
-          tasks: s.tasks.some((existing) => existing.id === task.id)
-            ? s.tasks.map((existing) => (existing.id === task.id ? task : existing))
-            : [
-                ...s.tasks.map((existing) =>
-                  existing.workspaceId === task.workspaceId &&
-                  existing.columnId === task.columnId &&
-                  existing.position >= task.position
-                    ? { ...existing, position: existing.position + 1 }
-                    : existing,
-                ),
-                task,
-              ],
+          tasks: insertDuplicatedTask(s.tasks, task),
         }))
         await useWorkspaceStore.getState().refreshWorkspace(original.workspaceId)
         return task

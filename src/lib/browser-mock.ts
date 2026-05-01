@@ -162,6 +162,38 @@ const withActiveTaskCount = (workspace: Workspace): Workspace => ({
   activeTaskCount: getActiveTaskCount(workspace.id),
 })
 
+const resetDuplicatedTaskState = (task: Task, now: string): Task => ({
+  ...task,
+  branch: null,
+  agentType: null,
+  agentStatus: 'idle',
+  queuedAt: null,
+  batchId: null,
+  pipelineState: 'idle',
+  pipelineTriggeredAt: null,
+  pipelineError: null,
+  retryCount: 0,
+  lastScriptExitCode: null,
+  reviewStatus: null,
+  prNumber: null,
+  prUrl: null,
+  siegeIteration: 0,
+  siegeActive: false,
+  siegeLastChecked: null,
+  prMergeable: null,
+  prCiStatus: null,
+  prReviewDecision: null,
+  prCommentCount: 0,
+  prIsDraft: false,
+  prLastFetched: null,
+  prHeadSha: null,
+  notificationSentAt: null,
+  lastOutput: null,
+  worktreePath: null,
+  createdAt: now,
+  updatedAt: now,
+})
+
 // ─── Mock Command Handlers ──────────────────────────────────────────────────
 
 type CommandHandler = (args?: Record<string, unknown>) => unknown
@@ -328,39 +360,15 @@ const mockCommands: Record<string, CommandHandler> = {
         : task,
     )
 
-    const task: Task = {
-      ...original,
-      id: generateId('task'),
-      title: `${original.title} (copy)`,
-      position,
-      branch: null,
-      agentStatus: 'idle',
-      queuedAt: null,
-      batchId: null,
-      pipelineState: 'idle',
-      pipelineTriggeredAt: null,
-      pipelineError: null,
-      retryCount: 0,
-      lastScriptExitCode: null,
-      reviewStatus: null,
-      prNumber: null,
-      prUrl: null,
-      siegeIteration: 0,
-      siegeActive: false,
-      siegeLastChecked: null,
-      prMergeable: null,
-      prCiStatus: null,
-      prReviewDecision: null,
-      prCommentCount: 0,
-      prIsDraft: false,
-      prLastFetched: null,
-      prHeadSha: null,
-      notificationSentAt: null,
-      lastOutput: null,
-      worktreePath: null,
-      createdAt: now,
-      updatedAt: now,
-    }
+    const task = resetDuplicatedTaskState(
+      {
+        ...original,
+        id: generateId('task'),
+        title: `${original.title} (copy)`,
+        position,
+      },
+      now,
+    )
     mockTasks.push(task)
     return task
   },
