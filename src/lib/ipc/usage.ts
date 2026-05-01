@@ -48,7 +48,7 @@ export type TaskCostSummary = {
   taskTitle: string
   workspaceId: string
   workspaceName: string
-  columnName: string | null
+  columnName: string
   totalCostUsd: number
   totalInputTokens: number
   totalOutputTokens: number

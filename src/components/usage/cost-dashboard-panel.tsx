@@ -1,13 +1,14 @@
 import { motion } from 'motion/react'
+import type { ReactNode } from 'react'
 import { useCostDashboard } from '@/hooks/use-cost-dashboard'
 import { formatUsageCost, formatUsageDate, formatUsageTokens } from '@/lib/usage'
 import type { DailyCostSummary } from '@/lib/ipc'
 
-type Props = {
+type CostDashboardPanelProps = {
   onClose: () => void
 }
 
-export function CostDashboardPanel({ onClose }: Props) {
+export function CostDashboardPanel({ onClose }: CostDashboardPanelProps) {
   const { dashboard, isLoading, error, refresh } = useCostDashboard()
   const total = dashboard?.total
   const daily = dashboard?.daily.slice(-30) ?? []
@@ -98,6 +99,7 @@ export function CostDashboardPanel({ onClose }: Props) {
                   <StackedRows
                     rows={dashboard.workspaces}
                     maxCost={maxWorkspaceCost}
+                    getKey={(row) => row.workspaceId}
                     getTitle={(row) => row.workspaceName}
                     getSubtitle={(row) => `${formatUsageTokens(row.totalInputTokens + row.totalOutputTokens)} tokens - ${String(row.recordCount)} rows`}
                   />
@@ -107,6 +109,7 @@ export function CostDashboardPanel({ onClose }: Props) {
                   <StackedRows
                     rows={dashboard.columns.slice(0, 12)}
                     maxCost={maxColumnCost}
+                    getKey={(row) => `${row.workspaceId}:${row.columnName}`}
                     getTitle={(row) => row.columnName}
                     getSubtitle={(row) => `${row.workspaceName} - ${String(row.recordCount)} rows`}
                   />
@@ -127,10 +130,10 @@ export function CostDashboardPanel({ onClose }: Props) {
                     </thead>
                     <tbody className="divide-y divide-border-default">
                       {dashboard.topTasks.map((task) => (
-                        <tr key={`${task.workspaceId}:${task.taskId ?? task.taskTitle}`} className="text-text-primary">
+                        <tr key={task.taskId ?? `${task.workspaceId}:${task.columnName}:${task.taskTitle}`} className="text-text-primary">
                           <td className="max-w-80 truncate px-3 py-2">{task.taskTitle}</td>
                           <td className="px-3 py-2 text-text-secondary">{task.workspaceName}</td>
-                          <td className="px-3 py-2 text-text-secondary">{task.columnName ?? 'Unassigned'}</td>
+                          <td className="px-3 py-2 text-text-secondary">{task.columnName}</td>
                           <td className="px-3 py-2 text-right text-text-secondary">
                             {formatUsageTokens(task.totalInputTokens + task.totalOutputTokens)}
                           </td>
@@ -160,7 +163,7 @@ function MetricCard({ label, value, accent = false }: { label: string; value: st
   )
 }
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
       <h3 className="mb-3 text-sm font-semibold text-text-primary">{title}</h3>
@@ -196,11 +199,13 @@ type SpendRow = {
 function StackedRows<T extends SpendRow>({
   rows,
   maxCost,
+  getKey,
   getTitle,
   getSubtitle,
 }: {
   rows: T[]
   maxCost: number
+  getKey: (row: T) => string
   getTitle: (row: T) => string
   getSubtitle: (row: T) => string
 }) {
@@ -208,8 +213,8 @@ function StackedRows<T extends SpendRow>({
 
   return (
     <div className="space-y-2">
-      {rows.map((row, index) => (
-        <div key={`${getTitle(row)}:${String(index)}`} className="rounded-md bg-bg p-3">
+      {rows.map((row) => (
+        <div key={getKey(row)} className="rounded-md bg-bg p-3">
           <div className="flex items-center justify-between gap-3 text-sm">
             <div className="min-w-0">
               <div className="truncate font-medium text-text-primary">{getTitle(row)}</div>
@@ -229,7 +234,7 @@ function StackedRows<T extends SpendRow>({
   )
 }
 
-function StateMessage({ children }: { children: React.ReactNode }) {
+function StateMessage({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-40 items-center justify-center rounded-md border border-border-default bg-bg text-sm text-text-secondary">
       {children}

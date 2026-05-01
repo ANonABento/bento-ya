@@ -337,7 +337,7 @@ pub struct TaskCostSummary {
     pub task_title: String,
     pub workspace_id: String,
     pub workspace_name: String,
-    pub column_name: Option<String>,
+    pub column_name: String,
     pub total_cost_usd: f64,
     pub total_input_tokens: i64,
     pub total_output_tokens: i64,

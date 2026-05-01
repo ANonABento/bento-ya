@@ -18,6 +18,11 @@ import { AboutModal } from '@/components/about/about-modal'
 import { CommandPalette } from '@/components/command-palette/command-palette'
 import { SkeletonLoader } from '@/components/shared/skeleton-loader'
 import { CostDashboardPanel } from '@/components/usage'
+import {
+  closeCostDashboard,
+  isCostDashboardHash,
+  openCostDashboard,
+} from '@/lib/cost-dashboard-navigation'
 
 function App() {
   const loaded = useWorkspaceStore((s) => s.loaded)
@@ -27,9 +32,7 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [showAbout, setShowAbout] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
-  const [showCostDashboard, setShowCostDashboard] = useState(
-    () => window.location.hash === '#cost-dashboard',
-  )
+  const [showCostDashboard, setShowCostDashboard] = useState(isCostDashboardHash)
 
   // Keyboard shortcuts
   const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
@@ -60,7 +63,7 @@ function App() {
 
   useEffect(() => {
     const handleHashChange = () => {
-      setShowCostDashboard(window.location.hash === '#cost-dashboard')
+      setShowCostDashboard(isCostDashboardHash())
     }
 
     handleHashChange()
@@ -89,11 +92,7 @@ function App() {
       )}
 
       {/* Tab bar */}
-      <TabBar
-        openCostDashboard={() => {
-          window.location.hash = '#cost-dashboard'
-        }}
-      />
+      <TabBar openCostDashboard={openCostDashboard} />
 
       {/* Main content */}
       <main className="flex-1 overflow-hidden">
@@ -118,9 +117,7 @@ function App() {
       <AnimatePresence>
         {showCostDashboard && (
           <CostDashboardPanel
-            onClose={() => {
-              window.location.hash = ''
-            }}
+            onClose={closeCostDashboard}
           />
         )}
       </AnimatePresence>

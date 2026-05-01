@@ -5,6 +5,7 @@ import { useColumnStore } from '@/stores/column-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useSettingsStore } from '@/stores/settings-store'
+import { openCostDashboard } from '@/lib/cost-dashboard-navigation'
 
 type Command = {
   id: string
@@ -108,7 +109,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
       id: 'nav-cost-dashboard',
       label: 'Open cost dashboard',
       category: 'Navigation',
-      action: () => { window.location.hash = '#cost-dashboard' },
+      action: openCostDashboard,
     })
 
     // Tasks: create new
