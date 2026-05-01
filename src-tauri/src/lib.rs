@@ -78,6 +78,9 @@ pub fn run() {
         builder = builder.manage(recorder_state);
     }
 
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+
     builder
         .on_window_event(move |_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
