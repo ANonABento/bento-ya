@@ -58,6 +58,17 @@ describe('TaskCard quick-action keyboard behavior', () => {
     expect(onSelectionChange).toHaveBeenNthCalledWith(2, 't1', expect.objectContaining({ shiftKey: true }))
   })
 
+  it('keeps modifier-click opening the card when selection handling is unavailable', () => {
+    const task = mockKanbanTask()
+    resetStores(task)
+
+    render(<TaskCard task={task} />)
+
+    fireEvent.click(screen.getByText('Test task'), { metaKey: true })
+
+    expect(useUIStore.getState().activeTaskId).toBe('t1')
+  })
+
   it('does not run card shortcuts for key events from quick-action buttons', () => {
     const task = mockKanbanTask()
     resetStores(task)

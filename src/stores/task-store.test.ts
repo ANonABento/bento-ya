@@ -208,9 +208,10 @@ describe('task-store', () => {
       mockIpc.bulkUpdateTasks.mockResolvedValueOnce([])
       refreshWorkspace.mockResolvedValueOnce(undefined)
 
-      await useTaskStore.getState().bulkRemove(['task-1', 'task-3'])
+      const result = await useTaskStore.getState().bulkRemove(['task-1', 'task-3'])
 
       const state = useTaskStore.getState()
+      expect(result).toBe(true)
       expect(state.tasks.map((task) => task.id)).toEqual(['task-2'])
       expect(mockIpc.bulkUpdateTasks).toHaveBeenCalledWith(['task-1', 'task-3'], { delete: true })
       expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
@@ -219,10 +220,18 @@ describe('task-store', () => {
     it('should revert bulk delete on IPC error', async () => {
       mockIpc.bulkUpdateTasks.mockRejectedValueOnce(new Error('Failed'))
 
-      await useTaskStore.getState().bulkRemove(['task-1', 'task-3'])
+      const result = await useTaskStore.getState().bulkRemove(['task-1', 'task-3'])
 
       const state = useTaskStore.getState()
+      expect(result).toBe(false)
       expect(state.tasks).toHaveLength(3)
+    })
+
+    it('should report empty bulk delete as not applied', async () => {
+      const result = await useTaskStore.getState().bulkRemove([])
+
+      expect(result).toBe(false)
+      expect(mockIpc.bulkUpdateTasks).not.toHaveBeenCalled()
     })
   })
 
@@ -244,9 +253,10 @@ describe('task-store', () => {
       ])
       refreshWorkspace.mockResolvedValueOnce(undefined)
 
-      await useTaskStore.getState().bulkMove(['task-1', 'task-2'], 'col-2')
+      const result = await useTaskStore.getState().bulkMove(['task-1', 'task-2'], 'col-2')
 
       const state = useTaskStore.getState()
+      expect(result).toBe(true)
       expect(state.tasks.find((task) => task.id === 'task-1')?.columnId).toBe('col-2')
       expect(state.tasks.find((task) => task.id === 'task-2')?.columnId).toBe('col-2')
       expect(mockIpc.bulkUpdateTasks).toHaveBeenCalledWith(['task-1', 'task-2'], { targetColumnId: 'col-2' })
@@ -256,11 +266,19 @@ describe('task-store', () => {
     it('should revert bulk move on IPC error', async () => {
       mockIpc.bulkUpdateTasks.mockRejectedValueOnce(new Error('Failed'))
 
-      await useTaskStore.getState().bulkMove(['task-1', 'task-2'], 'col-2')
+      const result = await useTaskStore.getState().bulkMove(['task-1', 'task-2'], 'col-2')
 
       const state = useTaskStore.getState()
+      expect(result).toBe(false)
       expect(state.tasks.find((task) => task.id === 'task-1')?.columnId).toBe('col-1')
       expect(state.tasks.find((task) => task.id === 'task-2')?.columnId).toBe('col-1')
+    })
+
+    it('should report empty bulk move as not applied', async () => {
+      const result = await useTaskStore.getState().bulkMove([], 'col-2')
+
+      expect(result).toBe(false)
+      expect(mockIpc.bulkUpdateTasks).not.toHaveBeenCalled()
     })
   })
 

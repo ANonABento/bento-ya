@@ -157,10 +157,10 @@ export const TaskCard = memo(function TaskCard({
   }
 
   function handleClick(e: ReactMouseEvent<HTMLElement>) {
-    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+    if (onSelectionChange && (e.shiftKey || e.metaKey || e.ctrlKey)) {
       e.preventDefault()
       e.stopPropagation()
-      onSelectionChange?.(task.id, e)
+      onSelectionChange(task.id, e)
       return
     }
 

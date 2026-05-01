@@ -12,8 +12,8 @@ type TaskState = {
   load: (workspaceId: string) => Promise<void>
   add: (workspaceId: string, columnId: string, title: string, description: string) => Promise<Task>
   remove: (id: string) => Promise<void>
-  bulkRemove: (ids: string[]) => Promise<void>
-  bulkMove: (ids: string[], targetColumnId: string) => Promise<void>
+  bulkRemove: (ids: string[]) => Promise<boolean>
+  bulkMove: (ids: string[], targetColumnId: string) => Promise<boolean>
   move: (id: string, targetColumnId: string, position: number) => Promise<void>
   reorder: (columnId: string, ids: string[]) => Promise<void>
   updateTask: (id: string, updates: Partial<Task>) => void
@@ -59,7 +59,7 @@ export const useTaskStore = create<TaskState>()(
 
       bulkRemove: async (ids) => {
         const idSet = new Set(ids)
-        if (idSet.size === 0) return
+        if (idSet.size === 0) return false
         const prev = get().tasks
         const workspaceId = prev.find((t) => idSet.has(t.id))?.workspaceId
         set((s) => ({ tasks: s.tasks.filter((t) => !idSet.has(t.id)) }))
@@ -73,14 +73,16 @@ export const useTaskStore = create<TaskState>()(
           if (workspaceId) {
             await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
           }
+          return true
         } catch {
           set({ tasks: prev })
+          return false
         }
       },
 
       bulkMove: async (ids, targetColumnId) => {
         const idSet = new Set(ids)
-        if (idSet.size === 0) return
+        if (idSet.size === 0) return false
         const prev = get().tasks
         const workspaceId = prev.find((t) => idSet.has(t.id))?.workspaceId
         const targetTasks = prev
@@ -106,8 +108,10 @@ export const useTaskStore = create<TaskState>()(
           if (workspaceId) {
             await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
           }
+          return true
         } catch {
           set({ tasks: prev })
+          return false
         }
       },
 

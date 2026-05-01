@@ -166,9 +166,11 @@ export function Board() {
   const handleBulkMove = useCallback((targetColumnId: string) => {
     const ids = [...selectedTaskIds]
     if (ids.length === 0) return
-    void bulkMoveTasks(ids, targetColumnId).then(() => {
-      setSelectedTaskIds(new Set())
-      setLastSelectedTaskId(null)
+    void bulkMoveTasks(ids, targetColumnId).then((success) => {
+      if (success) {
+        setSelectedTaskIds(new Set())
+        setLastSelectedTaskId(null)
+      }
     })
   }, [bulkMoveTasks, selectedTaskIds])
 
@@ -177,9 +179,11 @@ export function Board() {
     if (ids.length === 0) return
     const confirmed = window.confirm(`Delete ${ids.length} selected task${ids.length === 1 ? '' : 's'}?`)
     if (!confirmed) return
-    void bulkRemoveTasks(ids).then(() => {
-      setSelectedTaskIds(new Set())
-      setLastSelectedTaskId(null)
+    void bulkRemoveTasks(ids).then((success) => {
+      if (success) {
+        setSelectedTaskIds(new Set())
+        setLastSelectedTaskId(null)
+      }
     })
   }, [bulkRemoveTasks, selectedTaskIds])
 
