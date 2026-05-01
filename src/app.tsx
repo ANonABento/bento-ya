@@ -132,12 +132,14 @@ function App() {
       <ChecklistPanel />
 
       {appUpdate && !installCompleted && (
-        <div className="fixed inset-x-0 top-4 z-[200] mx-auto flex w-full max-w-md items-start gap-3 rounded-lg border border-accent/30 bg-surface p-3 shadow-lg">
+        <div
+          role="status"
+          className="fixed left-3 right-3 top-3 z-[200] flex w-full max-w-sm gap-3 rounded-lg border border-accent/30 bg-surface p-3 shadow-lg"
+        >
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-text-primary">Update available</div>
             <div className="mt-1 text-xs text-text-secondary">
-              Version <span className="font-mono text-text-primary">{appUpdate.version}</span>
-              {' '}is available.
+              Version <span className="font-mono text-text-primary">{appUpdate.version}</span> is available.
             </div>
             {appUpdate.body && (
               <div className="mt-1.5 text-xs text-text-secondary whitespace-pre-wrap">{appUpdate.body}</div>
@@ -149,7 +151,7 @@ function App() {
               disabled={isInstallingAppUpdate}
               className="rounded-lg border border-accent bg-accent/10 px-2.5 py-1 text-xs text-accent transition-colors hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isInstallingAppUpdate ? 'Installing…' : 'Install update'}
+              {isInstallingAppUpdate ? 'Installing…' : 'Install'}
             </button>
             <button
               onClick={() => { setAppUpdate(null); setInstallCompleted(false) }}
