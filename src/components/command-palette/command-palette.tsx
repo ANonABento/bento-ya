@@ -5,6 +5,7 @@ import { useColumnStore } from '@/stores/column-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useSettingsStore } from '@/stores/settings-store'
+import { KeyboardShortcutSequence } from '@/components/shared/keyboard-shortcut-sequence'
 
 type Command = {
   id: string
@@ -84,7 +85,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
   const createTaskFromSearch = useCallback(() => {
     const firstColumn = [...columns].sort((a, b) => a.position - b.position)[0]
     if (firstColumn && activeWorkspaceId) {
-      void addTask(activeWorkspaceId, firstColumn.id, search || 'New Task', '')
+      void addTask(activeWorkspaceId, firstColumn.id, search.trim() || 'New Task', '')
     }
   }, [activeWorkspaceId, addTask, columns, search])
 
@@ -190,7 +191,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
     }
 
     return cmds
-  }, [tasks, workspaces, activeWorkspaceId, activeTaskId, search, focusTask, closeChat, duplicateTask, setActiveWorkspace, togglePanel, openSettings, setActiveTab, onShowShortcuts, createTaskFromSearch])
+  }, [tasks, workspaces, activeWorkspaceId, activeTaskId, focusTask, closeChat, duplicateTask, setActiveWorkspace, togglePanel, openSettings, setActiveTab, onShowShortcuts, createTaskFromSearch])
 
   // Filter commands
   const filtered = useMemo(() => {
@@ -236,10 +237,12 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
+        if (flatList.length === 0) break
         setSelectedIndex((prev) => (prev + 1) % flatList.length)
         break
       case 'ArrowUp':
         e.preventDefault()
+        if (flatList.length === 0) break
         setSelectedIndex((prev) => (prev - 1 + flatList.length) % flatList.length)
         break
       case 'Enter':
@@ -331,18 +334,12 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
                       </span>
                       <span className="flex-1 truncate">{cmd.label}</span>
                       {cmd.shortcut && (
-                        <div className="flex items-center gap-0.5">
-                          {cmd.shortcut.map((key, j) => (
-                            <span key={j}>
-                              <kbd className="rounded bg-bg px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
-                                {key}
-                              </kbd>
-                              {j < (cmd.shortcut?.length ?? 0) - 1 && (
-                                <span className="mx-0.5 text-[10px] text-text-secondary">+</span>
-                              )}
-                            </span>
-                          ))}
-                        </div>
+                        <KeyboardShortcutSequence
+                          keys={cmd.shortcut}
+                          className="flex items-center gap-0.5"
+                          keyClassName="rounded bg-bg px-1.5 py-0.5 font-mono text-[10px] text-text-secondary"
+                          separatorClassName="mx-0.5 text-[10px] text-text-secondary"
+                        />
                       )}
                     </div>
                   )

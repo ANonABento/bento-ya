@@ -1,79 +1,79 @@
 export type ShortcutItem = {
-  keys: string[]
-  desc: string
+  keys: readonly string[]
+  description: string
 }
 
 export type ShortcutSection = {
   category: string
-  items: ShortcutItem[]
+  items: readonly ShortcutItem[]
 }
 
-export const KEYBOARD_SHORTCUT_SECTIONS: ShortcutSection[] = [
+export const KEYBOARD_SHORTCUT_SECTIONS: readonly ShortcutSection[] = [
   {
     category: 'Global',
     items: [
-      { keys: ['?'], desc: 'Show keyboard shortcuts' },
-      { keys: ['Cmd', 'K'], desc: 'Search and command palette' },
-      { keys: ['Cmd', ','], desc: 'Open settings' },
-      { keys: ['Cmd', '/'], desc: 'About Bento-ya' },
-      { keys: ['Esc'], desc: 'Close panel or cancel' },
+      { keys: ['?'], description: 'Show keyboard shortcuts' },
+      { keys: ['Cmd', 'K'], description: 'Search and command palette' },
+      { keys: ['Cmd', ','], description: 'Open settings' },
+      { keys: ['Cmd', '/'], description: 'About Bento-ya' },
+      { keys: ['Esc'], description: 'Close panel or cancel' },
     ],
   },
   {
     category: 'Workspaces',
     items: [
-      { keys: ['Cmd', '1-9'], desc: 'Switch workspace' },
-      { keys: ['Cmd', 'T'], desc: 'New workspace' },
-      { keys: ['Cmd', 'W'], desc: 'Close workspace' },
-      { keys: ['Ctrl', 'Tab'], desc: 'Next workspace' },
-      { keys: ['Ctrl', 'Shift', 'Tab'], desc: 'Previous workspace' },
+      { keys: ['Cmd', '1-9'], description: 'Switch workspace' },
+      { keys: ['Cmd', 'T'], description: 'New workspace' },
+      { keys: ['Cmd', 'W'], description: 'Close workspace' },
+      { keys: ['Ctrl', 'Tab'], description: 'Next workspace' },
+      { keys: ['Ctrl', 'Shift', 'Tab'], description: 'Previous workspace' },
     ],
   },
   {
     category: 'Board',
     items: [
-      { keys: ['Cmd', 'J'], desc: 'Toggle chef panel' },
-      { keys: ['Cmd', 'L'], desc: 'Close task chat panel' },
-      { keys: ['Cmd', 'Drag'], desc: 'Link task dependencies' },
-      { keys: ['Esc'], desc: 'Cancel dependency link' },
+      { keys: ['Cmd', 'J'], description: 'Toggle chef panel' },
+      { keys: ['Cmd', 'L'], description: 'Close task chat panel' },
+      { keys: ['Cmd', 'Drag'], description: 'Link task dependencies' },
+      { keys: ['Esc'], description: 'Cancel dependency link' },
     ],
   },
   {
     category: 'Task Cards',
     items: [
-      { keys: ['Enter'], desc: 'Open task' },
-      { keys: ['Space'], desc: 'Run or stop agent' },
-      { keys: ['R'], desc: 'Retry failed pipeline' },
-      { keys: ['ArrowRight'], desc: 'Move task to next column' },
-      { keys: ['M'], desc: 'Open move task menu' },
-      { keys: ['D'], desc: 'Duplicate task' },
-      { keys: ['L'], desc: 'Edit dependencies' },
-      { keys: ['Del'], desc: 'Confirm/delete task' },
-      { keys: ['Backspace'], desc: 'Confirm/delete task' },
+      { keys: ['Enter'], description: 'Open task' },
+      { keys: ['Space'], description: 'Run or stop agent' },
+      { keys: ['R'], description: 'Retry failed pipeline' },
+      { keys: ['ArrowRight'], description: 'Move task to next column' },
+      { keys: ['M'], description: 'Open move task menu' },
+      { keys: ['D'], description: 'Duplicate task' },
+      { keys: ['L'], description: 'Edit dependencies' },
+      { keys: ['Del'], description: 'Confirm/delete task' },
+      { keys: ['Backspace'], description: 'Confirm/delete task' },
     ],
   },
   {
     category: 'Command Palette',
     items: [
-      { keys: ['ArrowDown'], desc: 'Select next command' },
-      { keys: ['ArrowUp'], desc: 'Select previous command' },
-      { keys: ['Enter'], desc: 'Run selected command' },
-      { keys: ['Cmd', 'Enter'], desc: 'Create task from search text' },
-      { keys: ['Esc'], desc: 'Close command palette' },
+      { keys: ['ArrowDown'], description: 'Select next command' },
+      { keys: ['ArrowUp'], description: 'Select previous command' },
+      { keys: ['Enter'], description: 'Run selected command' },
+      { keys: ['Cmd', 'Enter'], description: 'Create task from search text' },
+      { keys: ['Esc'], description: 'Close command palette' },
     ],
   },
   {
     category: 'Editing',
     items: [
-      { keys: ['Enter'], desc: 'Submit message, task, or checklist item' },
-      { keys: ['Shift', 'Enter'], desc: 'Insert newline in message' },
-      { keys: ['Esc'], desc: 'Cancel inline edit' },
+      { keys: ['Enter'], description: 'Submit message, task, or checklist item' },
+      { keys: ['Shift', 'Enter'], description: 'Insert newline in message' },
+      { keys: ['Esc'], description: 'Cancel inline edit' },
     ],
   },
   {
     category: 'Terminal',
     items: [
-      { keys: ['Ctrl', 'C'], desc: 'Interrupt process' },
+      { keys: ['Ctrl', 'C'], description: 'Interrupt process' },
     ],
   },
 ]

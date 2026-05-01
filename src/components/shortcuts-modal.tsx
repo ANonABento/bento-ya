@@ -1,26 +1,10 @@
 import { motion } from 'motion/react'
 import { KEYBOARD_SHORTCUT_SECTIONS } from '@/lib/keyboard-shortcuts'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
+import { KeyboardShortcutSequence } from '@/components/shared/keyboard-shortcut-sequence'
 
 type Props = {
   onClose: () => void
-}
-
-function KbdSequence({ keys }: { keys: string[] }) {
-  return (
-    <div className="flex min-w-[116px] flex-wrap justify-end gap-1">
-      {keys.map((key, index) => (
-        <span key={`${key}-${String(index)}`} className="inline-flex items-center gap-1">
-          <kbd className="rounded border border-border-default bg-bg px-1.5 py-0.5 font-mono text-[11px] leading-5 text-text-primary">
-            {key}
-          </kbd>
-          {index < keys.length - 1 && (
-            <span className="text-xs text-text-secondary">+</span>
-          )}
-        </span>
-      ))}
-    </div>
-  )
 }
 
 export function ShortcutsModal({ onClose }: Props) {
@@ -67,9 +51,14 @@ export function ShortcutsModal({ onClose }: Props) {
                 </h3>
                 <div className="space-y-2">
                   {section.items.map((item) => (
-                    <div key={`${section.category}-${item.keys.join('+')}-${item.desc}`} className="flex items-start justify-between gap-3 text-sm">
-                      <span className="min-w-0 text-text-secondary">{item.desc}</span>
-                      <KbdSequence keys={item.keys} />
+                    <div key={`${section.category}-${item.keys.join('+')}-${item.description}`} className="flex items-start justify-between gap-3 text-sm">
+                      <span className="min-w-0 text-text-secondary">{item.description}</span>
+                      <KeyboardShortcutSequence
+                        keys={item.keys}
+                        className="flex min-w-[116px] flex-wrap justify-end gap-1"
+                        keyClassName="rounded border border-border-default bg-bg px-1.5 py-0.5 font-mono text-[11px] leading-5 text-text-primary"
+                        separatorClassName="text-xs text-text-secondary"
+                      />
                     </div>
                   ))}
                 </div>

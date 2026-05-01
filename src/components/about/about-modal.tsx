@@ -1,5 +1,6 @@
 import { motion } from 'motion/react'
 import { KEYBOARD_SHORTCUT_SECTIONS } from '@/lib/keyboard-shortcuts'
+import { KeyboardShortcutSequence } from '@/components/shared/keyboard-shortcut-sequence'
 
 type Props = {
   onClose: () => void
@@ -85,21 +86,13 @@ export function AboutModal({ onClose }: Props) {
                     {section.category}
                   </h5>
                   <div className="space-y-1.5">
-                    {section.items.map((item, i) => (
-                      <div key={i} className="flex items-center justify-between text-sm">
-                        <span className="text-text-secondary">{item.desc}</span>
-                        <div className="flex items-center gap-1">
-                          {item.keys.map((key, j) => (
-                            <span key={j}>
-                              <kbd className="rounded bg-surface px-1.5 py-0.5 font-mono text-xs text-text-primary">
-                                {key}
-                              </kbd>
-                              {j < item.keys.length - 1 && (
-                                <span className="mx-0.5 text-text-secondary">+</span>
-                              )}
-                            </span>
-                          ))}
-                        </div>
+                    {section.items.map((item) => (
+                      <div key={`${section.category}-${item.keys.join('+')}-${item.description}`} className="flex items-center justify-between text-sm">
+                        <span className="text-text-secondary">{item.description}</span>
+                        <KeyboardShortcutSequence
+                          keys={item.keys}
+                          keyClassName="rounded bg-surface px-1.5 py-0.5 font-mono text-xs text-text-primary"
+                        />
                       </div>
                     ))}
                   </div>

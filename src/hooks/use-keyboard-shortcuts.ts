@@ -15,7 +15,7 @@ type ShortcutConfig = {
   ignoreEditable?: boolean
 }
 
-function isEditableTarget(target: EventTarget | null) {
+function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
 
   const tag = target.tagName
