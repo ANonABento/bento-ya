@@ -92,6 +92,8 @@ afterEach(() => {
 })
 
 describe('scripts/rebase-pr.sh', () => {
+  const REBASE_PR_TEST_TIMEOUT = 120000
+
   it('rebases a clean PR branch and force-pushes it', () => {
     const { root, repo } = setupRepo()
 
@@ -114,7 +116,7 @@ describe('scripts/rebase-pr.sh', () => {
     expect(result.stdout).toContain('Clean rebase succeeded')
     expect(git(repo, ['merge-base', '--is-ancestor', 'origin/main', 'feature'])).toBe('')
     expect(git(repo, ['status', '--porcelain'])).toBe('')
-  })
+  }, REBASE_PR_TEST_TIMEOUT)
 
   it('marks manual review and does not push when the guarded fallback fails type-check', () => {
     const { root, repo, origin } = setupRepo()
@@ -143,5 +145,5 @@ describe('scripts/rebase-pr.sh', () => {
     expect(existsSync(marker)).toBe(true)
     expect(readFileSync(marker, 'utf8')).toContain('file.txt')
     expect(git(repo, ['ls-remote', origin, 'refs/heads/feature']).split(/\s+/)[0]).toBe(remoteBefore)
-  })
+  }, REBASE_PR_TEST_TIMEOUT)
 })

@@ -2,6 +2,7 @@ use crate::db::{self, AppState, Task};
 use crate::error::AppError;
 use crate::pipeline;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::process::Command;
 use tauri::{AppHandle, State};
 
@@ -311,6 +312,195 @@ pub async fn move_task(
     }
 
     Ok(task)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn bulk_update_tasks(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    task_ids: Vec<String>,
+    target_column_id: Option<String>,
+    delete: Option<bool>,
+) -> Result<Vec<Task>, AppError> {
+    use crate::git::branch_manager;
+
+    let mut seen_task_ids = HashSet::new();
+    let task_ids = task_ids
+        .into_iter()
+        .filter(|id| seen_task_ids.insert(id.clone()))
+        .collect::<Vec<_>>();
+    let should_delete = delete.unwrap_or(false);
+
+    if task_ids.is_empty() {
+        return Err(AppError::InvalidInput(
+            "At least one task is required".to_string(),
+        ));
+    }
+    if should_delete && target_column_id.is_some() {
+        return Err(AppError::InvalidInput(
+            "Bulk update cannot both move and delete tasks".to_string(),
+        ));
+    }
+    if !should_delete && target_column_id.is_none() {
+        return Err(AppError::InvalidInput(
+            "Bulk update requires a target column or delete=true".to_string(),
+        ));
+    }
+
+    if should_delete {
+        let (tasks, workspace_id, cleanup_targets) = {
+            let conn = state
+                .db
+                .lock()
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            let mut tasks = Vec::new();
+            for id in &task_ids {
+                tasks.push(db::get_task(&conn, id)?);
+            }
+            let workspace_id = tasks
+                .first()
+                .map(|task| task.workspace_id.clone())
+                .ok_or_else(|| AppError::InvalidInput("No tasks found".to_string()))?;
+            if tasks.iter().any(|task| task.workspace_id != workspace_id) {
+                return Err(AppError::InvalidInput(
+                    "Bulk delete requires tasks from one workspace".to_string(),
+                ));
+            }
+            let repo_path = db::get_workspace(&conn, &workspace_id)
+                .ok()
+                .map(|workspace| workspace.repo_path);
+            let cleanup_targets = tasks
+                .iter()
+                .filter(|task| task.worktree_path.is_some())
+                .filter_map(|task| {
+                    repo_path
+                        .as_ref()
+                        .map(|repo| (task.id.clone(), repo.clone()))
+                })
+                .collect::<Vec<_>>();
+            (tasks, workspace_id, cleanup_targets)
+        };
+
+        for (task_id, repo_path) in cleanup_targets {
+            if let Err(e) = branch_manager::remove_task_worktree(&repo_path, &task_id) {
+                log::warn!(
+                    "Failed to clean up worktree for deleted task {}: {}",
+                    task_id,
+                    e
+                );
+            }
+        }
+
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        for task in &tasks {
+            tx.execute(
+                "DELETE FROM tasks WHERE id = ?1",
+                rusqlite::params![task.id],
+            )
+            .map_err(AppError::from)?;
+        }
+        tx.commit()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        pipeline::emit_tasks_changed(&app, &workspace_id, "tasks_deleted");
+        return Ok(db::list_tasks(&conn, &workspace_id)?);
+    }
+
+    let target_column_id = target_column_id.ok_or_else(|| {
+        AppError::InvalidInput("Bulk update requires a target column or delete=true".to_string())
+    })?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let target_column = db::get_column(&conn, &target_column_id)?;
+    let mut tasks_before = Vec::new();
+    for id in &task_ids {
+        tasks_before.push(db::get_task(&conn, id)?);
+    }
+    if tasks_before
+        .iter()
+        .any(|task| task.workspace_id != target_column.workspace_id)
+    {
+        return Err(AppError::InvalidInput(
+            "Bulk move requires tasks from the target workspace".to_string(),
+        ));
+    }
+
+    let ts = db::now();
+    let mut next_position: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM tasks WHERE column_id = ?1",
+            rusqlite::params![target_column_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    for task in &tasks_before {
+        let column_changed = task.column_id != target_column_id;
+        if column_changed {
+            tx.execute(
+                "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = NULL, updated_at = ?3 WHERE id = ?4",
+                rusqlite::params![target_column_id, next_position, ts, task.id],
+            )
+            .map_err(AppError::from)?;
+        } else {
+            tx.execute(
+                "UPDATE tasks SET position = ?1, updated_at = ?2 WHERE id = ?3",
+                rusqlite::params![next_position, ts, task.id],
+            )
+            .map_err(AppError::from)?;
+        }
+        next_position += 1;
+    }
+    tx.commit()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let mut updated_tasks = Vec::new();
+    for task_before in &tasks_before {
+        let task = db::get_task(&conn, &task_before.id)?;
+        if task_before.column_id != target_column_id {
+            let old_column = db::get_column(&conn, &task_before.column_id)?;
+            if task_before.agent_status.as_deref() == Some("running") {
+                let target_has_trigger = target_column
+                    .triggers
+                    .as_deref()
+                    .map(|t| t.contains("spawn_cli"))
+                    .unwrap_or(false);
+
+                if !target_has_trigger {
+                    crate::chat::tmux_transport::cancel_task_agent(
+                        &conn,
+                        &task_before.id,
+                        task_before.agent_session_id.as_deref(),
+                    );
+                }
+            }
+            let _ = pipeline::triggers::fire_on_exit(
+                &conn,
+                &app,
+                task_before,
+                &old_column,
+                Some(&target_column),
+            );
+            updated_tasks.push(pipeline::fire_trigger(&conn, &app, &task, &target_column)?);
+        } else {
+            updated_tasks.push(task);
+        }
+    }
+
+    pipeline::emit_tasks_changed(&app, &target_column.workspace_id, "tasks_moved");
+    Ok(updated_tasks)
 }
 
 #[tauri::command]

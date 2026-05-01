@@ -17,6 +17,7 @@ vi.mock('@/lib/ipc', () => ({
   getTasks: vi.fn(),
   createTask: vi.fn(),
   deleteTask: vi.fn(),
+  bulkUpdateTasks: vi.fn(),
   moveTask: vi.fn(),
   reorderTasks: vi.fn(),
 }))
@@ -189,6 +190,95 @@ describe('task-store', () => {
 
       const state = useTaskStore.getState()
       expect(state.tasks[0]?.columnId).toBe('col-1')
+    })
+  })
+
+  describe('bulkRemove', () => {
+    beforeEach(() => {
+      useTaskStore.setState({
+        tasks: [
+          createMockTask({ id: 'task-1' }),
+          createMockTask({ id: 'task-2', position: 1 }),
+          createMockTask({ id: 'task-3', position: 2 }),
+        ],
+      })
+    })
+
+    it('should optimistically remove selected tasks', async () => {
+      mockIpc.bulkUpdateTasks.mockResolvedValueOnce([])
+      refreshWorkspace.mockResolvedValueOnce(undefined)
+
+      const result = await useTaskStore.getState().bulkRemove(['task-1', 'task-3'])
+
+      const state = useTaskStore.getState()
+      expect(result).toBe(true)
+      expect(state.tasks.map((task) => task.id)).toEqual(['task-2'])
+      expect(mockIpc.bulkUpdateTasks).toHaveBeenCalledWith(['task-1', 'task-3'], { delete: true })
+      expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
+    })
+
+    it('should revert bulk delete on IPC error', async () => {
+      mockIpc.bulkUpdateTasks.mockRejectedValueOnce(new Error('Failed'))
+
+      const result = await useTaskStore.getState().bulkRemove(['task-1', 'task-3'])
+
+      const state = useTaskStore.getState()
+      expect(result).toBe(false)
+      expect(state.tasks).toHaveLength(3)
+    })
+
+    it('should report empty bulk delete as not applied', async () => {
+      const result = await useTaskStore.getState().bulkRemove([])
+
+      expect(result).toBe(false)
+      expect(mockIpc.bulkUpdateTasks).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('bulkMove', () => {
+    beforeEach(() => {
+      useTaskStore.setState({
+        tasks: [
+          createMockTask({ id: 'task-1', columnId: 'col-1', position: 0 }),
+          createMockTask({ id: 'task-2', columnId: 'col-1', position: 1 }),
+          createMockTask({ id: 'task-3', columnId: 'col-2', position: 0 }),
+        ],
+      })
+    })
+
+    it('should optimistically move selected tasks to target column', async () => {
+      mockIpc.bulkUpdateTasks.mockResolvedValueOnce([
+        createMockTask({ id: 'task-1', columnId: 'col-2', position: 1 }),
+        createMockTask({ id: 'task-2', columnId: 'col-2', position: 2 }),
+      ])
+      refreshWorkspace.mockResolvedValueOnce(undefined)
+
+      const result = await useTaskStore.getState().bulkMove(['task-1', 'task-2'], 'col-2')
+
+      const state = useTaskStore.getState()
+      expect(result).toBe(true)
+      expect(state.tasks.find((task) => task.id === 'task-1')?.columnId).toBe('col-2')
+      expect(state.tasks.find((task) => task.id === 'task-2')?.columnId).toBe('col-2')
+      expect(mockIpc.bulkUpdateTasks).toHaveBeenCalledWith(['task-1', 'task-2'], { targetColumnId: 'col-2' })
+      expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
+    })
+
+    it('should revert bulk move on IPC error', async () => {
+      mockIpc.bulkUpdateTasks.mockRejectedValueOnce(new Error('Failed'))
+
+      const result = await useTaskStore.getState().bulkMove(['task-1', 'task-2'], 'col-2')
+
+      const state = useTaskStore.getState()
+      expect(result).toBe(false)
+      expect(state.tasks.find((task) => task.id === 'task-1')?.columnId).toBe('col-1')
+      expect(state.tasks.find((task) => task.id === 'task-2')?.columnId).toBe('col-1')
+    })
+
+    it('should report empty bulk move as not applied', async () => {
+      const result = await useTaskStore.getState().bulkMove([], 'col-2')
+
+      expect(result).toBe(false)
+      expect(mockIpc.bulkUpdateTasks).not.toHaveBeenCalled()
     })
   })
 

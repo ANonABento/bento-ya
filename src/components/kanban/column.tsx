@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useMemo, useRef, useEffect, type ChangeEvent } from 'react'
+import { memo, useState, useCallback, useMemo, useRef, useEffect, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
@@ -25,9 +25,17 @@ type ColumnProps = {
   column: ColumnType
   autoOpenConfig?: boolean
   onConfigOpened?: () => void
+  selectedTaskIds?: ReadonlySet<string>
+  onTaskSelectionChange?: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void
 }
 
-export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpened }: ColumnProps) {
+export const Column = memo(function Column({
+  column,
+  autoOpenConfig,
+  onConfigOpened,
+  selectedTaskIds,
+  onTaskSelectionChange,
+}: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
@@ -273,7 +281,14 @@ export const Column = memo(function Column({ column, autoOpenConfig, onConfigOpe
                 </p>
               </div>
             ) : (
-              tasks.map((task) => <TaskCard key={task.id} task={task} />)
+              tasks.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  isSelected={selectedTaskIds?.has(task.id) ?? false}
+                  onSelectionChange={onTaskSelectionChange}
+                />
+              ))
             )}
           </div>
         </SortableContext>

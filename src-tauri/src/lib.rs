@@ -113,6 +113,7 @@ pub fn run() {
             commands::task::update_task,
             commands::task::update_task_triggers,
             commands::task::move_task,
+            commands::task::bulk_update_tasks,
             commands::task::reorder_tasks,
             commands::task::delete_task,
             commands::task::approve_task,
