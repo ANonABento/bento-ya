@@ -65,6 +65,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
         .manage(session_registry);
 
@@ -111,6 +112,7 @@ pub fn run() {
             commands::task::get_task,
             commands::task::list_tasks,
             commands::task::update_task,
+            commands::task::duplicate_task,
             commands::task::update_task_triggers,
             commands::task::move_task,
             commands::task::bulk_update_tasks,
@@ -208,6 +210,7 @@ pub fn run() {
             commands::usage::get_workspace_usage,
             commands::usage::get_task_usage,
             commands::usage::get_workspace_usage_summary,
+            commands::usage::get_workspace_model_usage_between,
             commands::usage::get_task_usage_summary,
             commands::usage::clear_workspace_usage,
             commands::usage::get_workspace_daily_costs,
@@ -255,6 +258,9 @@ pub fn run() {
             // Dynamic model discovery
             models::get_available_models,
             models::refresh_models,
+            // Updater commands
+            commands::updater::check_for_update,
+            commands::updater::install_update,
         ])
         .setup(|app| {
             // Start HTTP API server for external MCP control

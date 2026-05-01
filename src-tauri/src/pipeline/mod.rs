@@ -899,6 +899,8 @@ mod tests {
             batch_id: None,
             files_touched: "[]".into(),
             checklist: None,
+            estimated_hours: None,
+            actual_hours: 0.0,
             pipeline_state: pipeline_state.into(),
             pipeline_triggered_at: None,
             pipeline_error: None,

@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import { useWorkspaceUsage } from '@/hooks/use-workspace-usage'
-import { formatUsageCost, formatUsageDate, formatUsageTokens } from '@/lib/usage'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import { formatUsageCost, formatUsageDate, formatUsageTokens, shortModelName } from '@/lib/usage'
 import {
   type ColumnCost,
   type DailyCost,
   type TaskCost,
+  type UsageSummary,
   getWorkspaceColumnCosts,
   getWorkspaceDailyCosts,
   getWorkspaceTaskCosts,
+  getWorkspaceUsageSummary,
 } from '@/lib/ipc/usage'
 
 type Props = {
@@ -24,7 +27,9 @@ type ModelStats = {
   count: number
 }
 
-type ActiveTab = 'overview' | 'model' | 'column' | 'task'
+type WorkspaceCost = UsageSummary & { workspaceId: string; workspaceName: string }
+
+type ActiveTab = 'overview' | 'model' | 'column' | 'task' | 'workspace'
 
 const DAYS = 30
 const TOP_TASKS_LIMIT = 10
@@ -35,20 +40,20 @@ const TABS: { id: ActiveTab; label: string }[] = [
   { id: 'model', label: 'By Model' },
   { id: 'column', label: 'By Column' },
   { id: 'task', label: 'By Task' },
+  { id: 'workspace', label: 'All Workspaces' },
 ]
-
-function shortModelName(model: string): string {
-  return model.split('/').pop() ?? model
-}
 
 export function MetricsDashboard({ workspaceId, onClose }: Props) {
   const { summary, records, isLoading, error } = useWorkspaceUsage(workspaceId, {
     limit: 1000,
   })
+  const workspacesKey = useWorkspaceStore((s) => s.workspaces.map((w) => w.id).join(','))
 
   const [dailyCosts, setDailyCosts] = useState<DailyCost[]>([])
   const [columnCosts, setColumnCosts] = useState<ColumnCost[]>([])
   const [taskCosts, setTaskCosts] = useState<TaskCost[]>([])
+  const [workspaceCosts, setWorkspaceCosts] = useState<WorkspaceCost[]>([])
+  const [workspaceCostsLoading, setWorkspaceCostsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview')
 
   useEffect(() => {
@@ -56,6 +61,27 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
     void getWorkspaceColumnCosts(workspaceId).then(setColumnCosts)
     void getWorkspaceTaskCosts(workspaceId, TOP_TASKS_LIMIT).then(setTaskCosts)
   }, [workspaceId])
+
+  useEffect(() => {
+    const workspaces = useWorkspaceStore.getState().workspaces
+    if (workspaces.length === 0) return
+    let cancelled = false
+    setWorkspaceCostsLoading(true)
+    void Promise.all(
+      workspaces.map(async (ws) => {
+        const s = await getWorkspaceUsageSummary(ws.id)
+        return { workspaceId: ws.id, workspaceName: ws.name, ...s } satisfies WorkspaceCost
+      }),
+    ).then((costs) => {
+      if (cancelled) return
+      setWorkspaceCosts(costs.sort((a, b) => b.totalCostUsd - a.totalCostUsd))
+    }).catch(() => {
+      // non-critical: workspace cost summaries will just remain empty
+    }).finally(() => {
+      if (!cancelled) setWorkspaceCostsLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [workspacesKey])
 
   const modelStats = useMemo((): ModelStats[] => {
     const map = new Map<string, ModelStats>()
@@ -80,6 +106,7 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
   const maxColumnCost = Math.max(...columnCosts.map((c) => c.costUsd), 0.01)
   const maxTaskCost = Math.max(...taskCosts.map((t) => t.costUsd), 0.01)
   const maxModelCost = Math.max(...modelStats.map((m) => m.cost), 0.01)
+  const maxWorkspaceCost = Math.max(...workspaceCosts.map((w) => w.totalCostUsd), 0.01)
 
   const exportCsv = useCallback(() => {
     const csvField = (v: string) => (v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v)
@@ -358,6 +385,45 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
                           <div className="flex gap-4 text-xs text-text-secondary">
                             <span>In: {formatUsageTokens(task.inputTokens)}</span>
                             <span>Out: {formatUsageTokens(task.outputTokens)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'workspace' && (
+                <div className="rounded-xl border border-border-default bg-bg p-4">
+                  <h3 className="mb-4 font-semibold text-text-primary">Cost by Workspace</h3>
+                  {workspaceCostsLoading ? (
+                    <p className="text-sm text-text-secondary">Loading workspace costs...</p>
+                  ) : workspaceCosts.length === 0 ? (
+                    <p className="text-sm text-text-secondary">No workspace data available</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {workspaceCosts.map((ws) => (
+                        <div key={ws.workspaceId} className="space-y-1">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className={`font-medium ${ws.workspaceId === workspaceId ? 'text-accent' : 'text-text-primary'}`}>
+                              {ws.workspaceName}
+                              {ws.workspaceId === workspaceId && (
+                                <span className="ml-1.5 text-xs text-text-secondary font-normal">(current)</span>
+                              )}
+                            </span>
+                            <span className="text-text-secondary shrink-0 ml-2">
+                              {formatUsageCost(ws.totalCostUsd)} ({ws.recordCount} calls)
+                            </span>
+                          </div>
+                          <div className="h-2 rounded-full bg-surface">
+                            <div
+                              className="h-full rounded-full bg-emerald-500"
+                              style={{ width: `${String((ws.totalCostUsd / maxWorkspaceCost) * 100)}%` }}
+                            />
+                          </div>
+                          <div className="flex gap-4 text-xs text-text-secondary">
+                            <span>In: {formatUsageTokens(ws.totalInputTokens)}</span>
+                            <span>Out: {formatUsageTokens(ws.totalOutputTokens)}</span>
                           </div>
                         </div>
                       ))}

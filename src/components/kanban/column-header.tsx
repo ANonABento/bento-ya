@@ -1,6 +1,8 @@
-import { memo, useState, useRef, useEffect } from 'react'
+import { memo, useState, useRef, useEffect, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { IconButton } from '@/components/shared/icon-button'
+import { Tooltip } from '@/components/shared/tooltip'
+import type { ColumnMetrics } from '@/lib/ipc/pipeline'
 
 type ScriptTriggerInfo = {
   scriptName: string
@@ -20,11 +22,38 @@ type ColumnHeaderProps = {
   scriptTrigger?: ScriptTriggerInfo
   isBacklog?: boolean
   batchQueue?: BatchQueueState
+  metrics?: ColumnMetrics
   onConfigure: () => void
   onDelete: () => void
   onAddTask: () => void
+  onRenameSubmit: (name: string) => void
   onRunAll?: () => void
   onCancelQueue?: () => void
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${String(Math.round(seconds))}s`
+  if (seconds < 3600) return `${String(Math.round(seconds / 60))}m`
+  const h = Math.floor(seconds / 3600)
+  const m = Math.round((seconds % 3600) / 60)
+  if (m === 0) return `${String(h)}h`
+  return `${String(h)}h ${String(m)}m`
+}
+
+function successRatePct(m: ColumnMetrics): number {
+  return Math.round((m.successCount / m.taskCount) * 100)
+}
+
+function buildMetricsTooltip(m: ColumnMetrics): string {
+  const duration = formatDuration(m.avgDurationSeconds)
+  const rate = successRatePct(m)
+  const throughput = m.throughputPerDay.toFixed(1)
+  return [
+    `Avg time: ${duration}`,
+    `Success rate: ${String(rate)}% (${String(m.successCount)}/${String(m.taskCount)} tasks)`,
+    `Throughput: ${throughput} tasks/day`,
+    `(last 30 days)`,
+  ].join('\n')
 }
 
 // Icon components
@@ -92,15 +121,64 @@ export const ColumnHeader = memo(function ColumnHeader({
   scriptTrigger,
   isBacklog,
   batchQueue,
+  metrics,
   onConfigure,
   onDelete,
   onAddTask,
+  onRenameSubmit,
   onRunAll,
   onCancelQueue,
 }: ColumnHeaderProps) {
   const [showMenu, setShowMenu] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
+  const renameInputRef = useRef<HTMLInputElement>(null)
+  // Prevents blur from submitting after Enter or Escape already resolved the rename
+  const renameResolvedRef = useRef<boolean>(false)
+
+  useEffect(() => {
+    if (isRenaming) {
+      renameResolvedRef.current = false
+      renameInputRef.current?.focus()
+      renameInputRef.current?.select()
+    }
+  }, [isRenaming])
+
+  const handleNameDoubleClick = () => {
+    setRenameValue(name)
+    setIsRenaming(true)
+  }
+
+  const submitRename = () => {
+    if (renameResolvedRef.current) return
+    renameResolvedRef.current = true
+    const trimmed = renameValue.trim()
+    if (trimmed && trimmed !== name) {
+      onRenameSubmit(trimmed)
+    }
+    setIsRenaming(false)
+  }
+
+  const cancelRename = () => {
+    if (renameResolvedRef.current) return
+    renameResolvedRef.current = true
+    setIsRenaming(false)
+  }
+
+  const handleRenameChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setRenameValue(e.target.value)
+  }
+
+  const handleRenameKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { e.preventDefault(); submitRename() }
+    if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
+  }
+
+  const stopInputPropagation = (e: ReactMouseEvent) => {
+    e.stopPropagation()
+  }
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -132,9 +210,26 @@ export const ColumnHeader = memo(function ColumnHeader({
         >
           {getIcon(icon)}
         </span>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary truncate">
-          {name}
-        </h3>
+        {isRenaming ? (
+          <input
+            ref={renameInputRef}
+            type="text"
+            value={renameValue}
+            onChange={handleRenameChange}
+            onBlur={submitRename}
+            onKeyDown={handleRenameKeyDown}
+            onMouseDown={stopInputPropagation}
+            onClick={stopInputPropagation}
+            className="min-w-0 flex-1 bg-transparent text-xs font-semibold uppercase tracking-wider text-text-primary outline-none border-b border-accent pb-px"
+          />
+        ) : (
+          <h3
+            className="min-w-0 flex-1 text-xs font-semibold uppercase tracking-wider text-text-secondary truncate cursor-default select-none"
+            onDoubleClick={handleNameDoubleClick}
+          >
+            {name}
+          </h3>
+        )}
         <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
           {taskCount}
         </span>
@@ -248,6 +343,29 @@ export const ColumnHeader = memo(function ColumnHeader({
           </div>
         </div>
       </div>
+
+      {/* Per-column metrics row */}
+      {metrics && metrics.taskCount > 0 && (
+        <Tooltip
+          content={buildMetricsTooltip(metrics)}
+          side="bottom"
+          wrap
+        >
+          <div className="flex items-center gap-2 px-3 pb-1.5">
+            <span className="text-[10px] text-text-secondary/60 tabular-nums">
+              ⏱ {formatDuration(metrics.avgDurationSeconds)}
+            </span>
+            <span className="text-[10px] text-text-secondary/40">·</span>
+            <span className="text-[10px] text-text-secondary/60 tabular-nums">
+              ✓ {successRatePct(metrics)}%
+            </span>
+            <span className="text-[10px] text-text-secondary/40">·</span>
+            <span className="text-[10px] text-text-secondary/60 tabular-nums">
+              {metrics.throughputPerDay.toFixed(1)}/d
+            </span>
+          </div>
+        </Tooltip>
+      )}
 
       {/* Run All confirmation dialog */}
       {showConfirm && (

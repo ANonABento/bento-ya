@@ -121,6 +121,8 @@ let mockTasks: Task[] = [
     prLastFetched: null,
     prHeadSha: null,
     checklist: null,
+    estimatedHours: null,
+    actualHours: 0,
     notifyStakeholders: null,
     notificationSentAt: null,
     triggerOverrides: null,
@@ -296,6 +298,8 @@ const mockCommands: Record<string, CommandHandler> = {
       prLastFetched: null,
       prHeadSha: null,
       checklist: null,
+      estimatedHours: null,
+      actualHours: 0,
       notifyStakeholders: null,
       notificationSentAt: null,
       triggerOverrides: null,
@@ -326,6 +330,10 @@ const mockCommands: Record<string, CommandHandler> = {
       existing.pipelineTriggeredAt =
         (args?.pipelineTriggeredAt as string | null) ?? existing.pipelineTriggeredAt
       existing.pipelineError = (args?.pipelineError as string | null) ?? existing.pipelineError
+      if (Object.prototype.hasOwnProperty.call(args ?? {}, 'estimatedHours')) {
+        existing.estimatedHours = args?.estimatedHours as number | null
+      }
+      existing.actualHours = (args?.actualHours as number) ?? existing.actualHours
       existing.position = (args?.position as number) ?? existing.position
       existing.updatedAt = new Date().toISOString()
       return existing
@@ -524,6 +532,7 @@ const mockCommands: Record<string, CommandHandler> = {
     totalCostUsd: 0,
     recordCount: 0,
   }),
+  get_workspace_model_usage_between: () => [],
   get_task_usage_summary: () => ({
     totalInputTokens: 0,
     totalOutputTokens: 0,
@@ -823,6 +832,8 @@ export function resetMockData() {
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'abc123',
       checklist: null,
+      estimatedHours: 2,
+      actualHours: 1.25,
       notifyStakeholders: null,
       notificationSentAt: null,
       triggerOverrides: null,
@@ -868,6 +879,8 @@ export function resetMockData() {
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'def456',
       checklist: null,
+      estimatedHours: 1,
+      actualHours: 2.5,
       notifyStakeholders: null,
       notificationSentAt: null,
       triggerOverrides: null,
@@ -913,6 +926,8 @@ export function resetMockData() {
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'ghi789',
       checklist: null,
+      estimatedHours: null,
+      actualHours: 0,
       notifyStakeholders: null,
       notificationSentAt: null,
       triggerOverrides: null,

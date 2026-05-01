@@ -1,3 +1,7 @@
+export function shortModelName(model: string): string {
+  return model.split('/').pop() ?? model
+}
+
 export function formatUsageCost(usd: number): string {
   if (usd < 0.01) return '<$0.01'
   return `$${usd.toFixed(2)}`

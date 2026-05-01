@@ -101,7 +101,7 @@ pub fn get_pipeline_timing(
     rows.collect()
 }
 
-/// Get average timing per column for a workspace.
+/// Get average timing per column for a workspace, filtered to the last 30 days.
 pub fn get_average_pipeline_timing(
     conn: &Connection,
     workspace_id: &str,
@@ -111,10 +111,13 @@ pub fn get_average_pipeline_timing(
                 COALESCE(AVG(pt.duration_seconds), 0) as avg_duration,
                 COUNT(*) as task_count,
                 SUM(CASE WHEN pt.success = 1 THEN 1 ELSE 0 END) as success_count,
-                SUM(CASE WHEN pt.success = 0 THEN 1 ELSE 0 END) as failure_count
+                SUM(CASE WHEN pt.success = 0 THEN 1 ELSE 0 END) as failure_count,
+                CAST(COUNT(*) AS REAL) / 30.0 as throughput_per_day
          FROM pipeline_timing pt
          JOIN tasks t ON pt.task_id = t.id
-         WHERE t.workspace_id = ?1 AND pt.duration_seconds IS NOT NULL
+         WHERE t.workspace_id = ?1
+           AND pt.duration_seconds IS NOT NULL
+           AND pt.exited_at >= datetime('now', '-30 days')
          GROUP BY pt.column_id, pt.column_name
          ORDER BY pt.column_name ASC",
     )?;
@@ -126,6 +129,7 @@ pub fn get_average_pipeline_timing(
             task_count: row.get(3)?,
             success_count: row.get(4)?,
             failure_count: row.get(5)?,
+            throughput_per_day: row.get(6)?,
         })
     })?;
     rows.collect()

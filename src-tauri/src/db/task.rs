@@ -3,8 +3,8 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use super::models::Task;
 use super::{new_id, now};
 
-/// Shared SELECT columns for tasks (49 fields).
-const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked";
+/// Shared SELECT columns for tasks (51 fields).
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, estimated_hours, COALESCE((SELECT ROUND(SUM(MAX((julianday(agent_sessions.updated_at) - julianday(agent_sessions.created_at)) * 24.0, 0.0)), 4) FROM agent_sessions WHERE agent_sessions.task_id = tasks.id), actual_hours, 0.0) AS actual_hours, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked";
 
 /// Generate a sortable task batch identifier for staging PR workflows.
 pub fn generate_batch_id() -> String {
@@ -22,51 +22,53 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         position: row.get(5)?,
         priority: row.get(6)?,
         agent_mode: row.get(7)?,
-        agent_status: row.get(40)?,
-        queued_at: row.get(41)?,
+        agent_status: row.get(42)?,
+        queued_at: row.get(43)?,
         branch_name: row.get(8)?,
-        batch_id: row.get(45)?,
+        batch_id: row.get(47)?,
         files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
         checklist: row.get(10)?,
+        estimated_hours: row.get(11)?,
+        actual_hours: row.get::<_, Option<f64>>(12)?.unwrap_or(0.0),
         pipeline_state: row
-            .get::<_, Option<String>>(11)?
+            .get::<_, Option<String>>(13)?
             .unwrap_or_else(|| "idle".to_string()),
-        pipeline_triggered_at: row.get(12)?,
-        pipeline_error: row.get(13)?,
-        retry_count: row.get::<_, Option<i64>>(42)?.unwrap_or(0),
-        model: row.get(43)?,
-        agent_session_id: row.get(14)?,
-        last_script_exit_code: row.get(15)?,
-        review_status: row.get(16)?,
-        pr_number: row.get(17)?,
-        pr_url: row.get(18)?,
-        siege_iteration: row.get::<_, Option<i64>>(19)?.unwrap_or(0),
-        siege_active: row.get::<_, Option<i64>>(20)?.unwrap_or(0) != 0,
-        siege_max_iterations: row.get::<_, Option<i64>>(21)?.unwrap_or(5),
-        siege_last_checked: row.get(22)?,
-        pr_mergeable: row.get(23)?,
-        pr_ci_status: row.get(24)?,
-        pr_review_decision: row.get(25)?,
-        pr_comment_count: row.get::<_, Option<i64>>(26)?.unwrap_or(0),
-        pr_is_draft: row.get::<_, Option<i64>>(27)?.unwrap_or(0) != 0,
+        pipeline_triggered_at: row.get(14)?,
+        pipeline_error: row.get(15)?,
+        retry_count: row.get::<_, Option<i64>>(44)?.unwrap_or(0),
+        model: row.get(45)?,
+        agent_session_id: row.get(16)?,
+        last_script_exit_code: row.get(17)?,
+        review_status: row.get(18)?,
+        pr_number: row.get(19)?,
+        pr_url: row.get(20)?,
+        siege_iteration: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
+        siege_active: row.get::<_, Option<i64>>(22)?.unwrap_or(0) != 0,
+        siege_max_iterations: row.get::<_, Option<i64>>(23)?.unwrap_or(5),
+        siege_last_checked: row.get(24)?,
+        pr_mergeable: row.get(25)?,
+        pr_ci_status: row.get(26)?,
+        pr_review_decision: row.get(27)?,
+        pr_comment_count: row.get::<_, Option<i64>>(28)?.unwrap_or(0),
+        pr_is_draft: row.get::<_, Option<i64>>(29)?.unwrap_or(0) != 0,
         pr_labels: row
-            .get::<_, Option<String>>(28)?
+            .get::<_, Option<String>>(30)?
             .unwrap_or_else(|| "[]".to_string()),
-        pr_last_fetched: row.get(29)?,
-        pr_head_sha: row.get(30)?,
-        notify_stakeholders: row.get(31)?,
-        notification_sent_at: row.get(32)?,
-        trigger_overrides: row.get(33)?,
-        trigger_prompt: row.get(34)?,
-        last_output: row.get(35)?,
-        dependencies: row.get(36)?,
-        blocked: row.get::<_, Option<i64>>(37)?.unwrap_or(0) != 0,
-        worktree_path: row.get(44)?,
-        github_issue_number: row.get(46)?,
-        github_issue_commented: row.get::<_, Option<i64>>(47)?.unwrap_or(0) != 0,
-        github_issue_pr_linked: row.get::<_, Option<i64>>(48)?.unwrap_or(0) != 0,
-        created_at: row.get(38)?,
-        updated_at: row.get(39)?,
+        pr_last_fetched: row.get(31)?,
+        pr_head_sha: row.get(32)?,
+        notify_stakeholders: row.get(33)?,
+        notification_sent_at: row.get(34)?,
+        trigger_overrides: row.get(35)?,
+        trigger_prompt: row.get(36)?,
+        last_output: row.get(37)?,
+        dependencies: row.get(38)?,
+        blocked: row.get::<_, Option<i64>>(39)?.unwrap_or(0) != 0,
+        worktree_path: row.get(46)?,
+        github_issue_number: row.get(48)?,
+        github_issue_commented: row.get::<_, Option<i64>>(49)?.unwrap_or(0) != 0,
+        github_issue_pr_linked: row.get::<_, Option<i64>>(50)?.unwrap_or(0) != 0,
+        created_at: row.get(40)?,
+        updated_at: row.get(41)?,
     })
 }
 
@@ -92,6 +94,130 @@ pub fn insert_task(
         params![id, workspace_id, column_id, title, description, max_pos + 1, ts, ts],
     )?;
     get_task(conn, &id)
+}
+
+/// Duplicate a task immediately after the source task in the same column.
+pub fn duplicate_task(conn: &Connection, id: &str) -> SqlResult<Task> {
+    let source_task = get_task(conn, id)?;
+    let new_id = new_id();
+    let ts = now();
+    let new_title = format!("{} (copy)", source_task.title);
+    let duplicate_position = source_task.position + 1;
+
+    let tx = conn.unchecked_transaction()?;
+
+    tx.execute(
+        "UPDATE tasks SET position = position + 1, updated_at = ?3 WHERE column_id = ?1 AND position >= ?2",
+        params![source_task.column_id, duplicate_position, ts],
+    )?;
+
+    tx.execute(
+        "INSERT INTO tasks (
+            id,
+            workspace_id,
+            column_id,
+            title,
+            description,
+            position,
+            priority,
+            agent_mode,
+            branch_name,
+            files_touched,
+            checklist,
+            pipeline_state,
+            pipeline_triggered_at,
+            pipeline_error,
+            agent_session_id,
+            last_script_exit_code,
+            review_status,
+            pr_number,
+            pr_url,
+            siege_iteration,
+            siege_active,
+            siege_max_iterations,
+            siege_last_checked,
+            pr_mergeable,
+            pr_ci_status,
+            pr_review_decision,
+            pr_comment_count,
+            pr_is_draft,
+            pr_labels,
+            pr_last_fetched,
+            pr_head_sha,
+            notify_stakeholders,
+            notification_sent_at,
+            trigger_overrides,
+            trigger_prompt,
+            last_output,
+            dependencies,
+            blocked,
+            created_at,
+            updated_at,
+            agent_status,
+            queued_at,
+            retry_count,
+            model,
+            worktree_path,
+            batch_id,
+            github_issue_number,
+            github_issue_commented,
+            github_issue_pr_linked
+        ) SELECT
+            ?1,
+            workspace_id,
+            column_id,
+            ?2,
+            description,
+            ?3,
+            priority,
+            agent_mode,
+            NULL,
+            '[]',
+            checklist,
+            'idle',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            0,
+            0,
+            siege_max_iterations,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            0,
+            0,
+            '[]',
+            NULL,
+            NULL,
+            notify_stakeholders,
+            NULL,
+            trigger_overrides,
+            trigger_prompt,
+            NULL,
+            dependencies,
+            blocked,
+            ?4,
+            ?4,
+            NULL,
+            NULL,
+            0,
+            model,
+            NULL,
+            NULL,
+            NULL,
+            0,
+            0
+        FROM tasks WHERE id = ?5",
+        params![new_id, new_title, duplicate_position, ts, source_task.id],
+    )?;
+
+    tx.commit()?;
+    get_task(conn, &new_id)
 }
 
 /// Move a task to the end of a column, resetting its pipeline state to idle.
@@ -161,6 +287,19 @@ pub fn update_task(
             ts,
             id,
         ],
+    )?;
+    get_task(conn, id)
+}
+
+pub fn update_task_time_tracking(
+    conn: &Connection,
+    id: &str,
+    estimated_hours: Option<f64>,
+) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET estimated_hours = ?1, updated_at = ?2 WHERE id = ?3",
+        params![estimated_hours, ts, id],
     )?;
     get_task(conn, id)
 }
@@ -464,4 +603,76 @@ pub fn clear_task_notification_sent(conn: &Connection, id: &str) -> SqlResult<Ta
         params![ts, id],
     )?;
     get_task(conn, id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+
+    #[test]
+    fn duplicate_task_copies_metadata_after_source_without_agent_session() {
+        let conn = db::init_test().unwrap();
+        let workspace = db::insert_workspace(&conn, "Test", "/tmp/test").unwrap();
+        let column = db::insert_column(&conn, &workspace.id, "Backlog", 0).unwrap();
+        let source = insert_task(
+            &conn,
+            &workspace.id,
+            &column.id,
+            "Original",
+            Some("details"),
+        )
+        .unwrap();
+        let after = insert_task(&conn, &workspace.id, &column.id, "After", None).unwrap();
+        let session = db::insert_agent_session(&conn, &source.id, "codex", Some("/tmp")).unwrap();
+
+        db::update_task_agent_session(&conn, &source.id, Some(&session.id)).unwrap();
+        conn.execute(
+            "UPDATE tasks SET pr_labels = ?1, checklist = ?2, trigger_overrides = ?3, trigger_prompt = ?4, dependencies = ?5, blocked = 1, branch_name = ?6, files_touched = ?7, batch_id = ?8 WHERE id = ?9",
+            params![
+                r#"["bug","ui"]"#,
+                r#"[{"id":"one","text":"Check","checked":false}]"#,
+                r#"{"skip_triggers":true}"#,
+                "custom prompt",
+                r#"[{"taskId":"dep"}]"#,
+                "bentoya/source-branch",
+                r#"["src/main.rs"]"#,
+                "batch-source",
+                source.id,
+            ],
+        )
+        .unwrap();
+
+        let duplicated = duplicate_task(&conn, &source.id).unwrap();
+        let shifted = get_task(&conn, &after.id).unwrap();
+
+        assert_ne!(duplicated.id, source.id);
+        assert_eq!(duplicated.title, "Original (copy)");
+        assert_eq!(duplicated.description.as_deref(), Some("details"));
+        assert_eq!(duplicated.workspace_id, workspace.id);
+        assert_eq!(duplicated.column_id, column.id);
+        assert_eq!(duplicated.position, source.position + 1);
+        assert_eq!(shifted.position, source.position + 2);
+        assert_eq!(duplicated.pr_labels, "[]");
+        assert_eq!(
+            duplicated.checklist.as_deref(),
+            Some(r#"[{"id":"one","text":"Check","checked":false}]"#)
+        );
+        assert_eq!(
+            duplicated.trigger_overrides.as_deref(),
+            Some(r#"{"skip_triggers":true}"#)
+        );
+        assert_eq!(duplicated.trigger_prompt.as_deref(), Some("custom prompt"));
+        assert_eq!(
+            duplicated.dependencies.as_deref(),
+            Some(r#"[{"taskId":"dep"}]"#)
+        );
+        assert!(duplicated.blocked);
+        assert!(duplicated.agent_session_id.is_none());
+        assert!(duplicated.branch_name.is_none());
+        assert_eq!(duplicated.files_touched, "[]");
+        assert!(duplicated.batch_id.is_none());
+        assert_eq!(duplicated.pipeline_state, "idle");
+        assert!(duplicated.worktree_path.is_none());
+    }
 }

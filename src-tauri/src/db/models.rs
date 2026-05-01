@@ -64,6 +64,8 @@ pub struct Task {
     pub batch_id: Option<String>,
     pub files_touched: String,
     pub checklist: Option<String>,
+    pub estimated_hours: Option<f64>,
+    pub actual_hours: f64,
     pub pipeline_state: String,
     pub pipeline_triggered_at: Option<String>,
     pub pipeline_error: Option<String>,
@@ -278,6 +280,7 @@ pub struct ColumnTimingAverage {
     pub task_count: i64,
     pub success_count: i64,
     pub failure_count: i64,
+    pub throughput_per_day: f64,
 }
 
 // ─── Usage Tracking Entities ────────────────────────────────────────────────
@@ -307,6 +310,18 @@ pub struct UsageSummary {
     pub total_input_tokens: i64,
     pub total_output_tokens: i64,
     pub total_cost_usd: f64,
+    pub record_count: i64,
+}
+
+/// Usage aggregated by provider/model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelUsageSummary {
+    pub provider: String,
+    pub model: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cost_usd: f64,
     pub record_count: i64,
 }
 

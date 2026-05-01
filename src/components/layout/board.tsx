@@ -13,6 +13,7 @@ import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useScriptStore } from '@/stores/script-store'
+import { useColumnMetricsStore } from '@/stores/column-metrics-store'
 import { Column } from '@/components/kanban/column'
 import { DragOverlayContent } from '@/components/kanban/drag-overlay'
 import { DependencyLines } from '@/components/kanban/dependency-lines'
@@ -26,6 +27,7 @@ import { useUIStore } from '@/stores/ui-store'
 import { CardPositionContext, useCardPositionProvider } from '@/hooks/use-card-positions'
 import { DepDragContext } from '@/hooks/use-dep-drag-context'
 import { BulkTaskToolbar } from '@/components/kanban/bulk-task-toolbar'
+import { UsageBudgetBanner } from '@/components/usage/usage-budget-banner'
 
 export function Board() {
   const panelDock = useUIStore((s) => s.panelDock)
@@ -38,6 +40,7 @@ export function Board() {
   const bulkMoveTasks = useTaskStore((s) => s.bulkMove)
   const bulkRemoveTasks = useTaskStore((s) => s.bulkRemove)
   const loadScripts = useScriptStore((s) => s.load)
+  const loadColumnMetrics = useColumnMetricsStore((s) => s.load)
 
   const [newColumnId, setNewColumnId] = useState<string | null>(null)
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set())
@@ -112,8 +115,9 @@ export function Board() {
       void loadColumns(activeWorkspaceId)
       void loadTasks(activeWorkspaceId)
       void loadScripts()
+      void loadColumnMetrics(activeWorkspaceId)
     }
-  }, [activeWorkspaceId, loadColumns, loadTasks, loadScripts])
+  }, [activeWorkspaceId, loadColumns, loadTasks, loadScripts, loadColumnMetrics])
 
   useEffect(() => {
     setSelectedTaskIds((current) => {
@@ -218,6 +222,7 @@ export function Board() {
         <div className="flex h-full" data-board-container>
           {/* Board + orchestrator panel (left side, shrinks when task panel open) */}
           <div className="flex flex-1 flex-col overflow-hidden">
+            {activeWorkspaceId && <UsageBudgetBanner workspaceId={activeWorkspaceId} />}
             <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
               <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
                 {sortedColumns.map((col) => (

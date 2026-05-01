@@ -1,6 +1,8 @@
 use rusqlite::{params, Connection, Result as SqlResult};
 
-use super::models::{ColumnCost, DailyCost, TaskCost, UsageRecord, UsageSummary};
+use super::models::{
+    ColumnCost, DailyCost, ModelUsageSummary, TaskCost, UsageRecord, UsageSummary,
+};
 use super::{new_id, now};
 
 pub const PROVIDER_ANTHROPIC: &str = "anthropic";
@@ -119,6 +121,39 @@ pub fn get_workspace_usage_summary(
     )
 }
 
+pub fn get_workspace_model_usage_between(
+    conn: &Connection,
+    workspace_id: &str,
+    start_at: &str,
+    end_at: &str,
+) -> SqlResult<Vec<ModelUsageSummary>> {
+    let mut stmt = conn.prepare(
+        "SELECT provider,
+                model,
+                COALESCE(SUM(input_tokens), 0) as input_tokens,
+                COALESCE(SUM(output_tokens), 0) as output_tokens,
+                COALESCE(SUM(cost_usd), 0.0) as cost_usd,
+                COUNT(*) as record_count
+         FROM usage_records
+         WHERE workspace_id = ?1
+           AND datetime(created_at) >= datetime(?2)
+           AND datetime(created_at) < datetime(?3)
+         GROUP BY provider, model
+         ORDER BY cost_usd DESC",
+    )?;
+    let rows = stmt.query_map(params![workspace_id, start_at, end_at], |row| {
+        Ok(ModelUsageSummary {
+            provider: row.get(0)?,
+            model: row.get(1)?,
+            input_tokens: row.get(2)?,
+            output_tokens: row.get(3)?,
+            cost_usd: row.get(4)?,
+            record_count: row.get(5)?,
+        })
+    })?;
+    rows.collect()
+}
+
 pub fn get_task_usage_summary(conn: &Connection, task_id: &str) -> SqlResult<UsageSummary> {
     conn.query_row(
         "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COALESCE(SUM(cost_usd), 0.0), COUNT(*) FROM usage_records WHERE task_id = ?1",
@@ -234,6 +269,29 @@ pub fn delete_workspace_usage(conn: &Connection, workspace_id: &str) -> SqlResul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
+
+    fn setup_usage_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE usage_records (
+                id TEXT PRIMARY KEY NOT NULL,
+                workspace_id TEXT NOT NULL,
+                task_id TEXT,
+                session_id TEXT,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                cost_usd REAL NOT NULL DEFAULT 0.0,
+                column_name TEXT,
+                duration_seconds INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+        conn
+    }
 
     #[test]
     fn test_estimate_cost_opus() {
@@ -263,5 +321,39 @@ mod tests {
     fn test_estimate_cost_zero_tokens() {
         let cost = estimate_cost("claude-opus-4-20250514", 0, 0);
         assert!((cost - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_get_workspace_model_usage_between_groups_current_window() {
+        let conn = setup_usage_conn();
+        conn.execute(
+            "INSERT INTO usage_records
+             (id, workspace_id, provider, model, input_tokens, output_tokens, cost_usd, created_at)
+             VALUES
+             ('1', 'ws-1', 'anthropic', 'sonnet', 100, 50, 0.25, '2026-05-01T00:00:00+00:00'),
+             ('2', 'ws-1', 'anthropic', 'sonnet', 200, 75, 0.50, '2026-05-01T04:00:00+00:00'),
+             ('3', 'ws-1', 'anthropic', 'opus', 1000, 500, 4.00, '2026-05-01T05:00:00+00:00'),
+             ('4', 'ws-1', 'anthropic', 'sonnet', 999, 999, 9.99, '2026-05-02T00:00:00+00:00'),
+             ('5', 'ws-2', 'anthropic', 'sonnet', 999, 999, 9.99, '2026-05-01T04:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        let summaries = get_workspace_model_usage_between(
+            &conn,
+            "ws-1",
+            "2026-05-01T00:00:00.000Z",
+            "2026-05-02T00:00:00.000Z",
+        )
+        .unwrap();
+
+        assert_eq!(summaries.len(), 2);
+        assert_eq!(summaries[0].model, "opus");
+        assert_eq!(summaries[0].cost_usd, 4.0);
+        assert_eq!(summaries[1].model, "sonnet");
+        assert_eq!(summaries[1].input_tokens, 300);
+        assert_eq!(summaries[1].output_tokens, 125);
+        assert_eq!(summaries[1].record_count, 2);
+        assert!((summaries[1].cost_usd - 0.75).abs() < 0.001);
     }
 }
