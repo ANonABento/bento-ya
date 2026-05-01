@@ -61,12 +61,30 @@ export function LabelBoardHeader({ workspaceId }: LabelBoardHeaderProps) {
     cancelEdit()
   }
 
+  const setActiveColor = (color: string) => {
+    if (editingId) {
+      setEditingColor(color)
+    } else {
+      setDraftColor(color)
+    }
+  }
+
+  const setActiveName = (value: string) => {
+    if (editingId) {
+      setEditingName(value)
+    } else {
+      setDraftName(value)
+    }
+  }
+
   return (
     <div className="flex shrink-0 items-center gap-3 border-b border-border-default bg-bg px-3 py-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
         <button
           type="button"
-          onClick={() => { setSelectedLabelId(null) }}
+          onClick={() => {
+            setSelectedLabelId(null)
+          }}
           style={{ cursor: 'pointer' }}
           className={`shrink-0 rounded border px-2 py-1 text-xs ${
             selectedLabelId === null
@@ -80,8 +98,12 @@ export function LabelBoardHeader({ workspaceId }: LabelBoardHeaderProps) {
           <button
             key={label.id}
             type="button"
-            onClick={() => { setSelectedLabelId(selectedLabelId === label.id ? null : label.id) }}
-            onDoubleClick={() => { startEdit(label) }}
+            onClick={() => {
+              setSelectedLabelId(selectedLabelId === label.id ? null : label.id)
+            }}
+            onDoubleClick={() => {
+              startEdit(label)
+            }}
             style={{ cursor: 'pointer' }}
             className={`inline-flex shrink-0 items-center gap-1.5 rounded border px-2 py-1 text-xs ${
               selectedLabelId === label.id
@@ -101,17 +123,23 @@ export function LabelBoardHeader({ workspaceId }: LabelBoardHeaderProps) {
           <button
             key={color}
             type="button"
-            onClick={() => { editingId ? setEditingColor(color) : setDraftColor(color) }}
+            onClick={() => {
+              setActiveColor(color)
+            }}
             style={{ cursor: 'pointer', backgroundColor: color }}
             className={`h-5 w-5 rounded-full border ${
-              (editingId ? editingColor : draftColor) === color ? 'border-text-primary' : 'border-transparent'
+              (editingId ? editingColor : draftColor) === color
+                ? 'border-text-primary'
+                : 'border-transparent'
             }`}
             aria-label={`Use label color ${color}`}
           />
         ))}
         <input
           value={editingId ? editingName : draftName}
-          onChange={(e) => { editingId ? setEditingName(e.target.value) : setDraftName(e.target.value) }}
+          onChange={(e) => {
+            setActiveName(e.target.value)
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') void (editingId ? handleSave() : handleCreate())
             if (e.key === 'Escape' && editingId) cancelEdit()
@@ -121,7 +149,9 @@ export function LabelBoardHeader({ workspaceId }: LabelBoardHeaderProps) {
         />
         <button
           type="button"
-          onClick={() => { void (editingId ? handleSave() : handleCreate()) }}
+          onClick={() => {
+            void (editingId ? handleSave() : handleCreate())
+          }}
           disabled={!(editingId ? editingName : draftName).trim()}
           style={{ cursor: (editingId ? editingName : draftName).trim() ? 'pointer' : 'default' }}
           className="h-7 rounded bg-accent px-2 text-xs font-medium text-bg disabled:opacity-50"
@@ -140,7 +170,9 @@ export function LabelBoardHeader({ workspaceId }: LabelBoardHeaderProps) {
             </button>
             <button
               type="button"
-              onClick={() => { void handleDelete() }}
+              onClick={() => {
+                void handleDelete()
+              }}
               style={{ cursor: 'pointer' }}
               className="h-7 rounded bg-error px-2 text-xs font-medium text-white"
             >

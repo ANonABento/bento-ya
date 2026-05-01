@@ -342,12 +342,12 @@ mod tests {
         let docs = create_label(&conn, &ws_a.id, "Docs", "#3b82f6").unwrap();
         let label_b = create_label(&conn, &ws_b.id, "Other", "#10b981").unwrap();
 
-        assert!(set_task_labels(&conn, &task_a.id, &[label_b.id.clone()]).is_err());
+        assert!(set_task_labels(&conn, &task_a.id, std::slice::from_ref(&label_b.id)).is_err());
         assert!(list_label_ids_for_task(&conn, &task_a.id)
             .unwrap()
             .is_empty());
 
-        let assigned = set_task_labels(&conn, &task_a.id, &[docs.id.clone()]).unwrap();
+        let assigned = set_task_labels(&conn, &task_a.id, std::slice::from_ref(&docs.id)).unwrap();
         assert_eq!(assigned, vec![docs.id.clone()]);
         assert!(set_task_labels(&conn, &task_a.id, &[docs.id.clone(), label_b.id]).is_err());
         assert_eq!(

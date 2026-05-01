@@ -17,9 +17,15 @@ type LabelState = {
   getTaskLabels: (taskId: string) => Label[]
 }
 
+const sortLabelsByName = (labels: Label[]) =>
+  [...labels].sort((a, b) => a.name.localeCompare(b.name))
+
+const uniqueIds = (ids: string[]) => [...new Set(ids)]
+
 function groupAssignments(assignments: { taskId: string; labelId: string }[]) {
-  return assignments.reduce<Record<string, string[]>>((acc, assignment) => {
-    acc[assignment.taskId] = [...(acc[assignment.taskId] ?? []), assignment.labelId]
+  return assignments.reduce<Record<string, string[]>>((acc, { taskId, labelId }) => {
+    acc[taskId] ??= []
+    acc[taskId].push(labelId)
     return acc
   }, {})
 }
@@ -49,16 +55,14 @@ export const useLabelStore = create<LabelState>()(
 
       create: async (workspaceId, name, color) => {
         const label = await ipc.createLabel(workspaceId, name, color)
-        set((s) => ({ labels: [...s.labels, label].sort((a, b) => a.name.localeCompare(b.name)) }))
+        set((s) => ({ labels: sortLabelsByName([...s.labels, label]) }))
         return label
       },
 
       update: async (id, updates) => {
         const label = await ipc.updateLabel(id, updates)
         set((s) => ({
-          labels: s.labels
-            .map((item) => (item.id === id ? label : item))
-            .sort((a, b) => a.name.localeCompare(b.name)),
+          labels: sortLabelsByName(s.labels.map((item) => (item.id === id ? label : item))),
         }))
         return label
       },
@@ -82,7 +86,7 @@ export const useLabelStore = create<LabelState>()(
 
       setTaskLabels: async (taskId, labelIds) => {
         const previousIds = get().taskLabels[taskId] ?? []
-        const optimisticIds = [...new Set(labelIds)]
+        const optimisticIds = uniqueIds(labelIds)
         set((s) => ({ taskLabels: { ...s.taskLabels, [taskId]: optimisticIds } }))
         try {
           const nextIds = await ipc.setTaskLabels(taskId, optimisticIds)

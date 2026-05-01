@@ -114,12 +114,12 @@ pub fn set_task_labels(
     }
 
     for label_id in &unique_label_ids {
-        let count: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM labels WHERE id = ?1 AND workspace_id = ?2",
-            params![label_id, workspace_id],
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM labels WHERE id = ?1 AND workspace_id = ?2)",
+            params![label_id, &workspace_id],
             |row| row.get(0),
         )?;
-        if count == 0 {
+        if !exists {
             return Err(rusqlite::Error::QueryReturnedNoRows);
         }
     }
