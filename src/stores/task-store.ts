@@ -23,38 +23,28 @@ type TaskState = {
 
 export const useTaskStore = create<TaskState>()(
   devtools(
-    (set, get) => ({
-      tasks: [],
-      loaded: false,
-
-      load: async (workspaceId) => {
-        const tasks = await ipc.getTasks(workspaceId)
-        set({ tasks, loaded: true })
-      },
-
-      add: async (workspaceId, columnId, title, description) => {
-        const task = await ipc.createTask(workspaceId, columnId, title, description)
-        set((s) => ({ tasks: [...s.tasks, task] }))
-        await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
-        return task
-      },
-
-      archive: async (id) => {
+    (set, get) => {
+      const setArchivedState = async (id: string, archived: boolean) => {
         const prev = get().tasks
         const task = prev.find((t) => t.id === id)
         const workspaceId = task?.workspaceId
+        const optimisticArchivedAt = archived ? new Date().toISOString() : null
+        const persist = archived ? ipc.archiveTask : ipc.unarchiveTask
+
         set((s) => ({
-          tasks: s.tasks.map((t) =>
-            t.id === id ? { ...t, archivedAt: new Date().toISOString() } : t,
-          ),
+          tasks: s.tasks.map((t) => (t.id === id ? { ...t, archivedAt: optimisticArchivedAt } : t)),
         }))
-        const ui = useUIStore.getState()
-        if (ui.expandedTaskId === id) ui.collapseTask()
-        if (ui.activeTaskId === id) ui.closeChat()
+
+        if (archived) {
+          const ui = useUIStore.getState()
+          if (ui.expandedTaskId === id) ui.collapseTask()
+          if (ui.activeTaskId === id) ui.closeChat()
+        }
+
         try {
-          const archived = await ipc.archiveTask(id)
+          const persistedTask = await persist(id)
           set((s) => ({
-            tasks: s.tasks.map((t) => (t.id === id ? archived : t)),
+            tasks: s.tasks.map((t) => (t.id === id ? persistedTask : t)),
           }))
           if (workspaceId) {
             await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
@@ -62,108 +52,110 @@ export const useTaskStore = create<TaskState>()(
         } catch {
           set({ tasks: prev })
         }
-      },
+      }
 
-      unarchive: async (id) => {
-        const prev = get().tasks
-        const workspaceId = prev.find((t) => t.id === id)?.workspaceId
-        set((s) => ({
-          tasks: s.tasks.map((t) => (t.id === id ? { ...t, archivedAt: null } : t)),
-        }))
-        try {
-          const unarchived = await ipc.unarchiveTask(id)
+      return {
+        tasks: [],
+        loaded: false,
+
+        load: async (workspaceId) => {
+          const tasks = await ipc.getTasks(workspaceId)
+          set({ tasks, loaded: true })
+        },
+
+        add: async (workspaceId, columnId, title, description) => {
+          const task = await ipc.createTask(workspaceId, columnId, title, description)
+          set((s) => ({ tasks: [...s.tasks, task] }))
+          await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+          return task
+        },
+
+        archive: (id) => setArchivedState(id, true),
+
+        unarchive: (id) => setArchivedState(id, false),
+
+        remove: async (id) => {
+          const prev = get().tasks
+          const workspaceId = prev.find((t) => t.id === id)?.workspaceId
+          set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }))
+          // Clear stale UI references to deleted task
+          const ui = useUIStore.getState()
+          if (ui.expandedTaskId === id) ui.collapseTask()
+          if (ui.activeTaskId === id) ui.closeChat()
+          try {
+            await ipc.deleteTask(id)
+            if (workspaceId) {
+              await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+            }
+          } catch {
+            set({ tasks: prev })
+          }
+        },
+
+        move: async (id, targetColumnId, position) => {
+          const prev = get().tasks
+          const workspaceId = prev.find((t) => t.id === id)?.workspaceId
           set((s) => ({
-            tasks: s.tasks.map((t) => (t.id === id ? unarchived : t)),
+            tasks: s.tasks.map((t) =>
+              t.id === id ? { ...t, columnId: targetColumnId, position } : t,
+            ),
           }))
-          if (workspaceId) {
-            await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+          try {
+            await ipc.moveTask(id, targetColumnId, position)
+            if (workspaceId) {
+              await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+            }
+          } catch {
+            set({ tasks: prev })
           }
-        } catch {
-          set({ tasks: prev })
-        }
-      },
+        },
 
-      remove: async (id) => {
-        const prev = get().tasks
-        const workspaceId = prev.find((t) => t.id === id)?.workspaceId
-        set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }))
-        // Clear stale UI references to deleted task
-        const ui = useUIStore.getState()
-        if (ui.expandedTaskId === id) ui.collapseTask()
-        if (ui.activeTaskId === id) ui.closeChat()
-        try {
-          await ipc.deleteTask(id)
-          if (workspaceId) {
-            await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+        reorder: async (columnId, ids) => {
+          const prev = get().tasks
+          set((s) => ({
+            tasks: s.tasks.map((t) => {
+              if (t.columnId !== columnId) return t
+              const idx = ids.indexOf(t.id)
+              return idx >= 0 ? { ...t, position: idx } : t
+            }),
+          }))
+          try {
+            await ipc.reorderTasks(columnId, ids)
+          } catch {
+            set({ tasks: prev })
           }
-        } catch {
-          set({ tasks: prev })
-        }
-      },
+        },
 
-      move: async (id, targetColumnId, position) => {
-        const prev = get().tasks
-        const workspaceId = prev.find((t) => t.id === id)?.workspaceId
-        set((s) => ({
-          tasks: s.tasks.map((t) =>
-            t.id === id ? { ...t, columnId: targetColumnId, position } : t,
-          ),
-        }))
-        try {
-          await ipc.moveTask(id, targetColumnId, position)
-          if (workspaceId) {
-            await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
-          }
-        } catch {
-          set({ tasks: prev })
-        }
-      },
+        updateTask: (id, updates) => {
+          set((s) => ({
+            tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...updates } : t)),
+          }))
+        },
 
-      reorder: async (columnId, ids) => {
-        const prev = get().tasks
-        set((s) => ({
-          tasks: s.tasks.map((t) => {
-            if (t.columnId !== columnId) return t
-            const idx = ids.indexOf(t.id)
-            return idx >= 0 ? { ...t, position: idx } : t
-          }),
-        }))
-        try {
-          await ipc.reorderTasks(columnId, ids)
-        } catch {
-          set({ tasks: prev })
-        }
-      },
+        getByColumn: (columnId) => {
+          return get()
+            .tasks.filter((t) => t.columnId === columnId)
+            .sort((a, b) => a.position - b.position)
+        },
 
-      updateTask: (id, updates) => {
-        set((s) => ({
-          tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...updates } : t)),
-        }))
-      },
-
-      getByColumn: (columnId) => {
-        return get()
-          .tasks.filter((t) => t.columnId === columnId)
-          .sort((a, b) => a.position - b.position)
-      },
-
-      duplicate: async (id) => {
-        const original = get().tasks.find((t) => t.id === id)
-        if (!original) return null
-        const newTitle = original.title.endsWith(' (Copy)')
-          ? original.title
-          : `${original.title} (Copy)`
-        const task = await ipc.createTask(
-          original.workspaceId,
-          original.columnId,
-          newTitle,
-          original.description,
-        )
-        set((s) => ({ tasks: [...s.tasks, task] }))
-        await useWorkspaceStore.getState().refreshWorkspace(original.workspaceId)
-        return task
-      },
-    }),
+        duplicate: async (id) => {
+          const original = get().tasks.find((t) => t.id === id)
+          if (!original) return null
+          const newTitle = original.title.endsWith(' (Copy)')
+            ? original.title
+            : `${original.title} (Copy)`
+          const task = await ipc.createTask(
+            original.workspaceId,
+            original.columnId,
+            newTitle,
+            original.description,
+          )
+          set((s) => ({ tasks: [...s.tasks, task] }))
+          await useWorkspaceStore.getState().refreshWorkspace(original.workspaceId)
+          return task
+        },
+      }
+    },
     { name: 'task-store' },
   ),
 )

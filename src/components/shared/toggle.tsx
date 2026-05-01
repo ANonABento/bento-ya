@@ -13,7 +13,13 @@ const sizes = {
   md: { track: 'h-6 w-11', thumb: 'h-5 w-5', translate: 'translate-x-5' },
 }
 
-export function Toggle({ checked, onChange, disabled = false, size = 'sm', ariaLabel }: ToggleProps) {
+export function Toggle({
+  checked,
+  onChange,
+  disabled = false,
+  size = 'sm',
+  ariaLabel,
+}: ToggleProps) {
   const s = sizes[size]
 
   return (
@@ -22,7 +28,10 @@ export function Toggle({ checked, onChange, disabled = false, size = 'sm', ariaL
       aria-checked={checked}
       aria-label={ariaLabel}
       disabled={disabled}
-      onClick={() => { onChange(!checked); }}
+      type="button"
+      onClick={() => {
+        onChange(!checked)
+      }}
       style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
       className={`relative inline-flex shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50 ${s.track} ${
         checked ? 'bg-accent' : 'bg-surface-hover'
@@ -31,6 +40,7 @@ export function Toggle({ checked, onChange, disabled = false, size = 'sm', ariaL
       <motion.span
         layout
         transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+        style={{ cursor: 'inherit' }}
         className={`inline-block rounded-full bg-white shadow-sm ${s.thumb} ${
           checked ? s.translate : 'translate-x-0.5'
         }`}
