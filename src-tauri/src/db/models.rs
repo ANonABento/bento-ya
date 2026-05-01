@@ -99,6 +99,12 @@ pub struct Task {
     pub blocked: bool,
     /// Per-task git worktree path (absolute). When set, agents use this as cwd instead of workspace.repo_path.
     pub worktree_path: Option<String>,
+    /// GitHub issue number this task was created from (for sync).
+    pub github_issue_number: Option<i64>,
+    /// Whether a "done" comment has been posted on the linked GitHub issue.
+    pub github_issue_commented: bool,
+    /// Whether the linked PR URL has been posted on the linked GitHub issue.
+    pub github_issue_pr_linked: bool,
     pub created_at: String,
     pub updated_at: String,
 }

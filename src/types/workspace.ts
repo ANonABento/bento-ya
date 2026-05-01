@@ -3,6 +3,12 @@ export type WorkspaceConfig = {
   defaultAgentCli?: string
   maxConcurrentAgents?: number
   autoAdvance?: boolean
+  githubRepo?: string
+  githubLabelFilter?: string
+  githubSyncEnabled?: boolean
+  githubInboxColumnId?: string
+  githubDoneColumnId?: string
+  githubPrColumnId?: string
 }
 
 export type Workspace = {

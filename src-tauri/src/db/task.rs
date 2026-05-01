@@ -3,8 +3,8 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use super::models::Task;
 use super::{new_id, now};
 
-/// Shared SELECT columns for tasks (46 fields).
-const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id";
+/// Shared SELECT columns for tasks (49 fields).
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked";
 
 /// Generate a sortable task batch identifier for staging PR workflows.
 pub fn generate_batch_id() -> String {
@@ -62,6 +62,9 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         dependencies: row.get(36)?,
         blocked: row.get::<_, Option<i64>>(37)?.unwrap_or(0) != 0,
         worktree_path: row.get(44)?,
+        github_issue_number: row.get(46)?,
+        github_issue_commented: row.get::<_, Option<i64>>(47)?.unwrap_or(0) != 0,
+        github_issue_pr_linked: row.get::<_, Option<i64>>(48)?.unwrap_or(0) != 0,
         created_at: row.get(38)?,
         updated_at: row.get(39)?,
     })

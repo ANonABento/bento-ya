@@ -1,5 +1,27 @@
 import { invoke } from './invoke'
 
+// ─── GitHub Issues Sync commands ──────────────────────────────────────────────
+
+export type GithubSyncResult = {
+  issuesFetched: number
+  tasksCreated: number
+  issuesCommented: number
+  prsLinked: number
+}
+
+export type GithubSyncState = {
+  workspaceId: string
+  lastSyncedAt: string | null
+}
+
+export async function syncGithubIssuesNow(workspaceId: string): Promise<GithubSyncResult> {
+  return invoke<GithubSyncResult>('sync_github_issues_now', { workspaceId })
+}
+
+export async function getGithubSyncState(workspaceId: string): Promise<GithubSyncState | null> {
+  return invoke<GithubSyncState | null>('get_github_sync_state', { workspaceId })
+}
+
 // ─── GitHub PR status commands ────────────────────────────────────────────────
 
 export type PrStatusResponse = {
