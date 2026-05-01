@@ -1,5 +1,5 @@
 import { canonicalModelUsageKey, getModelMetadata } from '@/lib/model-metadata'
-import type { UsageRecord } from '@/lib/ipc/usage'
+import type { ModelUsageSummary, UsageRecord } from '@/lib/ipc/usage'
 
 export const USAGE_BUDGET_WARNING_THRESHOLD = 0.8
 
@@ -23,11 +23,28 @@ export function todayLocalDateKey(date = new Date()): string {
   return `${year}-${month}-${day}`
 }
 
+export function localDayBounds(date = new Date()): { startAt: string; endAt: string } {
+  const start = new Date(date)
+  start.setHours(0, 0, 0, 0)
+
+  const end = new Date(start)
+  end.setDate(end.getDate() + 1)
+
+  return {
+    startAt: start.toISOString(),
+    endAt: end.toISOString(),
+  }
+}
+
 export function getModelBudgetKey(modelId: string, provider = 'unknown'): string {
   return canonicalModelUsageKey(modelId, provider)
 }
 
-export function buildUsageDismissKey(workspaceId: string, dateKey: string, warningKey: string): string {
+export function buildUsageDismissKey(
+  workspaceId: string,
+  dateKey: string,
+  warningKey: string,
+): string {
   return `usage-budget-warning-dismissed:${workspaceId}:${dateKey}:${warningKey}`
 }
 
@@ -36,23 +53,32 @@ export function findDailyUsageBudgetWarnings(
   budgetsUsd: Record<string, number> | undefined,
   date = new Date(),
 ): UsageBudgetWarning[] {
-  const enabledBudgets = Object.entries(budgetsUsd ?? {})
-    .filter(([, budget]) => Number.isFinite(budget) && budget > 0)
+  const dateKey = todayLocalDateKey(date)
+  return findUsageBudgetWarnings(
+    records.filter((record) => todayLocalDateKey(new Date(record.createdAt)) === dateKey),
+    budgetsUsd,
+  )
+}
+
+export function findUsageBudgetWarnings(
+  usage: Array<ModelUsageSummary | UsageRecord>,
+  budgetsUsd: Record<string, number> | undefined,
+): UsageBudgetWarning[] {
+  const enabledBudgets = Object.entries(budgetsUsd ?? {}).filter(
+    ([, budget]) => Number.isFinite(budget) && budget > 0,
+  )
 
   if (enabledBudgets.length === 0) return []
 
-  const dateKey = todayLocalDateKey(date)
   const budgetByKey = Object.fromEntries(enabledBudgets)
   const statsByKey = new Map<string, UsageBudgetWarning>()
 
-  for (const record of records) {
-    if (todayLocalDateKey(new Date(record.createdAt)) !== dateKey) continue
-
-    const key = getModelBudgetKey(record.model, record.provider)
+  for (const entry of usage) {
+    const key = getModelBudgetKey(entry.model, entry.provider)
     const budgetUsd = budgetByKey[key]
     if (!budgetUsd) continue
 
-    const metadata = getModelMetadata(record.model, record.provider)
+    const metadata = getModelMetadata(entry.model, entry.provider)
     const existing = statsByKey.get(key) ?? {
       key,
       provider: metadata.provider,
@@ -66,10 +92,10 @@ export function findDailyUsageBudgetWarnings(
       percentage: 0,
     }
 
-    existing.inputTokens += record.inputTokens
-    existing.outputTokens += record.outputTokens
-    existing.totalTokens += record.inputTokens + record.outputTokens
-    existing.costUsd += record.costUsd
+    existing.inputTokens += entry.inputTokens
+    existing.outputTokens += entry.outputTokens
+    existing.totalTokens += entry.inputTokens + entry.outputTokens
+    existing.costUsd += entry.costUsd
     existing.percentage = existing.costUsd / budgetUsd
     statsByKey.set(key, existing)
   }

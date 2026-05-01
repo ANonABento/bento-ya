@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
-import { getWorkspaceUsage, type UsageRecord } from '@/lib/ipc/usage'
+import { getWorkspaceModelUsageBetween, type ModelUsageSummary } from '@/lib/ipc/usage'
 import { formatUsageCost, formatUsageTokens } from '@/lib/usage-format'
 import {
   buildUsageDismissKey,
-  findDailyUsageBudgetWarnings,
+  findUsageBudgetWarnings,
+  localDayBounds,
   todayLocalDateKey,
 } from '@/lib/usage-budget'
 
@@ -18,7 +19,8 @@ export function UsageBudgetBanner({ workspaceId }: Props) {
   const budgetsUsd = useSettingsStore((s) => s.global.model.dailyBudgetsUsd ?? {})
   const openSettings = useSettingsStore((s) => s.openSettings)
   const setActiveTab = useSettingsStore((s) => s.setActiveTab)
-  const [records, setRecords] = useState<UsageRecord[]>([])
+  const [usage, setUsage] = useState<ModelUsageSummary[]>([])
+  const [dateKey, setDateKey] = useState(() => todayLocalDateKey())
   const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(() => new Set())
 
   const hasBudgets = useMemo(
@@ -27,25 +29,36 @@ export function UsageBudgetBanner({ workspaceId }: Props) {
   )
 
   useEffect(() => {
-    setRecords([])
+    setUsage([])
+    setDateKey(todayLocalDateKey())
     setDismissedKeys(new Set())
   }, [workspaceId])
 
   useEffect(() => {
     if (!hasBudgets) {
-      setRecords([])
+      setUsage([])
       return
     }
 
     let cancelled = false
 
     const loadUsage = () => {
-      void getWorkspaceUsage(workspaceId, 2000)
+      const now = new Date()
+      const nextDateKey = todayLocalDateKey(now)
+      const { startAt, endAt } = localDayBounds(now)
+
+      void getWorkspaceModelUsageBetween(workspaceId, startAt, endAt)
         .then((usageRecords) => {
-          if (!cancelled) setRecords(usageRecords)
+          if (!cancelled) {
+            setDateKey(nextDateKey)
+            setUsage(usageRecords)
+          }
         })
         .catch(() => {
-          if (!cancelled) setRecords([])
+          if (!cancelled) {
+            setDateKey(nextDateKey)
+            setUsage([])
+          }
         })
     }
 
@@ -58,9 +71,8 @@ export function UsageBudgetBanner({ workspaceId }: Props) {
     }
   }, [hasBudgets, workspaceId])
 
-  const dateKey = todayLocalDateKey()
   const warning = useMemo(() => {
-    const warnings = findDailyUsageBudgetWarnings(records, budgetsUsd)
+    const warnings = findUsageBudgetWarnings(usage, budgetsUsd)
     return warnings.find((candidate) => {
       const dismissKey = buildUsageDismissKey(workspaceId, dateKey, candidate.key)
       if (dismissedKeys.has(dismissKey)) return false
@@ -71,7 +83,7 @@ export function UsageBudgetBanner({ workspaceId }: Props) {
         return true
       }
     })
-  }, [budgetsUsd, dateKey, dismissedKeys, records, workspaceId])
+  }, [budgetsUsd, dateKey, dismissedKeys, usage, workspaceId])
 
   if (!warning) return null
 
@@ -83,8 +95,17 @@ export function UsageBudgetBanner({ workspaceId }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-red-200">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
-              <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.19-1.458-1.516-2.625L8.485 2.495ZM10 5.75a.75.75 0 0 1 .75.75v3.25a.75.75 0 0 1-1.5 0V6.5A.75.75 0 0 1 10 5.75Zm0 7.75a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="h-5 w-5"
+            >
+              <path
+                fillRule="evenodd"
+                d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.19-1.458-1.516-2.625L8.485 2.495ZM10 5.75a.75.75 0 0 1 .75.75v3.25a.75.75 0 0 1-1.5 0V6.5A.75.75 0 0 1 10 5.75Zm0 7.75a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
+                clipRule="evenodd"
+              />
             </svg>
           </div>
           <div className="min-w-0">
@@ -92,7 +113,8 @@ export function UsageBudgetBanner({ workspaceId }: Props) {
               {warning.displayName} daily budget at {String(percentage)}%
             </p>
             <p className="text-xs text-red-100/85">
-              {formatUsageCost(warning.costUsd)} of {formatUsageCost(warning.budgetUsd)} today · {formatUsageTokens(warning.totalTokens)} tokens
+              {formatUsageCost(warning.costUsd)} of {formatUsageCost(warning.budgetUsd)} today ·{' '}
+              {formatUsageTokens(warning.totalTokens)} tokens
             </p>
           </div>
         </div>
@@ -122,7 +144,12 @@ export function UsageBudgetBanner({ workspaceId }: Props) {
             aria-label="Dismiss usage budget warning"
             style={{ cursor: 'pointer' }}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="h-5 w-5"
+            >
               <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
             </svg>
           </button>
