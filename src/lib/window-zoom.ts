@@ -9,12 +9,16 @@ const ZOOM_STEP = 0.1
 
 let currentZoom = DEFAULT_ZOOM
 let initialized = false
+let zoomRevision = 0
+let applyQueue: Promise<void> = Promise.resolve()
+let persistQueue: Promise<void> = Promise.resolve()
 
 function clampZoom(value: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value))
 }
 
 function normalizeZoom(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_ZOOM
   return Number(clampZoom(value).toFixed(2))
 }
 
@@ -39,7 +43,8 @@ function readStoredZoom(): number {
 async function readPersistedZoom(): Promise<number | null> {
   try {
     const zoom = await invoke<number | null>('get_window_zoom')
-    return zoom === null ? null : normalizeZoom(zoom)
+    if (typeof zoom !== 'number' || !Number.isFinite(zoom)) return null
+    return normalizeZoom(zoom)
   } catch (error) {
     console.error('[window-zoom] Failed to read persisted zoom:', error)
     return null
@@ -54,8 +59,28 @@ async function persistZoom(zoom: number): Promise<void> {
   }
 }
 
+function queuePersistZoom(zoom: number): void {
+  const normalized = normalizeZoom(zoom)
+  persistQueue = persistQueue
+    .catch(() => undefined)
+    .then(() => persistZoom(normalized))
+}
+
+function queueWebviewZoom(zoom: number): Promise<void> {
+  const normalized = normalizeZoom(zoom)
+  applyQueue = applyQueue.catch(() => undefined).then(async () => {
+    try {
+      await getCurrentWebview().setZoom(normalized)
+    } catch (error) {
+      console.error('[window-zoom] Failed to apply zoom:', error)
+    }
+  })
+  return applyQueue
+}
+
 async function applyWindowZoom(zoom: number, persist = true): Promise<void> {
   const normalized = normalizeZoom(zoom)
+  zoomRevision += 1
   currentZoom = normalized
 
   try {
@@ -64,14 +89,10 @@ async function applyWindowZoom(zoom: number, persist = true): Promise<void> {
     console.error('[window-zoom] Failed to store zoom:', error)
   }
 
-  try {
-    await getCurrentWebview().setZoom(normalized)
-  } catch (error) {
-    console.error('[window-zoom] Failed to apply zoom:', error)
-  }
+  await queueWebviewZoom(normalized)
 
   if (persist) {
-    await persistZoom(normalized)
+    queuePersistZoom(normalized)
   }
 }
 
@@ -107,11 +128,12 @@ export function initializeWindowZoom(): void {
   const localZoom = readStoredZoom()
   currentZoom = localZoom
   void applyWindowZoom(localZoom, false)
+  const initialZoomRevision = zoomRevision
   void readPersistedZoom().then((persistedZoom) => {
-    if (currentZoom !== localZoom) return
+    if (zoomRevision !== initialZoomRevision) return
 
     if (persistedZoom === null) {
-      void persistZoom(localZoom)
+      queuePersistZoom(localZoom)
       return
     }
 

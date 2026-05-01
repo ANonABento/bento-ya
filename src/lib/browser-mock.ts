@@ -137,6 +137,7 @@ let mockTasks: Task[] = [
 ]
 
 let idCounter = 100
+let mockWindowZoom: number | null = null
 
 const generateId = (prefix: string) => `${prefix}-${String(++idCounter)}`
 
@@ -357,6 +358,12 @@ const mockCommands: Record<string, CommandHandler> = {
   // Settings
   get_settings: () => ({ theme: 'dark', defaultTemplate: 'standard' }),
   update_settings: () => undefined,
+  get_window_zoom: () => mockWindowZoom,
+  set_window_zoom: (args) => {
+    const zoom = args?.zoom as number
+    mockWindowZoom = Number.isFinite(zoom) ? zoom : 1
+    return mockWindowZoom
+  },
 
   // PR creation (stub)
   create_pr: (args) => {
@@ -929,4 +936,5 @@ export function resetMockData() {
   ]
 
   idCounter = 100
+  mockWindowZoom = null
 }

@@ -21,9 +21,9 @@ async function importWindowZoom() {
 }
 
 async function waitForAsyncZoom() {
-  await Promise.resolve()
-  await Promise.resolve()
-  await Promise.resolve()
+  for (let i = 0; i < 10; i += 1) {
+    await Promise.resolve()
+  }
 }
 
 describe('window zoom persistence', () => {
@@ -145,5 +145,45 @@ describe('window zoom persistence', () => {
     )
 
     consoleError.mockRestore()
+  })
+
+  it('ignores a delayed persisted zoom after the user changes zoom', async () => {
+    let resolvePersistedZoom: (zoom: number | null) => void = () => {}
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === 'get_window_zoom') {
+        return new Promise<number | null>((resolve) => {
+          resolvePersistedZoom = resolve
+        })
+      }
+      if (cmd === 'set_window_zoom') return Promise.resolve(undefined)
+      return Promise.reject(new Error(`Unexpected command: ${cmd}`))
+    })
+    const { initializeWindowZoom } = await importWindowZoom()
+
+    initializeWindowZoom()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '=', ctrlKey: true }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '-', ctrlKey: true }))
+    resolvePersistedZoom(1.5)
+    await waitForAsyncZoom()
+
+    expect(setZoomMock).not.toHaveBeenCalledWith(1.5)
+    expect(setZoomMock).toHaveBeenLastCalledWith(1)
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('1')
+  })
+
+  it('treats malformed persisted zoom as missing', async () => {
+    localStorage.setItem(STORAGE_KEY, '1.2')
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === 'get_window_zoom') return Promise.resolve(Number.NaN)
+      if (cmd === 'set_window_zoom') return Promise.resolve(undefined)
+      return Promise.reject(new Error(`Unexpected command: ${cmd}`))
+    })
+    const { initializeWindowZoom } = await importWindowZoom()
+
+    initializeWindowZoom()
+    await waitForAsyncZoom()
+
+    expect(setZoomMock).toHaveBeenCalledWith(1.2)
+    expect(invokeMock).toHaveBeenCalledWith('set_window_zoom', { zoom: 1.2 })
   })
 })
