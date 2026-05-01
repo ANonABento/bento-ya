@@ -131,21 +131,51 @@ pub fn get_average_pipeline_timing(
 /// Get board header metrics for every column in a workspace.
 pub fn get_column_metrics(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<ColumnMetrics>> {
     let mut stmt = conn.prepare(
-        "SELECT c.id,
+        "WITH timing_metrics AS (
+             SELECT c.id AS column_id,
+                    COALESCE(AVG(pt.duration_seconds), 0) AS avg_duration,
+                    COALESCE(SUM(CASE WHEN pt.success = 1 AND pt.retry_count = 0 THEN 1 ELSE 0 END), 0) AS success_count,
+                    COALESCE(SUM(CASE WHEN pt.retry_count > 0 THEN 1 ELSE 0 END), 0) AS retry_count,
+                    COUNT(pt.id) AS sample_count
+             FROM columns c
+             LEFT JOIN tasks t
+               ON t.workspace_id = c.workspace_id
+              AND t.column_id = c.id
+             LEFT JOIN pipeline_timing pt
+               ON pt.task_id = t.id
+              AND pt.column_id = c.id
+              AND pt.duration_seconds IS NOT NULL
+              AND datetime(pt.exited_at) >= datetime('now', '-30 days')
+             WHERE c.workspace_id = ?1
+             GROUP BY c.id
+         ),
+         session_metrics AS (
+             SELECT c.id AS column_id,
+                    COALESCE(AVG(CAST((julianday(agent_sessions.updated_at) - julianday(agent_sessions.created_at)) * 86400 AS INTEGER)), 0) AS avg_duration,
+                    COALESCE(SUM(CASE WHEN agent_sessions.exit_code = 0 AND t.retry_count = 0 THEN 1 ELSE 0 END), 0) AS success_count,
+                    COALESCE(SUM(CASE WHEN t.retry_count > 0 OR agent_sessions.exit_code != 0 THEN 1 ELSE 0 END), 0) AS retry_count,
+                    COUNT(agent_sessions.id) AS sample_count
+             FROM columns c
+             LEFT JOIN tasks t
+               ON t.workspace_id = c.workspace_id
+              AND t.column_id = c.id
+             LEFT JOIN agent_sessions
+               ON agent_sessions.task_id = t.id
+              AND agent_sessions.exit_code IS NOT NULL
+              AND datetime(agent_sessions.updated_at) >= datetime('now', '-30 days')
+             WHERE c.workspace_id = ?1
+             GROUP BY c.id
+         )
+         SELECT c.id,
                 c.name,
-                COALESCE(AVG(pt.duration_seconds), 0) AS avg_duration,
-                COALESCE(SUM(CASE WHEN pt.success = 1 AND pt.retry_count = 0 THEN 1 ELSE 0 END), 0) AS success_count,
-                COALESCE(SUM(CASE WHEN pt.retry_count > 0 THEN 1 ELSE 0 END), 0) AS retry_count,
-                COUNT(pt.id) AS sample_count
+                CASE WHEN timing_metrics.sample_count > 0 THEN timing_metrics.avg_duration ELSE session_metrics.avg_duration END AS avg_duration,
+                CASE WHEN timing_metrics.sample_count > 0 THEN timing_metrics.success_count ELSE session_metrics.success_count END AS success_count,
+                CASE WHEN timing_metrics.sample_count > 0 THEN timing_metrics.retry_count ELSE session_metrics.retry_count END AS retry_count,
+                CASE WHEN timing_metrics.sample_count > 0 THEN timing_metrics.sample_count ELSE session_metrics.sample_count END AS sample_count
          FROM columns c
-         LEFT JOIN tasks t ON t.workspace_id = c.workspace_id
-         LEFT JOIN pipeline_timing pt
-           ON pt.task_id = t.id
-          AND pt.column_id = c.id
-          AND pt.duration_seconds IS NOT NULL
-          AND datetime(pt.exited_at) >= datetime('now', '-30 days')
+         LEFT JOIN timing_metrics ON timing_metrics.column_id = c.id
+         LEFT JOIN session_metrics ON session_metrics.column_id = c.id
          WHERE c.workspace_id = ?1
-         GROUP BY c.id, c.name, c.position
          ORDER BY c.position ASC",
     )?;
     let rows = stmt.query_map(params![workspace_id], |row| {
@@ -175,8 +205,8 @@ pub fn get_column_metrics(conn: &Connection, workspace_id: &str) -> SqlResult<Ve
 mod tests {
     use super::*;
     use crate::db::{
-        complete_pipeline_timing, init_test, insert_column, insert_pipeline_timing, insert_task,
-        insert_workspace, now,
+        complete_pipeline_timing, init_test, insert_agent_session, insert_column,
+        insert_pipeline_timing, insert_task, insert_workspace, now,
     };
     use chrono::{Duration, Utc};
     use rusqlite::params;
@@ -264,5 +294,32 @@ mod tests {
         assert_eq!(metrics[0].sample_count, 1);
         assert_eq!(metrics[0].success_count, 1);
         assert_eq!(metrics[0].avg_duration_seconds, 120.0);
+    }
+
+    #[test]
+    fn column_metrics_fall_back_to_completed_agent_sessions() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Working", 0).unwrap();
+        let task = insert_task(&conn, &ws.id, &col.id, "A", None).unwrap();
+        let session = insert_agent_session(&conn, &task.id, "codex", None).unwrap();
+
+        conn.execute(
+            "UPDATE agent_sessions
+             SET exit_code = 0,
+                 created_at = datetime('now', '-1 hour'),
+                 updated_at = datetime('now')
+             WHERE id = ?1",
+            params![session.id],
+        )
+        .unwrap();
+
+        let metrics = get_column_metrics(&conn, &ws.id).unwrap();
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].sample_count, 1);
+        assert_eq!(metrics[0].success_count, 1);
+        assert_eq!(metrics[0].retry_count, 0);
+        assert!((metrics[0].avg_duration_seconds - 3600.0).abs() <= 1.0);
     }
 }
