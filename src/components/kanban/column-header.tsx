@@ -1,6 +1,8 @@
 import { memo, useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { IconButton } from '@/components/shared/icon-button'
+import { Tooltip } from '@/components/shared/tooltip'
+import type { ColumnMetrics } from '@/lib/ipc/pipeline'
 
 type ScriptTriggerInfo = {
   scriptName: string
@@ -20,11 +22,33 @@ type ColumnHeaderProps = {
   scriptTrigger?: ScriptTriggerInfo
   isBacklog?: boolean
   batchQueue?: BatchQueueState
+  metrics?: ColumnMetrics
   onConfigure: () => void
   onDelete: () => void
   onAddTask: () => void
   onRunAll?: () => void
   onCancelQueue?: () => void
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`
+  const h = Math.floor(seconds / 3600)
+  const m = Math.round((seconds % 3600) / 60)
+  if (m === 0) return `${h}h`
+  return `${h}h ${m}m`
+}
+
+function buildMetricsTooltip(m: ColumnMetrics): string {
+  const duration = formatDuration(m.avgDurationSeconds)
+  const rate = m.taskCount > 0 ? Math.round((m.successCount / m.taskCount) * 100) : 0
+  const throughput = m.throughputPerDay.toFixed(1)
+  return [
+    `Avg time: ${duration}`,
+    `Success rate: ${rate}% (${m.successCount}/${m.taskCount} tasks)`,
+    `Throughput: ${throughput} tasks/day`,
+    `(last 30 days)`,
+  ].join('\n')
 }
 
 // Icon components
@@ -92,6 +116,7 @@ export const ColumnHeader = memo(function ColumnHeader({
   scriptTrigger,
   isBacklog,
   batchQueue,
+  metrics,
   onConfigure,
   onDelete,
   onAddTask,
@@ -248,6 +273,29 @@ export const ColumnHeader = memo(function ColumnHeader({
           </div>
         </div>
       </div>
+
+      {/* Per-column metrics row */}
+      {metrics && metrics.taskCount > 0 && (
+        <Tooltip
+          content={buildMetricsTooltip(metrics)}
+          side="bottom"
+          wrap
+        >
+          <div className="flex items-center gap-2 px-3 pb-1.5">
+            <span className="text-[10px] text-text-secondary/60 tabular-nums">
+              ⏱ {formatDuration(metrics.avgDurationSeconds)}
+            </span>
+            <span className="text-[10px] text-text-secondary/40">·</span>
+            <span className="text-[10px] text-text-secondary/60 tabular-nums">
+              ✓ {metrics.taskCount > 0 ? Math.round((metrics.successCount / metrics.taskCount) * 100) : 0}%
+            </span>
+            <span className="text-[10px] text-text-secondary/40">·</span>
+            <span className="text-[10px] text-text-secondary/60 tabular-nums">
+              {metrics.throughputPerDay.toFixed(1)}/d
+            </span>
+          </div>
+        </Tooltip>
+      )}
 
       {/* Run All confirmation dialog */}
       {showConfirm && (

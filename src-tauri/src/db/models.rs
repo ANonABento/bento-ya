@@ -278,6 +278,7 @@ pub struct ColumnTimingAverage {
     pub task_count: i64,
     pub success_count: i64,
     pub failure_count: i64,
+    pub throughput_per_day: f64,
 }
 
 // ─── Usage Tracking Entities ────────────────────────────────────────────────
