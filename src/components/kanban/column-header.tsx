@@ -164,7 +164,13 @@ export const ColumnHeader = memo(function ColumnHeader({
 
   return (
     <>
-      <div className="flex items-center gap-2 px-3 py-2">
+      <div
+        className="flex items-center gap-2 px-3 py-2"
+        onContextMenu={(event) => {
+          event.preventDefault()
+          setShowMenu(true)
+        }}
+      >
         <span
           className="flex h-5 w-5 items-center justify-center rounded text-text-secondary"
           style={{ color: color || 'var(--accent)' }}

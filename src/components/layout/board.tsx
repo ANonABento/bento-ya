@@ -50,7 +50,7 @@ export function Board() {
     void addColumn(activeWorkspaceId, name).then((col) => {
       setNewColumnId(col.id)
     })
-  }, [activeWorkspaceId, columns.length, addColumn])
+  }, [activeWorkspaceId, columns, addColumn])
 
   const { registerCard, positions } = useCardPositionProvider()
   const { dragState, handlePointerDown: onDepDragStart } = useDepDrag(tasks, positions)

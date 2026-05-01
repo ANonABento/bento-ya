@@ -53,4 +53,24 @@ describe('ColumnHeader', () => {
 
     expect(onRename).not.toHaveBeenCalled()
   })
+
+  it('opens column options from the context menu', () => {
+    render(
+      <ColumnHeader
+        name="Backlog"
+        icon="list"
+        taskCount={1}
+        color="#123456"
+        onConfigure={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onAddTask={vi.fn()}
+      />
+    )
+
+    fireEvent.contextMenu(screen.getByText('Backlog').closest('div')!)
+
+    expect(screen.getByText('Configure')).toBeInTheDocument()
+    expect(screen.getByText('Delete')).toBeInTheDocument()
+  })
 })
