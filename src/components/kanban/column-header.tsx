@@ -106,9 +106,12 @@ export const ColumnHeader = memo(function ColumnHeader({
   const [renameValue, setRenameValue] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
+  // Prevents blur from submitting after Enter or Escape already resolved the rename
+  const renameResolvedRef = useRef(false)
 
   useEffect(() => {
     if (isRenaming) {
+      renameResolvedRef.current = false
       renameInputRef.current?.focus()
       renameInputRef.current?.select()
     }
@@ -120,6 +123,8 @@ export const ColumnHeader = memo(function ColumnHeader({
   }
 
   const submitRename = () => {
+    if (renameResolvedRef.current) return
+    renameResolvedRef.current = true
     const trimmed = renameValue.trim()
     if (trimmed && trimmed !== name) {
       onRenameSubmit(trimmed)
@@ -128,6 +133,8 @@ export const ColumnHeader = memo(function ColumnHeader({
   }
 
   const cancelRename = () => {
+    if (renameResolvedRef.current) return
+    renameResolvedRef.current = true
     setIsRenaming(false)
   }
 
