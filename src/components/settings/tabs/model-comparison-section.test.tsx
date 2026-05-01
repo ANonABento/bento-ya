@@ -92,6 +92,16 @@ describe('ModelComparisonSection', () => {
     })
   })
 
+  it('shows loading instead of empty usage while the workspace request is pending', () => {
+    vi.mocked(getWorkspaceUsage).mockReturnValue(new Promise(() => {}))
+
+    render(<ModelComparisonSection models={models} />)
+    fireEvent.click(screen.getByRole('button', { name: /model comparison/i }))
+
+    expect(screen.getByText('Loading workspace usage...')).toBeInTheDocument()
+    expect(screen.queryByText('No usage records in this workspace yet.')).not.toBeInTheDocument()
+  })
+
   it('aggregates usage by model id and aliases', async () => {
     vi.mocked(getWorkspaceUsage).mockResolvedValue([
       usageRecord({

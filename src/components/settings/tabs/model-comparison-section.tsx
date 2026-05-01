@@ -42,6 +42,7 @@ export function ModelComparisonSection({ models }: Props) {
     }
   })
   const [records, setRecords] = useState<UsageRecord[]>([])
+  const [recordsWorkspaceId, setRecordsWorkspaceId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [hasUsageError, setHasUsageError] = useState(false)
   const modelCount = models.length
@@ -59,6 +60,7 @@ export function ModelComparisonSection({ models }: Props) {
 
     if (modelCount === 0) {
       setRecords([])
+      setRecordsWorkspaceId(null)
       setIsLoading(false)
       setHasUsageError(false)
       return
@@ -66,6 +68,7 @@ export function ModelComparisonSection({ models }: Props) {
 
     if (!activeWorkspaceId) {
       setRecords([])
+      setRecordsWorkspaceId(null)
       setIsLoading(false)
       setHasUsageError(false)
       return
@@ -74,14 +77,19 @@ export function ModelComparisonSection({ models }: Props) {
     let cancelled = false
     setIsLoading(true)
     setHasUsageError(false)
+    setRecordsWorkspaceId(null)
 
     getWorkspaceUsage(activeWorkspaceId, 500)
       .then((usageRecords) => {
-        if (!cancelled) setRecords(usageRecords)
+        if (!cancelled) {
+          setRecords(usageRecords)
+          setRecordsWorkspaceId(activeWorkspaceId)
+        }
       })
       .catch(() => {
         if (!cancelled) {
           setRecords([])
+          setRecordsWorkspaceId(activeWorkspaceId)
           setHasUsageError(true)
         }
       })
@@ -95,9 +103,13 @@ export function ModelComparisonSection({ models }: Props) {
   }, [activeWorkspaceId, collapsed, modelCount])
 
   const usageIndex = useMemo(() => buildModelUsageIndex(models), [models])
+  const recordsForCurrentWorkspace = useMemo(
+    () => (activeWorkspaceId && recordsWorkspaceId === activeWorkspaceId ? records : []),
+    [activeWorkspaceId, records, recordsWorkspaceId],
+  )
   const usageByModel = useMemo(
-    () => aggregateUsageByModel(records, usageIndex),
-    [records, usageIndex],
+    () => aggregateUsageByModel(recordsForCurrentWorkspace, usageIndex),
+    [recordsForCurrentWorkspace, usageIndex],
   )
 
   return (
@@ -146,7 +158,8 @@ export function ModelComparisonSection({ models }: Props) {
                 activeWorkspaceId={activeWorkspaceId}
                 isLoading={isLoading}
                 hasUsageError={hasUsageError}
-                recordCount={records.length}
+                hasLoadedUsage={recordsWorkspaceId === activeWorkspaceId}
+                recordCount={recordsForCurrentWorkspace.length}
               />
               <div className="overflow-x-auto rounded-lg border border-border-default">
                 <table className="w-full min-w-[980px] text-left text-xs">
@@ -237,11 +250,13 @@ function UsageState({
   activeWorkspaceId,
   isLoading,
   hasUsageError,
+  hasLoadedUsage,
   recordCount,
 }: {
   activeWorkspaceId: string | null
   isLoading: boolean
   hasUsageError: boolean
+  hasLoadedUsage: boolean
   recordCount: number
 }) {
   if (!activeWorkspaceId) {
@@ -256,6 +271,10 @@ function UsageState({
 
   if (hasUsageError) {
     return <p className="text-xs text-yellow-500">Usage data is unavailable right now.</p>
+  }
+
+  if (!hasLoadedUsage) {
+    return <p className="text-xs text-text-secondary">Loading workspace usage...</p>
   }
 
   if (recordCount === 0) {

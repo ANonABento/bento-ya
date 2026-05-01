@@ -15,7 +15,7 @@ function formatHours(value: number | null | undefined): string {
   }
 
   const rounded = Math.round(value * 10) / 10
-  return `${rounded}h`
+  return `${String(rounded)}h`
 }
 
 export function TaskCardExpanded({ task }: { task: Task }) {
