@@ -65,6 +65,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
         .manage(session_registry);
 
@@ -255,6 +256,9 @@ pub fn run() {
             // Dynamic model discovery
             models::get_available_models,
             models::refresh_models,
+            // Updater commands
+            commands::updater::check_for_update,
+            commands::updater::install_update,
         ])
         .setup(|app| {
             // Start HTTP API server for external MCP control

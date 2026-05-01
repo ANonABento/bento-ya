@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { AnimatePresence } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import { initializeTheme } from '@/lib/theme'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSettingsStore } from '@/stores/settings-store'
@@ -17,6 +17,7 @@ import { ChecklistPanel } from '@/components/checklist/checklist-panel'
 import { AboutModal } from '@/components/about/about-modal'
 import { CommandPalette } from '@/components/command-palette/command-palette'
 import { SkeletonLoader } from '@/components/shared/skeleton-loader'
+import { checkForUpdate, installUpdate, type UpdateInfo } from '@/lib/ipc/updater'
 
 function App() {
   const loaded = useWorkspaceStore((s) => s.loaded)
@@ -26,6 +27,9 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [showAbout, setShowAbout] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const [pendingUpdate, setPendingUpdate] = useState<UpdateInfo | null>(null)
+  const [updateDismissed, setUpdateDismissed] = useState(false)
+  const [installing, setInstalling] = useState(false)
 
   // Keyboard shortcuts
   const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
@@ -36,6 +40,22 @@ function App() {
     { key: 'k', meta: true, handler: toggleCommandPalette },
     { key: ',', meta: true, handler: openSettings },
   ])
+
+  // Check for updates on launch (non-blocking, silent on failure)
+  useEffect(() => {
+    checkForUpdate().then((info) => {
+      if (info) setPendingUpdate(info)
+    }).catch(() => { /* ignore update check failures silently */ })
+  }, [])
+
+  const handleInstallUpdate = useCallback(async () => {
+    setInstalling(true)
+    try {
+      await installUpdate()
+    } catch {
+      setInstalling(false)
+    }
+  }, [])
 
   // Auto-detect CLI paths on startup
   useAutoDetectClis()
@@ -73,6 +93,43 @@ function App() {
 
       {/* Tab bar */}
       <TabBar />
+
+      {/* Update available banner */}
+      <AnimatePresence>
+        {pendingUpdate && !updateDismissed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="flex items-center justify-between bg-accent/10 border-b border-accent/20 px-4 py-2 text-sm">
+              <span className="text-text-primary">
+                Update available: <span className="font-medium">v{pendingUpdate.version}</span>
+              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => { void handleInstallUpdate() }}
+                  disabled={installing}
+                  className="rounded px-2.5 py-1 text-xs font-medium bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors"
+                >
+                  {installing ? 'Installing…' : 'Install & Restart'}
+                </button>
+                <button
+                  onClick={() => { setUpdateDismissed(true) }}
+                  className="text-text-secondary hover:text-text-primary transition-colors"
+                  aria-label="Dismiss"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                    <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main content */}
       <main className="flex-1 overflow-hidden">
