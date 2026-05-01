@@ -65,6 +65,7 @@ export function Board() {
     date: today,
   })
   const [dismissedWarnings, setDismissedWarnings] = useState<Set<string>>(new Set())
+  const [loadedDismissalStorageKey, setLoadedDismissalStorageKey] = useState<string | null>(null)
 
   const storageKey = useMemo(() => {
     if (!activeWorkspaceId) return ''
@@ -74,6 +75,7 @@ export function Board() {
   useEffect(() => {
     if (!activeWorkspaceId) {
       setDismissedWarnings(new Set())
+      setLoadedDismissalStorageKey(null)
       return
     }
 
@@ -81,6 +83,7 @@ export function Board() {
       const raw = localStorage.getItem(USAGE_WARNING_DISMISSED_STORAGE_KEY)
       if (!raw) {
         setDismissedWarnings(new Set())
+        setLoadedDismissalStorageKey(storageKey)
         return
       }
 
@@ -88,6 +91,7 @@ export function Board() {
       const saved = parsed?.[storageKey]
       if (!Array.isArray(saved)) {
         setDismissedWarnings(new Set())
+        setLoadedDismissalStorageKey(storageKey)
         return
       }
 
@@ -98,8 +102,10 @@ export function Board() {
         }
       }
       setDismissedWarnings(values)
+      setLoadedDismissalStorageKey(storageKey)
     } catch {
       setDismissedWarnings(new Set())
+      setLoadedDismissalStorageKey(storageKey)
     }
   }, [activeWorkspaceId, storageKey])
 
@@ -138,7 +144,7 @@ export function Board() {
   }, [dismissedWarnings, storageKey])
 
   useEffect(() => {
-    if (!activeWorkspaceId) return
+    if (!activeWorkspaceId || loadedDismissalStorageKey !== storageKey) return
     let rawPayload: Record<string, string[]> = {}
 
     try {
@@ -153,19 +159,23 @@ export function Board() {
       rawPayload = {}
     }
 
+    const nextModelIds: string[] = []
     dismissedWarnings.forEach((value) => {
       const separatorIndex = value.lastIndexOf('|')
       if (separatorIndex === -1) return
       const key = value.slice(0, separatorIndex)
       const modelId = value.slice(separatorIndex + 1)
       if (!modelId) return
-      const existing = rawPayload[key] ?? []
-      existing.push(modelId)
-      rawPayload[key] = existing
+      if (key === storageKey) {
+        nextModelIds.push(modelId)
+        return
+      }
+      rawPayload[key] = Array.from(new Set([...(rawPayload[key] ?? []), modelId]))
     })
+    rawPayload[storageKey] = Array.from(new Set(nextModelIds))
 
     localStorage.setItem(USAGE_WARNING_DISMISSED_STORAGE_KEY, JSON.stringify(rawPayload))
-  }, [activeWorkspaceId, dismissedWarnings])
+  }, [activeWorkspaceId, dismissedWarnings, loadedDismissalStorageKey, storageKey])
 
   const handleDismissWarnings = () => {
     if (!activeWorkspaceId || warningSummaries.length === 0) return
