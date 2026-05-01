@@ -8,6 +8,7 @@ import { usePrStatusPolling } from '@/hooks/use-pr-status-polling'
 import { useTaskSync } from '@/hooks/use-task-sync'
 import { useAgentStreamingSync } from '@/hooks/use-agent-streaming-sync'
 import { useAutoDetectClis } from '@/hooks/use-cli-path'
+import { isEditableTarget } from '@/lib/keyboard'
 import { Board } from '@/components/layout/board'
 import { WorkspaceSetup } from '@/components/layout/workspace-setup'
 import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard'
@@ -17,18 +18,6 @@ import { ChecklistPanel } from '@/components/checklist/checklist-panel'
 import { CommandPalette } from '@/components/command-palette/command-palette'
 import { ShortcutsModal } from '@/components/shortcuts-modal'
 import { SkeletonLoader } from '@/components/shared/skeleton-loader'
-
-function isEditableTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false
-
-  const tagName = target.tagName
-  return (
-    tagName === 'INPUT' ||
-    tagName === 'TEXTAREA' ||
-    tagName === 'SELECT' ||
-    target.isContentEditable
-  )
-}
 
 function App() {
   const loaded = useWorkspaceStore((s) => s.loaded)

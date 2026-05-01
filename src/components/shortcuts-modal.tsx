@@ -47,6 +47,7 @@ const SHORTCUTS: ShortcutSection[] = [
       { keys: ['D'], desc: 'Duplicate selected task' },
       { keys: ['M'], desc: 'Open move task menu' },
       { keys: ['L'], desc: 'Edit task dependencies' },
+      { keys: ['Cmd/Ctrl', 'Drag'], desc: 'Link task dependencies' },
       { keys: ['Del'], desc: 'Delete selected task' },
       { keys: ['Backspace'], desc: 'Delete selected task' },
     ],
@@ -68,13 +69,19 @@ const SHORTCUTS: ShortcutSection[] = [
       { keys: ['Shift', 'Enter'], desc: 'Insert a new line in chat' },
     ],
   },
+  {
+    category: 'Terminal',
+    items: [
+      { keys: ['Ctrl', 'C'], desc: 'Interrupt running process' },
+    ],
+  },
 ]
 
 function KbdSequence({ keys }: { keys: string[] }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
       {keys.map((key, index) => (
-        <span key={`${key}-${index}`} className="flex items-center gap-1">
+        <span key={`${key}-${String(index)}`} className="flex items-center gap-1">
           <kbd className="rounded-md border border-border-default bg-bg px-1.5 py-0.5 font-mono text-[11px] leading-5 text-text-primary shadow-sm">
             {key}
           </kbd>
@@ -148,7 +155,7 @@ export function ShortcutsModal({ onClose }: Props) {
                 </h3>
                 <div className="space-y-1.5">
                   {section.items.map((item) => (
-                    <div key={`${section.category}-${item.desc}`} className="grid grid-cols-[1fr_auto] items-center gap-3 text-sm">
+                    <div key={`${section.category}-${item.keys.join('+')}-${item.desc}`} className="grid grid-cols-[1fr_auto] items-center gap-3 text-sm">
                       <span className="min-w-0 text-text-secondary">{item.desc}</span>
                       <KbdSequence keys={item.keys} />
                     </div>
