@@ -310,6 +310,40 @@ pub struct UsageSummary {
     pub record_count: i64,
 }
 
+/// Daily cost aggregation for time-series charts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyCost {
+    pub date: String,
+    pub cost_usd: f64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub record_count: i64,
+}
+
+/// Cost aggregated by column (pipeline stage).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnCost {
+    pub column_name: String,
+    pub cost_usd: f64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub record_count: i64,
+}
+
+/// Cost aggregated by task (top spenders).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskCost {
+    pub task_id: String,
+    pub task_title: String,
+    pub cost_usd: f64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub record_count: i64,
+}
+
 // ─── Session History Entities ───────────────────────────────────────────────
 
 /// A snapshot of an agent session at a point in time.
