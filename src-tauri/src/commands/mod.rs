@@ -17,6 +17,7 @@ pub mod usage;
 pub mod voice;
 #[cfg(not(feature = "voice"))]
 pub mod voice_stubs;
+pub mod window_state;
 #[cfg(not(feature = "voice"))]
 pub use voice_stubs as voice;
 pub mod workspace;

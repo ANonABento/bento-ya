@@ -22,6 +22,7 @@ use chat::registry::{new_shared_session_registry, start_idle_sweep};
 use commands::voice::RecorderState;
 use db::AppState;
 use tauri::Manager;
+use tauri_plugin_window_state::StateFlags;
 #[cfg(feature = "voice")]
 use whisper::AudioRecorder;
 
@@ -64,7 +65,11 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
+                .build(),
+        )
         .manage(state)
         .manage(session_registry);
 
@@ -209,6 +214,9 @@ pub fn run() {
             commands::usage::get_workspace_usage_summary,
             commands::usage::get_task_usage_summary,
             commands::usage::clear_workspace_usage,
+            // Window state commands
+            commands::window_state::get_window_zoom,
+            commands::window_state::set_window_zoom,
             // History commands
             commands::history::create_snapshot,
             commands::history::get_snapshot,

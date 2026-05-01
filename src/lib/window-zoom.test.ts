@@ -1,12 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { getCurrentWebviewMock, setZoomMock } = vi.hoisted(() => ({
+const { getCurrentWebviewMock, setZoomMock, invokeMock } = vi.hoisted(() => ({
   getCurrentWebviewMock: vi.fn(),
   setZoomMock: vi.fn(),
+  invokeMock: vi.fn(),
 }))
 
 vi.mock('@tauri-apps/api/webview', () => ({
   getCurrentWebview: getCurrentWebviewMock,
+}))
+
+vi.mock('./ipc/invoke', () => ({
+  invoke: invokeMock,
 }))
 
 const STORAGE_KEY = 'bento-window-zoom'
@@ -17,6 +22,8 @@ async function importWindowZoom() {
 
 async function waitForAsyncZoom() {
   await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
 }
 
 describe('window zoom persistence', () => {
@@ -25,9 +32,14 @@ describe('window zoom persistence', () => {
     vi.clearAllMocks()
     localStorage.clear()
     getCurrentWebviewMock.mockReturnValue({ setZoom: setZoomMock })
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === 'get_window_zoom') return Promise.resolve(null)
+      if (cmd === 'set_window_zoom') return Promise.resolve(undefined)
+      return Promise.reject(new Error(`Unexpected command: ${cmd}`))
+    })
   })
 
-  it('applies a stored zoom level on initialization', async () => {
+  it('applies a legacy local zoom level on initialization', async () => {
     localStorage.setItem(STORAGE_KEY, '1.25')
     const { initializeWindowZoom } = await importWindowZoom()
 
@@ -36,6 +48,23 @@ describe('window zoom persistence', () => {
 
     expect(setZoomMock).toHaveBeenCalledWith(1.25)
     expect(localStorage.getItem(STORAGE_KEY)).toBe('1.25')
+    expect(invokeMock).toHaveBeenCalledWith('set_window_zoom', { zoom: 1.25 })
+  })
+
+  it('prefers the persisted app zoom over legacy localStorage', async () => {
+    localStorage.setItem(STORAGE_KEY, '1.25')
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === 'get_window_zoom') return Promise.resolve(1.5)
+      if (cmd === 'set_window_zoom') return Promise.resolve(undefined)
+      return Promise.reject(new Error(`Unexpected command: ${cmd}`))
+    })
+    const { initializeWindowZoom } = await importWindowZoom()
+
+    initializeWindowZoom()
+    await waitForAsyncZoom()
+
+    expect(setZoomMock).toHaveBeenCalledWith(1.5)
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('1.5')
   })
 
   it('updates and persists zoom from keyboard shortcuts', async () => {
@@ -90,6 +119,28 @@ describe('window zoom persistence', () => {
     expect(setZoomMock).toHaveBeenCalledWith(1)
     expect(consoleError).toHaveBeenCalledWith(
       '[window-zoom] Failed to read stored zoom:',
+      expect.any(Error),
+    )
+
+    consoleError.mockRestore()
+  })
+
+  it('falls back to local zoom when persisted zoom cannot be read', async () => {
+    localStorage.setItem(STORAGE_KEY, '1.2')
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === 'get_window_zoom') return Promise.reject(new Error('backend unavailable'))
+      if (cmd === 'set_window_zoom') return Promise.resolve(undefined)
+      return Promise.reject(new Error(`Unexpected command: ${cmd}`))
+    })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { initializeWindowZoom } = await importWindowZoom()
+
+    initializeWindowZoom()
+    await waitForAsyncZoom()
+
+    expect(setZoomMock).toHaveBeenCalledWith(1.2)
+    expect(consoleError).toHaveBeenCalledWith(
+      '[window-zoom] Failed to read persisted zoom:',
       expect.any(Error),
     )
 

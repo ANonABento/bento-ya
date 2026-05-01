@@ -1,4 +1,5 @@
 import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { invoke } from './ipc/invoke'
 
 const STORAGE_KEY = 'bento-window-zoom'
 const DEFAULT_ZOOM = 1
@@ -35,7 +36,25 @@ function readStoredZoom(): number {
   return normalizeZoom(parsed)
 }
 
-async function applyWindowZoom(zoom: number): Promise<void> {
+async function readPersistedZoom(): Promise<number | null> {
+  try {
+    const zoom = await invoke<number | null>('get_window_zoom')
+    return zoom === null ? null : normalizeZoom(zoom)
+  } catch (error) {
+    console.error('[window-zoom] Failed to read persisted zoom:', error)
+    return null
+  }
+}
+
+async function persistZoom(zoom: number): Promise<void> {
+  try {
+    await invoke<number>('set_window_zoom', { zoom })
+  } catch (error) {
+    console.error('[window-zoom] Failed to persist zoom:', error)
+  }
+}
+
+async function applyWindowZoom(zoom: number, persist = true): Promise<void> {
   const normalized = normalizeZoom(zoom)
   currentZoom = normalized
 
@@ -49,6 +68,10 @@ async function applyWindowZoom(zoom: number): Promise<void> {
     await getCurrentWebview().setZoom(normalized)
   } catch (error) {
     console.error('[window-zoom] Failed to apply zoom:', error)
+  }
+
+  if (persist) {
+    await persistZoom(normalized)
   }
 }
 
@@ -81,7 +104,18 @@ export function initializeWindowZoom(): void {
   if (initialized) return
 
   initialized = true
-  currentZoom = readStoredZoom()
-  void applyWindowZoom(currentZoom)
+  const localZoom = readStoredZoom()
+  currentZoom = localZoom
+  void applyWindowZoom(localZoom, false)
+  void readPersistedZoom().then((persistedZoom) => {
+    if (currentZoom !== localZoom) return
+
+    if (persistedZoom === null) {
+      void persistZoom(localZoom)
+      return
+    }
+
+    void applyWindowZoom(persistedZoom)
+  })
   window.addEventListener('keydown', handleZoomShortcut)
 }
