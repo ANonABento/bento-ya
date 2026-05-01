@@ -2,6 +2,7 @@ use crate::db::{self, AppState, Task};
 use crate::error::AppError;
 use crate::pipeline;
 use serde::{Deserialize, Serialize};
+use rusqlite::params;
 use std::collections::HashSet;
 use std::process::Command;
 use tauri::{AppHandle, State};
@@ -69,6 +70,154 @@ pub async fn create_task(
     pipeline::emit_tasks_changed(&app, &workspace_id, "task_created");
 
     Ok(task)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn duplicate_task(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<Task, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let source_task = db::get_task(&conn, &id)?;
+
+    let new_id = db::new_id();
+    let ts = db::now();
+    let new_title = if source_task.title.ends_with(" (Copy)") {
+        source_task.title.clone()
+    } else {
+        format!("{} (Copy)", source_task.title)
+    };
+    let duplicate_position = source_task.position + 1;
+
+    // Insert the duplicate immediately after the original task.
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    tx.execute(
+        "UPDATE tasks SET position = position + 1 WHERE column_id = ?1 AND position >= ?2",
+        params![source_task.column_id, duplicate_position],
+    )
+    .map_err(AppError::from)?;
+
+    tx.execute(
+        "INSERT INTO tasks (
+            id,
+            workspace_id,
+            column_id,
+            title,
+            description,
+            position,
+            priority,
+            agent_mode,
+            branch_name,
+            files_touched,
+            checklist,
+            pipeline_state,
+            pipeline_triggered_at,
+            pipeline_error,
+            agent_session_id,
+            last_script_exit_code,
+            review_status,
+            pr_number,
+            pr_url,
+            siege_iteration,
+            siege_active,
+            siege_max_iterations,
+            siege_last_checked,
+            pr_mergeable,
+            pr_ci_status,
+            pr_review_decision,
+            pr_comment_count,
+            pr_is_draft,
+            pr_labels,
+            pr_last_fetched,
+            pr_head_sha,
+            notify_stakeholders,
+            notification_sent_at,
+            trigger_overrides,
+            trigger_prompt,
+            last_output,
+            dependencies,
+            blocked,
+            created_at,
+            updated_at,
+            agent_status,
+            queued_at,
+            retry_count,
+            model,
+            worktree_path,
+            batch_id,
+            github_issue_number,
+            github_issue_commented,
+            github_issue_pr_linked
+        ) SELECT
+            ?1,
+            workspace_id,
+            column_id,
+            ?2,
+            description,
+            ?3,
+            priority,
+            agent_mode,
+            branch_name,
+            files_touched,
+            checklist,
+            'idle',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            0,
+            0,
+            siege_max_iterations,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            0,
+            0,
+            pr_labels,
+            NULL,
+            NULL,
+            notify_stakeholders,
+            NULL,
+            trigger_overrides,
+            trigger_prompt,
+            NULL,
+            dependencies,
+            blocked,
+            ?4,
+            ?4,
+            NULL,
+            NULL,
+            0,
+            model,
+            NULL,
+            batch_id,
+            NULL,
+            0,
+            0
+        FROM tasks WHERE id = ?5",
+        params![
+            new_id,
+            new_title,
+            duplicate_position,
+            ts,
+            source_task.id,
+        ],
+    )
+    .map_err(AppError::from)?;
+
+    tx.commit().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    pipeline::emit_tasks_changed(&app, &source_task.workspace_id, "task_duplicated");
+    Ok(db::get_task(&conn, &new_id)?)
 }
 
 #[tauri::command]

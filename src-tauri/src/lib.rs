@@ -111,6 +111,7 @@ pub fn run() {
             commands::task::get_task,
             commands::task::list_tasks,
             commands::task::update_task,
+            commands::task::duplicate_task,
             commands::task::update_task_triggers,
             commands::task::move_task,
             commands::task::bulk_update_tasks,

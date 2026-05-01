@@ -168,15 +168,7 @@ export const useTaskStore = create<TaskState>()(
       duplicate: async (id) => {
         const original = get().tasks.find((t) => t.id === id)
         if (!original) return null
-        const newTitle = original.title.endsWith(' (Copy)')
-          ? original.title
-          : `${original.title} (Copy)`
-        const task = await ipc.createTask(
-          original.workspaceId,
-          original.columnId,
-          newTitle,
-          original.description,
-        )
+        const task = await ipc.duplicateTask(original.id)
         set((s) => ({ tasks: [...s.tasks, task] }))
         await useWorkspaceStore.getState().refreshWorkspace(original.workspaceId)
         return task
