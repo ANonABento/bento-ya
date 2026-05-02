@@ -31,6 +31,9 @@ function App() {
   // Keyboard shortcuts
   const toggleCommandPalette = useCallback(() => { setShowCommandPalette((prev) => !prev) }, [])
   const openShortcuts = useCallback(() => { setShowShortcuts(true) }, [])
+  const closeShortcuts = useCallback(() => { setShowShortcuts(false) }, [])
+  const handleShowShortcutsFromPalette = useCallback(() => { setShowCommandPalette(false); setShowShortcuts(true) }, [])
+  const closeCommandPalette = useCallback(() => { setShowCommandPalette(false) }, [])
   const openSettings = useSettingsStore((s) => s.openSettings)
   useKeyboardShortcuts([
     { key: '/', meta: true, handler: openShortcuts, ignoreEditable: true },
@@ -112,11 +115,11 @@ function App() {
 
       {/* Modals */}
       <AnimatePresence>
-        {showShortcuts && <ShortcutsModal onClose={() => { setShowShortcuts(false) }} />}
+        {showShortcuts && <ShortcutsModal onClose={closeShortcuts} />}
         {showCommandPalette && (
           <CommandPalette
-            onClose={() => { setShowCommandPalette(false) }}
-            onShowShortcuts={() => { setShowCommandPalette(false); setShowShortcuts(true) }}
+            onClose={closeCommandPalette}
+            onShowShortcuts={handleShowShortcutsFromPalette}
           />
         )}
       </AnimatePresence>

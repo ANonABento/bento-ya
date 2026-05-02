@@ -155,7 +155,7 @@ export function ShortcutsModal({ onClose }: Props) {
                 </h3>
                 <div className="space-y-1.5">
                   {section.items.map((item) => (
-                    <div key={`${section.category}-${item.keys.join('+')}-${item.description}`} className="grid grid-cols-[1fr_auto] items-center gap-3 text-sm">
+                    <div key={item.keys.join('+')} className="grid grid-cols-[1fr_auto] items-center gap-3 text-sm">
                       <span className="min-w-0 text-text-secondary">{item.description}</span>
                       <KbdSequence keys={item.keys} />
                     </div>
