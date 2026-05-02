@@ -21,6 +21,7 @@ vi.mock('@/lib/ipc', () => ({
   bulkUpdateTasks: vi.fn(),
   moveTask: vi.fn(),
   reorderTasks: vi.fn(),
+  createTaskFromTemplate: vi.fn(),
 }))
 
 import * as ipc from '@/lib/ipc'
@@ -115,6 +116,30 @@ describe('task-store', () => {
       expect(created).toEqual(newTask)
       expect(state.tasks).toContainEqual(newTask)
       expect(mockIpc.createTask).toHaveBeenCalledWith('ws-1', 'col-1', 'New Task', 'Description')
+      expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
+    })
+  })
+
+  describe('createFromTemplate', () => {
+    it('should create task from template via IPC and add it to the store', async () => {
+      const newTask = createMockTask({
+        id: 'task-template',
+        title: 'Template Task',
+        description: 'From template',
+        prLabels: '["bug"]',
+        model: 'gpt-4',
+      })
+      mockIpc.createTaskFromTemplate.mockResolvedValueOnce(newTask)
+      refreshWorkspace.mockResolvedValueOnce(undefined)
+
+      const created = await useTaskStore
+        .getState()
+        .createFromTemplate('ws-1', 'col-1', 'template-1')
+
+      const state = useTaskStore.getState()
+      expect(created).toEqual(newTask)
+      expect(state.tasks).toContainEqual(newTask)
+      expect(mockIpc.createTaskFromTemplate).toHaveBeenCalledWith('ws-1', 'col-1', 'template-1')
       expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
     })
   })

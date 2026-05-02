@@ -14,6 +14,7 @@ import { queueBacklog, cancelBacklogQueue } from '@/lib/ipc/pipeline'
 import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
+import { TaskTemplatePickerDialog } from './task-template-picker-dialog'
 
 type BatchQueueLocalState = {
   isQueuing: boolean
@@ -41,7 +42,7 @@ export const Column = memo(function Column({
   const allTasks = useTaskStore((s) => s.tasks)
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
-  const updateColumnAsync = useColumnStore((s) => s.updateColumnAsync)
+  const createFromTemplate = useTaskStore((s) => s.createFromTemplate)
   const getScriptName = useScriptStore((s) => s.getScriptName)
   const columnMetrics = useColumnMetricsStore((s) => s.metricsById[column.id])
 
@@ -74,6 +75,7 @@ export const Column = memo(function Column({
   const [showConfigDialog, setShowConfigDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showAddTask, setShowAddTask] = useState(false)
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const addTaskInputRef = useRef<HTMLInputElement>(null)
 
@@ -203,6 +205,23 @@ export const Column = memo(function Column({
     setShowAddTask(false)
   }, [])
 
+  const handleCreateFromTemplate = useCallback(async (templateId: string) => {
+    if (!activeWorkspaceId) return
+    await createFromTemplate(activeWorkspaceId, column.id, templateId)
+  }, [activeWorkspaceId, column.id, createFromTemplate])
+
+  const handleOpenTemplatePicker = useCallback(() => {
+    setShowTemplatePicker(true)
+  }, [])
+
+  const handleCloseTemplatePicker = useCallback(() => {
+    setShowTemplatePicker(false)
+  }, [])
+
+  const handleCloseConfigDialog = useCallback(() => {
+    setShowConfigDialog(false)
+  }, [])
+
   return (
     <>
       <motion.div
@@ -227,7 +246,7 @@ export const Column = memo(function Column({
             onConfigure={handleConfigure}
             onDelete={handleDelete}
             onAddTask={handleAddTask}
-            onRenameSubmit={handleRename}
+            onCreateFromTemplate={handleOpenTemplatePicker}
             onRunAll={() => { void handleRunAll(); }}
             onCancelQueue={() => { void handleCancelQueue(); }}
           />
@@ -307,7 +326,15 @@ export const Column = memo(function Column({
       {showConfigDialog && (
         <ColumnConfigDialog
           column={column}
-          onClose={() => { setShowConfigDialog(false); }}
+          onClose={handleCloseConfigDialog}
+        />
+      )}
+
+      {showTemplatePicker && activeWorkspaceId && (
+        <TaskTemplatePickerDialog
+          workspaceId={activeWorkspaceId}
+          onClose={handleCloseTemplatePicker}
+          onCreateTask={handleCreateFromTemplate}
         />
       )}
 
