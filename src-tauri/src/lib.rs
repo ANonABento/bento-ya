@@ -296,18 +296,14 @@ pub fn run() {
             // Start periodic idle session sweep (every 60s)
             start_idle_sweep(session_registry_for_sweep, app.handle().clone());
 
-            // Recover stale pipeline work from the previous app instance.
-            // Wrap in async_runtime::spawn so fire_trigger has a Tokio runtime context for tokio::spawn.
-            let resume_app = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                resume_stale_pipeline_tasks(resume_app);
-            });
+            // Keep macOS didFinishLaunching light. Finder/Spotlight launches
+            // can abort if setup blocks on DB queries, tmux checks, or
+            // pipeline resume. Defer the recovery work onto a blocking task so
+            // the main thread returns to Tauri immediately.
+            spawn_startup_recovery(app.handle().clone());
 
             // Warn about orphaned Bento worktrees once a day.
             start_nightly_worktree_sweep(app.handle().clone());
-
-            // Recover tmux sessions from previous app instance
-            recover_tmux_sessions(app.handle().clone());
 
             // Start garbage collector for tmux sessions + agent resources
             chat::gc::start_gc();
@@ -322,6 +318,29 @@ pub fn run() {
 
     // Cleanup port file on exit
     api::cleanup();
+}
+
+/// Run startup recovery off the main thread so Tauri's `setup` returns
+/// quickly. macOS Finder/Spotlight launches can abort if `didFinishLaunching`
+/// blocks on DB locks, tmux shell-outs, or pipeline resume.
+fn spawn_startup_recovery(app: tauri::AppHandle) {
+    // Pipeline resume already needs a Tokio runtime context for tokio::spawn,
+    // so wrap it in `async_runtime::spawn` like before.
+    let resume_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        resume_stale_pipeline_tasks(resume_app);
+    });
+
+    // Tmux recovery does shell-outs + DB work; push to a blocking thread so
+    // it never sits on the main thread during launch.
+    let tmux_app = app;
+    let recovery_task = tauri::async_runtime::spawn_blocking(move || {
+        recover_tmux_sessions(tmux_app);
+    });
+
+    // Startup recovery is best-effort; do not hold up Tauri startup waiting
+    // for the join handle. Dropping detaches the task.
+    drop(recovery_task);
 }
 
 fn is_terminal_column_for_sweep(column: &db::Column, max_position: i64) -> bool {
