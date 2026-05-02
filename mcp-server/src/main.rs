@@ -286,7 +286,7 @@ fn get_tools() -> Vec<Value> {
                 "properties": {
                     "task": { "type": "string", "description": "Task that will be blocked" },
                     "depends_on": { "type": "string", "description": "Task that must complete first" },
-                    "condition": { "type": "string", "description": "completed (default), agent_complete, or moved_to_column", "default": "completed" }
+                    "condition": { "type": "string", "description": "completed (default), agent_complete, moved_to_column, at_or_past_column, or in_review (use in_review with target_column for chains feeding batch_wait)", "default": "completed" }
                 },
                 "required": ["task", "depends_on"]
             }),

@@ -17,7 +17,7 @@ use super::{emit_pipeline, fire_trigger, PipelineState, EVT_DEP_MOVED, EVT_UNBLO
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskDependency {
     pub task_id: String,
-    pub condition: String, // "completed", "moved_to_column", "agent_complete"
+    pub condition: String, // "completed", "moved_to_column", "at_or_past_column", "in_review", "agent_complete"
     #[serde(default)]
     pub target_column: Option<String>,
     pub on_met: TriggerActionV2,
@@ -78,6 +78,22 @@ pub fn check_condition(
             } else {
                 Ok(false)
             }
+        }
+        // "at_or_past_column" / "in_review": source has reached target column or any column after it.
+        // Use when chaining with batch_wait so dependents unblock as soon as the source enters the
+        // review/PR stage rather than waiting for it to reach Done (which never happens while the
+        // batch is still filling).
+        "at_or_past_column" | "in_review" => {
+            let Some(ref target_col_id) = dep.target_column else {
+                return Ok(false);
+            };
+            let target_col = match db::get_column(conn, target_col_id) {
+                Ok(c) => c,
+                Err(_) => return Ok(false),
+            };
+            let source_col = db::get_column(conn, &source_task.column_id)?;
+            Ok(source_col.workspace_id == target_col.workspace_id
+                && source_col.position >= target_col.position)
         }
         "agent_complete" => {
             // Check if the agent session is completed
