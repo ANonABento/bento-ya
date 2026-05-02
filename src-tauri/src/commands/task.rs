@@ -651,7 +651,7 @@ pub async fn bulk_update_tasks(
     }
 
     let ts = db::now();
-    let mut next_position: i64 = conn
+    let next_position: i64 = conn
         .query_row(
             "SELECT COALESCE(MAX(position), -1) + 1 FROM tasks WHERE column_id = ?1",
             rusqlite::params![target_column_id],
@@ -662,22 +662,22 @@ pub async fn bulk_update_tasks(
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    for task in &tasks_before {
+    for (offset, task) in tasks_before.iter().enumerate() {
+        let position = next_position + offset as i64;
         let column_changed = task.column_id != target_column_id;
         if column_changed {
             tx.execute(
                 "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = NULL, updated_at = ?3 WHERE id = ?4",
-                rusqlite::params![target_column_id, next_position, ts, task.id],
+                rusqlite::params![target_column_id, position, ts, task.id],
             )
             .map_err(AppError::from)?;
         } else {
             tx.execute(
                 "UPDATE tasks SET position = ?1, updated_at = ?2 WHERE id = ?3",
-                rusqlite::params![next_position, ts, task.id],
+                rusqlite::params![position, ts, task.id],
             )
             .map_err(AppError::from)?;
         }
-        next_position += 1;
     }
     tx.commit()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
