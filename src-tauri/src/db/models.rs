@@ -107,33 +107,8 @@ pub struct Task {
     pub github_issue_commented: bool,
     /// Whether the linked PR URL has been posted on the linked GitHub issue.
     pub github_issue_pr_linked: bool,
-    pub labels: Vec<Label>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-/// A workspace-scoped task label.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct Label {
-    pub id: String,
-    pub workspace_id: String,
-    pub name: String,
-    pub color: String,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-/// A reusable task template scoped to a workspace.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskTemplate {
-    pub id: String,
-    pub workspace_id: String,
-    pub title: String,
-    pub description: Option<String>,
-    pub labels: String,
-    pub model: Option<String>,
+    /// When this task was archived (soft delete). None = active task.
+    pub archived_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

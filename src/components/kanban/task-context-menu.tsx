@@ -30,6 +30,7 @@ type TaskContextMenuProps = {
   onOpenTask: () => void
   onDuplicateTask: () => void
   onArchiveTask: () => void
+  onUnarchiveTask: () => void
   onDeleteTask: () => void
   onSaveAsTemplate: () => void
   onRunAgent: () => void
@@ -86,6 +87,12 @@ const Icons = {
     <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
       <path d="M2 3a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H2Z" />
       <path fillRule="evenodd" d="M2 7.5h16l-.811 7.71a2 2 0 0 1-1.99 1.79H4.802a2 2 0 0 1-1.99-1.79L2 7.5Zm5.22 1.72a.75.75 0 0 1 1.06 0L10 10.94l1.72-1.72a.75.75 0 1 1 1.06 1.06l-2.25 2.25a.75.75 0 0 1-1.06 0l-2.25-2.25a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+    </svg>
+  ),
+  unarchive: (
+    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path d="M2 3a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H2Z" />
+      <path fillRule="evenodd" d="M2 7.5h16l-.811 7.71a2 2 0 0 1-1.99 1.79H4.802a2 2 0 0 1-1.99-1.79L2 7.5Zm7.53 1.22a.75.75 0 0 1 1.06 0l2.25 2.25a.75.75 0 0 1-1.06 1.06L10 10.31l-1.72 1.72a.75.75 0 0 1-1.06-1.06l2.31-2.25Z" clipRule="evenodd" />
     </svg>
   ),
   trash: (
@@ -185,6 +192,7 @@ export function TaskContextMenu({
   onOpenTask,
   onDuplicateTask,
   onArchiveTask,
+  onUnarchiveTask,
   onDeleteTask,
   onSaveAsTemplate,
   onRunAgent,
@@ -237,6 +245,7 @@ export function TaskContextMenu({
 
   const isRunning = task.agentStatus === 'running'
   const hasPr = !!task.prNumber
+  const isArchived = !!task.archivedAt
   const otherColumns = columns.filter((c) => c.id !== task.columnId && c.visible)
 
   const menuItems: MenuItemType[] = [
@@ -264,7 +273,9 @@ export function TaskContextMenu({
     { label: 'Save as template', icon: Icons.template, onClick: onSaveAsTemplate },
     { label: 'Duplicate', icon: Icons.duplicate, shortcut: 'D', onClick: onDuplicateTask },
     { type: 'divider' },
-    { label: 'Archive', icon: Icons.archive, onClick: onArchiveTask },
+    isArchived
+      ? { label: 'Unarchive', icon: Icons.unarchive, onClick: onUnarchiveTask }
+      : { label: 'Archive', icon: Icons.archive, onClick: onArchiveTask },
     { label: 'Delete', icon: Icons.trash, variant: 'danger' as const, onClick: onDeleteTask },
   ]
 

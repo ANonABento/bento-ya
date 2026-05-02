@@ -148,7 +148,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("031_task_batch_id", include_str!("migrations/031_task_batch_id.sql")),
         ("032_github_sync", include_str!("migrations/032_github_sync.sql")),
         ("033_github_issue_unique", include_str!("migrations/033_github_issue_unique.sql")),
-        ("034_task_labels", include_str!("migrations/034_task_labels.sql")),
+        ("034_task_archive", include_str!("migrations/034_task_archive.sql")),
     ];
 
     for (name, sql) in migrations {

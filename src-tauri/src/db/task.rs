@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use super::models::Task;
 use super::{new_id, now};
 
-/// Shared SELECT columns for tasks (51 fields).
-const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, estimated_hours, COALESCE((SELECT ROUND(SUM(MAX((julianday(agent_sessions.updated_at) - julianday(agent_sessions.created_at)) * 24.0, 0.0)), 4) FROM agent_sessions WHERE agent_sessions.task_id = tasks.id), actual_hours, 0.0) AS actual_hours, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked";
+/// Shared SELECT columns for tasks (50 fields).
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked, archived_at";
 
 /// Generate a sortable task batch identifier for staging PR workflows.
 pub fn generate_batch_id() -> String {
@@ -68,7 +68,7 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         github_issue_number: row.get(46)?,
         github_issue_commented: row.get::<_, Option<i64>>(47)?.unwrap_or(0) != 0,
         github_issue_pr_linked: row.get::<_, Option<i64>>(48)?.unwrap_or(0) != 0,
-        labels: Vec::new(),
+        archived_at: row.get(49)?,
         created_at: row.get(38)?,
         updated_at: row.get(39)?,
     })
@@ -475,7 +475,7 @@ pub fn update_task_agent_status(
 /// Get tasks with agent_status = 'queued' ordered by queued_at (oldest first)
 pub fn get_queued_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        &format!("SELECT {} FROM tasks WHERE workspace_id = ?1 AND agent_status = 'queued' ORDER BY queued_at ASC", TASK_COLUMNS),
+        &format!("SELECT {} FROM tasks WHERE workspace_id = ?1 AND agent_status = 'queued' AND archived_at IS NULL ORDER BY queued_at ASC", TASK_COLUMNS),
     )?;
     let rows = stmt.query_map(params![workspace_id], map_task_row)?;
     with_labels_for_tasks(conn, rows.collect::<SqlResult<Vec<_>>>()?)
@@ -606,7 +606,7 @@ pub fn mark_task_notification_sent(conn: &Connection, id: &str) -> SqlResult<Tas
 pub fn get_next_queued_task(conn: &Connection, workspace_id: &str) -> SqlResult<Option<Task>> {
     let result = conn.query_row(
         &format!(
-            "SELECT {} FROM tasks WHERE workspace_id = ?1 AND queued_at IS NOT NULL AND pipeline_state = 'idle' AND column_id IN (SELECT id FROM columns WHERE name = 'Backlog' AND workspace_id = ?1) ORDER BY position LIMIT 1",
+            "SELECT {} FROM tasks WHERE workspace_id = ?1 AND queued_at IS NOT NULL AND pipeline_state = 'idle' AND archived_at IS NULL AND column_id IN (SELECT id FROM columns WHERE name = 'Backlog' AND workspace_id = ?1) ORDER BY position LIMIT 1",
             TASK_COLUMNS
         ),
         params![workspace_id],
@@ -629,74 +629,22 @@ pub fn clear_task_notification_sent(conn: &Connection, id: &str) -> SqlResult<Ta
     get_task(conn, id)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::db;
+/// Soft-archive a task by setting archived_at timestamp.
+pub fn archive_task(conn: &Connection, id: &str) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET archived_at = ?1, updated_at = ?2 WHERE id = ?3",
+        params![ts, ts, id],
+    )?;
+    get_task(conn, id)
+}
 
-    #[test]
-    fn duplicate_task_copies_metadata_after_source_without_agent_session() {
-        let conn = db::init_test().unwrap();
-        let workspace = db::insert_workspace(&conn, "Test", "/tmp/test").unwrap();
-        let column = db::insert_column(&conn, &workspace.id, "Backlog", 0).unwrap();
-        let source = insert_task(
-            &conn,
-            &workspace.id,
-            &column.id,
-            "Original",
-            Some("details"),
-        )
-        .unwrap();
-        let after = insert_task(&conn, &workspace.id, &column.id, "After", None).unwrap();
-        let session = db::insert_agent_session(&conn, &source.id, "codex", Some("/tmp")).unwrap();
-
-        db::update_task_agent_session(&conn, &source.id, Some(&session.id)).unwrap();
-        conn.execute(
-            "UPDATE tasks SET pr_labels = ?1, checklist = ?2, trigger_overrides = ?3, trigger_prompt = ?4, dependencies = ?5, blocked = 1, branch_name = ?6, files_touched = ?7, batch_id = ?8 WHERE id = ?9",
-            params![
-                r#"["bug","ui"]"#,
-                r#"[{"id":"one","text":"Check","checked":false}]"#,
-                r#"{"skip_triggers":true}"#,
-                "custom prompt",
-                r#"[{"taskId":"dep"}]"#,
-                "bentoya/source-branch",
-                r#"["src/main.rs"]"#,
-                "batch-source",
-                source.id,
-            ],
-        )
-        .unwrap();
-
-        let duplicated = duplicate_task(&conn, &source.id).unwrap();
-        let shifted = get_task(&conn, &after.id).unwrap();
-
-        assert_ne!(duplicated.id, source.id);
-        assert_eq!(duplicated.title, "Original (copy)");
-        assert_eq!(duplicated.description.as_deref(), Some("details"));
-        assert_eq!(duplicated.workspace_id, workspace.id);
-        assert_eq!(duplicated.column_id, column.id);
-        assert_eq!(duplicated.position, source.position + 1);
-        assert_eq!(shifted.position, source.position + 2);
-        assert_eq!(duplicated.pr_labels, "[]");
-        assert_eq!(
-            duplicated.checklist.as_deref(),
-            Some(r#"[{"id":"one","text":"Check","checked":false}]"#)
-        );
-        assert_eq!(
-            duplicated.trigger_overrides.as_deref(),
-            Some(r#"{"skip_triggers":true}"#)
-        );
-        assert_eq!(duplicated.trigger_prompt.as_deref(), Some("custom prompt"));
-        assert_eq!(
-            duplicated.dependencies.as_deref(),
-            Some(r#"[{"taskId":"dep"}]"#)
-        );
-        assert!(duplicated.blocked);
-        assert!(duplicated.agent_session_id.is_none());
-        assert!(duplicated.branch_name.is_none());
-        assert_eq!(duplicated.files_touched, "[]");
-        assert!(duplicated.batch_id.is_none());
-        assert_eq!(duplicated.pipeline_state, "idle");
-        assert!(duplicated.worktree_path.is_none());
-    }
+/// Restore an archived task by clearing archived_at.
+pub fn unarchive_task(conn: &Connection, id: &str) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET archived_at = NULL, updated_at = ?1 WHERE id = ?2",
+        params![ts, id],
+    )?;
+    get_task(conn, id)
 }

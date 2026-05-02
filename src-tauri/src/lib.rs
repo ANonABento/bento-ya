@@ -144,6 +144,8 @@ pub fn run() {
             commands::task::bulk_update_tasks,
             commands::task::reorder_tasks,
             commands::task::delete_task,
+            commands::task::archive_task,
+            commands::task::unarchive_task,
             commands::task::approve_task,
             commands::task::reject_task,
             commands::task::create_pr,

@@ -795,6 +795,38 @@ pub fn delete_task(app: AppHandle, state: State<AppState>, id: String) -> Result
     Ok(())
 }
 
+/// Archive a task (soft delete — sets archived_at, task stays in DB).
+#[tauri::command(rename_all = "camelCase")]
+pub fn archive_task(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Task, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let task = db::archive_task(&conn, &id)?;
+    pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_archived");
+    Ok(task)
+}
+
+/// Unarchive a task — clears archived_at, restoring it to the active board.
+#[tauri::command(rename_all = "camelCase")]
+pub fn unarchive_task(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Task, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let task = db::unarchive_task(&conn, &id)?;
+    pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_unarchived");
+    Ok(task)
+}
+
 /// Approve a task - sets review_status to "approved" and triggers auto-advance if exit_type is manual_approval
 #[tauri::command]
 pub async fn approve_task(

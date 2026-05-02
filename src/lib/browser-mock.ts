@@ -132,6 +132,7 @@ let mockTasks: Task[] = [
     dependencies: null,
     blocked: false,
     worktreePath: null,
+    archivedAt: null,
     queuedAt: null,
     position: 0,
     createdAt: new Date().toISOString(),
@@ -318,6 +319,7 @@ const mockCommands: Record<string, CommandHandler> = {
       dependencies: null,
       blocked: false,
       worktreePath: null,
+      archivedAt: null,
       queuedAt: null,
       position: mockTasks.filter((t) => t.columnId === args?.columnId).length,
       createdAt: new Date().toISOString(),
@@ -362,6 +364,24 @@ const mockCommands: Record<string, CommandHandler> = {
   },
   delete_task: (args) => {
     mockTasks = mockTasks.filter((t) => t.id !== args?.id)
+  },
+  archive_task: (args) => {
+    const task = mockTasks.find((t) => t.id === args?.id)
+    if (task) {
+      task.archivedAt = new Date().toISOString()
+      task.updatedAt = new Date().toISOString()
+      return task
+    }
+    throw new Error('Task not found')
+  },
+  unarchive_task: (args) => {
+    const task = mockTasks.find((t) => t.id === args?.id)
+    if (task) {
+      task.archivedAt = null
+      task.updatedAt = new Date().toISOString()
+      return task
+    }
+    throw new Error('Task not found')
   },
   reorder_tasks: (args) => {
     const taskIds = args?.taskIds as string[]
@@ -900,6 +920,7 @@ export function resetMockData() {
       dependencies: null,
       blocked: false,
       worktreePath: null,
+      archivedAt: null,
       queuedAt: null,
       position: 0,
       createdAt: new Date().toISOString(),
@@ -948,6 +969,7 @@ export function resetMockData() {
       dependencies: null,
       blocked: false,
       worktreePath: null,
+      archivedAt: null,
       queuedAt: null,
       position: 0,
       createdAt: new Date(Date.now() - 3600000).toISOString(),
@@ -996,6 +1018,7 @@ export function resetMockData() {
       dependencies: null,
       blocked: false,
       worktreePath: null,
+      archivedAt: null,
       queuedAt: null,
       position: 1,
       createdAt: new Date(Date.now() - 86400000).toISOString(),

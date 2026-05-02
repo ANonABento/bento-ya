@@ -6,9 +6,29 @@ import { useUIStore } from '@/stores/ui-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useLabelStore } from '@/stores/label-store'
 
+async function applyArchiveOp(
+  id: string,
+  ipcFn: (id: string) => Promise<Task>,
+  label: string,
+  get: () => { tasks: Task[] },
+  set: (updater: (s: { tasks: Task[] }) => Partial<{ tasks: Task[] }>) => void,
+): Promise<void> {
+  const workspaceId = get().tasks.find((t) => t.id === id)?.workspaceId
+  try {
+    const updated = await ipcFn(id)
+    set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? updated : t)) }))
+    if (workspaceId) {
+      await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+    }
+  } catch (err) {
+    console.error(`Failed to ${label} task:`, err)
+  }
+}
+
 type TaskState = {
   tasks: Task[]
   loaded: boolean
+  showArchived: boolean
 
   load: (workspaceId: string) => Promise<void>
   add: (workspaceId: string, columnId: string, title: string, description: string) => Promise<Task>
@@ -21,7 +41,9 @@ type TaskState = {
   createFromTemplate: (workspaceId: string, columnId: string, templateId: string) => Promise<Task>
   getByColumn: (columnId: string) => Task[]
   duplicate: (id: string) => Promise<Task | null>
-  setLabels: (id: string, labelIds: string[]) => Promise<void>
+  setShowArchived: (show: boolean) => void
+  archive: (id: string) => Promise<void>
+  unarchive: (id: string) => Promise<void>
 }
 
 export const useTaskStore = create<TaskState>()(
@@ -29,6 +51,7 @@ export const useTaskStore = create<TaskState>()(
     (set, get) => ({
       tasks: [],
       loaded: false,
+      showArchived: false,
 
       load: async (workspaceId) => {
         const tasks = await ipc.getTasks(workspaceId)
@@ -197,25 +220,13 @@ export const useTaskStore = create<TaskState>()(
         return task
       },
 
-      setLabels: async (id, labelIds) => {
-        const prev = get().tasks
-        const labelsById = new Map(useLabelStore.getState().labels.map((label) => [label.id, label]))
-        const optimisticLabels = labelIds.flatMap((labelId) => {
-          const label = labelsById.get(labelId)
-          return label ? [label] : []
-        })
-        set((s) => ({
-          tasks: s.tasks.map((task) => task.id === id ? { ...task, labels: optimisticLabels } : task),
-        }))
-        try {
-          const updated = await ipc.setTaskLabels(id, labelIds)
-          set((s) => ({
-            tasks: s.tasks.map((task) => task.id === id ? updated : task),
-          }))
-        } catch {
-          set({ tasks: prev })
-        }
+      setShowArchived: (show) => {
+        set({ showArchived: show })
       },
+
+      archive: (id) => applyArchiveOp(id, ipc.archiveTask, 'archive', get, set),
+
+      unarchive: (id) => applyArchiveOp(id, ipc.unarchiveTask, 'unarchive', get, set),
     }),
     { name: 'task-store' },
   ),
