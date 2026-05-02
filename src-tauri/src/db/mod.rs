@@ -16,6 +16,7 @@ pub mod checklist;
 pub mod column;
 pub mod github_sync;
 pub mod history;
+pub mod label;
 pub mod orchestrator_session;
 pub mod pipeline_timing;
 pub mod script;
@@ -36,6 +37,7 @@ pub use checklist::*;
 pub use column::*;
 pub use github_sync::*;
 pub use history::*;
+pub use label::*;
 pub use orchestrator_session::*;
 pub use pipeline_timing::*;
 pub use script::*;
@@ -146,7 +148,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         ("031_task_batch_id", include_str!("migrations/031_task_batch_id.sql")),
         ("032_github_sync", include_str!("migrations/032_github_sync.sql")),
         ("033_github_issue_unique", include_str!("migrations/033_github_issue_unique.sql")),
-        ("034_task_templates", include_str!("migrations/034_task_templates.sql")),
+        ("034_task_labels", include_str!("migrations/034_task_labels.sql")),
     ];
 
     for (name, sql) in migrations {
@@ -209,53 +211,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // We have 35 migrations, including split 019 and 030 migration files.
+        // We have 36 migrations, including split 019 and 030 migration files.
         assert_eq!(count, 36);
-    }
-
-    #[test]
-    fn test_task_template_crud() {
-        let conn = init_test().unwrap();
-        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
-        let template = insert_task_template(
-            &conn,
-            &ws.id,
-            "Bug fix template",
-            Some("Quick template"),
-            "[\"bug\"]",
-            Some("gpt-4"),
-        )
-        .unwrap();
-        assert_eq!(template.title, "Bug fix template");
-        assert_eq!(template.workspace_id, ws.id);
-
-        let fetched = get_task_template(&conn, &template.id).unwrap();
-        assert_eq!(fetched.title, template.title);
-        assert_eq!(fetched.description, template.description);
-
-        let mut templates = list_task_templates(&conn, &ws.id).unwrap();
-        assert_eq!(templates.len(), 1);
-
-        let updated = update_task_template(
-            &conn,
-            &template.id,
-            Some("Updated template"),
-            Some(Some("Updated description")),
-            Some("[\"bug\",\"fast\"]"),
-            Some(Some("opus")),
-        )
-        .unwrap();
-        assert_eq!(updated.title, "Updated template");
-        assert_eq!(updated.description.as_deref(), Some("Updated description"));
-        assert_eq!(updated.labels, "[\"bug\",\"fast\"]");
-        assert_eq!(updated.model.as_deref(), Some("opus"));
-
-        templates = list_task_templates(&conn, &ws.id).unwrap();
-        assert_eq!(templates.len(), 1);
-
-        delete_task_template(&conn, &template.id).unwrap();
-        templates = list_task_templates(&conn, &ws.id).unwrap();
-        assert!(templates.is_empty());
     }
 
     #[test]
@@ -332,28 +289,44 @@ mod tests {
     }
 
     #[test]
-    fn test_task_time_tracking() {
+    fn test_label_crud_and_task_assignment() {
         let conn = init_test().unwrap();
         let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
-        let col = insert_column(&conn, &ws.id, "Working", 0).unwrap();
-        let task = insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+        let col = insert_column(&conn, &ws.id, "Backlog", 0).unwrap();
+        let task = insert_task(&conn, &ws.id, &col.id, "Fix bug", None).unwrap();
 
-        let updated = update_task_time_tracking(&conn, &task.id, Some(2.5)).unwrap();
-        assert_eq!(updated.estimated_hours, Some(2.5));
+        let label = insert_label(&conn, &ws.id, "Bug", "#ef4444").unwrap();
+        assert_eq!(label.name, "Bug");
+        assert_eq!(list_labels(&conn, &ws.id).unwrap().len(), 1);
 
-        let session = insert_agent_session(&conn, &task.id, "claude", Some("/tmp")).unwrap();
-        conn.execute(
-            "UPDATE agent_sessions SET created_at = ?1, updated_at = ?2 WHERE id = ?3",
-            params![
-                "2024-01-01 00:00:00",
-                "2024-01-01 01:30:00",
-                session.id,
-            ],
-        )
-        .unwrap();
+        set_task_labels(&conn, &task.id, std::slice::from_ref(&label.id)).unwrap();
+        let task = get_task(&conn, &task.id).unwrap();
+        assert_eq!(task.labels, vec![label.clone()]);
 
-        let tracked = get_task(&conn, &task.id).unwrap();
-        assert!((tracked.actual_hours - 1.5).abs() < 0.001);
+        let updated = update_label(&conn, &label.id, Some("Defect"), Some("#dc2626")).unwrap();
+        assert_eq!(updated.name, "Defect");
+        assert_eq!(get_task(&conn, &task.id).unwrap().labels[0].name, "Defect");
+
+        set_task_labels(&conn, &task.id, &[label.id.clone(), label.id.clone()]).unwrap();
+        assert_eq!(get_task(&conn, &task.id).unwrap().labels.len(), 1);
+
+        delete_label(&conn, &label.id).unwrap();
+        assert!(get_task(&conn, &task.id).unwrap().labels.is_empty());
+    }
+
+    #[test]
+    fn test_task_labels_reject_cross_workspace_labels() {
+        let conn = init_test().unwrap();
+        let ws_a = insert_workspace(&conn, "A", "/tmp/a").unwrap();
+        let ws_b = insert_workspace(&conn, "B", "/tmp/b").unwrap();
+        let col_a = insert_column(&conn, &ws_a.id, "Backlog", 0).unwrap();
+        let task = insert_task(&conn, &ws_a.id, &col_a.id, "Fix bug", None).unwrap();
+        let label_b = insert_label(&conn, &ws_b.id, "Other", "#3b82f6").unwrap();
+
+        let result = set_task_labels(&conn, &task.id, &[label_b.id]);
+
+        assert!(matches!(result, Err(rusqlite::Error::QueryReturnedNoRows)));
+        assert!(get_task(&conn, &task.id).unwrap().labels.is_empty());
     }
 
     #[test]

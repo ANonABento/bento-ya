@@ -73,6 +73,7 @@ export const mockTask = (overrides: Partial<Task> = {}): Task => ({
   prCommentCount: 0,
   prIsDraft: false,
   prLabels: '[]',
+  labels: [],
   prLastFetched: null,
   prHeadSha: null,
   checklist: null,

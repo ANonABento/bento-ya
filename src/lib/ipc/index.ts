@@ -16,6 +16,7 @@ export * from './script'
 export * from './siege'
 export * from './github'
 export * from './terminal'
+export * from './label'
 export * from './models'
 export * from './updater'
 

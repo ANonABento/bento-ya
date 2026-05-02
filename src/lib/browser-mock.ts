@@ -5,7 +5,7 @@
 
 /* eslint-disable @typescript-eslint/no-unnecessary-condition -- Mock data uses ?? for defensive safety with unknown runtime args */
 
-import type { Workspace, Column, Task, TaskTemplate, AgentMode, AgentStatus, PipelineState } from '@/types'
+import type { Workspace, Column, Task, Label, AgentMode, AgentStatus, PipelineState } from '@/types'
 import { DEFAULT_TRIGGERS } from '@/types/column'
 
 // Check if we're running in Tauri or in a test environment
@@ -118,6 +118,7 @@ let mockTasks: Task[] = [
     prCommentCount: 0,
     prIsDraft: false,
     prLabels: '[]',
+    labels: [],
     prLastFetched: null,
     prHeadSha: null,
     checklist: null,
@@ -138,11 +139,16 @@ let mockTasks: Task[] = [
   },
 ]
 
+let mockLabels: Label[] = []
+
 let idCounter = 100
 
 let mockTaskTemplates: TaskTemplate[] = []
 
 const generateId = (prefix: string) => `${prefix}-${String(++idCounter)}`
+
+const sortMockLabels = (a: Label, b: Label) =>
+  a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 
 const getLastColumnId = (workspaceId: string) => {
   const columns = mockColumns
@@ -209,6 +215,7 @@ const mockCommands: Record<string, CommandHandler> = {
     mockWorkspaces = mockWorkspaces.filter((w) => w.id !== args?.id)
     mockColumns = mockColumns.filter((c) => c.workspaceId !== args?.id)
     mockTasks = mockTasks.filter((t) => t.workspaceId !== args?.id)
+    mockLabels = mockLabels.filter((label) => label.workspaceId !== args?.id)
   },
   reorder_workspaces: (args) => {
     const ids = args?.ids as string[]
@@ -297,6 +304,7 @@ const mockCommands: Record<string, CommandHandler> = {
       prCommentCount: 0,
       prIsDraft: false,
       prLabels: '[]',
+      labels: [],
       prLastFetched: null,
       prHeadSha: null,
       checklist: null,
@@ -364,113 +372,50 @@ const mockCommands: Record<string, CommandHandler> = {
     return mockTasks.filter((t) => t.columnId === args?.columnId)
   },
 
-  // Task template commands
-  list_task_templates: (args) =>
-    mockTaskTemplates.filter((template) => template.workspaceId === args?.workspaceId),
-  create_task_template: (args) => {
-    const template: TaskTemplate = {
-      id: generateId('template'),
+  // Label commands
+  list_labels: (args) => {
+    return mockLabels
+      .filter((label) => label.workspaceId === args?.workspaceId)
+      .sort(sortMockLabels)
+  },
+  create_label: (args) => {
+    const label: Label = {
+      id: generateId('label'),
       workspaceId: args?.workspaceId as string,
-      title: (args?.title as string) || 'New Template',
-      description: (args?.description as string) ?? null,
-      labels: (args?.labels as string) || '[]',
-      model: (args?.model as string) ?? null,
+      name: ((args?.name as string) || 'New label').trim(),
+      color: ((args?.color as string | undefined) || '#64748b').toLowerCase(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
-    mockTaskTemplates.push(template)
-    return template
+    mockLabels.push(label)
+    mockLabels.sort(sortMockLabels)
+    return label
   },
-  save_task_as_template: (args) => {
-    const task = mockTasks.find((t) => t.id === args?.taskId)
-    if (!task) {
-      throw new Error('Task not found')
-    }
-    const template: TaskTemplate = {
-      id: generateId('template'),
-      workspaceId: task.workspaceId,
-      title: ((args?.title as string) || task.title).trim(),
-      description: task.description,
-      labels: task.prLabels || '[]',
-      model: task.model,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }
-    mockTaskTemplates.push(template)
-    return template
+  update_label: (args) => {
+    const label = mockLabels.find((current) => current.id === args?.id)
+    if (!label) throw new Error('Label not found')
+    label.name = ((args?.name as string | undefined) ?? label.name).trim()
+    label.color = ((args?.color as string | undefined) ?? label.color).toLowerCase()
+    label.updatedAt = new Date().toISOString()
+    mockLabels.sort(sortMockLabels)
+    return label
   },
-  update_task_template: (args) => {
-    const template = mockTaskTemplates.find((item) => item.id === args?.id)
-    if (!template) {
-      throw new Error('Template not found')
-    }
-    if (args?.title) template.title = args.title as string
-    if ('description' in (args ?? {})) {
-      template.description = args?.description as string | null
-    }
-    if (args?.labels) template.labels = args?.labels as string
-    if ('model' in (args ?? {})) {
-      template.model = args?.model as string | null
-    }
-    template.updatedAt = new Date().toISOString()
-    return template
+  delete_label: (args) => {
+    const id = args?.id as string
+    mockLabels = mockLabels.filter((label) => label.id !== id)
+    mockTasks = mockTasks.map((task) => ({
+      ...task,
+      labels: (task.labels ?? []).filter((label) => label.id !== id),
+    }))
   },
-  delete_task_template: (args) => {
-    mockTaskTemplates = mockTaskTemplates.filter((item) => item.id !== args?.id)
-  },
-  create_task_from_template: (args) => {
-    const template = mockTaskTemplates.find((item) => item.id === args?.templateId)
-    if (!template) {
-      throw new Error('Template not found')
-    }
-    const columnId = args?.columnId as string
-    const columnTasks = mockTasks.filter((task) => task.columnId === columnId)
-    const task: Task = {
-      id: generateId('task'),
-      workspaceId: template.workspaceId,
-      columnId,
-      title: template.title,
-      description: template.description ?? '',
-      branch: null,
-      agentType: null,
-      agentMode: null,
-      agentStatus: null,
-      pipelineState: 'idle',
-      pipelineTriggeredAt: null,
-      pipelineError: null,
-      retryCount: 0,
-      model: template.model,
-      lastScriptExitCode: null,
-      reviewStatus: null,
-      prNumber: null,
-      prUrl: null,
-      siegeIteration: 0,
-      siegeActive: false,
-      siegeMaxIterations: 5,
-      siegeLastChecked: null,
-      prMergeable: null,
-      prCiStatus: null,
-      prReviewDecision: null,
-      prCommentCount: 0,
-      prIsDraft: false,
-      prLabels: template.labels,
-      prLastFetched: null,
-      prHeadSha: null,
-      checklist: null,
-      notifyStakeholders: null,
-      notificationSentAt: null,
-      triggerOverrides: null,
-      triggerPrompt: null,
-      lastOutput: null,
-      dependencies: null,
-      blocked: false,
-      worktreePath: null,
-      queuedAt: null,
-      position: columnTasks.length,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }
-    mockTasks.push(task)
+  set_task_labels: (args) => {
+    const task = mockTasks.find((current) => current.id === args?.taskId)
+    if (!task) throw new Error('Task not found')
+    const labelIds = new Set(args?.labelIds as string[])
+    task.labels = mockLabels.filter(
+      (label) => label.workspaceId === task.workspaceId && labelIds.has(label.id),
+    )
+    task.updatedAt = new Date().toISOString()
     return task
   },
 
@@ -941,6 +886,7 @@ export function resetMockData() {
       prCommentCount: 3,
       prIsDraft: false,
       prLabels: '["enhancement", "ready-for-review"]',
+      labels: [],
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'abc123',
       checklist: null,
@@ -988,6 +934,7 @@ export function resetMockData() {
       prCommentCount: 7,
       prIsDraft: false,
       prLabels: '["bug", "needs-work", "urgent"]',
+      labels: [],
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'def456',
       checklist: null,
@@ -1035,6 +982,7 @@ export function resetMockData() {
       prCommentCount: 0,
       prIsDraft: true,
       prLabels: '[]',
+      labels: [],
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'ghi789',
       checklist: null,
@@ -1055,18 +1003,6 @@ export function resetMockData() {
     },
   ]
 
-  mockTaskTemplates = [
-    {
-      id: 'template-1',
-      workspaceId: 'ws-demo',
-      title: 'Bug fix starter',
-      description: 'Reusable template for fix tasks',
-      labels: '["bug"]',
-      model: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-  ]
-
+  mockLabels = []
   idCounter = 100
 }

@@ -1,4 +1,5 @@
 use rusqlite::{params, Connection, Result as SqlResult};
+use std::collections::HashMap;
 
 use super::models::Task;
 use super::{new_id, now};
@@ -54,22 +55,44 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         pr_labels: row
             .get::<_, Option<String>>(30)?
             .unwrap_or_else(|| "[]".to_string()),
-        pr_last_fetched: row.get(31)?,
-        pr_head_sha: row.get(32)?,
-        notify_stakeholders: row.get(33)?,
-        notification_sent_at: row.get(34)?,
-        trigger_overrides: row.get(35)?,
-        trigger_prompt: row.get(36)?,
-        last_output: row.get(37)?,
-        dependencies: row.get(38)?,
-        blocked: row.get::<_, Option<i64>>(39)?.unwrap_or(0) != 0,
-        worktree_path: row.get(46)?,
-        github_issue_number: row.get(48)?,
-        github_issue_commented: row.get::<_, Option<i64>>(49)?.unwrap_or(0) != 0,
-        github_issue_pr_linked: row.get::<_, Option<i64>>(50)?.unwrap_or(0) != 0,
-        created_at: row.get(40)?,
-        updated_at: row.get(41)?,
+        pr_last_fetched: row.get(29)?,
+        pr_head_sha: row.get(30)?,
+        notify_stakeholders: row.get(31)?,
+        notification_sent_at: row.get(32)?,
+        trigger_overrides: row.get(33)?,
+        trigger_prompt: row.get(34)?,
+        last_output: row.get(35)?,
+        dependencies: row.get(36)?,
+        blocked: row.get::<_, Option<i64>>(37)?.unwrap_or(0) != 0,
+        worktree_path: row.get(44)?,
+        github_issue_number: row.get(46)?,
+        github_issue_commented: row.get::<_, Option<i64>>(47)?.unwrap_or(0) != 0,
+        github_issue_pr_linked: row.get::<_, Option<i64>>(48)?.unwrap_or(0) != 0,
+        labels: Vec::new(),
+        created_at: row.get(38)?,
+        updated_at: row.get(39)?,
     })
+}
+
+fn with_labels(conn: &Connection, mut task: Task) -> SqlResult<Task> {
+    task.labels = super::list_task_labels(conn, &task.id)?;
+    Ok(task)
+}
+
+fn with_labels_for_tasks(conn: &Connection, tasks: Vec<Task>) -> SqlResult<Vec<Task>> {
+    let task_ids: Vec<String> = tasks.iter().map(|task| task.id.clone()).collect();
+    let mut labels_by_task_id: HashMap<String, Vec<super::Label>> = HashMap::new();
+    for (task_id, label) in super::list_labels_for_tasks(conn, &task_ids)? {
+        labels_by_task_id.entry(task_id).or_default().push(label);
+    }
+
+    Ok(tasks
+        .into_iter()
+        .map(|mut task| {
+            task.labels = labels_by_task_id.remove(&task.id).unwrap_or_default();
+            task
+        })
+        .collect())
 }
 
 pub fn insert_task(
@@ -238,11 +261,12 @@ pub fn append_task_to_column(conn: &Connection, task_id: &str, column_id: &str) 
 }
 
 pub fn get_task(conn: &Connection, id: &str) -> SqlResult<Task> {
-    conn.query_row(
+    let task = conn.query_row(
         &format!("SELECT {} FROM tasks WHERE id = ?1", TASK_COLUMNS),
         params![id],
         map_task_row,
-    )
+    )?;
+    with_labels(conn, task)
 }
 
 pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
@@ -251,7 +275,7 @@ pub fn list_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>>
         TASK_COLUMNS
     ))?;
     let rows = stmt.query_map(params![workspace_id], map_task_row)?;
-    rows.collect()
+    with_labels_for_tasks(conn, rows.collect::<SqlResult<Vec<_>>>()?)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -316,7 +340,7 @@ pub fn list_tasks_by_column(conn: &Connection, column_id: &str) -> SqlResult<Vec
         TASK_COLUMNS
     ))?;
     let rows = stmt.query_map(params![column_id], map_task_row)?;
-    rows.collect()
+    with_labels_for_tasks(conn, rows.collect::<SqlResult<Vec<_>>>()?)
 }
 
 /// Update pipeline state for a task
@@ -416,7 +440,7 @@ pub fn list_tasks_by_batch_id(
         TASK_COLUMNS
     ))?;
     let rows = stmt.query_map(params![workspace_id, batch_id], map_task_row)?;
-    rows.collect()
+    with_labels_for_tasks(conn, rows.collect::<SqlResult<Vec<_>>>()?)
 }
 
 /// Update worktree_path for a task
@@ -454,7 +478,7 @@ pub fn get_queued_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<
         &format!("SELECT {} FROM tasks WHERE workspace_id = ?1 AND agent_status = 'queued' ORDER BY queued_at ASC", TASK_COLUMNS),
     )?;
     let rows = stmt.query_map(params![workspace_id], map_task_row)?;
-    rows.collect()
+    with_labels_for_tasks(conn, rows.collect::<SqlResult<Vec<_>>>()?)
 }
 
 /// Count tasks with agent_status = 'running' in a workspace

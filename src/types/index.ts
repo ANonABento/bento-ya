@@ -1,5 +1,6 @@
 export type { Workspace, WorkspaceConfig } from './workspace'
 export { parseWorkspaceConfig } from './workspace'
+export type { Label } from './label'
 export type {
   Column,
   ColumnTriggers,

@@ -13,7 +13,7 @@ import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useScriptStore } from '@/stores/script-store'
-import { useColumnMetricsStore } from '@/stores/column-metrics-store'
+import { useLabelStore } from '@/stores/label-store'
 import { Column } from '@/components/kanban/column'
 import { DragOverlayContent } from '@/components/kanban/drag-overlay'
 import { DependencyLines } from '@/components/kanban/dependency-lines'
@@ -27,7 +27,7 @@ import { useUIStore } from '@/stores/ui-store'
 import { CardPositionContext, useCardPositionProvider } from '@/hooks/use-card-positions'
 import { DepDragContext } from '@/hooks/use-dep-drag-context'
 import { BulkTaskToolbar } from '@/components/kanban/bulk-task-toolbar'
-import { UsageBudgetBanner } from '@/components/usage/usage-budget-banner'
+import { LabelBar } from '@/components/kanban/label-bar'
 
 export function Board() {
   const panelDock = useUIStore((s) => s.panelDock)
@@ -37,6 +37,7 @@ export function Board() {
   const addColumn = useColumnStore((s) => s.add)
   const loadTasks = useTaskStore((s) => s.load)
   const tasks = useTaskStore((s) => s.tasks)
+  const loadLabels = useLabelStore((s) => s.load)
   const bulkMoveTasks = useTaskStore((s) => s.bulkMove)
   const bulkRemoveTasks = useTaskStore((s) => s.bulkRemove)
   const loadScripts = useScriptStore((s) => s.load)
@@ -45,6 +46,7 @@ export function Board() {
   const [newColumnId, setNewColumnId] = useState<string | null>(null)
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set())
   const [lastSelectedTaskId, setLastSelectedTaskId] = useState<string | null>(null)
+  const [selectedLabelId, setSelectedLabelId] = useState<string | null>(null)
 
   const handleAddColumn = useCallback(() => {
     if (!activeWorkspaceId) return
@@ -78,10 +80,11 @@ export function Board() {
     () => sortedColumns.flatMap((column) =>
       tasks
         .filter((task) => task.columnId === column.id)
+        .filter((task) => selectedLabelId === null || task.labels.some((label) => label.id === selectedLabelId))
         .sort((a, b) => a.position - b.position)
         .map((task) => task.id),
     ),
-    [sortedColumns, tasks],
+    [selectedLabelId, sortedColumns, tasks],
   )
   const selectedTasks = useMemo(
     () => tasks.filter((task) => selectedTaskIds.has(task.id)),
@@ -114,10 +117,11 @@ export function Board() {
     if (activeWorkspaceId) {
       void loadColumns(activeWorkspaceId)
       void loadTasks(activeWorkspaceId)
+      void loadLabels(activeWorkspaceId)
       void loadScripts()
       void loadColumnMetrics(activeWorkspaceId)
     }
-  }, [activeWorkspaceId, loadColumns, loadTasks, loadScripts, loadColumnMetrics])
+  }, [activeWorkspaceId, loadColumns, loadLabels, loadTasks, loadScripts])
 
   useEffect(() => {
     setSelectedTaskIds((current) => {
@@ -222,7 +226,13 @@ export function Board() {
         <div className="flex h-full" data-board-container>
           {/* Board + orchestrator panel (left side, shrinks when task panel open) */}
           <div className="flex flex-1 flex-col overflow-hidden">
-            {activeWorkspaceId && <UsageBudgetBanner workspaceId={activeWorkspaceId} />}
+            {activeWorkspaceId && (
+              <LabelBar
+                workspaceId={activeWorkspaceId}
+                selectedLabelId={selectedLabelId}
+                onSelectLabel={setSelectedLabelId}
+              />
+            )}
             <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
               <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
                 {sortedColumns.map((col) => (
@@ -233,6 +243,7 @@ export function Board() {
                     onConfigOpened={col.id === newColumnId ? () => { setNewColumnId(null) } : undefined}
                     selectedTaskIds={selectedTaskIds}
                     onTaskSelectionChange={handleTaskSelectionChange}
+                    labelFilterId={selectedLabelId}
                   />
                 ))}
               </SortableContext>

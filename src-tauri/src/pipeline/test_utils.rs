@@ -36,6 +36,7 @@ pub fn make_task(retry_count: i64, pipeline_state: &str) -> Task {
         pr_comment_count: 0,
         pr_is_draft: false,
         pr_labels: "[]".into(),
+            labels: Vec::new(),
         pr_last_fetched: None,
         pr_head_sha: None,
         notify_stakeholders: None,

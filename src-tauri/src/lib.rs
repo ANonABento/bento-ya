@@ -121,6 +121,12 @@ pub fn run() {
             commands::column::update_column,
             commands::column::reorder_columns,
             commands::column::delete_column,
+            // Label CRUD
+            commands::label::list_labels,
+            commands::label::create_label,
+            commands::label::update_label,
+            commands::label::delete_label,
+            commands::label::set_task_labels,
             // Task CRUD
             commands::task::create_task,
             commands::task::get_task,

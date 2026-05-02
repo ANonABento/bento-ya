@@ -4,6 +4,7 @@ import type { Task } from '@/types'
 import * as ipc from '@/lib/ipc'
 import { useUIStore } from '@/stores/ui-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useLabelStore } from '@/stores/label-store'
 
 type TaskState = {
   tasks: Task[]
@@ -20,6 +21,7 @@ type TaskState = {
   createFromTemplate: (workspaceId: string, columnId: string, templateId: string) => Promise<Task>
   getByColumn: (columnId: string) => Task[]
   duplicate: (id: string) => Promise<Task | null>
+  setLabels: (id: string, labelIds: string[]) => Promise<void>
 }
 
 export const useTaskStore = create<TaskState>()(
@@ -193,6 +195,26 @@ export const useTaskStore = create<TaskState>()(
         }))
         await useWorkspaceStore.getState().refreshWorkspace(original.workspaceId)
         return task
+      },
+
+      setLabels: async (id, labelIds) => {
+        const prev = get().tasks
+        const labelsById = new Map(useLabelStore.getState().labels.map((label) => [label.id, label]))
+        const optimisticLabels = labelIds.flatMap((labelId) => {
+          const label = labelsById.get(labelId)
+          return label ? [label] : []
+        })
+        set((s) => ({
+          tasks: s.tasks.map((task) => task.id === id ? { ...task, labels: optimisticLabels } : task),
+        }))
+        try {
+          const updated = await ipc.setTaskLabels(id, labelIds)
+          set((s) => ({
+            tasks: s.tasks.map((task) => task.id === id ? updated : task),
+          }))
+        } catch {
+          set({ tasks: prev })
+        }
       },
     }),
     { name: 'task-store' },
