@@ -119,3 +119,11 @@ export type SiegeEvent = {
   maxIterations: number
   message: string
 }
+
+export type BatchSummary = {
+  batchId: string
+  taskCount: number
+  failedCount: number
+  tasks: Task[]
+  createdAt: string
+}

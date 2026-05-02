@@ -159,6 +159,10 @@ pub fn run() {
             commands::task::queue_backlog,
             commands::task::create_task_worktree,
             commands::task::remove_task_worktree,
+            // Batch management
+            commands::task::list_batches,
+            commands::task::force_merge_batch,
+            commands::task::retry_batch,
             // Git commands
             commands::git::create_task_branch,
             commands::git::switch_branch,

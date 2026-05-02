@@ -1309,6 +1309,18 @@ fn open_batch_pr_exists(
     Ok(!String::from_utf8_lossy(&output.stdout).trim().is_empty())
 }
 
+/// Force-create a batch staging PR without checking if all tasks have PRs.
+/// Used by the batch management UI to manually merge incomplete batches.
+pub fn force_create_batch_pr(
+    repo_path: &str,
+    batch_id: &str,
+    base_branch: &str,
+) -> Result<Option<String>, String> {
+    let normalized = normalize_batch_id(batch_id).unwrap_or_else(|| batch_id.to_string());
+    let staging_branch = staging_branch_for_batch(&normalized);
+    maybe_create_batch_pr(repo_path, &normalized, base_branch, &staging_branch)
+}
+
 fn maybe_create_batch_pr(
     repo_path: &str,
     batch_id: &str,
