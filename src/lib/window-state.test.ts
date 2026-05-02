@@ -11,6 +11,16 @@ vi.mock('@tauri-apps/api/webview', () => ({
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: unknown }
 
+const ZOOM_KEY = 'bento-window-zoom'
+
+const zoomInEvent = () =>
+  new KeyboardEvent('keydown', {
+    key: '=',
+    metaKey: true,
+    bubbles: true,
+    cancelable: true,
+  })
+
 describe('window zoom state', () => {
   beforeEach(() => {
     window.localStorage.clear()
@@ -28,7 +38,7 @@ describe('window zoom state', () => {
   })
 
   it('restores persisted zoom on startup', async () => {
-    window.localStorage.setItem('bento-window-zoom', '1.25')
+    window.localStorage.setItem(ZOOM_KEY, '1.25')
 
     await initializeWindowZoomState()
 
@@ -44,24 +54,18 @@ describe('window zoom state', () => {
   it('persists app zoom keyboard shortcuts', async () => {
     await initializeWindowZoomState()
 
-    const event = new KeyboardEvent('keydown', {
-      key: '=',
-      metaKey: true,
-      bubbles: true,
-      cancelable: true,
-    })
-
+    const event = zoomInEvent()
     window.dispatchEvent(event)
 
     await vi.waitFor(() => {
       expect(setZoom).toHaveBeenCalledWith(1.1)
     })
     expect(event.defaultPrevented).toBe(true)
-    expect(window.localStorage.getItem('bento-window-zoom')).toBe('1.1')
+    expect(window.localStorage.getItem(ZOOM_KEY)).toBe('1.1')
   })
 
   it('resets app zoom with the standard shortcut', async () => {
-    window.localStorage.setItem('bento-window-zoom', '1.4')
+    window.localStorage.setItem(ZOOM_KEY, '1.4')
     await initializeWindowZoomState()
 
     window.dispatchEvent(
@@ -76,7 +80,7 @@ describe('window zoom state', () => {
     await vi.waitFor(() => {
       expect(setZoom).toHaveBeenLastCalledWith(1)
     })
-    expect(window.localStorage.getItem('bento-window-zoom')).toBe('1')
+    expect(window.localStorage.getItem(ZOOM_KEY)).toBe('1')
   })
 
   it('serializes rapid zoom shortcuts so stale writes cannot win', async () => {
@@ -90,22 +94,8 @@ describe('window zoom state', () => {
 
     await initializeWindowZoomState()
 
-    window.dispatchEvent(
-      new KeyboardEvent('keydown', {
-        key: '=',
-        metaKey: true,
-        bubbles: true,
-        cancelable: true,
-      }),
-    )
-    window.dispatchEvent(
-      new KeyboardEvent('keydown', {
-        key: '=',
-        metaKey: true,
-        bubbles: true,
-        cancelable: true,
-      }),
-    )
+    window.dispatchEvent(zoomInEvent())
+    window.dispatchEvent(zoomInEvent())
 
     await vi.waitFor(() => {
       expect(setZoom).toHaveBeenCalledTimes(1)
@@ -122,7 +112,7 @@ describe('window zoom state', () => {
     expect(resolveZoom[1]).toBeDefined()
     resolveZoom[1]?.()
     await vi.waitFor(() => {
-      expect(window.localStorage.getItem('bento-window-zoom')).toBe('1.2')
+      expect(window.localStorage.getItem(ZOOM_KEY)).toBe('1.2')
     })
   })
 
@@ -130,14 +120,7 @@ describe('window zoom state', () => {
     await initializeWindowZoomState()
     await initializeWindowZoomState()
 
-    window.dispatchEvent(
-      new KeyboardEvent('keydown', {
-        key: '=',
-        metaKey: true,
-        bubbles: true,
-        cancelable: true,
-      }),
-    )
+    window.dispatchEvent(zoomInEvent())
 
     await vi.waitFor(() => {
       expect(setZoom).toHaveBeenCalledTimes(1)
