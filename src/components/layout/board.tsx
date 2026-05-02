@@ -79,7 +79,7 @@ export function Board() {
     () => sortedColumns.flatMap((column) =>
       tasks
         .filter((task) => task.columnId === column.id)
-        .filter((task) => selectedLabelId === null || (task.labels ?? []).some((label) => label.id === selectedLabelId))
+        .filter((task) => selectedLabelId === null || task.labels.some((label) => label.id === selectedLabelId))
         .sort((a, b) => a.position - b.position)
         .map((task) => task.id),
     ),

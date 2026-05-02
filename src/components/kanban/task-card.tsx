@@ -109,7 +109,7 @@ export const TaskCard = memo(function TaskCard({
 
   const taskLabels = useMemo(() => {
     const labelsById = new Map(workspaceLabels.map((label) => [label.id, label]))
-    return (task.labels ?? []).flatMap((label) => {
+    return task.labels.flatMap((label) => {
       const current = labelsById.get(label.id)
       return current ? [current] : []
     })

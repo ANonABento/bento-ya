@@ -4,15 +4,21 @@ use std::collections::BTreeSet;
 use super::models::Label;
 use super::{new_id, now};
 
-fn map_label_row(row: &rusqlite::Row) -> rusqlite::Result<Label> {
+const LABEL_COLUMNS: &str = "id, workspace_id, name, color, created_at, updated_at";
+
+fn map_label_row_at(row: &rusqlite::Row, offset: usize) -> rusqlite::Result<Label> {
     Ok(Label {
-        id: row.get(0)?,
-        workspace_id: row.get(1)?,
-        name: row.get(2)?,
-        color: row.get(3)?,
-        created_at: row.get(4)?,
-        updated_at: row.get(5)?,
+        id: row.get(offset)?,
+        workspace_id: row.get(offset + 1)?,
+        name: row.get(offset + 2)?,
+        color: row.get(offset + 3)?,
+        created_at: row.get(offset + 4)?,
+        updated_at: row.get(offset + 5)?,
     })
+}
+
+fn map_label_row(row: &rusqlite::Row) -> rusqlite::Result<Label> {
+    map_label_row_at(row, 0)
 }
 
 pub fn insert_label(
@@ -32,16 +38,16 @@ pub fn insert_label(
 
 pub fn get_label(conn: &Connection, id: &str) -> SqlResult<Label> {
     conn.query_row(
-        "SELECT id, workspace_id, name, color, created_at, updated_at FROM labels WHERE id = ?1",
+        &format!("SELECT {LABEL_COLUMNS} FROM labels WHERE id = ?1"),
         params![id],
         map_label_row,
     )
 }
 
 pub fn list_labels(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Label>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, workspace_id, name, color, created_at, updated_at FROM labels WHERE workspace_id = ?1 ORDER BY name COLLATE NOCASE ASC",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {LABEL_COLUMNS} FROM labels WHERE workspace_id = ?1 ORDER BY name COLLATE NOCASE ASC",
+    ))?;
     let rows = stmt.query_map(params![workspace_id], map_label_row)?;
     rows.collect()
 }
@@ -71,23 +77,12 @@ pub fn list_labels_for_tasks(
         "SELECT tl.task_id, l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at
          FROM task_labels tl
          JOIN labels l ON l.id = tl.label_id
-         WHERE tl.task_id IN ({})
+         WHERE tl.task_id IN ({placeholders})
          ORDER BY tl.task_id ASC, l.name COLLATE NOCASE ASC",
-        placeholders
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(task_ids), |row| {
-        Ok((
-            row.get(0)?,
-            Label {
-                id: row.get(1)?,
-                workspace_id: row.get(2)?,
-                name: row.get(3)?,
-                color: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
-            },
-        ))
+        Ok((row.get::<_, String>(0)?, map_label_row_at(row, 1)?))
     })?;
     rows.collect()
 }

@@ -24,7 +24,7 @@ export function DragOverlayContent({ item }: DragOverlayContentProps) {
   const taskLabels = useMemo(() => {
     if (item.type !== 'task') return []
     const labelsById = new Map(workspaceLabels.map((l) => [l.id, l]))
-    return (item.data.labels ?? []).flatMap((l) => {
+    return item.data.labels.flatMap((l) => {
       const current = labelsById.get(l.id)
       return current ? [current] : []
     })

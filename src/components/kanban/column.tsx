@@ -48,7 +48,7 @@ export const Column = memo(function Column({
   const tasks = useMemo(
     () => allTasks
       .filter((t) => t.columnId === column.id)
-      .filter((t) => labelFilterId === null || (t.labels ?? []).some((label) => label.id === labelFilterId))
+      .filter((t) => labelFilterId === null || t.labels.some((label) => label.id === labelFilterId))
       .sort((a, b) => a.position - b.position),
     [allTasks, column.id, labelFilterId]
   )

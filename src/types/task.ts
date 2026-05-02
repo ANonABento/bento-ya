@@ -63,7 +63,7 @@ export type Task = {
   dependencies: string | null      // JSON array of dependency specs
   blocked: boolean                 // Whether task is blocked by dependencies
   worktreePath: string | null      // Per-task git worktree path (absolute)
-  labels?: Label[]
+  labels: Label[]
   position: number
   createdAt: string
   updatedAt: string

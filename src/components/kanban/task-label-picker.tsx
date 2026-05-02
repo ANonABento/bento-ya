@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from 'react'
 import type { Task } from '@/types'
 import { useLabelStore } from '@/stores/label-store'
 import { useTaskStore } from '@/stores/task-store'
@@ -12,7 +12,7 @@ export function TaskLabelPicker({ task }: TaskLabelPickerProps) {
   const setTaskLabels = useTaskStore((s) => s.setLabels)
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
-  const selectedIds = useMemo(() => new Set((task.labels ?? []).map((label) => label.id)), [task.labels])
+  const selectedIds = useMemo(() => new Set(task.labels.map((label) => label.id)), [task.labels])
 
   useEffect(() => {
     if (!open) return
@@ -25,7 +25,7 @@ export function TaskLabelPicker({ task }: TaskLabelPickerProps) {
     return () => { document.removeEventListener('pointerdown', handlePointerDown) }
   }, [open])
 
-  function stopCardEvent(event: ReactMouseEvent) {
+  function stopCardEvent(event: SyntheticEvent) {
     event.preventDefault()
     event.stopPropagation()
   }
