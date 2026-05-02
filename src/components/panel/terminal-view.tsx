@@ -5,7 +5,7 @@
  * Sends user input via write_to_pty, resizes via resize_pty.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
@@ -18,6 +18,7 @@ import { writeToPty, resizePty, ensurePtySession } from '@/lib/ipc/terminal'
 import { EventChannels, type PtyExitPayload } from '@/types/events'
 import { getXtermTheme } from '@/lib/xterm-theme'
 import { getTheme } from '@/lib/theme'
+import { EmptyState } from '@/components/shared/empty-state'
 
 type TerminalViewProps = {
   taskId: string
@@ -26,10 +27,14 @@ type TerminalViewProps = {
 
 export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const [hasOutput, setHasOutput] = useState(false)
 
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+
+    // Reset empty-state flag when (re)mounting for a new task
+    setHasOutput(false)
 
     let disposed = false
 
@@ -87,6 +92,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
     listenerPromises.push(
       listen<string>(EventChannels.ptyOutput(taskId), (data) => {
         if (disposed) return
+        setHasOutput(true)
         // data is a base64-encoded string emitted directly from bridge.rs
         try {
           const binary = atob(data)
@@ -133,6 +139,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
                     bytes[i] = binary.charCodeAt(i)
                   }
                   term.write(bytes)
+                  if (bytes.length > 0) setHasOutput(true)
                 } catch { /* ignore decode errors */ }
               }
               resolve()
@@ -189,12 +196,28 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
   }, [taskId, workingDir])
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       <div
         ref={containerRef}
         className="min-h-0 flex-1"
         style={{ padding: '4px 0 4px 4px' }}
       />
+      {!hasOutput && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-bg/80 backdrop-blur-sm">
+          <div className="pointer-events-auto max-w-sm">
+            <EmptyState
+              size="md"
+              title="No terminal session active"
+              description="Agent is running headlessly. Switch to the Output tab to see structured activity."
+              icon={
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-full w-full">
+                  <path d="M4 6h16M4 6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2M6 11l3 3-3 3M12 17h6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              }
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
