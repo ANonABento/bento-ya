@@ -6,6 +6,7 @@ export function isEditableTarget(target: EventTarget | null): boolean {
     tagName === 'INPUT' ||
     tagName === 'TEXTAREA' ||
     tagName === 'SELECT' ||
-    target.isContentEditable
+    !!(target.isContentEditable) ||
+    target.getAttribute('contenteditable') === 'true'
   )
 }
