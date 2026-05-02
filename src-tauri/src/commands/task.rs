@@ -7,6 +7,7 @@ use std::process::Command;
 use tauri::{AppHandle, State};
 
 const INVALID_TEMPLATE_LABELS_MESSAGE: &str = "Template labels must be a JSON array of strings";
+const TEMPLATE_TITLE_EMPTY_MESSAGE: &str = "Template title cannot be empty";
 
 fn validate_template_labels(labels: &str) -> Result<(), AppError> {
     serde_json::from_str::<Vec<String>>(labels)
@@ -121,7 +122,7 @@ pub fn create_task_template(
 ) -> Result<TaskTemplate, AppError> {
     if title.trim().is_empty() {
         return Err(AppError::InvalidInput(
-            "Template title cannot be empty".to_string(),
+            TEMPLATE_TITLE_EMPTY_MESSAGE.to_string(),
         ));
     }
 
@@ -155,20 +156,25 @@ pub fn save_task_as_template(
 
     let task = db::get_task(&conn, &task_id)?;
     let title = title.unwrap_or_else(|| task.title.clone());
-    validate_template_labels(&task.pr_labels)?;
 
     if title.trim().is_empty() {
         return Err(AppError::InvalidInput(
-            "Template title cannot be empty".to_string(),
+            TEMPLATE_TITLE_EMPTY_MESSAGE.to_string(),
         ));
     }
+
+    let labels = if validate_template_labels(&task.pr_labels).is_ok() {
+        task.pr_labels.clone()
+    } else {
+        "[]".to_string()
+    };
 
     db::insert_task_template(
         &conn,
         &task.workspace_id,
         title.trim(),
         task.description.as_deref(),
-        &task.pr_labels,
+        &labels,
         task.model.as_deref(),
     )
     .map_err(AppError::from)
@@ -186,7 +192,7 @@ pub fn update_task_template(
     if let Some(ref next_title) = title {
         if next_title.trim().is_empty() {
             return Err(AppError::InvalidInput(
-                "Template title cannot be empty".to_string(),
+                TEMPLATE_TITLE_EMPTY_MESSAGE.to_string(),
             ));
         }
     }
@@ -210,24 +216,6 @@ pub fn update_task_template(
         model,
     )
     .map_err(AppError::from)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::validate_template_labels;
-
-    #[test]
-    fn validate_template_labels_accepts_string_arrays() {
-        assert!(validate_template_labels("[]").is_ok());
-        assert!(validate_template_labels(r#"["bug","urgent"]"#).is_ok());
-    }
-
-    #[test]
-    fn validate_template_labels_rejects_invalid_json_and_non_string_arrays() {
-        assert!(validate_template_labels("bug").is_err());
-        assert!(validate_template_labels(r#"{"label":"bug"}"#).is_err());
-        assert!(validate_template_labels(r#"["bug", 1]"#).is_err());
-    }
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -1568,4 +1556,22 @@ pub async fn remove_task_worktree(
     pipeline::emit_tasks_changed(&app, &updated.workspace_id, "worktree_removed");
 
     Ok(updated)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_template_labels;
+
+    #[test]
+    fn validate_template_labels_accepts_string_arrays() {
+        assert!(validate_template_labels("[]").is_ok());
+        assert!(validate_template_labels(r#"["bug","urgent"]"#).is_ok());
+    }
+
+    #[test]
+    fn validate_template_labels_rejects_invalid_json_and_non_string_arrays() {
+        assert!(validate_template_labels("bug").is_err());
+        assert!(validate_template_labels(r#"{"label":"bug"}"#).is_err());
+        assert!(validate_template_labels(r#"["bug", 1]"#).is_err());
+    }
 }

@@ -204,6 +204,18 @@ export const Column = memo(function Column({
     await createFromTemplate(activeWorkspaceId, column.id, templateId)
   }, [activeWorkspaceId, column.id, createFromTemplate])
 
+  const handleOpenTemplatePicker = useCallback(() => {
+    setShowTemplatePicker(true)
+  }, [])
+
+  const handleCloseTemplatePicker = useCallback(() => {
+    setShowTemplatePicker(false)
+  }, [])
+
+  const handleCloseConfigDialog = useCallback(() => {
+    setShowConfigDialog(false)
+  }, [])
+
   return (
     <>
       <motion.div
@@ -227,7 +239,7 @@ export const Column = memo(function Column({
             onConfigure={handleConfigure}
             onDelete={handleDelete}
             onAddTask={handleAddTask}
-            onCreateFromTemplate={() => { setShowTemplatePicker(true) }}
+            onCreateFromTemplate={handleOpenTemplatePicker}
             onRunAll={() => { void handleRunAll(); }}
             onCancelQueue={() => { void handleCancelQueue(); }}
           />
@@ -307,14 +319,14 @@ export const Column = memo(function Column({
       {showConfigDialog && (
         <ColumnConfigDialog
           column={column}
-          onClose={() => { setShowConfigDialog(false); }}
+          onClose={handleCloseConfigDialog}
         />
       )}
 
       {showTemplatePicker && activeWorkspaceId && (
         <TaskTemplatePickerDialog
           workspaceId={activeWorkspaceId}
-          onClose={() => { setShowTemplatePicker(false) }}
+          onClose={handleCloseTemplatePicker}
           onCreateTask={handleCreateFromTemplate}
         />
       )}
