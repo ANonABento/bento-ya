@@ -69,6 +69,7 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         github_issue_commented: row.get::<_, Option<i64>>(47)?.unwrap_or(0) != 0,
         github_issue_pr_linked: row.get::<_, Option<i64>>(48)?.unwrap_or(0) != 0,
         archived_at: row.get(49)?,
+        labels: Vec::new(),
         created_at: row.get(38)?,
         updated_at: row.get(39)?,
     })

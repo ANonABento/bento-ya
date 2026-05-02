@@ -13,7 +13,7 @@ import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useScriptStore } from '@/stores/script-store'
-import { useLabelStore } from '@/stores/label-store'
+import { useColumnMetricsStore } from '@/stores/column-metrics-store'
 import { Column } from '@/components/kanban/column'
 import { DragOverlayContent } from '@/components/kanban/drag-overlay'
 import { DependencyLines } from '@/components/kanban/dependency-lines'
@@ -27,7 +27,7 @@ import { useUIStore } from '@/stores/ui-store'
 import { CardPositionContext, useCardPositionProvider } from '@/hooks/use-card-positions'
 import { DepDragContext } from '@/hooks/use-dep-drag-context'
 import { BulkTaskToolbar } from '@/components/kanban/bulk-task-toolbar'
-import { LabelBar } from '@/components/kanban/label-bar'
+import { UsageBudgetBanner } from '@/components/usage/usage-budget-banner'
 
 export function Board() {
   const panelDock = useUIStore((s) => s.panelDock)
@@ -37,7 +37,6 @@ export function Board() {
   const addColumn = useColumnStore((s) => s.add)
   const loadTasks = useTaskStore((s) => s.load)
   const tasks = useTaskStore((s) => s.tasks)
-  const loadLabels = useLabelStore((s) => s.load)
   const bulkMoveTasks = useTaskStore((s) => s.bulkMove)
   const bulkRemoveTasks = useTaskStore((s) => s.bulkRemove)
   const loadScripts = useScriptStore((s) => s.load)
@@ -46,7 +45,6 @@ export function Board() {
   const [newColumnId, setNewColumnId] = useState<string | null>(null)
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set())
   const [lastSelectedTaskId, setLastSelectedTaskId] = useState<string | null>(null)
-  const [selectedLabelId, setSelectedLabelId] = useState<string | null>(null)
 
   const handleAddColumn = useCallback(() => {
     if (!activeWorkspaceId) return
@@ -59,10 +57,6 @@ export function Board() {
   const { registerCard, positions } = useCardPositionProvider()
   const { dragState, handlePointerDown: onDepDragStart } = useDepDrag(tasks, positions)
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null)
-
-  const showArchived = useTaskStore((s) => s.showArchived)
-  const setShowArchived = useTaskStore((s) => s.setShowArchived)
-  const toggleShowArchived = useCallback(() => setShowArchived(!showArchived), [setShowArchived, showArchived])
 
   const { isChatOpen, activeTaskId, closeChat } = useChatPanel()
   const collapseTask = useUIStore((s) => s.collapseTask)
@@ -84,11 +78,10 @@ export function Board() {
     () => sortedColumns.flatMap((column) =>
       tasks
         .filter((task) => task.columnId === column.id)
-        .filter((task) => selectedLabelId === null || task.labels.some((label) => label.id === selectedLabelId))
         .sort((a, b) => a.position - b.position)
         .map((task) => task.id),
     ),
-    [selectedLabelId, sortedColumns, tasks],
+    [sortedColumns, tasks],
   )
   const selectedTasks = useMemo(
     () => tasks.filter((task) => selectedTaskIds.has(task.id)),
@@ -121,11 +114,10 @@ export function Board() {
     if (activeWorkspaceId) {
       void loadColumns(activeWorkspaceId)
       void loadTasks(activeWorkspaceId)
-      void loadLabels(activeWorkspaceId)
       void loadScripts()
       void loadColumnMetrics(activeWorkspaceId)
     }
-  }, [activeWorkspaceId, loadColumns, loadLabels, loadTasks, loadScripts])
+  }, [activeWorkspaceId, loadColumns, loadTasks, loadScripts, loadColumnMetrics])
 
   useEffect(() => {
     setSelectedTaskIds((current) => {
@@ -230,24 +222,7 @@ export function Board() {
         <div className="flex h-full" data-board-container>
           {/* Board + orchestrator panel (left side, shrinks when task panel open) */}
           <div className="flex flex-1 flex-col overflow-hidden">
-            {/* Board header: filters and controls */}
-            <div className="flex shrink-0 items-center justify-end border-b border-border-default px-3 py-1">
-              <button
-                onClick={toggleShowArchived}
-                className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors ${
-                  showArchived
-                    ? 'bg-accent/15 text-accent'
-                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-                }`}
-              >
-                <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M2 3a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H2Z" />
-                  <path fillRule="evenodd" d="M2 7.5h16l-.811 7.71a2 2 0 0 1-1.99 1.79H4.802a2 2 0 0 1-1.99-1.79L2 7.5Zm5.22 1.72a.75.75 0 0 1 1.06 0L10 10.94l1.72-1.72a.75.75 0 1 1 1.06 1.06l-2.25 2.25a.75.75 0 0 1-1.06 0l-2.25-2.25a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-                </svg>
-                {showArchived ? 'Hide archived' : 'Show archived'}
-              </button>
-            </div>
-
+            {activeWorkspaceId && <UsageBudgetBanner workspaceId={activeWorkspaceId} />}
             <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
               <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
                 {sortedColumns.map((col) => (
@@ -258,7 +233,6 @@ export function Board() {
                     onConfigOpened={col.id === newColumnId ? () => { setNewColumnId(null) } : undefined}
                     selectedTaskIds={selectedTaskIds}
                     onTaskSelectionChange={handleTaskSelectionChange}
-                    labelFilterId={selectedLabelId}
                   />
                 ))}
               </SortableContext>

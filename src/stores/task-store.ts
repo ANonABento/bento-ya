@@ -2,9 +2,9 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { Task } from '@/types'
 import * as ipc from '@/lib/ipc'
+import { setTaskLabels as ipcSetTaskLabels } from '@/lib/ipc/label'
 import { useUIStore } from '@/stores/ui-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { useLabelStore } from '@/stores/label-store'
 
 async function applyArchiveOp(
   id: string,
@@ -44,6 +44,7 @@ type TaskState = {
   setShowArchived: (show: boolean) => void
   archive: (id: string) => Promise<void>
   unarchive: (id: string) => Promise<void>
+  setLabels: (taskId: string, labelIds: string[]) => Promise<void>
 }
 
 export const useTaskStore = create<TaskState>()(
@@ -227,6 +228,11 @@ export const useTaskStore = create<TaskState>()(
       archive: (id) => applyArchiveOp(id, ipc.archiveTask, 'archive', get, set),
 
       unarchive: (id) => applyArchiveOp(id, ipc.unarchiveTask, 'unarchive', get, set),
+
+      setLabels: async (taskId, labelIds) => {
+        const updated = await ipcSetTaskLabels(taskId, labelIds)
+        set((s) => ({ tasks: s.tasks.map((t) => (t.id === taskId ? updated : t)) }))
+      },
     }),
     { name: 'task-store' },
   ),

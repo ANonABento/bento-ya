@@ -144,8 +144,6 @@ let mockLabels: Label[] = []
 
 let idCounter = 100
 
-let mockTaskTemplates: TaskTemplate[] = []
-
 const generateId = (prefix: string) => `${prefix}-${String(++idCounter)}`
 
 const sortMockLabels = (a: Label, b: Label) =>

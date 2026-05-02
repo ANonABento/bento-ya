@@ -23,7 +23,6 @@ import { PrStatusIndicator, SiegeBadge } from './task-card-badges'
 import { useTaskCardActions } from './use-task-card-actions'
 import { AttentionBanner, BlockedBanner, QualityGateBanner, PipelineErrorBanner } from './task-card-status'
 import { AgentActivityPreview } from './task-card-activity'
-import { TaskLabelPicker } from './task-label-picker'
 
 type TaskCardProps = {
   task: Task

@@ -6,18 +6,17 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { usePrStatusPolling } from '@/hooks/use-pr-status-polling'
 import { useTaskSync } from '@/hooks/use-task-sync'
-import { useLabelSync } from '@/hooks/use-label-sync'
 import { useAgentStreamingSync } from '@/hooks/use-agent-streaming-sync'
 import { useAutoDetectClis } from '@/hooks/use-cli-path'
-import { isEditableTarget } from '@/lib/keyboard'
+import { useUpdater } from '@/hooks/use-updater'
 import { Board } from '@/components/layout/board'
 import { WorkspaceSetup } from '@/components/layout/workspace-setup'
 import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard'
 import { TabBar } from '@/components/layout/tab-bar'
 import { SettingsPanel } from '@/components/settings/settings-panel'
 import { ChecklistPanel } from '@/components/checklist/checklist-panel'
+import { AboutModal } from '@/components/about/about-modal'
 import { CommandPalette } from '@/components/command-palette/command-palette'
-import { ShortcutsModal } from '@/components/shortcuts-modal'
 import { SkeletonLoader } from '@/components/shared/skeleton-loader'
 
 function App() {
@@ -26,35 +25,26 @@ function App() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const load = useWorkspaceStore((s) => s.load)
   const [error, setError] = useState<string | null>(null)
+  const [showAbout, setShowAbout] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
-  const [showShortcuts, setShowShortcuts] = useState(false)
+  const {
+    pendingUpdate,
+    dismissed: updateDismissed,
+    installing,
+    error: installError,
+    dismiss: dismissUpdate,
+    install: handleInstallUpdate,
+  } = useUpdater()
 
   // Keyboard shortcuts
+  const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
   const toggleCommandPalette = useCallback(() => { setShowCommandPalette((prev) => !prev) }, [])
-  const openShortcuts = useCallback(() => { setShowShortcuts(true) }, [])
-  const closeShortcuts = useCallback(() => { setShowShortcuts(false) }, [])
-  const handleShowShortcutsFromPalette = useCallback(() => { setShowCommandPalette(false); setShowShortcuts(true) }, [])
-  const closeCommandPalette = useCallback(() => { setShowCommandPalette(false) }, [])
   const openSettings = useSettingsStore((s) => s.openSettings)
   useKeyboardShortcuts([
-    { key: '/', meta: true, handler: openShortcuts, ignoreEditable: true },
-    { key: 'k', meta: true, handler: toggleCommandPalette, ignoreEditable: true },
-    { key: ',', meta: true, handler: openSettings, ignoreEditable: true },
+    { key: '/', meta: true, handler: toggleAbout },
+    { key: 'k', meta: true, handler: toggleCommandPalette },
+    { key: ',', meta: true, handler: openSettings },
   ])
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return
-      if (event.key !== '?' || event.metaKey || event.ctrlKey || event.altKey) return
-      if (isEditableTarget(event.target)) return
-
-      event.preventDefault()
-      openShortcuts()
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => { window.removeEventListener('keydown', handleKeyDown) }
-  }, [openShortcuts])
 
   // Auto-detect CLI paths on startup
   useAutoDetectClis()
@@ -64,7 +54,6 @@ function App() {
 
   // Task sync (re-fetches task store when backend mutates tasks)
   useTaskSync(activeWorkspaceId)
-  useLabelSync(activeWorkspaceId)
 
   // Agent streaming sync (routes agent events to streaming store for live card updates)
   useAgentStreamingSync()
@@ -157,11 +146,11 @@ function App() {
 
       {/* Modals */}
       <AnimatePresence>
-        {showShortcuts && <ShortcutsModal onClose={closeShortcuts} />}
+        {showAbout && <AboutModal onClose={() => { setShowAbout(false) }} />}
         {showCommandPalette && (
           <CommandPalette
-            onClose={closeCommandPalette}
-            onShowShortcuts={handleShowShortcutsFromPalette}
+            onClose={() => { setShowCommandPalette(false) }}
+            onShowShortcuts={() => { setShowCommandPalette(false); setShowAbout(true) }}
           />
         )}
       </AnimatePresence>

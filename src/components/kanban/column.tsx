@@ -14,7 +14,6 @@ import { queueBacklog, cancelBacklogQueue } from '@/lib/ipc/pipeline'
 import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
-import { TaskTemplatePickerDialog } from './task-template-picker-dialog'
 
 type BatchQueueLocalState = {
   isQueuing: boolean
@@ -29,7 +28,6 @@ type ColumnProps = {
   onConfigOpened?: () => void
   selectedTaskIds?: ReadonlySet<string>
   onTaskSelectionChange?: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void
-  labelFilterId?: string | null
 }
 
 export const Column = memo(function Column({
@@ -38,23 +36,21 @@ export const Column = memo(function Column({
   onConfigOpened,
   selectedTaskIds,
   onTaskSelectionChange,
-  labelFilterId = null,
 }: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
-  const showArchived = useTaskStore((s) => s.showArchived)
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
-  const createFromTemplate = useTaskStore((s) => s.createFromTemplate)
+  const updateColumnAsync = useColumnStore((s) => s.updateColumnAsync)
   const getScriptName = useScriptStore((s) => s.getScriptName)
   const columnMetrics = useColumnMetricsStore((s) => s.metricsById[column.id])
 
   // Memoize filtered tasks to prevent infinite loops
   const tasks = useMemo(
     () => allTasks
-      .filter((t) => t.columnId === column.id && (showArchived || !t.archivedAt))
+      .filter((t) => t.columnId === column.id)
       .sort((a, b) => a.position - b.position),
-    [allTasks, column.id, showArchived]
+    [allTasks, column.id]
   )
   const taskIds = useMemo(() => tasks.map((t) => t.id), [tasks])
 
@@ -78,7 +74,6 @@ export const Column = memo(function Column({
   const [showConfigDialog, setShowConfigDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showAddTask, setShowAddTask] = useState(false)
-  const [showTemplatePicker, setShowTemplatePicker] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const addTaskInputRef = useRef<HTMLInputElement>(null)
 
@@ -208,23 +203,6 @@ export const Column = memo(function Column({
     setShowAddTask(false)
   }, [])
 
-  const handleCreateFromTemplate = useCallback(async (templateId: string) => {
-    if (!activeWorkspaceId) return
-    await createFromTemplate(activeWorkspaceId, column.id, templateId)
-  }, [activeWorkspaceId, column.id, createFromTemplate])
-
-  const handleOpenTemplatePicker = useCallback(() => {
-    setShowTemplatePicker(true)
-  }, [])
-
-  const handleCloseTemplatePicker = useCallback(() => {
-    setShowTemplatePicker(false)
-  }, [])
-
-  const handleCloseConfigDialog = useCallback(() => {
-    setShowConfigDialog(false)
-  }, [])
-
   return (
     <>
       <motion.div
@@ -249,7 +227,7 @@ export const Column = memo(function Column({
             onConfigure={handleConfigure}
             onDelete={handleDelete}
             onAddTask={handleAddTask}
-            onCreateFromTemplate={handleOpenTemplatePicker}
+            onRenameSubmit={handleRename}
             onRunAll={() => { void handleRunAll(); }}
             onCancelQueue={() => { void handleCancelQueue(); }}
           />
@@ -329,15 +307,7 @@ export const Column = memo(function Column({
       {showConfigDialog && (
         <ColumnConfigDialog
           column={column}
-          onClose={handleCloseConfigDialog}
-        />
-      )}
-
-      {showTemplatePicker && activeWorkspaceId && (
-        <TaskTemplatePickerDialog
-          workspaceId={activeWorkspaceId}
-          onClose={handleCloseTemplatePicker}
-          onCreateTask={handleCreateFromTemplate}
+          onClose={() => { setShowConfigDialog(false); }}
         />
       )}
 
