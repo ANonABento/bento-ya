@@ -5,6 +5,25 @@ import * as ipc from '@/lib/ipc'
 import { useUIStore } from '@/stores/ui-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 
+async function applyArchiveOp(
+  id: string,
+  ipcFn: (id: string) => Promise<Task>,
+  label: string,
+  get: () => { tasks: Task[] },
+  set: (updater: (s: { tasks: Task[] }) => Partial<{ tasks: Task[] }>) => void,
+): Promise<void> {
+  const workspaceId = get().tasks.find((t) => t.id === id)?.workspaceId
+  try {
+    const updated = await ipcFn(id)
+    set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? updated : t)) }))
+    if (workspaceId) {
+      await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+    }
+  } catch (err) {
+    console.error(`Failed to ${label} task:`, err)
+  }
+}
+
 type TaskState = {
   tasks: Task[]
   loaded: boolean
@@ -191,35 +210,9 @@ export const useTaskStore = create<TaskState>()(
         set({ showArchived: show })
       },
 
-      archive: async (id) => {
-        const workspaceId = get().tasks.find((t) => t.id === id)?.workspaceId
-        try {
-          const updated = await ipc.archiveTask(id)
-          set((s) => ({
-            tasks: s.tasks.map((t) => (t.id === id ? updated : t)),
-          }))
-          if (workspaceId) {
-            await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
-          }
-        } catch (err) {
-          console.error('Failed to archive task:', err)
-        }
-      },
+      archive: (id) => applyArchiveOp(id, ipc.archiveTask, 'archive', get, set),
 
-      unarchive: async (id) => {
-        const workspaceId = get().tasks.find((t) => t.id === id)?.workspaceId
-        try {
-          const updated = await ipc.unarchiveTask(id)
-          set((s) => ({
-            tasks: s.tasks.map((t) => (t.id === id ? updated : t)),
-          }))
-          if (workspaceId) {
-            await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
-          }
-        } catch (err) {
-          console.error('Failed to unarchive task:', err)
-        }
-      },
+      unarchive: (id) => applyArchiveOp(id, ipc.unarchiveTask, 'unarchive', get, set),
     }),
     { name: 'task-store' },
   ),

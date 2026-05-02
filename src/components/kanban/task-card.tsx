@@ -289,6 +289,13 @@ export const TaskCard = memo(function TaskCard({
     (cardSettings.showLabels && labels.length > 0) ||
     depCount > 0
 
+  let cardOpacity = 1
+  if (isDragging) cardOpacity = 0.4
+  else if (isDimmed) cardOpacity = 0.3
+  else if (task.blocked) cardOpacity = 0.7
+  else if (task.archivedAt) cardOpacity = 0.45
+  else if (isInDoneColumn) cardOpacity = 0.6
+
   return (
     <>
     <div
@@ -296,7 +303,7 @@ export const TaskCard = memo(function TaskCard({
       style={{
         ...style,
         cursor: 'pointer',
-        opacity: isDragging ? 0.4 : isDimmed ? 0.3 : task.blocked ? 0.7 : (task.archivedAt ? 0.45 : isInDoneColumn ? 0.6 : 1),
+        opacity: cardOpacity,
         transition: 'transform 200ms ease, opacity 200ms ease',
       }}
       onClick={handleClick}
