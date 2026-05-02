@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { initializeTheme } from '@/lib/theme'
+import { isEditableTarget } from '@/lib/keyboard'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
@@ -17,6 +18,7 @@ import { SettingsPanel } from '@/components/settings/settings-panel'
 import { ChecklistPanel } from '@/components/checklist/checklist-panel'
 import { AboutModal } from '@/components/about/about-modal'
 import { CommandPalette } from '@/components/command-palette/command-palette'
+import { ShortcutsModal } from '@/components/shortcuts-modal'
 import { SkeletonLoader } from '@/components/shared/skeleton-loader'
 
 function App() {
@@ -27,6 +29,7 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [showAbout, setShowAbout] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
   const {
     pendingUpdate,
     dismissed: updateDismissed,
@@ -39,12 +42,31 @@ function App() {
   // Keyboard shortcuts
   const toggleAbout = useCallback(() => { setShowAbout((prev) => !prev) }, [])
   const toggleCommandPalette = useCallback(() => { setShowCommandPalette((prev) => !prev) }, [])
+  const openShortcuts = useCallback(() => { setShowShortcuts(true) }, [])
+  const closeShortcuts = useCallback(() => { setShowShortcuts(false) }, [])
   const openSettings = useSettingsStore((s) => s.openSettings)
   useKeyboardShortcuts([
-    { key: '/', meta: true, handler: toggleAbout },
+    { key: '/', meta: true, handler: openShortcuts },
     { key: 'k', meta: true, handler: toggleCommandPalette },
     { key: ',', meta: true, handler: openSettings },
   ])
+
+  // Plain `?` opens shortcuts modal (no modifier — guard against editable targets)
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
+      if (event.key !== '?' || event.metaKey || event.ctrlKey || event.altKey) return
+      if (isEditableTarget(event.target)) return
+      event.preventDefault()
+      openShortcuts()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => { window.removeEventListener('keydown', handleKeyDown) }
+  }, [openShortcuts])
+
+  // Keep `cmd+?` (alias for cmd+/) — toggleAbout was the prior binding; reroute to about modal via menu/palette.
+  // openSettings retained.
+  void toggleAbout
 
   // Auto-detect CLI paths on startup
   useAutoDetectClis()
@@ -147,6 +169,7 @@ function App() {
       {/* Modals */}
       <AnimatePresence>
         {showAbout && <AboutModal onClose={() => { setShowAbout(false) }} />}
+        {showShortcuts && <ShortcutsModal onClose={closeShortcuts} />}
         {showCommandPalette && (
           <CommandPalette
             onClose={() => { setShowCommandPalette(false) }}

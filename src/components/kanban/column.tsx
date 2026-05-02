@@ -39,6 +39,7 @@ export const Column = memo(function Column({
 }: ColumnProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const allTasks = useTaskStore((s) => s.tasks)
+  const showArchived = useTaskStore((s) => s.showArchived)
   const addTask = useTaskStore((s) => s.add)
   const remove = useColumnStore((s) => s.remove)
   const updateColumnAsync = useColumnStore((s) => s.updateColumnAsync)
@@ -48,9 +49,9 @@ export const Column = memo(function Column({
   // Memoize filtered tasks to prevent infinite loops
   const tasks = useMemo(
     () => allTasks
-      .filter((t) => t.columnId === column.id)
+      .filter((t) => t.columnId === column.id && (showArchived || !t.archivedAt))
       .sort((a, b) => a.position - b.position),
-    [allTasks, column.id]
+    [allTasks, column.id, showArchived]
   )
   const taskIds = useMemo(() => tasks.map((t) => t.id), [tasks])
 
