@@ -347,6 +347,24 @@ const mockCommands: Record<string, CommandHandler> = {
   delete_task: (args) => {
     mockTasks = mockTasks.filter((t) => t.id !== args?.id)
   },
+  archive_task: (args) => {
+    const task = mockTasks.find((t) => t.id === args?.id)
+    if (task) {
+      task.archivedAt = new Date().toISOString()
+      task.updatedAt = new Date().toISOString()
+      return task
+    }
+    throw new Error('Task not found')
+  },
+  unarchive_task: (args) => {
+    const task = mockTasks.find((t) => t.id === args?.id)
+    if (task) {
+      task.archivedAt = null
+      task.updatedAt = new Date().toISOString()
+      return task
+    }
+    throw new Error('Task not found')
+  },
   reorder_tasks: (args) => {
     const taskIds = args?.taskIds as string[]
     taskIds.forEach((id, idx) => {

@@ -57,6 +57,7 @@ export function Board() {
 
   const showArchived = useTaskStore((s) => s.showArchived)
   const setShowArchived = useTaskStore((s) => s.setShowArchived)
+  const toggleShowArchived = useCallback(() => setShowArchived(!showArchived), [setShowArchived, showArchived])
 
   const { isChatOpen, activeTaskId, closeChat } = useChatPanel()
   const collapseTask = useUIStore((s) => s.collapseTask)
@@ -224,7 +225,7 @@ export function Board() {
             {/* Board header: filters and controls */}
             <div className="flex shrink-0 items-center justify-end border-b border-border-default px-3 py-1">
               <button
-                onClick={() => { setShowArchived(!showArchived) }}
+                onClick={toggleShowArchived}
                 className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors ${
                   showArchived
                     ? 'bg-accent/15 text-accent'
