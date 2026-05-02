@@ -23,6 +23,8 @@ use chat::registry::{new_shared_session_registry, start_idle_sweep};
 use commands::voice::RecorderState;
 use db::AppState;
 use tauri::Manager;
+#[cfg(desktop)]
+use tauri_plugin_window_state::StateFlags;
 #[cfg(feature = "voice")]
 use whisper::AudioRecorder;
 
@@ -78,6 +80,18 @@ pub fn run() {
     {
         builder = builder.manage(recorder_state);
     }
+
+    #[cfg(desktop)]
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::default()
+            .with_state_flags(
+                StateFlags::SIZE
+                    | StateFlags::POSITION
+                    | StateFlags::MAXIMIZED
+                    | StateFlags::FULLSCREEN,
+            )
+            .build(),
+    );
 
     builder
         .on_window_event(move |_window, event| {

@@ -7,6 +7,8 @@
     "core:default",
     "shell:allow-open",
     "dialog:allow-open",
-    "fs:allow-read"
+    "fs:allow-read",
+    "window-state:default",
+    "core:webview:allow-set-webview-zoom"
   ]
 }
