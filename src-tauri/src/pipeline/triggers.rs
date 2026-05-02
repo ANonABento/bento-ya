@@ -403,6 +403,56 @@ fn execute_batch_wait(
     let base_branch = "main".to_string();
 
     if !workspace.repo_path.is_empty() {
+        // Merge each individual batch task's feature PR into staging branch.
+        // Without this, staging stays empty and maybe_create_ready_batch_pr
+        // returns None because there are no commits over main.
+        // Conflicts are skipped (logged) — they need manual resolution.
+        if let Ok(batch_tasks) =
+            db::list_tasks_by_batch_id(conn, &task.workspace_id, &batch_id)
+        {
+            for bt in &batch_tasks {
+                let pr_num = match bt.pr_number {
+                    Some(n) => n,
+                    None => continue,
+                };
+                let merge_out = run_command(
+                    &workspace.repo_path,
+                    "gh",
+                    &[
+                        "pr",
+                        "merge",
+                        &pr_num.to_string(),
+                        "--squash",
+                        "--delete-branch",
+                    ],
+                );
+                match merge_out {
+                    Ok(o) if o.status.success() => {
+                        log::info!(
+                            "[batch_wait] Merged feature PR #{} into staging for batch {}",
+                            pr_num,
+                            batch_id
+                        );
+                    }
+                    Ok(o) => {
+                        let stderr = command_stderr(&o);
+                        if stderr.contains("already merged") || stderr.contains("not found") {
+                            // No-op — already handled or branch deleted
+                        } else {
+                            log::warn!(
+                                "[batch_wait] PR #{} merge failed (likely conflict): {}",
+                                pr_num,
+                                stderr
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("[batch_wait] gh pr merge {} error: {}", pr_num, e);
+                    }
+                }
+            }
+        }
+
         maybe_create_ready_batch_pr(
             conn,
             &workspace.repo_path,
