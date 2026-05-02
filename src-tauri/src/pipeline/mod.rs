@@ -921,6 +921,7 @@ mod tests {
             pr_comment_count: 0,
             pr_is_draft: false,
             pr_labels: "[]".into(),
+            labels: Vec::new(),
             pr_last_fetched: None,
             pr_head_sha: None,
             notify_stakeholders: None,
@@ -934,6 +935,7 @@ mod tests {
             github_issue_number: None,
             github_issue_commented: false,
             github_issue_pr_linked: false,
+            archived_at: None,
             created_at: "2024-01-01T00:00:00Z".into(),
             updated_at: "2024-01-01T00:00:00Z".into(),
         }

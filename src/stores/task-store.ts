@@ -2,12 +2,33 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { Task } from '@/types'
 import * as ipc from '@/lib/ipc'
+import { setTaskLabels as ipcSetTaskLabels } from '@/lib/ipc/label'
 import { useUIStore } from '@/stores/ui-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+
+async function applyArchiveOp(
+  id: string,
+  ipcFn: (id: string) => Promise<Task>,
+  label: string,
+  get: () => { tasks: Task[] },
+  set: (updater: (s: { tasks: Task[] }) => Partial<{ tasks: Task[] }>) => void,
+): Promise<void> {
+  const workspaceId = get().tasks.find((t) => t.id === id)?.workspaceId
+  try {
+    const updated = await ipcFn(id)
+    set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? updated : t)) }))
+    if (workspaceId) {
+      await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+    }
+  } catch (err) {
+    console.error(`Failed to ${label} task:`, err)
+  }
+}
 
 type TaskState = {
   tasks: Task[]
   loaded: boolean
+  showArchived: boolean
 
   load: (workspaceId: string) => Promise<void>
   add: (workspaceId: string, columnId: string, title: string, description: string) => Promise<Task>
@@ -17,8 +38,13 @@ type TaskState = {
   move: (id: string, targetColumnId: string, position: number) => Promise<void>
   reorder: (columnId: string, ids: string[]) => Promise<void>
   updateTask: (id: string, updates: Partial<Task>) => void
+  createFromTemplate: (workspaceId: string, columnId: string, templateId: string) => Promise<Task>
   getByColumn: (columnId: string) => Task[]
   duplicate: (id: string) => Promise<Task | null>
+  setShowArchived: (show: boolean) => void
+  archive: (id: string) => Promise<void>
+  unarchive: (id: string) => Promise<void>
+  setLabels: (taskId: string, labelIds: string[]) => Promise<void>
 }
 
 export const useTaskStore = create<TaskState>()(
@@ -26,6 +52,7 @@ export const useTaskStore = create<TaskState>()(
     (set, get) => ({
       tasks: [],
       loaded: false,
+      showArchived: false,
 
       load: async (workspaceId) => {
         const tasks = await ipc.getTasks(workspaceId)
@@ -153,6 +180,17 @@ export const useTaskStore = create<TaskState>()(
         }
       },
 
+      createFromTemplate: async (workspaceId, columnId, templateId) => {
+        const task = await ipc.createTaskFromTemplate(
+          workspaceId,
+          columnId,
+          templateId,
+        )
+        set((s) => ({ tasks: [...s.tasks, task] }))
+        await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+        return task
+      },
+
       updateTask: (id, updates) => {
         set((s) => ({
           tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...updates } : t)),
@@ -181,6 +219,19 @@ export const useTaskStore = create<TaskState>()(
         }))
         await useWorkspaceStore.getState().refreshWorkspace(original.workspaceId)
         return task
+      },
+
+      setShowArchived: (show) => {
+        set({ showArchived: show })
+      },
+
+      archive: (id) => applyArchiveOp(id, ipc.archiveTask, 'archive', get, set),
+
+      unarchive: (id) => applyArchiveOp(id, ipc.unarchiveTask, 'unarchive', get, set),
+
+      setLabels: async (taskId, labelIds) => {
+        const updated = await ipcSetTaskLabels(taskId, labelIds)
+        set((s) => ({ tasks: s.tasks.map((t) => (t.id === taskId ? updated : t)) }))
       },
     }),
     { name: 'task-store' },

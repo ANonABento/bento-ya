@@ -5,7 +5,7 @@
 
 /* eslint-disable @typescript-eslint/no-unnecessary-condition -- Mock data uses ?? for defensive safety with unknown runtime args */
 
-import type { Workspace, Column, Task, AgentMode, AgentStatus, PipelineState } from '@/types'
+import type { Workspace, Column, Task, Label, AgentMode, AgentStatus, PipelineState } from '@/types'
 import { DEFAULT_TRIGGERS } from '@/types/column'
 
 // Check if we're running in Tauri or in a test environment
@@ -118,6 +118,7 @@ let mockTasks: Task[] = [
     prCommentCount: 0,
     prIsDraft: false,
     prLabels: '[]',
+    labels: [],
     prLastFetched: null,
     prHeadSha: null,
     checklist: null,
@@ -131,6 +132,7 @@ let mockTasks: Task[] = [
     dependencies: null,
     blocked: false,
     worktreePath: null,
+    archivedAt: null,
     queuedAt: null,
     position: 0,
     createdAt: new Date().toISOString(),
@@ -138,9 +140,14 @@ let mockTasks: Task[] = [
   },
 ]
 
+let mockLabels: Label[] = []
+
 let idCounter = 100
 
 const generateId = (prefix: string) => `${prefix}-${String(++idCounter)}`
+
+const sortMockLabels = (a: Label, b: Label) =>
+  a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 
 const getLastColumnId = (workspaceId: string) => {
   const columns = mockColumns
@@ -207,6 +214,7 @@ const mockCommands: Record<string, CommandHandler> = {
     mockWorkspaces = mockWorkspaces.filter((w) => w.id !== args?.id)
     mockColumns = mockColumns.filter((c) => c.workspaceId !== args?.id)
     mockTasks = mockTasks.filter((t) => t.workspaceId !== args?.id)
+    mockLabels = mockLabels.filter((label) => label.workspaceId !== args?.id)
   },
   reorder_workspaces: (args) => {
     const ids = args?.ids as string[]
@@ -295,6 +303,7 @@ const mockCommands: Record<string, CommandHandler> = {
       prCommentCount: 0,
       prIsDraft: false,
       prLabels: '[]',
+      labels: [],
       prLastFetched: null,
       prHeadSha: null,
       checklist: null,
@@ -308,6 +317,7 @@ const mockCommands: Record<string, CommandHandler> = {
       dependencies: null,
       blocked: false,
       worktreePath: null,
+      archivedAt: null,
       queuedAt: null,
       position: mockTasks.filter((t) => t.columnId === args?.columnId).length,
       createdAt: new Date().toISOString(),
@@ -353,6 +363,24 @@ const mockCommands: Record<string, CommandHandler> = {
   delete_task: (args) => {
     mockTasks = mockTasks.filter((t) => t.id !== args?.id)
   },
+  archive_task: (args) => {
+    const task = mockTasks.find((t) => t.id === args?.id)
+    if (task) {
+      task.archivedAt = new Date().toISOString()
+      task.updatedAt = new Date().toISOString()
+      return task
+    }
+    throw new Error('Task not found')
+  },
+  unarchive_task: (args) => {
+    const task = mockTasks.find((t) => t.id === args?.id)
+    if (task) {
+      task.archivedAt = null
+      task.updatedAt = new Date().toISOString()
+      return task
+    }
+    throw new Error('Task not found')
+  },
   reorder_tasks: (args) => {
     const taskIds = args?.taskIds as string[]
     taskIds.forEach((id, idx) => {
@@ -360,6 +388,53 @@ const mockCommands: Record<string, CommandHandler> = {
       if (task) task.position = idx
     })
     return mockTasks.filter((t) => t.columnId === args?.columnId)
+  },
+
+  // Label commands
+  list_labels: (args) => {
+    return mockLabels
+      .filter((label) => label.workspaceId === args?.workspaceId)
+      .sort(sortMockLabels)
+  },
+  create_label: (args) => {
+    const label: Label = {
+      id: generateId('label'),
+      workspaceId: args?.workspaceId as string,
+      name: ((args?.name as string) || 'New label').trim(),
+      color: ((args?.color as string | undefined) || '#64748b').toLowerCase(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    mockLabels.push(label)
+    mockLabels.sort(sortMockLabels)
+    return label
+  },
+  update_label: (args) => {
+    const label = mockLabels.find((current) => current.id === args?.id)
+    if (!label) throw new Error('Label not found')
+    label.name = ((args?.name as string | undefined) ?? label.name).trim()
+    label.color = ((args?.color as string | undefined) ?? label.color).toLowerCase()
+    label.updatedAt = new Date().toISOString()
+    mockLabels.sort(sortMockLabels)
+    return label
+  },
+  delete_label: (args) => {
+    const id = args?.id as string
+    mockLabels = mockLabels.filter((label) => label.id !== id)
+    mockTasks = mockTasks.map((task) => ({
+      ...task,
+      labels: (task.labels ?? []).filter((label) => label.id !== id),
+    }))
+  },
+  set_task_labels: (args) => {
+    const task = mockTasks.find((current) => current.id === args?.taskId)
+    if (!task) throw new Error('Task not found')
+    const labelIds = new Set(args?.labelIds as string[])
+    task.labels = mockLabels.filter(
+      (label) => label.workspaceId === task.workspaceId && labelIds.has(label.id),
+    )
+    task.updatedAt = new Date().toISOString()
+    return task
   },
 
   // Settings
@@ -829,6 +904,7 @@ export function resetMockData() {
       prCommentCount: 3,
       prIsDraft: false,
       prLabels: '["enhancement", "ready-for-review"]',
+      labels: [],
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'abc123',
       checklist: null,
@@ -842,6 +918,7 @@ export function resetMockData() {
       dependencies: null,
       blocked: false,
       worktreePath: null,
+      archivedAt: null,
       queuedAt: null,
       position: 0,
       createdAt: new Date().toISOString(),
@@ -876,6 +953,7 @@ export function resetMockData() {
       prCommentCount: 7,
       prIsDraft: false,
       prLabels: '["bug", "needs-work", "urgent"]',
+      labels: [],
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'def456',
       checklist: null,
@@ -889,6 +967,7 @@ export function resetMockData() {
       dependencies: null,
       blocked: false,
       worktreePath: null,
+      archivedAt: null,
       queuedAt: null,
       position: 0,
       createdAt: new Date(Date.now() - 3600000).toISOString(),
@@ -923,6 +1002,7 @@ export function resetMockData() {
       prCommentCount: 0,
       prIsDraft: true,
       prLabels: '[]',
+      labels: [],
       prLastFetched: new Date().toISOString(),
       prHeadSha: 'ghi789',
       checklist: null,
@@ -936,6 +1016,7 @@ export function resetMockData() {
       dependencies: null,
       blocked: false,
       worktreePath: null,
+      archivedAt: null,
       queuedAt: null,
       position: 1,
       createdAt: new Date(Date.now() - 86400000).toISOString(),
@@ -943,5 +1024,6 @@ export function resetMockData() {
     },
   ]
 
+  mockLabels = []
   idCounter = 100
 }

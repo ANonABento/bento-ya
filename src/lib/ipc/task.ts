@@ -1,11 +1,56 @@
 import { invoke } from './invoke'
-import type { Task } from '@/types'
+import type { Task, TaskTemplate } from '@/types'
 import type { CreatePrResult } from '@/types/task'
 
 // ─── Task commands ─────────────────────────────────────────────────────────
 
 export const getTasks = (workspaceId: string) =>
   invoke<Task[]>('list_tasks', { workspaceId })
+
+export const listTaskTemplates = (workspaceId: string) =>
+  invoke<TaskTemplate[]>('list_task_templates', { workspaceId })
+
+export async function createTaskTemplate(
+  workspaceId: string,
+  title: string,
+  description?: string,
+  labels?: string,
+  model?: string,
+): Promise<TaskTemplate> {
+  return invoke<TaskTemplate>('create_task_template', {
+    workspaceId,
+    title,
+    description,
+    labels,
+    model,
+  })
+}
+
+export async function saveTaskAsTemplate(
+  taskId: string,
+  title?: string,
+): Promise<TaskTemplate> {
+  return invoke<TaskTemplate>('save_task_as_template', { taskId, title })
+}
+
+export async function updateTaskTemplate(
+  id: string,
+  updates: {
+    title?: string
+    description?: string | null
+    labels?: string
+    model?: string | null
+  },
+): Promise<TaskTemplate> {
+  return invoke<TaskTemplate>('update_task_template', {
+    id,
+    ...updates,
+  })
+}
+
+export async function deleteTaskTemplate(id: string): Promise<void> {
+  return invoke('delete_task_template', { id })
+}
 
 export async function createTask(
   workspaceId: string,
@@ -47,6 +92,18 @@ export async function moveTask(
   return invoke<Task>('move_task', { id, targetColumnId, position })
 }
 
+export async function createTaskFromTemplate(
+  workspaceId: string,
+  columnId: string,
+  templateId: string,
+): Promise<Task> {
+  return invoke<Task>('create_task_from_template', {
+    workspaceId,
+    columnId,
+    templateId,
+  })
+}
+
 export async function reorderTasks(columnId: string, taskIds: string[]): Promise<Task[]> {
   return invoke<Task[]>('reorder_tasks', { columnId, taskIds })
 }
@@ -57,6 +114,14 @@ export async function duplicateTask(id: string): Promise<Task> {
 
 export async function deleteTask(id: string): Promise<void> {
   return invoke('delete_task', { id })
+}
+
+export async function archiveTask(id: string): Promise<Task> {
+  return invoke<Task>('archive_task', { id })
+}
+
+export async function unarchiveTask(id: string): Promise<Task> {
+  return invoke<Task>('unarchive_task', { id })
 }
 
 export async function bulkUpdateTasks(

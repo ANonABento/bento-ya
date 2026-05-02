@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { Task, Column } from '@/types'
 import { useSettingsStore } from '@/stores/settings-store'
+import { useLabelStore } from '@/stores/label-store'
 
 type DragOverlayContentProps = {
   item:
@@ -18,16 +19,16 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function DragOverlayContent({ item }: DragOverlayContentProps) {
   const cardSettings = useSettingsStore((s) => s.global.cards)
+  const workspaceLabels = useLabelStore((s) => s.labels)
 
-  // Parse labels unconditionally to avoid conditional hook usage
-  const labels = useMemo(() => {
+  const taskLabels = useMemo(() => {
     if (item.type !== 'task') return []
-    try {
-      return JSON.parse(item.data.prLabels || '[]') as string[]
-    } catch {
-      return []
-    }
-  }, [item])
+    const labelsById = new Map(workspaceLabels.map((l) => [l.id, l]))
+    return item.data.labels.flatMap((l) => {
+      const current = labelsById.get(l.id)
+      return current ? [current] : []
+    })
+  }, [item, workspaceLabels])
 
   if (item.type === 'task') {
     const task = item.data
@@ -78,16 +79,20 @@ export function DragOverlayContent({ item }: DragOverlayContentProps) {
           )}
 
           {/* Labels */}
-          {cardSettings.showLabels && labels.length > 0 && (
+          {cardSettings.showLabels && taskLabels.length > 0 && (
             <div className="flex items-center gap-1 flex-wrap">
-              {labels.slice(0, 3).map((label) => (
+              {taskLabels.slice(0, 3).map((label) => (
                 <span
-                  key={label}
-                  className="rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary"
+                  key={label.id}
+                  className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary"
                 >
-                  {label}
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: label.color }} />
+                  {label.name}
                 </span>
               ))}
+              {taskLabels.length > 3 && (
+                <span className="text-[10px] text-text-secondary/70">+{taskLabels.length - 3}</span>
+              )}
             </div>
           )}
         </div>

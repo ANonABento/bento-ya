@@ -1,6 +1,7 @@
 /** Hook for registering global keyboard shortcuts (Cmd+K, Escape, etc.). */
 
 import { useEffect, useCallback } from 'react'
+import { isEditableTarget } from '@/lib/keyboard'
 
 type ShortcutHandler = () => void
 
@@ -12,6 +13,7 @@ type ShortcutConfig = {
   alt?: boolean
   handler: ShortcutHandler
   preventDefault?: boolean
+  ignoreEditable?: boolean
 }
 
 export function useKeyboardShortcuts(shortcuts: ShortcutConfig[]) {
@@ -30,6 +32,10 @@ export function useKeyboardShortcuts(shortcuts: ShortcutConfig[]) {
           : ctrlMatch && metaMatch && shiftMatch && altMatch
 
         if (keyMatch && modifierMatch) {
+          if (shortcut.ignoreEditable && isEditableTarget(event.target)) {
+            continue
+          }
+
           if (shortcut.preventDefault !== false) {
             event.preventDefault()
           }

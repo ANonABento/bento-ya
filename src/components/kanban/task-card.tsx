@@ -8,6 +8,7 @@ import { useAttentionStore } from '@/stores/attention-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
+import { useLabelStore } from '@/stores/label-store'
 import { TaskContextMenu } from './task-context-menu'
 import { TaskSettingsModal } from './task-settings-modal'
 import { TaskQuickActions } from './task-quick-actions'
@@ -47,6 +48,7 @@ export const TaskCard = memo(function TaskCard({
   const [showSettings, setShowSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState<'triggers' | 'dependencies'>('triggers')
   const columns = useColumnStore((s) => s.columns)
+  const workspaceLabels = useLabelStore((s) => s.labels)
 
   // Get exit criteria type for this task's column
   const columnTriggers = useMemo(() => {
@@ -104,14 +106,13 @@ export const TaskCard = memo(function TaskCard({
     transition,
   }
 
-  // Parse labels from JSON string
-  const labels = useMemo(() => {
-    try {
-      return JSON.parse(task.prLabels || '[]') as string[]
-    } catch {
-      return []
-    }
-  }, [task.prLabels])
+  const taskLabels = useMemo(() => {
+    const labelsById = new Map(workspaceLabels.map((label) => [label.id, label]))
+    return task.labels.flatMap((label) => {
+      const current = labelsById.get(label.id)
+      return current ? [current] : []
+    })
+  }, [task.labels, workspaceLabels])
 
   const openChat = useUIStore((s) => s.openChat)
   const closeChat = useUIStore((s) => s.closeChat)
@@ -286,8 +287,15 @@ export const TaskCard = memo(function TaskCard({
     task.model ||
     (cardSettings.showPrBadge && task.prNumber) ||
     (cardSettings.showCommentCount && task.prCommentCount > 0) ||
-    (cardSettings.showLabels && labels.length > 0) ||
+    (cardSettings.showLabels && taskLabels.length > 0) ||
     depCount > 0
+
+  let cardOpacity = 1
+  if (isDragging) cardOpacity = 0.4
+  else if (isDimmed) cardOpacity = 0.3
+  else if (task.blocked) cardOpacity = 0.7
+  else if (task.archivedAt) cardOpacity = 0.45
+  else if (isInDoneColumn) cardOpacity = 0.6
 
   return (
     <>
@@ -296,7 +304,7 @@ export const TaskCard = memo(function TaskCard({
       style={{
         ...style,
         cursor: 'pointer',
-        opacity: isDragging ? 0.4 : isDimmed ? 0.3 : task.blocked ? 0.7 : isInDoneColumn ? 0.6 : 1,
+        opacity: cardOpacity,
         transition: 'transform 200ms ease, opacity 200ms ease',
       }}
       onClick={handleClick}
@@ -411,6 +419,11 @@ export const TaskCard = memo(function TaskCard({
           <h4 className="flex-1 text-sm font-medium text-text-primary leading-snug line-clamp-2">
             {task.title}
           </h4>
+          {task.archivedAt && (
+            <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium bg-surface-hover text-text-secondary/70 border border-border-default">
+              archived
+            </span>
+          )}
         </div>
 
         {/* Description — hidden when expanded (expanded view shows full description) */}
@@ -491,15 +504,19 @@ export const TaskCard = memo(function TaskCard({
         )}
 
         {/* Labels — hidden when expanded */}
-        {!isExpanded && cardSettings.showLabels && labels.length > 0 && (
+        {!isExpanded && cardSettings.showLabels && taskLabels.length > 0 && (
           <div className="flex items-center gap-1 flex-wrap">
-            {labels.slice(0, 3).map((label) => (
-              <span key={label} className="rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary">
-                {label}
+            {taskLabels.slice(0, 3).map((label) => (
+              <span
+                key={label.id}
+                className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary"
+              >
+                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: label.color }} />
+                {label.name}
               </span>
             ))}
-            {labels.length > 3 && (
-              <span className="text-[10px] text-text-secondary/70">+{labels.length - 3}</span>
+            {taskLabels.length > 3 && (
+              <span className="text-[10px] text-text-secondary/70">+{taskLabels.length - 3}</span>
             )}
           </div>
         )}
@@ -521,7 +538,9 @@ export const TaskCard = memo(function TaskCard({
         onMoveToColumn={actions.handleMoveToColumn}
         onOpenTask={openTaskDetail}
         onDuplicateTask={actions.handleDuplicateTask}
+        onSaveAsTemplate={() => { void actions.handleSaveAsTemplate() }}
         onArchiveTask={actions.handleArchiveTask}
+        onUnarchiveTask={actions.handleUnarchiveTask}
         onDeleteTask={actions.handleDeleteTask}
         onRunAgent={actions.handleRunAgent}
         onStopAgent={actions.handleStopAgent}

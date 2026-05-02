@@ -18,9 +18,12 @@ vi.mock('@/lib/ipc', () => ({
   createTask: vi.fn(),
   duplicateTask: vi.fn(),
   deleteTask: vi.fn(),
+  archiveTask: vi.fn(),
+  unarchiveTask: vi.fn(),
   bulkUpdateTasks: vi.fn(),
   moveTask: vi.fn(),
   reorderTasks: vi.fn(),
+  createTaskFromTemplate: vi.fn(),
 }))
 
 import * as ipc from '@/lib/ipc'
@@ -53,6 +56,7 @@ const createMockTask = (overrides: Partial<Task> = {}): Task => ({
   prCommentCount: 0,
   prIsDraft: false,
   prLabels: '[]',
+  labels: [],
   prLastFetched: null,
   prHeadSha: null,
   checklist: null,
@@ -66,6 +70,7 @@ const createMockTask = (overrides: Partial<Task> = {}): Task => ({
   dependencies: null,
   blocked: false,
   worktreePath: null,
+  archivedAt: null,
   siegeIteration: 0,
   siegeActive: false,
   siegeMaxIterations: 3,
@@ -115,6 +120,30 @@ describe('task-store', () => {
       expect(created).toEqual(newTask)
       expect(state.tasks).toContainEqual(newTask)
       expect(mockIpc.createTask).toHaveBeenCalledWith('ws-1', 'col-1', 'New Task', 'Description')
+      expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
+    })
+  })
+
+  describe('createFromTemplate', () => {
+    it('should create task from template via IPC and add it to the store', async () => {
+      const newTask = createMockTask({
+        id: 'task-template',
+        title: 'Template Task',
+        description: 'From template',
+        prLabels: '["bug"]',
+        model: 'gpt-4',
+      })
+      mockIpc.createTaskFromTemplate.mockResolvedValueOnce(newTask)
+      refreshWorkspace.mockResolvedValueOnce(undefined)
+
+      const created = await useTaskStore
+        .getState()
+        .createFromTemplate('ws-1', 'col-1', 'template-1')
+
+      const state = useTaskStore.getState()
+      expect(created).toEqual(newTask)
+      expect(state.tasks).toContainEqual(newTask)
+      expect(mockIpc.createTaskFromTemplate).toHaveBeenCalledWith('ws-1', 'col-1', 'template-1')
       expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
     })
   })
@@ -441,6 +470,77 @@ describe('task-store', () => {
 
       expect(result).toBeNull()
       expect(mockIpc.duplicateTask).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('showArchived toggle', () => {
+    it('should default to false', () => {
+      expect(useTaskStore.getState().showArchived).toBe(false)
+    })
+
+    it('should toggle on via setShowArchived', () => {
+      useTaskStore.getState().setShowArchived(true)
+      expect(useTaskStore.getState().showArchived).toBe(true)
+    })
+
+    it('should toggle off via setShowArchived', () => {
+      useTaskStore.setState({ showArchived: true })
+      useTaskStore.getState().setShowArchived(false)
+      expect(useTaskStore.getState().showArchived).toBe(false)
+    })
+  })
+
+  describe('archive', () => {
+    beforeEach(() => {
+      useTaskStore.setState({
+        tasks: [createMockTask({ id: 'task-1', workspaceId: 'ws-1' })],
+      })
+    })
+
+    it('should set archivedAt on the task in store', async () => {
+      const archivedTask = createMockTask({ id: 'task-1', archivedAt: '2026-01-01T00:00:00Z' })
+      mockIpc.archiveTask.mockResolvedValueOnce(archivedTask)
+      refreshWorkspace.mockResolvedValueOnce(undefined)
+
+      await useTaskStore.getState().archive('task-1')
+
+      const task = useTaskStore.getState().tasks.find((t) => t.id === 'task-1')
+      expect(task?.archivedAt).toBe('2026-01-01T00:00:00Z')
+      expect(mockIpc.archiveTask).toHaveBeenCalledWith('task-1')
+      expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
+    })
+
+    it('should not throw for non-existent task', async () => {
+      mockIpc.archiveTask.mockRejectedValueOnce(new Error('not found'))
+
+      await expect(useTaskStore.getState().archive('bad-id')).resolves.toBeUndefined()
+    })
+  })
+
+  describe('unarchive', () => {
+    beforeEach(() => {
+      useTaskStore.setState({
+        tasks: [createMockTask({ id: 'task-1', workspaceId: 'ws-1', archivedAt: '2026-01-01T00:00:00Z' })],
+      })
+    })
+
+    it('should clear archivedAt on the task in store', async () => {
+      const restoredTask = createMockTask({ id: 'task-1', archivedAt: null })
+      mockIpc.unarchiveTask.mockResolvedValueOnce(restoredTask)
+      refreshWorkspace.mockResolvedValueOnce(undefined)
+
+      await useTaskStore.getState().unarchive('task-1')
+
+      const task = useTaskStore.getState().tasks.find((t) => t.id === 'task-1')
+      expect(task?.archivedAt).toBeNull()
+      expect(mockIpc.unarchiveTask).toHaveBeenCalledWith('task-1')
+      expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
+    })
+
+    it('should not throw for non-existent task', async () => {
+      mockIpc.unarchiveTask.mockRejectedValueOnce(new Error('not found'))
+
+      await expect(useTaskStore.getState().unarchive('bad-id')).resolves.toBeUndefined()
     })
   })
 })

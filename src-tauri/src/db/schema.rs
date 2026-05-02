@@ -66,6 +66,7 @@ pub const CREATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_columns_workspace ON columns(workspace_id, position)",
     "CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_tasks_column ON tasks(column_id, position)",
+    "CREATE INDEX IF NOT EXISTS idx_task_templates_workspace ON task_templates(workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_agent_sessions_task ON agent_sessions(task_id)",
 ];
 

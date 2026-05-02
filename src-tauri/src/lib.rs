@@ -23,6 +23,8 @@ use chat::registry::{new_shared_session_registry, start_idle_sweep};
 use commands::voice::RecorderState;
 use db::AppState;
 use tauri::Manager;
+#[cfg(desktop)]
+use tauri_plugin_window_state::StateFlags;
 #[cfg(feature = "voice")]
 use whisper::AudioRecorder;
 
@@ -79,6 +81,18 @@ pub fn run() {
         builder = builder.manage(recorder_state);
     }
 
+    #[cfg(desktop)]
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::default()
+            .with_state_flags(
+                StateFlags::SIZE
+                    | StateFlags::POSITION
+                    | StateFlags::MAXIMIZED
+                    | StateFlags::FULLSCREEN,
+            )
+            .build(),
+    );
+
     builder
         .on_window_event(move |_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
@@ -107,10 +121,22 @@ pub fn run() {
             commands::column::update_column,
             commands::column::reorder_columns,
             commands::column::delete_column,
+            // Label CRUD
+            commands::label::list_labels,
+            commands::label::create_label,
+            commands::label::update_label,
+            commands::label::delete_label,
+            commands::label::set_task_labels,
             // Task CRUD
             commands::task::create_task,
             commands::task::get_task,
             commands::task::list_tasks,
+            commands::task::list_task_templates,
+            commands::task::create_task_template,
+            commands::task::save_task_as_template,
+            commands::task::update_task_template,
+            commands::task::delete_task_template,
+            commands::task::create_task_from_template,
             commands::task::update_task,
             commands::task::duplicate_task,
             commands::task::update_task_triggers,
@@ -118,6 +144,8 @@ pub fn run() {
             commands::task::bulk_update_tasks,
             commands::task::reorder_tasks,
             commands::task::delete_task,
+            commands::task::archive_task,
+            commands::task::unarchive_task,
             commands::task::approve_task,
             commands::task::reject_task,
             commands::task::create_pr,

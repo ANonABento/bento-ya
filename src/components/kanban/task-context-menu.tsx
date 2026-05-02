@@ -30,7 +30,9 @@ type TaskContextMenuProps = {
   onOpenTask: () => void
   onDuplicateTask: () => void
   onArchiveTask: () => void
+  onUnarchiveTask: () => void
   onDeleteTask: () => void
+  onSaveAsTemplate: () => void
   onRunAgent: () => void
   onStopAgent: () => void
   onStartSiege: () => void
@@ -72,10 +74,25 @@ const Icons = {
       <path d="M4.5 6A1.5 1.5 0 0 0 3 7.5v9A1.5 1.5 0 0 0 4.5 18h7a1.5 1.5 0 0 0 1.5-1.5v-5.879a1.5 1.5 0 0 0-.44-1.06L9.44 6.44A1.5 1.5 0 0 0 8.378 6H4.5Z" />
     </svg>
   ),
+  template: (
+    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M4.5 3A1.5 1.5 0 0 0 3 4.5v12a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-12A1.5 1.5 0 0 0 15.5 3h-11Zm.75 1.5h9.5a.25.25 0 0 1 .25.25v1a.25.25 0 0 1-.25.25H5.25A.25.25 0 0 1 5 4.5v-1A.25.25 0 0 1 5.25 4.5Zm.5 3h8a.5.5 0 0 1 0 1h-8a.5.5 0 0 1 0-1Zm0 3h10a.5.5 0 0 1 0 1h-10a.5.5 0 0 1 0-1Zm0 3h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1 0-1Z"
+      />
+    </svg>
+  ),
   archive: (
     <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
       <path d="M2 3a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H2Z" />
       <path fillRule="evenodd" d="M2 7.5h16l-.811 7.71a2 2 0 0 1-1.99 1.79H4.802a2 2 0 0 1-1.99-1.79L2 7.5Zm5.22 1.72a.75.75 0 0 1 1.06 0L10 10.94l1.72-1.72a.75.75 0 1 1 1.06 1.06l-2.25 2.25a.75.75 0 0 1-1.06 0l-2.25-2.25a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+    </svg>
+  ),
+  unarchive: (
+    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path d="M2 3a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H2Z" />
+      <path fillRule="evenodd" d="M2 7.5h16l-.811 7.71a2 2 0 0 1-1.99 1.79H4.802a2 2 0 0 1-1.99-1.79L2 7.5Zm7.53 1.22a.75.75 0 0 1 1.06 0l2.25 2.25a.75.75 0 0 1-1.06 1.06L10 10.31l-1.72 1.72a.75.75 0 0 1-1.06-1.06l2.31-2.25Z" clipRule="evenodd" />
     </svg>
   ),
   trash: (
@@ -175,7 +192,9 @@ export function TaskContextMenu({
   onOpenTask,
   onDuplicateTask,
   onArchiveTask,
+  onUnarchiveTask,
   onDeleteTask,
+  onSaveAsTemplate,
   onRunAgent,
   onStopAgent,
   onStartSiege,
@@ -226,6 +245,7 @@ export function TaskContextMenu({
 
   const isRunning = task.agentStatus === 'running'
   const hasPr = !!task.prNumber
+  const isArchived = !!task.archivedAt
   const otherColumns = columns.filter((c) => c.id !== task.columnId && c.visible)
 
   const menuItems: MenuItemType[] = [
@@ -250,9 +270,12 @@ export function TaskContextMenu({
         onClick: () => { onMoveToColumn(col.id); },
       })),
     },
+    { label: 'Save as template', icon: Icons.template, onClick: onSaveAsTemplate },
     { label: 'Duplicate', icon: Icons.duplicate, shortcut: 'D', onClick: onDuplicateTask },
     { type: 'divider' },
-    { label: 'Archive', icon: Icons.archive, onClick: onArchiveTask },
+    isArchived
+      ? { label: 'Unarchive', icon: Icons.unarchive, onClick: onUnarchiveTask }
+      : { label: 'Archive', icon: Icons.archive, onClick: onArchiveTask },
     { label: 'Delete', icon: Icons.trash, variant: 'danger' as const, onClick: onDeleteTask },
   ]
 

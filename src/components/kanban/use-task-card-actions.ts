@@ -7,6 +7,8 @@ import * as ipc from '@/lib/ipc'
 export function useTaskCardActions(task: Task) {
   const moveTask = useTaskStore((s) => s.move)
   const removeTask = useTaskStore((s) => s.remove)
+  const archiveTask = useTaskStore((s) => s.archive)
+  const unarchiveTask = useTaskStore((s) => s.unarchive)
   const updateTask = useTaskStore((s) => s.updateTask)
   const duplicateTask = useTaskStore((s) => s.duplicate)
 
@@ -48,8 +50,12 @@ export function useTaskCardActions(task: Task) {
   }, [task.id, updateTask])
 
   const handleArchiveTask = useCallback(() => {
-    void removeTask(task.id)
-  }, [task.id, removeTask])
+    void archiveTask(task.id)
+  }, [task.id, archiveTask])
+
+  const handleUnarchiveTask = useCallback(() => {
+    void unarchiveTask(task.id)
+  }, [task.id, unarchiveTask])
 
   const handleDeleteTask = useCallback(() => {
     void removeTask(task.id)
@@ -58,6 +64,20 @@ export function useTaskCardActions(task: Task) {
   const handleDuplicateTask = useCallback(() => {
     void duplicateTask(task.id)
   }, [task.id, duplicateTask])
+
+  const handleSaveAsTemplate = useCallback(async () => {
+    const title = window.prompt('Template title', `${task.title} (template)`)
+    if (title === null) return
+
+    const trimmedTitle = title.trim()
+    if (!trimmedTitle) return
+
+    try {
+      await ipc.saveTaskAsTemplate(task.id, trimmedTitle)
+    } catch (err) {
+      console.error('Failed to save template:', err)
+    }
+  }, [task.id, task.title])
 
   const handleToggleAgent = useCallback(() => {
     if (task.agentStatus === 'running') {
@@ -87,8 +107,10 @@ export function useTaskCardActions(task: Task) {
     handleStartSiege,
     handleStopSiege,
     handleArchiveTask,
+    handleUnarchiveTask,
     handleDeleteTask,
     handleDuplicateTask,
+    handleSaveAsTemplate,
     handleToggleAgent,
     handleRetryPipeline,
   }
