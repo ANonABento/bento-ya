@@ -1619,6 +1619,130 @@ pub async fn remove_task_worktree(
     Ok(updated)
 }
 
+// ─── Batch Management Commands ───────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchSummary {
+    pub batch_id: String,
+    pub task_count: i64,
+    pub failed_count: i64,
+    pub tasks: Vec<Task>,
+    pub created_at: String,
+}
+
+/// List all batches for a workspace grouped by batch_id, newest first.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn list_batches(
+    state: State<'_, AppState>,
+    workspace_id: String,
+) -> Result<Vec<BatchSummary>, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT DISTINCT batch_id FROM tasks \
+             WHERE workspace_id = ?1 AND batch_id IS NOT NULL \
+             ORDER BY batch_id DESC",
+        )
+        .map_err(AppError::from)?;
+
+    let batch_ids: Vec<String> = stmt
+        .query_map(rusqlite::params![workspace_id], |row| row.get(0))
+        .map_err(AppError::from)?
+        .collect::<Result<_, _>>()
+        .map_err(AppError::from)?;
+
+    let mut summaries = Vec::new();
+    for batch_id in batch_ids {
+        let tasks = db::list_tasks_by_batch_id(&conn, &workspace_id, &batch_id)?;
+        if tasks.is_empty() {
+            continue;
+        }
+        let task_count = tasks.len() as i64;
+        let failed_count = tasks
+            .iter()
+            .filter(|t| t.pipeline_error.is_some())
+            .count() as i64;
+        let created_at = tasks
+            .first()
+            .map(|t| t.created_at.clone())
+            .unwrap_or_default();
+
+        summaries.push(BatchSummary {
+            batch_id,
+            task_count,
+            failed_count,
+            tasks,
+            created_at,
+        });
+    }
+
+    Ok(summaries)
+}
+
+/// Force-create the batch staging PR even if not all tasks have PRs yet.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn force_merge_batch(
+    state: State<'_, AppState>,
+    workspace_id: String,
+    batch_id: String,
+) -> Result<Option<String>, AppError> {
+    let repo_path = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        db::get_workspace(&conn, &workspace_id)?.repo_path
+    };
+
+    tokio::task::spawn_blocking(move || {
+        pipeline::triggers::force_create_batch_pr(&repo_path, &batch_id, "main")
+    })
+    .await
+    .map_err(|e| AppError::CommandError(e.to_string()))?
+    .map_err(AppError::CommandError)
+}
+
+/// Retry all failed tasks in a batch by re-firing their column triggers.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn retry_batch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    workspace_id: String,
+    batch_id: String,
+) -> Result<Vec<Task>, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let tasks = db::list_tasks_by_batch_id(&conn, &workspace_id, &batch_id)?;
+    let failed: Vec<Task> = tasks
+        .into_iter()
+        .filter(|t| t.pipeline_error.is_some())
+        .collect();
+
+    let mut retried = Vec::new();
+    for task in &failed {
+        let column = db::get_column(&conn, &task.column_id)?;
+        let cleared = db::update_task_pipeline_state(&conn, &task.id, "idle", None, None)?;
+        match pipeline::fire_trigger(&conn, &app, &cleared, &column) {
+            Ok(fired) => retried.push(fired),
+            Err(e) => log::warn!("[retry_batch] Failed to retry task {}: {}", task.id, e),
+        }
+    }
+
+    if !retried.is_empty() {
+        pipeline::emit_tasks_changed(&app, &workspace_id, "batch_retry");
+    }
+
+    Ok(retried)
+}
+
 #[cfg(test)]
 mod tests {
     use super::validate_template_labels;
