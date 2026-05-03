@@ -1,5 +1,5 @@
 import { memo, useState, useRef, useEffect, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
+import { motion } from 'motion/react'
 import { IconButton } from '@/components/shared/icon-button'
 import { Tooltip } from '@/components/shared/tooltip'
 import type { ColumnMetrics } from '@/lib/ipc/pipeline'
@@ -24,7 +24,6 @@ type ColumnHeaderProps = {
   batchQueue?: BatchQueueState
   metrics?: ColumnMetrics
   onConfigure: () => void
-  onDelete: () => void
   onAddTask: () => void
   onRenameSubmit: (name: string) => void
   onRunAll?: () => void
@@ -123,17 +122,15 @@ export const ColumnHeader = memo(function ColumnHeader({
   batchQueue,
   metrics,
   onConfigure,
-  onDelete,
   onAddTask,
   onRenameSubmit,
   onRunAll,
   onCancelQueue,
 }: ColumnHeaderProps) {
-  const [showMenu, setShowMenu] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
-  const menuRef = useRef<HTMLDivElement>(null)
+  const [metricsExpanded, setMetricsExpanded] = useState(false)
   const renameInputRef = useRef<HTMLInputElement>(null)
   // Prevents blur from submitting after Enter or Escape already resolved the rename
   const renameResolvedRef = useRef<boolean>(false)
@@ -180,18 +177,6 @@ export const ColumnHeader = memo(function ColumnHeader({
     e.stopPropagation()
   }
 
-  // Close menu when clicking outside
-  useEffect(() => {
-    if (!showMenu) return
-    const handleClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setShowMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => { document.removeEventListener('mousedown', handleClick); }
-  }, [showMenu])
-
   const handleRunAllClick = () => {
     setShowConfirm(true)
   }
@@ -209,6 +194,9 @@ export const ColumnHeader = memo(function ColumnHeader({
           style={{ color: color || 'var(--accent)' }}
         >
           {getIcon(icon)}
+        </span>
+        <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary tabular-nums">
+          {taskCount}
         </span>
         {isRenaming ? (
           <input
@@ -230,21 +218,37 @@ export const ColumnHeader = memo(function ColumnHeader({
             {name}
           </h3>
         )}
-        <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
-          {taskCount}
-        </span>
 
-        {/* Inline column metrics (avg duration · success rate · throughput) */}
+        {/* Column metrics — compact icon, hover for tooltip, click to expand inline */}
         {metrics && metrics.taskCount > 0 && (
-          <Tooltip content={buildMetricsTooltip(metrics)} side="bottom" wrap>
-            <div className="flex items-center gap-1 text-[10px] text-text-secondary/60 tabular-nums whitespace-nowrap">
-              <span>⏱{formatDuration(metrics.avgDurationSeconds)}</span>
-              <span className="text-text-secondary/30">·</span>
-              <span>✓{successRatePct(metrics)}%</span>
-              <span className="text-text-secondary/30">·</span>
-              <span>{metrics.throughputPerDay.toFixed(1)}/d</span>
-            </div>
-          </Tooltip>
+          metricsExpanded ? (
+            <Tooltip content={buildMetricsTooltip(metrics)} side="bottom" wrap>
+              <button
+                type="button"
+                onClick={() => { setMetricsExpanded(false) }}
+                className="flex items-center gap-1 rounded text-[10px] text-text-secondary/60 tabular-nums whitespace-nowrap hover:text-text-secondary"
+              >
+                <span>⏱{formatDuration(metrics.avgDurationSeconds)}</span>
+                <span className="text-text-secondary/30">·</span>
+                <span>✓{successRatePct(metrics)}%</span>
+                <span className="text-text-secondary/30">·</span>
+                <span>{metrics.throughputPerDay.toFixed(1)}/d</span>
+              </button>
+            </Tooltip>
+          ) : (
+            <Tooltip content={buildMetricsTooltip(metrics)} side="bottom" wrap>
+              <button
+                type="button"
+                onClick={() => { setMetricsExpanded(true) }}
+                aria-label="Show column metrics"
+                className="flex h-4 w-4 items-center justify-center rounded text-text-secondary/50 hover:bg-surface-hover hover:text-text-secondary"
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                  <path d="M2 13.5V8.5h2.5v5H2Zm4.75 0v-9h2.5v9h-2.5Zm4.75 0v-7H14v7h-2.5Z" />
+                </svg>
+              </button>
+            </Tooltip>
+          )
         )}
 
         {scriptTrigger && (
@@ -304,56 +308,17 @@ export const ColumnHeader = memo(function ColumnHeader({
             tooltipSide="bottom"
           />
 
-          {/* Menu button */}
-          <div className="relative" ref={menuRef}>
-            <IconButton
-              icon={
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
-                  <path d="M8 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM9.5 12.5a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0Z" />
-                </svg>
-              }
-              onClick={() => { setShowMenu(!showMenu); }}
-              tooltip="Column options"
-              tooltipSide="bottom"
-            />
-
-            <AnimatePresence>
-              {showMenu && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95, y: -5 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95, y: -5 }}
-                  transition={{ duration: 0.1 }}
-                  className="absolute right-0 top-full z-50 mt-1 w-40 rounded border border-border-default bg-surface py-1 shadow-lg"
-                >
-                  <button
-                    onClick={() => {
-                      setShowMenu(false)
-                      onConfigure()
-                    }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
-                      <path fillRule="evenodd" d="M6.455 1.45A.5.5 0 0 1 6.952 1h2.096a.5.5 0 0 1 .497.45l.186 1.858a4.996 4.996 0 0 1 1.466.848l1.703-.769a.5.5 0 0 1 .639.206l1.048 1.814a.5.5 0 0 1-.142.656l-1.517 1.09a5.026 5.026 0 0 1 0 1.694l1.517 1.09a.5.5 0 0 1 .142.656l-1.048 1.814a.5.5 0 0 1-.639.206l-1.703-.769c-.433.36-.928.649-1.466.848l-.186 1.858a.5.5 0 0 1-.497.45H6.952a.5.5 0 0 1-.497-.45l-.186-1.858a4.993 4.993 0 0 1-1.466-.848l-1.703.769a.5.5 0 0 1-.639-.206L1.413 10.4a.5.5 0 0 1 .142-.656l1.517-1.09a5.026 5.026 0 0 1 0-1.694l-1.517-1.09a.5.5 0 0 1-.142-.656L2.46 3.4a.5.5 0 0 1 .639-.206l1.703.769c.433-.36.928-.649 1.466-.848l.186-1.858ZM8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" clipRule="evenodd" />
-                    </svg>
-                    Configure
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowMenu(false)
-                      onDelete()
-                    }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-error hover:bg-error/10"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
-                      <path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5ZM6.05 6a.75.75 0 0 1 .787.713l.275 5.5a.75.75 0 0 1-1.498.075l-.275-5.5A.75.75 0 0 1 6.05 6Zm3.9 0a.75.75 0 0 1 .712.787l-.275 5.5a.75.75 0 0 1-1.498-.075l.275-5.5a.75.75 0 0 1 .786-.711Z" clipRule="evenodd" />
-                    </svg>
-                    Delete
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+          {/* Configure button (single click — Delete moved into the config dialog) */}
+          <IconButton
+            icon={
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
+                <path fillRule="evenodd" d="M6.455 1.45A.5.5 0 0 1 6.952 1h2.096a.5.5 0 0 1 .497.45l.186 1.858a4.996 4.996 0 0 1 1.466.848l1.703-.769a.5.5 0 0 1 .639.206l1.048 1.814a.5.5 0 0 1-.142.656l-1.517 1.09a5.026 5.026 0 0 1 0 1.694l1.517 1.09a.5.5 0 0 1 .142.656l-1.048 1.814a.5.5 0 0 1-.639.206l-1.703-.769c-.433.36-.928.649-1.466.848l-.186 1.858a.5.5 0 0 1-.497.45H6.952a.5.5 0 0 1-.497-.45l-.186-1.858a4.993 4.993 0 0 1-1.466-.848l-1.703.769a.5.5 0 0 1-.639-.206L1.413 10.4a.5.5 0 0 1 .142-.656l1.517-1.09a5.026 5.026 0 0 1 0-1.694l-1.517-1.09a.5.5 0 0 1-.142-.656L2.46 3.4a.5.5 0 0 1 .639-.206l1.703.769c.433-.36.928-.649 1.466-.848l.186-1.858ZM8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" clipRule="evenodd" />
+              </svg>
+            }
+            onClick={onConfigure}
+            tooltip="Configure column"
+            tooltipSide="bottom"
+          />
         </div>
       </div>
 

@@ -226,7 +226,6 @@ export const Column = memo(function Column({
             batchQueue={batchQueueState.isQueuing ? { total: batchQueueState.total, completed: batchQueueState.completed } : undefined}
             metrics={columnMetrics}
             onConfigure={handleConfigure}
-            onDelete={handleDelete}
             onAddTask={handleAddTask}
             onRenameSubmit={handleRename}
             onRunAll={() => { void handleRunAll(); }}
@@ -309,6 +308,7 @@ export const Column = memo(function Column({
         <ColumnConfigDialog
           column={column}
           onClose={() => { setShowConfigDialog(false); }}
+          onDelete={handleDelete}
         />
       )}
 

@@ -54,13 +54,14 @@ function suggestColor(name: string): string | null {
 type ColumnConfigDialogProps = {
   column: Column
   onClose: () => void
+  onDelete?: () => void
 }
 
 type Tab = 'general' | 'triggers' | 'exit'
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps) {
+export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDialogProps) {
   const updateColumnAsync = useColumnStore((s) => s.updateColumnAsync)
 
   const [tab, setTab] = useState<Tab>('general')
@@ -216,21 +217,32 @@ export function ColumnConfigDialog({ column, onClose }: ColumnConfigDialogProps)
             </div>
 
             {/* Actions */}
-            <div className="flex justify-end gap-2 border-t border-border-default px-6 py-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={!name.trim() || isSubmitting}
-                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg disabled:opacity-50"
-              >
-                {isSubmitting ? 'Saving...' : 'Save'}
-              </button>
+            <div className="flex items-center gap-2 border-t border-border-default px-6 py-4">
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={() => { onClose(); onDelete() }}
+                  className="rounded-lg px-3 py-2 text-sm text-error hover:bg-error/10"
+                >
+                  Delete column
+                </button>
+              )}
+              <div className="ml-auto flex gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-lg px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!name.trim() || isSubmitting}
+                  className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Saving...' : 'Save'}
+                </button>
+              </div>
             </div>
           </form>
         </motion.div>
