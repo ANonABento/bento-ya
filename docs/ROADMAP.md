@@ -146,3 +146,11 @@ menu button should fade in"
 ```
 
 All formats work - I'll ask clarifying questions if needed.
+
+## Pipeline v3 (shipped 2026-05-03)
+
+- `on_failure` routing in column exit_criteria (Verify-fail → Working, Rebase-fail → ConflictResolver)
+- Dropped staging branch indirection — feature PRs target `main` directly
+- Deterministic Verify column via `run_script` (build-check + test-check)
+- New Rebase column runs `scripts/rebase-pr.sh` before Merge
+- ConflictResolver column for on-demand conflict resolution
