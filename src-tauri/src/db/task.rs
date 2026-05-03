@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use super::models::Task;
 use super::{new_id, now};
 
-/// Shared SELECT columns for tasks (50 fields).
-const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked, archived_at";
+/// Shared SELECT columns for tasks (52 fields).
+/// Order is load-bearing: `map_task_row` reads by index matching this list.
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked, archived_at, estimated_hours, actual_hours";
 
 /// Generate a sortable task batch identifier for staging PR workflows.
 pub fn generate_batch_id() -> String {
@@ -13,6 +14,7 @@ pub fn generate_batch_id() -> String {
 }
 
 /// Map a database row to a Task struct.
+/// Indices MUST match `TASK_COLUMNS` order one-to-one.
 fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
     Ok(Task {
         id: row.get(0)?,
@@ -23,37 +25,30 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         position: row.get(5)?,
         priority: row.get(6)?,
         agent_mode: row.get(7)?,
-        agent_status: row.get(42)?,
-        queued_at: row.get(43)?,
         branch_name: row.get(8)?,
-        batch_id: row.get(47)?,
         files_touched: row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
         checklist: row.get(10)?,
-        estimated_hours: row.get(11)?,
-        actual_hours: row.get::<_, Option<f64>>(12)?.unwrap_or(0.0),
         pipeline_state: row
-            .get::<_, Option<String>>(13)?
+            .get::<_, Option<String>>(11)?
             .unwrap_or_else(|| "idle".to_string()),
-        pipeline_triggered_at: row.get(14)?,
-        pipeline_error: row.get(15)?,
-        retry_count: row.get::<_, Option<i64>>(44)?.unwrap_or(0),
-        model: row.get(45)?,
-        agent_session_id: row.get(16)?,
-        last_script_exit_code: row.get(17)?,
-        review_status: row.get(18)?,
-        pr_number: row.get(19)?,
-        pr_url: row.get(20)?,
-        siege_iteration: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
-        siege_active: row.get::<_, Option<i64>>(22)?.unwrap_or(0) != 0,
-        siege_max_iterations: row.get::<_, Option<i64>>(23)?.unwrap_or(5),
-        siege_last_checked: row.get(24)?,
-        pr_mergeable: row.get(25)?,
-        pr_ci_status: row.get(26)?,
-        pr_review_decision: row.get(27)?,
-        pr_comment_count: row.get::<_, Option<i64>>(28)?.unwrap_or(0),
-        pr_is_draft: row.get::<_, Option<i64>>(29)?.unwrap_or(0) != 0,
+        pipeline_triggered_at: row.get(12)?,
+        pipeline_error: row.get(13)?,
+        agent_session_id: row.get(14)?,
+        last_script_exit_code: row.get(15)?,
+        review_status: row.get(16)?,
+        pr_number: row.get(17)?,
+        pr_url: row.get(18)?,
+        siege_iteration: row.get::<_, Option<i64>>(19)?.unwrap_or(0),
+        siege_active: row.get::<_, Option<i64>>(20)?.unwrap_or(0) != 0,
+        siege_max_iterations: row.get::<_, Option<i64>>(21)?.unwrap_or(5),
+        siege_last_checked: row.get(22)?,
+        pr_mergeable: row.get(23)?,
+        pr_ci_status: row.get(24)?,
+        pr_review_decision: row.get(25)?,
+        pr_comment_count: row.get::<_, Option<i64>>(26)?.unwrap_or(0),
+        pr_is_draft: row.get::<_, Option<i64>>(27)?.unwrap_or(0) != 0,
         pr_labels: row
-            .get::<_, Option<String>>(30)?
+            .get::<_, Option<String>>(28)?
             .unwrap_or_else(|| "[]".to_string()),
         pr_last_fetched: row.get(29)?,
         pr_head_sha: row.get(30)?,
@@ -64,14 +59,21 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         last_output: row.get(35)?,
         dependencies: row.get(36)?,
         blocked: row.get::<_, Option<i64>>(37)?.unwrap_or(0) != 0,
+        created_at: row.get(38)?,
+        updated_at: row.get(39)?,
+        agent_status: row.get(40)?,
+        queued_at: row.get(41)?,
+        retry_count: row.get::<_, Option<i64>>(42)?.unwrap_or(0),
+        model: row.get(43)?,
         worktree_path: row.get(44)?,
+        batch_id: row.get(45)?,
         github_issue_number: row.get(46)?,
         github_issue_commented: row.get::<_, Option<i64>>(47)?.unwrap_or(0) != 0,
         github_issue_pr_linked: row.get::<_, Option<i64>>(48)?.unwrap_or(0) != 0,
         archived_at: row.get(49)?,
+        estimated_hours: row.get(50)?,
+        actual_hours: row.get::<_, Option<f64>>(51)?.unwrap_or(0.0),
         labels: Vec::new(),
-        created_at: row.get(38)?,
-        updated_at: row.get(39)?,
     })
 }
 
