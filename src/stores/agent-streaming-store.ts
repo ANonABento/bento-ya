@@ -28,6 +28,8 @@ export type AgentStream = {
   toolCount: number
   /** When streaming started */
   startTime: number
+  /** Set when agent:complete fires — viewer keeps the final state until next run */
+  completedAt?: number
 }
 
 type AgentStreamingState = {
@@ -39,7 +41,7 @@ type AgentStreamingState = {
   appendThinking: (taskId: string, content: string) => void
   /** Called on agent:tool_call events */
   updateTool: (taskId: string, toolId: string, toolName: string, status: string) => void
-  /** Called on agent:complete — removes the stream entry */
+  /** Called on agent:complete — marks stream as completed (preserves final state) */
   complete: (taskId: string) => void
   /** Called when streaming starts (first event for a task) */
   ensureStream: (taskId: string) => void
@@ -118,9 +120,13 @@ export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => 
   },
 
   complete: (taskId) => {
+    // Don't delete — mark as completed so the panel can show final state.
+    // Stream is reset on next ensureStream() (i.e. when agent re-runs).
     set((state) => {
+      const stream = state.streams.get(taskId)
+      if (!stream) return state
       const next = new Map(state.streams)
-      next.delete(taskId)
+      next.set(taskId, { ...stream, completedAt: Date.now() })
       return { streams: next }
     })
   },
