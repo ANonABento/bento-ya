@@ -1996,11 +1996,19 @@ fn execute_run_script(
             }
         }
 
-        // All bash/check steps done — call mark_complete
+        // All bash/check steps done — record exit code for script_success
+        // exit_criteria, then call mark_complete.
         let db_path = crate::db::db_path();
         match rusqlite::Connection::open(&db_path) {
             Ok(conn) => {
                 let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                let exit_code: i64 = if success { 0 } else { 1 };
+                if let Err(e) = db::update_task_script_exit_code(&conn, &task_id, Some(exit_code)) {
+                    log::warn!(
+                        "[script:{}] failed to update last_script_exit_code={}: {}",
+                        task_id, exit_code, e
+                    );
+                }
                 if let Err(e) = super::mark_complete(&conn, &app_handle, &task_id, success) {
                     log::error!("[script:{}] mark_complete failed: {}", task_id, e);
                 }
