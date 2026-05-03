@@ -228,17 +228,6 @@ fn get_exit_criteria_field(triggers_json: Option<&str>, field: &str) -> Option<s
         .and_then(|v| v.get("exit_criteria")?.get(field).cloned())
 }
 
-/// Pipeline v3: read `exit_criteria.on_failure.target` when on_failure is a
-/// move_column action. Used by `mark_complete_with_error` to route failed
-/// tasks (e.g. failed Verify → back to Working, failed Rebase → ConflictResolver).
-pub fn get_on_failure_move_target(triggers_json: Option<&str>) -> Option<String> {
-    let on_failure = get_exit_criteria_field(triggers_json, "on_failure")?;
-    let action_type = on_failure.get("type")?.as_str()?;
-    if action_type != "move_column" {
-        return None;
-    }
-    on_failure.get("target")?.as_str().map(String::from)
-}
 
 #[cfg(test)]
 mod tests {

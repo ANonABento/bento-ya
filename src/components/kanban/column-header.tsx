@@ -177,6 +177,8 @@ export const ColumnHeader = memo(function ColumnHeader({
     e.stopPropagation()
   }
 
+  const handleMetricsToggle = () => { setMetricsExpanded((v) => !v) }
+
   const handleRunAllClick = () => {
     setShowConfirm(true)
   }
@@ -225,7 +227,7 @@ export const ColumnHeader = memo(function ColumnHeader({
             <Tooltip content={buildMetricsTooltip(metrics)} side="bottom" wrap>
               <button
                 type="button"
-                onClick={() => { setMetricsExpanded(false) }}
+                onClick={handleMetricsToggle}
                 className="flex items-center gap-1 rounded text-[10px] text-text-secondary/60 tabular-nums whitespace-nowrap hover:text-text-secondary"
               >
                 <span>⏱{formatDuration(metrics.avgDurationSeconds)}</span>
@@ -239,7 +241,7 @@ export const ColumnHeader = memo(function ColumnHeader({
             <Tooltip content={buildMetricsTooltip(metrics)} side="bottom" wrap>
               <button
                 type="button"
-                onClick={() => { setMetricsExpanded(true) }}
+                onClick={handleMetricsToggle}
                 aria-label="Show column metrics"
                 className="flex h-4 w-4 items-center justify-center rounded text-text-secondary/50 hover:bg-surface-hover hover:text-text-secondary"
               >

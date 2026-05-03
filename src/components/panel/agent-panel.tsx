@@ -189,24 +189,25 @@ function OutputView({ task }: { task: Task }) {
 
 // ─── Components ─────────────────────────────────────────────────────────────
 
-function ToolBadge({ tool }: { tool: LiveToolCall }) {
-  const palette = {
-    pending:   'bg-surface-hover text-text-secondary border-border-default',
-    running:   'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    completed: 'bg-green-500/10 text-green-400 border-green-500/20',
-    error:     'bg-red-500/10 text-red-400 border-red-500/20',
-  } as const
-  const icon = {
-    pending: '○',
-    running: '⏳',
-    completed: '✓',
-    error: '✗',
-  } as const
+const TOOL_STATUS_PALETTE: Record<LiveToolCall['status'], string> = {
+  pending:   'bg-surface-hover text-text-secondary border-border-default',
+  running:   'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  completed: 'bg-green-500/10 text-green-400 border-green-500/20',
+  error:     'bg-red-500/10 text-red-400 border-red-500/20',
+}
 
+const TOOL_STATUS_ICON: Record<LiveToolCall['status'], string> = {
+  pending: '○',
+  running: '⏳',
+  completed: '✓',
+  error: '✗',
+}
+
+function ToolBadge({ tool }: { tool: LiveToolCall }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-mono ${palette[tool.status]}`}>
-      <span>{icon[tool.status]}</span>
-      <span className="truncate max-w-[200px]">{tool.name}</span>
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-mono ${TOOL_STATUS_PALETTE[tool.status]}`}>
+      <span>{TOOL_STATUS_ICON[tool.status]}</span>
+      <span className="max-w-[200px] truncate">{tool.name}</span>
     </span>
   )
 }

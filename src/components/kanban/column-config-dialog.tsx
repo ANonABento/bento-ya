@@ -102,6 +102,11 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
 
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  const handleDeleteClick = () => {
+    onClose()
+    onDelete?.()
+  }
+
   const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!name.trim() || isSubmitting) return
@@ -221,7 +226,7 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
               {onDelete && (
                 <button
                   type="button"
-                  onClick={() => { onClose(); onDelete() }}
+                  onClick={handleDeleteClick}
                   className="rounded-lg px-3 py-2 text-sm text-error hover:bg-error/10"
                 >
                   Delete column

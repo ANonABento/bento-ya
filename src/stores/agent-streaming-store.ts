@@ -134,9 +134,8 @@ export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => 
   getStream: (taskId) => get().streams.get(taskId),
 }))
 
-// Expose store globally for Playwright/webdriver tests so they can inject
-// stream events without firing real Tauri events. Lives only when running
-// in browser mock mode (no Tauri runtime present).
+// Expose store globally so Playwright/webdriver tests can inject stream events
+// without firing real Tauri IPC. Guard is for SSR safety (always true in Tauri/browser).
 if (typeof window !== 'undefined') {
-  ;(window as unknown as { __bentoyaAgentStreamingStore?: typeof useAgentStreamingStore }).__bentoyaAgentStreamingStore = useAgentStreamingStore
+  (window as unknown as { __bentoyaAgentStreamingStore: typeof useAgentStreamingStore }).__bentoyaAgentStreamingStore = useAgentStreamingStore
 }
