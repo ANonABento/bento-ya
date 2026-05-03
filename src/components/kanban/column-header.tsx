@@ -234,6 +234,19 @@ export const ColumnHeader = memo(function ColumnHeader({
           {taskCount}
         </span>
 
+        {/* Inline column metrics (avg duration · success rate · throughput) */}
+        {metrics && metrics.taskCount > 0 && (
+          <Tooltip content={buildMetricsTooltip(metrics)} side="bottom" wrap>
+            <div className="flex items-center gap-1 text-[10px] text-text-secondary/60 tabular-nums whitespace-nowrap">
+              <span>⏱{formatDuration(metrics.avgDurationSeconds)}</span>
+              <span className="text-text-secondary/30">·</span>
+              <span>✓{successRatePct(metrics)}%</span>
+              <span className="text-text-secondary/30">·</span>
+              <span>{metrics.throughputPerDay.toFixed(1)}/d</span>
+            </div>
+          </Tooltip>
+        )}
+
         {scriptTrigger && (
           <span
             className="truncate rounded bg-purple-500/10 px-1.5 py-0.5 text-[10px] font-medium text-purple-400"
@@ -343,29 +356,6 @@ export const ColumnHeader = memo(function ColumnHeader({
           </div>
         </div>
       </div>
-
-      {/* Per-column metrics row */}
-      {metrics && metrics.taskCount > 0 && (
-        <Tooltip
-          content={buildMetricsTooltip(metrics)}
-          side="bottom"
-          wrap
-        >
-          <div className="flex items-center gap-2 px-3 pb-1.5">
-            <span className="text-[10px] text-text-secondary/60 tabular-nums">
-              ⏱ {formatDuration(metrics.avgDurationSeconds)}
-            </span>
-            <span className="text-[10px] text-text-secondary/40">·</span>
-            <span className="text-[10px] text-text-secondary/60 tabular-nums">
-              ✓ {successRatePct(metrics)}%
-            </span>
-            <span className="text-[10px] text-text-secondary/40">·</span>
-            <span className="text-[10px] text-text-secondary/60 tabular-nums">
-              {metrics.throughputPerDay.toFixed(1)}/d
-            </span>
-          </div>
-        </Tooltip>
-      )}
 
       {/* Run All confirmation dialog */}
       {showConfirm && (

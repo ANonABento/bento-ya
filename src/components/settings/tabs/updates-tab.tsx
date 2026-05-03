@@ -4,6 +4,24 @@ import { checkForUpdate, installUpdate, type UpdateInfo } from '@/lib/ipc/update
 
 type CheckState = 'idle' | 'checking' | 'up-to-date' | 'available' | 'installing' | 'error'
 
+// Tauri IPC errors can arrive as plain strings, AppError objects, or wrapped JSON.
+// Falling back to String(err) renders "[object Object]" — this handles each shape.
+function formatErr(err: unknown): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'string') return err
+  if (err && typeof err === 'object') {
+    const obj = err as Record<string, unknown>
+    if (typeof obj.message === 'string') return obj.message
+    if (typeof obj.error === 'string') return obj.error
+    try {
+      return JSON.stringify(err)
+    } catch {
+      return 'Unknown error'
+    }
+  }
+  return String(err)
+}
+
 export function UpdatesTab() {
   const [state, setState] = useState<CheckState>('idle')
   const [update, setUpdate] = useState<UpdateInfo | null>(null)
@@ -28,7 +46,7 @@ export function UpdatesTab() {
         }
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : String(err))
+        setError(formatErr(err))
         setState('error')
       })
   }, [])
@@ -37,7 +55,7 @@ export function UpdatesTab() {
     setState('installing')
     setError(null)
     installUpdate().catch((err: unknown) => {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(formatErr(err))
       setState('error')
     })
   }, [])

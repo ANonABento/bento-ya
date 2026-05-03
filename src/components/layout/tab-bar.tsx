@@ -21,6 +21,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAttentionStore } from '@/stores/attention-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useChecklistStore } from '@/stores/checklist-store'
+import { useTaskStore } from '@/stores/task-store'
 import { Tooltip } from '@/components/shared/tooltip'
 import type { Workspace } from '@/types'
 import { CostBadge, MetricsDashboard } from '@/components/usage'
@@ -184,6 +185,33 @@ function SettingsButton() {
   )
 }
 
+// ─── ShowArchivedButton ─────────────────────────────────────────────────────
+
+function ShowArchivedButton() {
+  const showArchived = useTaskStore((s) => s.showArchived)
+  const setShowArchived = useTaskStore((s) => s.setShowArchived)
+
+  return (
+    <Tooltip content={showArchived ? 'Hide archived' : 'Show archived'} side="bottom">
+      <motion.button
+        onClick={() => { setShowArchived(!showArchived) }}
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+          showArchived
+            ? 'bg-accent/15 text-accent'
+            : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+        }`}
+      >
+        <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+          <path d="M2 3a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H2Z" />
+          <path fillRule="evenodd" d="M2 7.5h16l-.811 7.71a2 2 0 0 1-1.99 1.79H4.802a2 2 0 0 1-1.99-1.79L2 7.5Zm5.22 1.72a.75.75 0 0 1 1.06 0L10 10.94l1.72-1.72a.75.75 0 1 1 1.06 1.06l-2.25 2.25a.75.75 0 0 1-1.06 0l-2.25-2.25a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+        </svg>
+      </motion.button>
+    </Tooltip>
+  )
+}
+
 // ─── ChecklistButton ─────────────────────────────────────────────────────────
 
 function ChecklistButton() {
@@ -332,6 +360,7 @@ export function TabBar() {
             }}
           />
           <ChecklistButton />
+          <ShowArchivedButton />
           {activeWorkspaceId && (
             <CostBadge
               workspaceId={activeWorkspaceId}
