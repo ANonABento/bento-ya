@@ -280,6 +280,19 @@ fn get_exit_criteria_field(triggers_json: Option<&str>, field: &str) -> Option<s
         .and_then(|v| v.get("exit_criteria")?.get(field).cloned())
 }
 
+/// Pipeline v3: read `exit_criteria.on_failure.target` when on_failure is a
+/// move_column action. Used by `mark_complete_with_error` to route failed
+/// tasks (e.g. failed Verify → back to Working, failed Rebase → ConflictResolver)
+/// instead of resetting to Backlog.
+pub fn get_on_failure_move_target(triggers_json: Option<&str>) -> Option<String> {
+    let on_failure = get_exit_criteria_field(triggers_json, "on_failure")?;
+    let action_type = on_failure.get("type")?.as_str()?;
+    if action_type != "move_column" {
+        return None;
+    }
+    on_failure.get("target")?.as_str().map(String::from)
+}
+
 /// Parse the exit_criteria type from a column's triggers JSON.
 pub fn parse_exit_type(triggers_json: Option<&str>) -> String {
     get_exit_criteria_field(triggers_json, "type")
@@ -774,6 +787,55 @@ pub fn mark_complete_with_error(
             fire_trigger(conn, app, &updated_task, &column)
         }
         CompletionAction::Failed => {
+            // Pipeline v3: column triggers can declare on_failure routing. When a
+            // column has `exit_criteria.on_failure: { type: "move_column", target: "<id>" }`,
+            // route the failed task there instead of resetting to Backlog. This enables
+            // patterns like Verify-fail → Working (with error context) and
+            // Rebase-fail → ConflictResolver.
+            if let Some(target_col_id) = get_on_failure_move_target(column.triggers.as_deref()) {
+                if let Ok(target_col) = db::get_column(conn, &target_col_id) {
+                    let error_msg = error_detail.unwrap_or("Execution failed");
+                    log::info!(
+                        "[pipeline] task {} failed in column '{}' — routing to '{}' via on_failure",
+                        task_id, column.name, target_col.name
+                    );
+                    let _ = db::update_task_pipeline_state(
+                        conn,
+                        task_id,
+                        PipelineState::Advancing.as_str(),
+                        None,
+                        Some(error_msg),
+                    );
+                    let max_pos: i64 = conn
+                        .query_row(
+                            "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
+                            rusqlite::params![target_col.id],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or(-1);
+                    let ts = db::now();
+                    conn.execute(
+                        "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, retry_count = 0, updated_at = ?3 WHERE id = ?4",
+                        rusqlite::params![target_col.id, max_pos + 1, ts, task_id],
+                    )
+                    .map_err(AppError::from)?;
+                    let routed_task = db::get_task(conn, task_id)?;
+                    emit_pipeline(
+                        app,
+                        "pipeline:advanced",
+                        task_id,
+                        &target_col.id,
+                        PipelineState::Idle,
+                        Some(format!(
+                            "on_failure: {} → {} ({})",
+                            column.name, target_col.name, error_msg
+                        )),
+                    );
+                    emit_tasks_changed(app, &task.workspace_id, "on_failure_route");
+                    return fire_trigger(conn, app, &routed_task, &target_col);
+                }
+            }
+
             // If retries were exhausted (task was retried at least once), reset the task
             // to the Backlog column for a clean-slate re-run instead of leaving it stuck.
             if task.retry_count > 0 {

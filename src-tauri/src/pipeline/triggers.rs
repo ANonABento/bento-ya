@@ -1462,10 +1462,10 @@ fn execute_auto_merge(
 ) -> Result<Task, AppError> {
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
     let base_branch = base_branch.unwrap_or("main");
-    let batch_id = task.batch_id.as_deref().and_then(normalize_batch_id);
-    let selector = if let Some(batch_id) = batch_id.as_deref() {
-        staging_branch_for_batch(batch_id)
-    } else if let Some(pr_url) = task.pr_url.as_deref() {
+    // Pipeline v3: always merge the task's OWN PR (never the umbrella staging PR).
+    // Eliminates the orphan-staging failure mode where umbrellas die from CI/conflicts
+    // and feature PRs get stuck "MERGED into staging but not in main."
+    let selector = if let Some(pr_url) = task.pr_url.as_deref() {
         pr_url.to_string()
     } else if let Some(pr_number) = task.pr_number {
         pr_number.to_string()
@@ -1477,7 +1477,7 @@ fn execute_auto_merge(
             app,
             task,
             column,
-            "Cannot auto-merge: task has no batch, PR, or branch reference",
+            "Cannot auto-merge: task has no PR or branch reference",
         );
     };
 
@@ -1528,20 +1528,13 @@ fn execute_auto_merge(
         );
     };
 
-    let tasks = if let Some(batch_id) = batch_id.as_deref() {
-        db::list_tasks_by_batch_id(conn, &task.workspace_id, batch_id)?
-    } else {
-        vec![updated_task]
-    };
-
-    let mut last_updated = None;
-    for batch_task in tasks {
-        let moved = db::append_task_to_column(conn, &batch_task.id, &done_col.id)?;
-        let cleaned =
-            super::cleanup_task_worktree_if_terminal(conn, &moved, &done_col, "auto_merge")?;
-        let _ = super::dependencies::check_dependents(conn, app, &cleaned);
-        last_updated = Some(cleaned);
-    }
+    // Pipeline v3: only move the task itself to Done (never sweep the whole batch).
+    // Each task ships independently via its own PR — batch_id is just a UI grouping label.
+    let moved = db::append_task_to_column(conn, &updated_task.id, &done_col.id)?;
+    let cleaned =
+        super::cleanup_task_worktree_if_terminal(conn, &moved, &done_col, "auto_merge")?;
+    let _ = super::dependencies::check_dependents(conn, app, &cleaned);
+    let last_updated = Some(cleaned);
 
     emit_pipeline(
         app,
