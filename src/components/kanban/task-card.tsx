@@ -301,6 +301,8 @@ export const TaskCard = memo(function TaskCard({
     <>
     <div
       ref={cardRef}
+      data-task-id={task.id}
+      data-task-status={task.agentStatus ?? 'idle'}
       style={{
         ...style,
         cursor: 'pointer',
