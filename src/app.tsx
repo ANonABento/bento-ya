@@ -173,7 +173,7 @@ function App() {
         {showCommandPalette && (
           <CommandPalette
             onClose={() => { setShowCommandPalette(false) }}
-            onShowShortcuts={() => { setShowCommandPalette(false); setShowAbout(true) }}
+            onShowShortcuts={() => { setShowCommandPalette(false); setShowShortcuts(true) }}
           />
         )}
       </AnimatePresence>

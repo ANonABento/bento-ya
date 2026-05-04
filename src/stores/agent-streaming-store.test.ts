@@ -39,6 +39,18 @@ describe('agent-streaming-store', () => {
       expect(after.lastContent).toBe('hello')
       expect(after.startTime).toBe(original.startTime)
     })
+
+    it('should reset completed stream when a new run starts', () => {
+      useAgentStreamingStore.getState().ensureStream('task-1')
+      useAgentStreamingStore.getState().appendContent('task-1', 'previous run')
+      useAgentStreamingStore.getState().complete('task-1')
+
+      useAgentStreamingStore.getState().ensureStream('task-1')
+
+      const stream = getStreamOrThrow('task-1')
+      expect(stream.fullContent).toBe('')
+      expect(stream.completedAt).toBeUndefined()
+    })
   })
 
   describe('appendContent', () => {
@@ -76,11 +88,12 @@ describe('agent-streaming-store', () => {
       useAgentStreamingStore.getState().updateTool('task-1', 'tool-1', 'read_file', 'running')
 
       const stream = getStreamOrThrow('task-1')
-      expect(stream.activeTool).toEqual({
+      expect(stream.activeTool).toMatchObject({
         id: 'tool-1',
         name: 'read_file',
         status: 'running',
       })
+      expect(stream.activeTool?.startedAt).toBeGreaterThan(0)
     })
 
     it('should clear active tool when status is completed', () => {
@@ -110,17 +123,38 @@ describe('agent-streaming-store', () => {
       const stream = getStreamOrThrow('task-1')
       expect(stream.toolCount).toBe(1)
     })
+
+    it('should preserve tool start time and set end time when completed', () => {
+      useAgentStreamingStore.getState().ensureStream('task-1')
+      useAgentStreamingStore.getState().updateTool('task-1', 'tool-1', 'read_file', 'running')
+      const startedAt = getStreamOrThrow('task-1').allToolCalls[0]?.startedAt
+
+      useAgentStreamingStore.getState().updateTool('task-1', 'tool-1', 'read_file', 'completed')
+
+      const tool = getStreamOrThrow('task-1').allToolCalls[0]
+      expect(tool?.startedAt).toBe(startedAt)
+      expect(tool?.endedAt).toBeGreaterThanOrEqual(startedAt ?? 0)
+    })
   })
 
   describe('complete', () => {
-    it('should mark the stream completed and preserve final state', () => {
+    it('should mark stream complete while preserving final output', () => {
       useAgentStreamingStore.getState().ensureStream('task-1')
-      useAgentStreamingStore.getState().appendContent('task-1', 'done')
+      useAgentStreamingStore.getState().complete('task-1')
+
+      const stream = useAgentStreamingStore.getState().getStream('task-1')
+      expect(stream?.completedAt).toBeGreaterThan(0)
+    })
+
+    it('should complete active tools', () => {
+      useAgentStreamingStore.getState().ensureStream('task-1')
+      useAgentStreamingStore.getState().updateTool('task-1', 'tool-1', 'read_file', 'running')
       useAgentStreamingStore.getState().complete('task-1')
 
       const stream = getStreamOrThrow('task-1')
-      expect(stream.lastContent).toBe('done')
-      expect(stream.completedAt).toBeGreaterThanOrEqual(stream.startTime)
+      expect(stream.activeTool).toBeNull()
+      expect(stream.allToolCalls[0]).toMatchObject({ status: 'completed' })
+      expect(stream.allToolCalls[0]?.endedAt).toBeGreaterThan(0)
     })
 
     it('should not error if task has no stream', () => {

@@ -11,6 +11,8 @@ export type LiveToolCall = {
   id: string
   name: string
   status: 'pending' | 'running' | 'completed' | 'error'
+  startedAt: number
+  endedAt?: number
 }
 
 export type AgentStream = {
@@ -59,14 +61,26 @@ const DEFAULT_STREAM: AgentStream = {
   startTime: Date.now(),
 }
 
+function createStream(): AgentStream {
+  return { ...DEFAULT_STREAM, startTime: Date.now() }
+}
+
+function normalizeToolStatus(status: string): LiveToolCall['status'] {
+  if (status === 'pending' || status === 'running' || status === 'completed' || status === 'error') {
+    return status
+  }
+  return 'running'
+}
+
 export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => ({
   streams: new Map(),
 
   ensureStream: (taskId) => {
-    if (get().streams.has(taskId)) return
+    const existing = get().streams.get(taskId)
+    if (existing && !existing.completedAt) return
     set((state) => {
       const next = new Map(state.streams)
-      next.set(taskId, { ...DEFAULT_STREAM, startTime: Date.now() })
+      next.set(taskId, createStream())
       return { streams: next }
     })
   },
@@ -74,7 +88,7 @@ export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => 
   appendContent: (taskId, content) => {
     set((state) => {
       const next = new Map(state.streams)
-      const stream = next.get(taskId) ?? { ...DEFAULT_STREAM, startTime: Date.now() }
+      const stream = next.get(taskId) ?? createStream()
       const preview = stream.lastContent + content
       next.set(taskId, {
         ...stream,
@@ -88,7 +102,7 @@ export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => 
   appendThinking: (taskId, content) => {
     set((state) => {
       const next = new Map(state.streams)
-      const stream = next.get(taskId) ?? { ...DEFAULT_STREAM, startTime: Date.now() }
+      const stream = next.get(taskId) ?? createStream()
       next.set(taskId, {
         ...stream,
         thinkingContent: stream.thinkingContent + content,
@@ -100,12 +114,21 @@ export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => 
   updateTool: (taskId, toolId, toolName, status) => {
     set((state) => {
       const next = new Map(state.streams)
-      const stream = next.get(taskId) ?? { ...DEFAULT_STREAM, startTime: Date.now() }
+      const stream = next.get(taskId) ?? createStream()
 
-      const toolStatus = status as LiveToolCall['status']
+      const toolStatus = normalizeToolStatus(status)
       const isActive = toolStatus === 'pending' || toolStatus === 'running'
       const isNew = !stream.allToolCalls.some((t) => t.id === toolId)
-      const tool: LiveToolCall = { id: toolId, name: toolName, status: toolStatus }
+      const existingTool = stream.allToolCalls.find((t) => t.id === toolId)
+      const now = Date.now()
+      const isFinished = toolStatus === 'completed' || toolStatus === 'error'
+      const tool: LiveToolCall = {
+        id: toolId,
+        name: toolName,
+        status: toolStatus,
+        startedAt: existingTool?.startedAt ?? now,
+        endedAt: isFinished ? (existingTool?.endedAt ?? now) : undefined,
+      }
 
       next.set(taskId, {
         ...stream,
@@ -125,8 +148,19 @@ export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => 
     set((state) => {
       const stream = state.streams.get(taskId)
       if (!stream) return state
+      const completedAt = Date.now()
+      const allToolCalls = stream.allToolCalls.map((tool) =>
+        tool.status === 'pending' || tool.status === 'running'
+          ? { ...tool, status: 'completed' as const, endedAt: tool.endedAt ?? completedAt }
+          : tool,
+      )
       const next = new Map(state.streams)
-      next.set(taskId, { ...stream, completedAt: Date.now() })
+      next.set(taskId, {
+        ...stream,
+        activeTool: null,
+        allToolCalls,
+        completedAt,
+      })
       return { streams: next }
     })
   },
