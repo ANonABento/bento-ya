@@ -13,6 +13,7 @@ pub mod events;
 pub mod git;
 pub mod github_sync;
 pub mod llm;
+pub mod mcp_supervisor;
 pub mod models;
 pub mod pipeline;
 #[cfg(feature = "voice")]
@@ -293,10 +294,15 @@ pub fn run() {
             // Updater commands
             commands::updater::check_for_update,
             commands::updater::install_update,
+            // MCP supervisor
+            mcp_supervisor::get_mcp_health,
         ])
         .setup(|app| {
             // Start HTTP API server for external MCP control
             api::start(app.handle().clone());
+            // Start bento-mcp supervisor (auto-respawn child on death)
+            let supervisor_state = mcp_supervisor::start(app.handle().clone());
+            app.manage(supervisor_state);
             // Start periodic idle session sweep (every 60s)
             start_idle_sweep(session_registry_for_sweep, app.handle().clone());
 

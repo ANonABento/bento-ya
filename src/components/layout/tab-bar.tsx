@@ -26,6 +26,7 @@ import { Tooltip } from '@/components/shared/tooltip'
 import type { Workspace } from '@/types'
 import { CostBadge, MetricsDashboard } from '@/components/usage'
 import { AddWorkspaceDialog } from './add-workspace-dialog'
+import { McpHealthIndicator } from './mcp-health-indicator'
 import { useTabBarNavigation } from './use-tab-bar-navigation'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -367,6 +368,7 @@ export function TabBar() {
               onOpenDashboard={() => { setShowDashboard(true) }}
             />
           )}
+          <McpHealthIndicator />
           <SettingsButton />
         </div>
       </header>
