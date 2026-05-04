@@ -1375,6 +1375,74 @@ fn maybe_create_batch_pr(
     ))
 }
 
+/// Sentinel prefix used to flag rebase-conflict failures so the outer handler
+/// can mark the task as needing manual review instead of treating the failure
+/// as a generic infrastructural error.
+const REBASE_CONFLICT_PREFIX: &str = "REBASE_CONFLICT: ";
+
+/// Rebase the task branch onto fresh `origin/<base>` before opening a PR.
+///
+/// Why: tasks that were sliced off a stale local `<base>` will, when pushed,
+/// produce a PR whose diff includes "deletions" of commits that landed on
+/// remote main concurrently. Auto-merging that PR (or any conflict-fallback
+/// strategy that prefers the task side) silently regresses the trunk.
+///
+/// On a clean rebase: `Ok(())` and the worktree HEAD now sits on top of
+/// fresh `origin/<base>`. On conflicts: the rebase is aborted (HEAD is
+/// restored), and `Err(REBASE_CONFLICT_PREFIX + detail)` is returned so the
+/// caller can flag the task for manual review rather than auto-resolving with
+/// `--theirs` (which is what caused the regressions in the first place).
+fn rebase_task_branch_on_base(repo_path: &str, base_branch: &str) -> Result<(), String> {
+    let fetch = run_command(repo_path, "git", &["fetch", "origin", base_branch])?;
+    if !fetch.status.success() {
+        // Fetch failure: log + proceed with whatever local origin/<base> has.
+        // No remote / network failure shouldn't block PR creation entirely.
+        log::warn!(
+            "[rebase] git fetch origin {} failed before rebase: {}",
+            base_branch,
+            command_stderr(&fetch)
+        );
+    }
+
+    let target = format!("origin/{}", base_branch);
+    if !git_ref_exists(repo_path, &remote_branch_ref(base_branch))? {
+        // No remote ref to rebase onto — skip rebase, fall back to local view.
+        log::warn!(
+            "[rebase] origin/{} does not exist; skipping rebase",
+            base_branch
+        );
+        return Ok(());
+    }
+
+    let rebase = run_command(repo_path, "git", &["rebase", &target])?;
+    if rebase.status.success() {
+        log::info!("[rebase] task branch cleanly rebased onto {}", target);
+        return Ok(());
+    }
+
+    // Rebase failed — capture conflict files (if any) and abort to restore HEAD.
+    let unmerged = run_command(
+        repo_path,
+        "git",
+        &["diff", "--name-only", "--diff-filter=U"],
+    )
+    .ok()
+    .map(|o| command_stdout(&o))
+    .filter(|s| !s.is_empty());
+
+    let _ = run_command(repo_path, "git", &["rebase", "--abort"]);
+
+    let detail = match unmerged {
+        Some(files) => format!(
+            "conflicts in: {}",
+            files.lines().collect::<Vec<_>>().join(", ")
+        ),
+        None => format!("rebase failed: {}", command_stderr(&rebase)),
+    };
+
+    Err(format!("{}{}", REBASE_CONFLICT_PREFIX, detail))
+}
+
 fn push_task_branch(repo_path: &str, branch_name: &str) -> Result<(), String> {
     let output = run_command(repo_path, "git", &["push", "-u", "origin", branch_name])?;
     if output.status.success() {
@@ -1644,6 +1712,12 @@ fn execute_create_pr(
         let result = tokio::task::spawn_blocking(move || -> Result<(i64, String), String> {
             ensure_staging_branch(&pr_repo_path, &pr_staging_branch, &pr_final_base)?;
 
+            // Rebase task branch onto fresh `origin/<base>` before pushing.
+            // On conflicts the rebase is aborted and we propagate a
+            // REBASE_CONFLICT_PREFIX error so the outer handler flags the
+            // task for manual review (no `--theirs` auto-resolution).
+            rebase_task_branch_on_base(&pr_repo_path, &pr_final_base)?;
+
             // gh pr create requires the branch to exist on remote.
             push_task_branch(&pr_repo_path, &pr_branch_name)?;
 
@@ -1710,6 +1784,32 @@ fn execute_create_pr(
             }
             Ok(Err(e)) => {
                 log::error!("[create_pr] Failed for task {}: {}", task_id, e);
+
+                // If the rebase reported conflicts, flag the task for manual
+                // review instead of letting the trigger silently retry — we
+                // explicitly do NOT auto-resolve with `--theirs` (that's the
+                // strategy that caused regressions).
+                if let Some(detail) = e.strip_prefix(REBASE_CONFLICT_PREFIX) {
+                    if let Some(ref conn) = conn {
+                        let reason = format!(
+                            "needs-manual-review: rebase against origin/{} hit conflicts — {}",
+                            final_base, detail
+                        );
+                        let _ = db::update_task_review_status(
+                            conn,
+                            &task_id,
+                            Some("needs-manual-review"),
+                        );
+                        let _ = db::update_task_pipeline_state(
+                            conn,
+                            &task_id,
+                            PipelineState::Idle.as_str(),
+                            None,
+                            Some(&reason),
+                        );
+                    }
+                }
+
                 let _ = app_handle.emit(
                     "pipeline:error",
                     &super::PipelineEvent {
