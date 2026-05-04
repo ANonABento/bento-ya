@@ -72,6 +72,19 @@ function normalizeToolStatus(status: string): LiveToolCall['status'] {
   return 'running'
 }
 
+function getWritableStream(stream: AgentStream | undefined): AgentStream {
+  return stream && !stream.completedAt ? stream : createStream()
+}
+
+function getLatestActiveTool(tools: LiveToolCall[]): LiveToolCall | null {
+  for (let index = tools.length - 1; index >= 0; index -= 1) {
+    const tool = tools[index]
+    if (!tool) continue
+    if (tool.status === 'pending' || tool.status === 'running') return tool
+  }
+  return null
+}
+
 export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => ({
   streams: new Map(),
 
@@ -88,7 +101,7 @@ export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => 
   appendContent: (taskId, content) => {
     set((state) => {
       const next = new Map(state.streams)
-      const stream = next.get(taskId) ?? createStream()
+      const stream = getWritableStream(next.get(taskId))
       const preview = stream.lastContent + content
       next.set(taskId, {
         ...stream,
@@ -102,7 +115,7 @@ export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => 
   appendThinking: (taskId, content) => {
     set((state) => {
       const next = new Map(state.streams)
-      const stream = next.get(taskId) ?? createStream()
+      const stream = getWritableStream(next.get(taskId))
       next.set(taskId, {
         ...stream,
         thinkingContent: stream.thinkingContent + content,
@@ -114,10 +127,9 @@ export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => 
   updateTool: (taskId, toolId, toolName, status) => {
     set((state) => {
       const next = new Map(state.streams)
-      const stream = next.get(taskId) ?? createStream()
+      const stream = getWritableStream(next.get(taskId))
 
       const toolStatus = normalizeToolStatus(status)
-      const isActive = toolStatus === 'pending' || toolStatus === 'running'
       const isNew = !stream.allToolCalls.some((t) => t.id === toolId)
       const existingTool = stream.allToolCalls.find((t) => t.id === toolId)
       const now = Date.now()
@@ -129,13 +141,14 @@ export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => 
         startedAt: existingTool?.startedAt ?? now,
         endedAt: isFinished ? (existingTool?.endedAt ?? now) : undefined,
       }
+      const allToolCalls = isNew
+        ? [...stream.allToolCalls, tool]
+        : stream.allToolCalls.map((t) => t.id === toolId ? tool : t)
 
       next.set(taskId, {
         ...stream,
-        activeTool: isActive ? tool : null,
-        allToolCalls: isNew
-          ? [...stream.allToolCalls, tool]
-          : stream.allToolCalls.map((t) => t.id === toolId ? tool : t),
+        activeTool: getLatestActiveTool(allToolCalls),
+        allToolCalls,
         toolCount: isNew ? stream.toolCount + 1 : stream.toolCount,
       })
       return { streams: next }

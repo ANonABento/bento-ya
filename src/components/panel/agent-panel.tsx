@@ -14,6 +14,7 @@ import type { Task } from '@/types'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAgentStreamingStore, type LiveToolCall } from '@/stores/agent-streaming-store'
 import { TerminalView } from './terminal-view'
+import { looksLikeDiff, splitMarkdownParts, stripAnsi } from './agent-output-format'
 
 type AgentPanelProps = {
   task: Task
@@ -120,14 +121,17 @@ function OutputView({ task }: { task: Task }) {
   const stream = useAgentStreamingStore((s) => s.streams.get(task.id))
   const scrollerRef = useRef<HTMLDivElement>(null)
   const [autoFollow, setAutoFollow] = useState(true)
-  const activityKey = `${stream?.fullContent.length ?? 0}:${stream?.thinkingContent.length ?? 0}:${stream?.allToolCalls.length ?? 0}:${stream?.completedAt ?? 0}`
+  const contentLength = stream?.fullContent.length ?? 0
+  const thinkingLength = stream?.thinkingContent.length ?? 0
+  const toolCallCount = stream?.allToolCalls.length ?? 0
+  const completedAt = stream?.completedAt ?? 0
 
   useLayoutEffect(() => {
     if (!autoFollow) return
     const scroller = scrollerRef.current
     if (!scroller) return
     scroller.scrollTop = scroller.scrollHeight
-  }, [activityKey, autoFollow])
+  }, [autoFollow, completedAt, contentLength, thinkingLength, toolCallCount])
 
   const handleScroll = () => {
     const scroller = scrollerRef.current
@@ -210,10 +214,6 @@ function OutputView({ task }: { task: Task }) {
     </div>
   )
 }
-
-type MarkdownPart =
-  | { type: 'markdown'; content: string }
-  | { type: 'diff'; content: string }
 
 function StreamStatusBar({
   isCompleted,
@@ -366,7 +366,7 @@ function CodeBlock({ language, content }: { language: string; content: string })
   const [copied, setCopied] = useState(false)
 
   const handleCopy = () => {
-    void navigator.clipboard.writeText(content)
+    if (!writeClipboardText(content)) return
     setCopied(true)
     window.setTimeout(() => { setCopied(false) }, 1200)
   }
@@ -401,7 +401,7 @@ function DiffBlock({ content }: { content: string }) {
   const isTruncated = lines.length > visibleLines.length
 
   const handleCopy = () => {
-    void navigator.clipboard.writeText(content)
+    if (!writeClipboardText(content)) return
     setCopied(true)
     window.setTimeout(() => { setCopied(false) }, 1200)
   }
@@ -421,7 +421,7 @@ function DiffBlock({ content }: { content: string }) {
       </div>
       <pre className="max-h-[560px] overflow-auto py-2 text-xs leading-5">
         {visibleLines.map((line, index) => (
-          <DiffLine key={`${index}:${line}`} line={line} lineNumber={index + 1} />
+          <DiffLine key={`${String(index)}:${line}`} line={line} lineNumber={index + 1} />
         ))}
       </pre>
       {isTruncated && (
@@ -464,6 +464,7 @@ function AnsiText({ text }: { text: string }) {
 
 function parseAnsi(text: string): ReactNode[] {
   const nodes: ReactNode[] = []
+  // eslint-disable-next-line no-control-regex
   const regex = /\x1b\[([0-9;]*)m/g
   let lastIndex = 0
   let className = ''
@@ -514,6 +515,17 @@ function ansiClassName(code: string, current: string): string {
   return Array.from(classes).join(' ')
 }
 
+type ClipboardLike = {
+  writeText: (text: string) => Promise<void>
+}
+
+function writeClipboardText(text: string): boolean {
+  const clipboard = (navigator as unknown as { clipboard?: ClipboardLike }).clipboard
+  if (!clipboard) return false
+  void clipboard.writeText(text)
+  return true
+}
+
 const ANSI_COLOR_CLASS: Record<number, string> = {
   30: 'text-text-primary',
   31: 'text-error',
@@ -533,68 +545,6 @@ const ANSI_COLOR_CLASS: Record<number, string> = {
   97: 'text-text-primary',
 }
 
-function splitMarkdownParts(content: string): MarkdownPart[] {
-  const lines = content.split('\n')
-  const parts: MarkdownPart[] = []
-  let buffer: string[] = []
-  let diffBuffer: string[] = []
-  let inFence = false
-
-  const flushMarkdown = () => {
-    const markdown = buffer.join('\n').trim()
-    if (markdown) parts.push({ type: 'markdown', content: markdown })
-    buffer = []
-  }
-  const flushDiff = () => {
-    const diff = diffBuffer.join('\n').trimEnd()
-    if (diff) parts.push({ type: 'diff', content: diff })
-    diffBuffer = []
-  }
-
-  for (const line of lines) {
-    if (line.trim().startsWith('```')) {
-      inFence = !inFence
-      buffer.push(line)
-      continue
-    }
-
-    if (!inFence && isRawDiffLine(line)) {
-      flushMarkdown()
-      diffBuffer.push(line)
-      continue
-    }
-
-    if (diffBuffer.length > 0) flushDiff()
-    buffer.push(line)
-  }
-
-  if (diffBuffer.length > 0) flushDiff()
-  flushMarkdown()
-  return parts
-}
-
-function isRawDiffLine(line: string): boolean {
-  return line.startsWith('diff --git ')
-    || line.startsWith('index ')
-    || line.startsWith('+++ ')
-    || line.startsWith('--- ')
-    || line.startsWith('@@')
-    || line.startsWith('+')
-    || line.startsWith('-')
-}
-
-function looksLikeDiff(content: string): boolean {
-  const lines = content.split('\n')
-  return lines.some((line) => line.startsWith('@@') || line.startsWith('diff --git '))
-    || (lines.some((line) => line.startsWith('+') && !line.startsWith('+++'))
-      && lines.some((line) => line.startsWith('-') && !line.startsWith('---')))
-}
-
-function stripAnsi(text: string): string {
-  // eslint-disable-next-line no-control-regex
-  return text.replace(/\x1b\[[0-9;]*m/g, '')
-}
-
 function childrenToText(children: ReactNode): string {
   if (typeof children === 'string' || typeof children === 'number') return String(children)
   if (Array.isArray(children)) return children.map(childrenToText).join('')
@@ -603,11 +553,11 @@ function childrenToText(children: ReactNode): string {
 
 function formatDuration(start: number, end: number): string {
   const ms = Math.max(0, end - start)
-  if (ms < 1000) return `${ms}ms`
+  if (ms < 1000) return `${String(ms)}ms`
   const seconds = ms / 1000
   if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`
   const minutes = Math.floor(seconds / 60)
-  return `${minutes}m ${Math.floor(seconds % 60)}s`
+  return `${String(minutes)}m ${String(Math.floor(seconds % 60))}s`
 }
 
 function TabButton({

@@ -70,6 +70,18 @@ describe('agent-streaming-store', () => {
       expect(stream.lastContent).toBe('content')
     })
 
+    it('should start a fresh stream if content arrives after completion', () => {
+      useAgentStreamingStore.getState().ensureStream('task-1')
+      useAgentStreamingStore.getState().appendContent('task-1', 'previous run')
+      useAgentStreamingStore.getState().complete('task-1')
+
+      useAgentStreamingStore.getState().appendContent('task-1', 'next run')
+
+      const stream = getStreamOrThrow('task-1')
+      expect(stream.fullContent).toBe('next run')
+      expect(stream.completedAt).toBeUndefined()
+    })
+
     it('should truncate content to last 200 chars', () => {
       useAgentStreamingStore.getState().ensureStream('task-1')
 
@@ -134,6 +146,34 @@ describe('agent-streaming-store', () => {
       const tool = getStreamOrThrow('task-1').allToolCalls[0]
       expect(tool?.startedAt).toBe(startedAt)
       expect(tool?.endedAt).toBeGreaterThanOrEqual(startedAt ?? 0)
+    })
+
+    it('should keep another running tool active when one tool completes', () => {
+      useAgentStreamingStore.getState().ensureStream('task-1')
+      useAgentStreamingStore.getState().updateTool('task-1', 'tool-1', 'read_file', 'running')
+      useAgentStreamingStore.getState().updateTool('task-1', 'tool-2', 'write_file', 'running')
+
+      useAgentStreamingStore.getState().updateTool('task-1', 'tool-1', 'read_file', 'completed')
+
+      const stream = getStreamOrThrow('task-1')
+      expect(stream.activeTool).toMatchObject({
+        id: 'tool-2',
+        status: 'running',
+      })
+    })
+
+    it('should start a fresh stream if a tool update arrives after completion', () => {
+      useAgentStreamingStore.getState().ensureStream('task-1')
+      useAgentStreamingStore.getState().appendContent('task-1', 'previous run')
+      useAgentStreamingStore.getState().complete('task-1')
+
+      useAgentStreamingStore.getState().updateTool('task-1', 'tool-2', 'write_file', 'running')
+
+      const stream = getStreamOrThrow('task-1')
+      expect(stream.fullContent).toBe('')
+      expect(stream.completedAt).toBeUndefined()
+      expect(stream.allToolCalls).toHaveLength(1)
+      expect(stream.allToolCalls[0]).toMatchObject({ id: 'tool-2', status: 'running' })
     })
   })
 
