@@ -14,13 +14,12 @@
 
 use std::io::ErrorKind;
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::process::Command;
-use tokio::sync::RwLock;
 
 const MCP_BINARY: &str = "bento-mcp";
 const HEALTH_EVENT: &str = "mcp:health";
@@ -89,9 +88,12 @@ impl McpSupervisorState {
     }
 
     pub fn snapshot(&self) -> McpHealth {
-        // Block briefly to grab a snapshot. RwLock read is cheap and the
-        // supervisor only writes a handful of times during a restart.
-        futures::executor::block_on(self.0.read()).clone()
+        // Sync RwLock — supervisor never holds the write lock across .await,
+        // so contention is bounded by a couple of struct copies.
+        match self.0.read() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
     }
 }
 
@@ -101,13 +103,16 @@ impl Default for McpSupervisorState {
     }
 }
 
-async fn publish(
+fn publish(
     app: &AppHandle,
     health: &Arc<RwLock<McpHealth>>,
     next: McpHealth,
 ) {
     {
-        let mut guard = health.write().await;
+        let mut guard = match health.write() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         *guard = next.clone();
     }
     if let Err(e) = app.emit(HEALTH_EVENT, &next) {
@@ -152,8 +157,7 @@ async fn supervise(app: AppHandle, health: Arc<RwLock<McpHealth>>) {
                     last_error: Some(msg.clone()),
                     message: Some(msg),
                 },
-            )
-            .await;
+            );
             tokio::time::sleep(Duration::from_secs(FAILED_COOLDOWN_SECS)).await;
             window_start = Instant::now();
             restarts_in_window = 0;
@@ -161,10 +165,14 @@ async fn supervise(app: AppHandle, health: Arc<RwLock<McpHealth>>) {
         }
 
         log::info!("[mcp-supervisor] spawning {}", MCP_BINARY);
+        // stdin: piped so the child blocks waiting for JSON-RPC instead of
+        // hitting EOF and exiting (which would be a tight respawn loop).
+        // stdout/stderr: null so we don't deadlock if the child writes more
+        // than the pipe buffer (~64KB) without us draining it.
         let spawn_result = Command::new(MCP_BINARY)
             .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn();
 
@@ -187,8 +195,7 @@ async fn supervise(app: AppHandle, health: Arc<RwLock<McpHealth>>) {
                             last_error: Some(msg.clone()),
                             message: Some(msg),
                         },
-                    )
-                    .await;
+                    );
                     // Don't churn the retry counter for missing binary; check
                     // back periodically in case the user installs it.
                     tokio::time::sleep(Duration::from_secs(FAILED_COOLDOWN_SECS)).await;
@@ -209,8 +216,7 @@ async fn supervise(app: AppHandle, health: Arc<RwLock<McpHealth>>) {
                         last_error: Some(msg),
                         message: Some(format!("Retrying in {}s", backoff.as_secs())),
                     },
-                )
-                .await;
+                );
                 tokio::time::sleep(backoff).await;
                 continue;
             }
@@ -234,8 +240,7 @@ async fn supervise(app: AppHandle, health: Arc<RwLock<McpHealth>>) {
                 last_error: None,
                 message: Some(format!("bento-mcp running (pid {})", pid.unwrap_or(0))),
             },
-        )
-        .await;
+        );
 
         let exit = child.wait().await;
         let lifespan = spawn_at.elapsed();
@@ -270,8 +275,7 @@ async fn supervise(app: AppHandle, health: Arc<RwLock<McpHealth>>) {
                 last_error: Some(exit_msg),
                 message: Some(format!("Restarting in {}s", backoff.as_secs())),
             },
-        )
-        .await;
+        );
         tokio::time::sleep(backoff).await;
     }
 }
