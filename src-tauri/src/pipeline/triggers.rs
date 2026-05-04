@@ -1534,7 +1534,6 @@ fn execute_auto_merge(
     let cleaned =
         super::cleanup_task_worktree_if_terminal(conn, &moved, &done_col, "auto_merge")?;
     let _ = super::dependencies::check_dependents(conn, app, &cleaned);
-    let last_updated = Some(cleaned);
 
     emit_pipeline(
         app,
@@ -1546,7 +1545,7 @@ fn execute_auto_merge(
     );
     super::emit_tasks_changed(app, &task.workspace_id, "auto_merge_done");
 
-    Ok(last_updated.unwrap_or_else(|| task.clone()))
+    Ok(cleaned)
 }
 
 fn execute_create_pr(
