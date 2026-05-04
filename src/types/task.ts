@@ -8,6 +8,7 @@ export type PipelineState =
   | 'evaluating'
   | 'advancing'
   | 'setup_queued'
+  | 'rate_limited'
 
 export type ReviewStatus = 'pending' | 'approved' | 'rejected' | 'needs-manual-review'
 

@@ -36,6 +36,9 @@ pub enum PipelineState {
     Advancing,
     /// Setup is queued — another setup is running in this workspace
     SetupQueued,
+    /// Trigger hit a provider rate limit. Re-fire is scheduled; this is NOT
+    /// counted as a normal failure for retry/crash-loop purposes.
+    RateLimited,
 }
 
 impl PipelineState {
@@ -47,6 +50,7 @@ impl PipelineState {
             PipelineState::Evaluating => "evaluating",
             PipelineState::Advancing => "advancing",
             PipelineState::SetupQueued => "setup_queued",
+            PipelineState::RateLimited => "rate_limited",
         }
     }
 
@@ -57,6 +61,7 @@ impl PipelineState {
             "evaluating" => PipelineState::Evaluating,
             "advancing" => PipelineState::Advancing,
             "setup_queued" => PipelineState::SetupQueued,
+            "rate_limited" => PipelineState::RateLimited,
             _ => PipelineState::Idle,
         }
     }

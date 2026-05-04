@@ -46,6 +46,7 @@ export const PIPELINE_STATE_LABELS: Record<PipelineState, string> = {
   evaluating: 'Checking',
   advancing: 'Moving',
   setup_queued: 'Waiting for setup',
+  rate_limited: 'Rate Limited',
 }
 
 export const PIPELINE_STATE_COLORS: Record<PipelineState, string> = {
@@ -55,6 +56,7 @@ export const PIPELINE_STATE_COLORS: Record<PipelineState, string> = {
   evaluating: 'text-accent',
   advancing: 'text-success',
   setup_queued: 'text-warning',
+  rate_limited: 'text-warning',
 }
 
 // ─── Review Status ──────────────────────────────────────────────────────────
