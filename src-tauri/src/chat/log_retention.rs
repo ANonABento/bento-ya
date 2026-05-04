@@ -69,7 +69,7 @@ pub fn gc_trigger_logs(dir: &Path, max_keep: usize) -> usize {
     }
 
     // Newest first, drop the tail past max_keep
-    logs.sort_by(|a, b| b.1.cmp(&a.1));
+    logs.sort_by_key(|entry| std::cmp::Reverse(entry.1));
     let mut deleted = 0;
     for (path, _) in logs.into_iter().skip(max_keep) {
         if fs::remove_file(&path).is_ok() {
