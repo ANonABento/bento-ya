@@ -955,8 +955,8 @@ mod tests {
 
     #[test]
     fn test_predecessor_branch_prefers_furthest_along() {
-        // Chain: A → B → C, all in batch-1. C depends on both A and B.
-        // C should branch off B (further along) not A.
+        // Chain: A, B → C, all in batch-1. C depends on both A and B.
+        // C should branch off A (further along the pipeline) not B.
         let conn = setup_test_db();
         let ws = db::insert_workspace(&conn, "Test", "/tmp").unwrap();
         let col_setup = db::insert_column(&conn, &ws.id, "Setup", 0).unwrap();
