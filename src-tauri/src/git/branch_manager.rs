@@ -45,6 +45,101 @@ fn detect_base_branch(repo: &Repository) -> Result<String, git2::Error> {
     Ok(head.shorthand().unwrap_or("HEAD").to_string())
 }
 
+/// Fetch `origin/<base_branch>` and fast-forward the local `<base_branch>`
+/// reference to match. Best-effort: any failure (no remote, network down,
+/// non-fast-forward divergence) is logged at warn level and swallowed so the
+/// caller can proceed with whatever local has.
+///
+/// Why: tasks that create worktrees from a stale local base silently lose
+/// commits when other agents push to remote main between the user's last
+/// `git fetch` and the trigger fire.
+pub fn fetch_and_fastforward_base(repo_path: &str, base_branch: &str) {
+    use std::process::Command;
+
+    let fetch = Command::new("git")
+        .args(["fetch", "origin", base_branch])
+        .current_dir(repo_path)
+        .output();
+
+    match fetch {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => {
+            log::warn!(
+                "[branch_manager] git fetch origin {} failed: {}",
+                base_branch,
+                String::from_utf8_lossy(&o.stderr).trim()
+            );
+            return;
+        }
+        Err(e) => {
+            log::warn!("[branch_manager] could not run git fetch: {}", e);
+            return;
+        }
+    }
+
+    // `git fetch origin <base>:<base>` performs a fast-forward refspec update.
+    // Refuses non-FF (diverged) and refuses to overwrite a checked-out branch.
+    let ff = Command::new("git")
+        .args([
+            "fetch",
+            "origin",
+            &format!("{}:{}", base_branch, base_branch),
+        ])
+        .current_dir(repo_path)
+        .output();
+
+    match ff {
+        Ok(o) if o.status.success() => {
+            log::info!(
+                "[branch_manager] fast-forwarded local {} to origin/{}",
+                base_branch,
+                base_branch
+            );
+        }
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            // If <base> is currently checked out, the refspec fetch refuses;
+            // try `merge --ff-only` in-place instead. (Git's exact wording
+            // varies — "refusing to fetch into branch ... checked out".)
+            let stderr_lc = stderr.to_lowercase();
+            if stderr_lc.contains("refusing to fetch into")
+                || stderr_lc.contains("checked out at")
+            {
+                let merge = Command::new("git")
+                    .args(["merge", "--ff-only", &format!("origin/{}", base_branch)])
+                    .current_dir(repo_path)
+                    .output();
+                match merge {
+                    Ok(m) if m.status.success() => {
+                        log::info!(
+                            "[branch_manager] fast-forwarded checked-out {} to origin/{}",
+                            base_branch,
+                            base_branch
+                        );
+                    }
+                    Ok(m) => {
+                        log::warn!(
+                            "[branch_manager] could not fast-forward checked-out {} (likely diverged): {}",
+                            base_branch,
+                            String::from_utf8_lossy(&m.stderr).trim()
+                        );
+                    }
+                    Err(e) => {
+                        log::warn!("[branch_manager] git merge --ff-only failed: {}", e);
+                    }
+                }
+            } else {
+                log::warn!(
+                    "[branch_manager] could not fast-forward local {} (likely diverged): {}",
+                    base_branch,
+                    stderr
+                );
+            }
+        }
+        Err(e) => log::warn!("[branch_manager] could not run git fetch FF: {}", e),
+    }
+}
+
 /// Create a task branch `bentoya/<slug>` from the base branch.
 pub fn create_task_branch(
     repo_path: &str,
@@ -67,6 +162,11 @@ pub fn create_task_branch_with_prefix(
         Some(b) => b.to_string(),
         None => detect_base_branch(&repo).map_err(|e| e.to_string())?,
     };
+
+    // Fetch + fast-forward the base branch before slicing the task branch off
+    // it, so the task starts from fresh remote state instead of a stale local
+    // ref. Best-effort: failures are logged and ignored.
+    fetch_and_fastforward_base(repo_path, &base);
 
     let slug = slugify(task_slug);
     let prefix = normalize_branch_prefix(branch_prefix);
@@ -270,6 +370,13 @@ pub fn create_task_worktree(
     if let Some(parent) = wt_path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create worktree parent dir: {}", e))?;
+    }
+
+    // Refresh the local base branch from origin before resolving the task
+    // branch. Best-effort — diverging local commits or missing remote just
+    // log a warning and proceed with whatever local has.
+    if let Ok(base) = detect_base_branch(&repo) {
+        fetch_and_fastforward_base(repo_path, &base);
     }
 
     // Resolve the branch reference
@@ -597,5 +704,229 @@ mod tests {
         let _ = std::fs::remove_dir_all(&missing);
         let err = clean_worktree(missing.to_str().unwrap()).unwrap_err();
         assert!(err.contains("does not exist"));
+    }
+
+    /// Build a "stale local + fresh remote" scenario:
+    /// 1. bare remote with one commit
+    /// 2. consumer clone (stale) — has commit A
+    /// 3. publisher clone pushes commit B to remote
+    ///
+    /// Returns `(consumer_path, fresh_remote_tip_sha)`.
+    #[cfg(test)]
+    fn setup_stale_local_fresh_remote(tag: &str) -> (std::path::PathBuf, String) {
+        use std::process::Command;
+
+        let root = std::env::temp_dir().join(format!(
+            "bentoya-fetch-{}-{}-{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let remote = root.join("remote.git");
+        let publisher = root.join("publisher");
+        let consumer = root.join("consumer");
+
+        // Bare remote
+        Command::new("git")
+            .args(["init", "--bare", "-b", "main", remote.to_str().unwrap()])
+            .output()
+            .unwrap();
+
+        // Publisher clone — seeds remote with commit A
+        Command::new("git")
+            .args([
+                "clone",
+                "-q",
+                remote.to_str().unwrap(),
+                publisher.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        for (k, v) in [
+            ("user.email", "test@example.com"),
+            ("user.name", "Test"),
+            ("commit.gpgsign", "false"),
+            ("init.defaultBranch", "main"),
+        ] {
+            Command::new("git")
+                .args(["config", k, v])
+                .current_dir(&publisher)
+                .output()
+                .unwrap();
+        }
+        std::fs::write(publisher.join("README.md"), "A\n").unwrap();
+        Command::new("git")
+            .args(["checkout", "-q", "-b", "main"])
+            .current_dir(&publisher)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(&publisher)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-q", "-m", "A"])
+            .current_dir(&publisher)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["push", "-q", "-u", "origin", "main"])
+            .current_dir(&publisher)
+            .output()
+            .unwrap();
+
+        // Consumer clone — captures the stale view
+        Command::new("git")
+            .args([
+                "clone",
+                "-q",
+                remote.to_str().unwrap(),
+                consumer.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        for (k, v) in [
+            ("user.email", "test@example.com"),
+            ("user.name", "Test"),
+            ("commit.gpgsign", "false"),
+        ] {
+            Command::new("git")
+                .args(["config", k, v])
+                .current_dir(&consumer)
+                .output()
+                .unwrap();
+        }
+
+        // Publisher pushes commit B — consumer is now stale
+        std::fs::write(publisher.join("README.md"), "A\nB\n").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(&publisher)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-q", "-m", "B"])
+            .current_dir(&publisher)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["push", "-q", "origin", "main"])
+            .current_dir(&publisher)
+            .output()
+            .unwrap();
+
+        let fresh_tip = String::from_utf8(
+            Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .current_dir(&publisher)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string();
+
+        (consumer, fresh_tip)
+    }
+
+    #[test]
+    fn test_fetch_and_fastforward_base_advances_stale_local() {
+        let (consumer, fresh_tip) = setup_stale_local_fresh_remote("ff");
+
+        // Sanity: consumer's local main is currently at the stale commit.
+        let stale_tip = String::from_utf8(
+            std::process::Command::new("git")
+                .args(["rev-parse", "main"])
+                .current_dir(&consumer)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string();
+        assert_ne!(
+            stale_tip, fresh_tip,
+            "consumer should start with stale local main"
+        );
+
+        fetch_and_fastforward_base(consumer.to_str().unwrap(), "main");
+
+        let new_tip = String::from_utf8(
+            std::process::Command::new("git")
+                .args(["rev-parse", "main"])
+                .current_dir(&consumer)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string();
+
+        assert_eq!(
+            new_tip, fresh_tip,
+            "local main should be fast-forwarded to fresh remote tip"
+        );
+
+        let _ = std::fs::remove_dir_all(consumer.parent().unwrap());
+    }
+
+    #[test]
+    fn test_create_task_branch_starts_from_fresh_remote_main() {
+        let (consumer, fresh_tip) = setup_stale_local_fresh_remote("branch");
+
+        // Consumer's main starts stale; create_task_branch should fetch + FF
+        // first so the new task branch is sliced off the fresh tip, not the
+        // stale local view.
+        let branch = create_task_branch(consumer.to_str().unwrap(), "Add Feature", None)
+            .expect("create_task_branch failed");
+
+        let branch_tip = String::from_utf8(
+            std::process::Command::new("git")
+                .args(["rev-parse", &branch])
+                .current_dir(&consumer)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string();
+
+        assert_eq!(
+            branch_tip, fresh_tip,
+            "task branch should be created from fresh remote main"
+        );
+
+        let _ = std::fs::remove_dir_all(consumer.parent().unwrap());
+    }
+
+    #[test]
+    fn test_fetch_and_fastforward_base_no_remote_is_safe() {
+        // Repo with no `origin` remote — fetch_and_fastforward_base must
+        // log + return without panicking.
+        let tmp = std::env::temp_dir().join(format!(
+            "bentoya-fetch-noremote-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        init_test_repo(&tmp);
+
+        fetch_and_fastforward_base(tmp.to_str().unwrap(), "main");
+
+        // Repo still works
+        assert!(branch_exists(tmp.to_str().unwrap(), "main").unwrap());
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
