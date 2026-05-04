@@ -46,9 +46,9 @@ function App() {
   const closeShortcuts = useCallback(() => { setShowShortcuts(false) }, [])
   const openSettings = useSettingsStore((s) => s.openSettings)
   useKeyboardShortcuts([
-    { key: '/', meta: true, handler: openShortcuts },
-    { key: 'k', meta: true, handler: toggleCommandPalette },
-    { key: ',', meta: true, handler: openSettings },
+    { key: '/', meta: true, handler: openShortcuts, ignoreEditable: true },
+    { key: 'k', meta: true, handler: toggleCommandPalette, ignoreEditable: true },
+    { key: ',', meta: true, handler: openSettings, ignoreEditable: true },
   ])
 
   // Plain `?` opens shortcuts modal (no modifier — guard against editable targets)

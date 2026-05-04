@@ -113,12 +113,14 @@ describe('agent-streaming-store', () => {
   })
 
   describe('complete', () => {
-    it('should remove stream entry for task', () => {
+    it('should mark the stream completed and preserve final state', () => {
       useAgentStreamingStore.getState().ensureStream('task-1')
+      useAgentStreamingStore.getState().appendContent('task-1', 'done')
       useAgentStreamingStore.getState().complete('task-1')
 
-      const stream = useAgentStreamingStore.getState().getStream('task-1')
-      expect(stream).toBeUndefined()
+      const stream = getStreamOrThrow('task-1')
+      expect(stream.lastContent).toBe('done')
+      expect(stream.completedAt).toBeGreaterThanOrEqual(stream.startTime)
     })
 
     it('should not error if task has no stream', () => {
