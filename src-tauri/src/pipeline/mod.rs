@@ -34,6 +34,9 @@ pub enum PipelineState {
     Evaluating,
     /// Task is advancing to next column
     Advancing,
+    /// Trigger hit a provider rate limit. Re-fire is scheduled; this is NOT
+    /// counted as a normal failure for retry/crash-loop purposes.
+    RateLimited,
 }
 
 impl PipelineState {
@@ -44,6 +47,7 @@ impl PipelineState {
             PipelineState::Running => "running",
             PipelineState::Evaluating => "evaluating",
             PipelineState::Advancing => "advancing",
+            PipelineState::RateLimited => "rate_limited",
         }
     }
 
@@ -53,6 +57,7 @@ impl PipelineState {
             "running" => PipelineState::Running,
             "evaluating" => PipelineState::Evaluating,
             "advancing" => PipelineState::Advancing,
+            "rate_limited" => PipelineState::RateLimited,
             _ => PipelineState::Idle,
         }
     }

@@ -312,6 +312,12 @@ pub fn run() {
             // Start garbage collector for tmux sessions + agent resources
             chat::gc::start_gc();
 
+            // Clean up legacy 58-byte rate-limit stub logs and GC the
+            // retained trigger_logs/ directory down to MAX_TRIGGER_LOGS.
+            std::thread::spawn(|| {
+                chat::log_retention::run_startup_cleanup();
+            });
+
             // Start GitHub issues sync poller (every 5 minutes)
             github_sync::start_github_sync(app.handle().clone());
 
