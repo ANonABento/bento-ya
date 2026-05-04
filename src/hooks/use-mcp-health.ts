@@ -16,7 +16,12 @@ export function useMcpHealth(): McpHealth | null {
     listen<McpHealth>(MCP_HEALTH_EVENT, (payload) => {
       if (!cancelled) setHealth(payload)
     })
-      .then((fn) => { unlisten = fn })
+      .then((fn) => {
+        // If unmount raced ahead of listen() resolving, drop the subscription
+        // immediately instead of leaking it.
+        if (cancelled) fn()
+        else unlisten = fn
+      })
       .catch(() => { /* event subsystem unavailable */ })
 
     return () => {
