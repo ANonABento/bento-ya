@@ -9,13 +9,10 @@
 use rusqlite::{params, Connection};
 use serde_json::Value;
 
+use crate::db;
+
 /// Default grace period before auto-archiving a Done task.
 pub const DEFAULT_AUTO_ARCHIVE_GRACE_MINUTES: i64 = 5;
-
-/// Returns true if the column is a "Done" terminal column based on its name.
-pub fn is_done_column_name(name: &str) -> bool {
-    name.eq_ignore_ascii_case("done")
-}
 
 /// Read per-workspace auto-archive settings from the JSON `workspace.config` blob.
 ///
@@ -41,24 +38,12 @@ pub fn read_auto_archive_config(workspace_config: &str) -> (bool, i64) {
 pub fn auto_archive_done_tasks(conn: &Connection) -> rusqlite::Result<i64> {
     let mut total = 0i64;
 
-    let mut stmt = conn.prepare("SELECT id, config FROM workspaces")?;
-    let workspaces: Vec<(String, String)> = stmt
-        .query_map([], |row| {
-            let config: Option<String> = row.get(1)?;
-            Ok((
-                row.get::<_, String>(0)?,
-                config.unwrap_or_else(|| "{}".to_string()),
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    drop(stmt);
-
-    for (workspace_id, config_json) in workspaces {
-        let (enabled, grace_minutes) = read_auto_archive_config(&config_json);
+    for workspace in db::list_workspaces(conn)? {
+        let (enabled, grace_minutes) = read_auto_archive_config(&workspace.config);
         if !enabled {
             continue;
         }
-        total += archive_done_tasks_for_workspace(conn, &workspace_id, grace_minutes)?;
+        total += archive_done_tasks_for_workspace(conn, &workspace.id, grace_minutes)?;
     }
 
     Ok(total)
@@ -70,21 +55,20 @@ pub fn archive_done_tasks_for_workspace(
     workspace_id: &str,
     grace_minutes: i64,
 ) -> rusqlite::Result<i64> {
-    let cutoff_clause = format!("datetime('now', '-{} minutes')", grace_minutes);
-    let sql = format!(
+    let ts = db::now();
+    let cutoff_modifier = format!("-{} minutes", grace_minutes);
+    let n = conn.execute(
         "UPDATE tasks
          SET archived_at = ?1, updated_at = ?1
          WHERE workspace_id = ?2
            AND archived_at IS NULL
-           AND datetime(updated_at) < {}
+           AND datetime(updated_at) < datetime('now', ?3)
            AND column_id IN (
                SELECT id FROM columns
                WHERE workspace_id = ?2 AND LOWER(name) = 'done'
            )",
-        cutoff_clause
-    );
-    let ts = super::super::db::now();
-    let n = conn.execute(&sql, params![ts, workspace_id])? as i64;
+        params![ts, workspace_id, cutoff_modifier],
+    )? as i64;
     Ok(n)
 }
 
@@ -99,7 +83,7 @@ pub fn archive_done_tasks_for_workspace(
 /// The PR is in main, the task is in Done — the failure flags are stale.
 /// Returns `(tasks_reconciled, sessions_cleared)`.
 pub fn reconcile_done_task_state(conn: &Connection) -> rusqlite::Result<(i64, i64)> {
-    let ts = super::super::db::now();
+    let ts = db::now();
 
     let stale_tasks: Vec<String> = {
         let mut stmt = conn.prepare(
