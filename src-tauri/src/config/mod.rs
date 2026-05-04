@@ -12,6 +12,7 @@ use std::sync::{Mutex, OnceLock};
 
 pub const DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS: i64 = 5;
 pub const DEFAULT_BRANCH_PREFIX: &str = "bentoya/";
+pub const DEFAULT_BASE_BRANCH: &str = "main";
 
 /// Global cached settings instance. Reloaded on save.
 static CACHED_SETTINGS: OnceLock<Mutex<AppSettings>> = OnceLock::new();
@@ -57,6 +58,7 @@ pub struct EffectivePipelineSettings {
     pub default_model: Option<String>,
     pub max_concurrent_agents: i64,
     pub branch_prefix: String,
+    pub default_base_branch: String,
 }
 
 fn workspace_config_value<'a>(config: &'a Value, path: &[&str]) -> Option<&'a Value> {
@@ -162,11 +164,23 @@ fn effective_pipeline_settings_with_app_settings(
     .map(|prefix| normalize_branch_prefix(&prefix))
     .unwrap_or_else(|| DEFAULT_BRANCH_PREFIX.to_string());
 
+    let default_base_branch = workspace_config_string(
+        &workspace_config,
+        &[
+            &["defaultBaseBranch"],
+            &["default_base_branch"],
+            &["git", "defaultBaseBranch"],
+            &["git", "default_base_branch"],
+        ],
+    )
+    .unwrap_or_else(|| DEFAULT_BASE_BRANCH.to_string());
+
     EffectivePipelineSettings {
         default_agent_cli,
         default_model,
         max_concurrent_agents,
         branch_prefix,
+        default_base_branch,
     }
 }
 
@@ -387,6 +401,28 @@ mod tests {
         assert_eq!(effective.default_model.as_deref(), Some("sonnet"));
         assert_eq!(effective.max_concurrent_agents, 7);
         assert_eq!(effective.branch_prefix, "work/");
+        assert_eq!(effective.default_base_branch, DEFAULT_BASE_BRANCH);
+    }
+
+    #[test]
+    fn test_effective_pipeline_settings_default_base_branch_override() {
+        let cfg = r#"{"defaultBaseBranch": "develop"}"#;
+        let effective = effective_pipeline_settings_with_app_settings(cfg, &AppSettings::default());
+        assert_eq!(effective.default_base_branch, "develop");
+    }
+
+    #[test]
+    fn test_effective_pipeline_settings_default_base_branch_nested() {
+        let cfg = r#"{"git": {"defaultBaseBranch": "trunk"}}"#;
+        let effective = effective_pipeline_settings_with_app_settings(cfg, &AppSettings::default());
+        assert_eq!(effective.default_base_branch, "trunk");
+    }
+
+    #[test]
+    fn test_effective_pipeline_settings_default_base_branch_empty_falls_back() {
+        let cfg = r#"{"defaultBaseBranch": ""}"#;
+        let effective = effective_pipeline_settings_with_app_settings(cfg, &AppSettings::default());
+        assert_eq!(effective.default_base_branch, DEFAULT_BASE_BRANCH);
     }
 
     #[test]

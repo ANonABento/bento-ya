@@ -1,7 +1,13 @@
 import type { AgentMode, AgentStatus } from './agent'
 import type { Label } from './label'
 
-export type PipelineState = 'idle' | 'triggered' | 'running' | 'evaluating' | 'advancing'
+export type PipelineState =
+  | 'idle'
+  | 'triggered'
+  | 'running'
+  | 'evaluating'
+  | 'advancing'
+  | 'setup_queued'
 
 export type ReviewStatus = 'pending' | 'approved' | 'rejected' | 'needs-manual-review'
 

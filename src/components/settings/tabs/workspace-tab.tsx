@@ -22,6 +22,8 @@ const CLI_OPTIONS = [
   { value: 'codex', label: 'Codex' },
 ] as const
 
+const DEFAULT_BASE_BRANCH = 'main'
+
 export function WorkspaceTab() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -49,6 +51,9 @@ export function WorkspaceTab() {
     // Remove keys set to empty/default values
     if (!merged.defaultModel) delete merged.defaultModel
     if (!merged.defaultAgentCli) delete merged.defaultAgentCli
+    if (!merged.defaultBaseBranch || merged.defaultBaseBranch === DEFAULT_BASE_BRANCH) {
+      delete merged.defaultBaseBranch
+    }
     try {
       const updated = await ipc.updateWorkspaceConfig(workspace.id, JSON.stringify(merged))
       await updateWorkspace(workspace.id, { config: updated.config })
@@ -57,6 +62,21 @@ export function WorkspaceTab() {
       setMessage({ type: 'error', text: 'Failed to update workspace settings' })
     }
   }, [workspace, config, updateWorkspace])
+
+  const [baseBranchDraft, setBaseBranchDraft] = useState<string | null>(null)
+  const baseBranchValue = baseBranchDraft ?? config.defaultBaseBranch ?? DEFAULT_BASE_BRANCH
+
+  const commitBaseBranch = useCallback(() => {
+    if (baseBranchDraft == null) return
+    const trimmed = baseBranchDraft.trim()
+    setBaseBranchDraft(null)
+    if (!trimmed) {
+      setMessage({ type: 'error', text: 'Default base branch cannot be empty' })
+      return
+    }
+    const next = trimmed === DEFAULT_BASE_BRANCH ? undefined : trimmed
+    void updateConfig({ defaultBaseBranch: next })
+  }, [baseBranchDraft, updateConfig])
 
   const handleRepoPathChange = useCallback(async (path: string) => {
     if (!workspace) return
@@ -188,6 +208,29 @@ export function WorkspaceTab() {
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
+            </SettingRow>
+
+            <SettingRow
+              label="Default Base Branch"
+              description="Branch new task branches are created from (e.g. main, develop, trunk)"
+            >
+              <input
+                type="text"
+                value={baseBranchValue}
+                onChange={(e) => { setBaseBranchDraft(e.target.value) }}
+                onBlur={commitBaseBranch}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    commitBaseBranch()
+                  } else if (e.key === 'Escape') {
+                    setBaseBranchDraft(null)
+                  }
+                }}
+                placeholder={DEFAULT_BASE_BRANCH}
+                spellCheck={false}
+                className="rounded-lg border border-border-default bg-surface px-3 py-2 text-sm font-mono text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+              />
             </SettingRow>
 
             <SettingRow label="Max Concurrent Agents" description="Maximum number of agents running simultaneously">

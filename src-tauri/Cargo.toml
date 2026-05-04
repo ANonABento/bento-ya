@@ -43,6 +43,9 @@ tauri-plugin-webdriver-automation = { version = "0.1.3", optional = true }
 pty-process = { version = "0.5.3", features = ["async", "tokio"] }
 libc = "0.2.184"
 
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 default = []
 custom-protocol = ["tauri/custom-protocol"]

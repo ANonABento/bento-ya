@@ -484,6 +484,18 @@ pub fn get_queued_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<
     with_labels_for_tasks(conn, rows.collect::<SqlResult<Vec<_>>>()?)
 }
 
+/// Get tasks with `pipeline_state = 'setup_queued'` ordered by updated_at
+/// (oldest first) — used to promote a setup-queued task when the workspace's
+/// setup lock releases.
+pub fn get_setup_queued_tasks(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<Task>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM tasks WHERE workspace_id = ?1 AND pipeline_state = 'setup_queued' AND archived_at IS NULL ORDER BY updated_at ASC",
+        TASK_COLUMNS
+    ))?;
+    let rows = stmt.query_map(params![workspace_id], map_task_row)?;
+    with_labels_for_tasks(conn, rows.collect::<SqlResult<Vec<_>>>()?)
+}
+
 /// Count tasks with agent_status = 'running' in a workspace
 pub fn get_running_agent_count(conn: &Connection, workspace_id: &str) -> SqlResult<i64> {
     conn.query_row(
