@@ -44,7 +44,7 @@ fn setup_locks() -> &'static Mutex<HashSet<String>> {
 
 /// Try to acquire the per-workspace Setup lock. Returns `true` if acquired,
 /// `false` if another setup is already holding it.
-pub(crate) fn try_acquire_setup_lock(workspace_id: &str) -> bool {
+fn try_acquire_setup_lock(workspace_id: &str) -> bool {
     let mut locks = setup_locks().lock().unwrap_or_else(|e| e.into_inner());
     if locks.contains(workspace_id) {
         return false;
@@ -54,15 +54,42 @@ pub(crate) fn try_acquire_setup_lock(workspace_id: &str) -> bool {
 }
 
 /// Release the per-workspace Setup lock. Idempotent.
-pub(crate) fn release_setup_lock(workspace_id: &str) {
+fn release_setup_lock(workspace_id: &str) {
     let mut locks = setup_locks().lock().unwrap_or_else(|e| e.into_inner());
     locks.remove(workspace_id);
 }
 
 #[cfg(test)]
-pub(crate) fn setup_lock_held(workspace_id: &str) -> bool {
+fn setup_lock_held(workspace_id: &str) -> bool {
     let locks = setup_locks().lock().unwrap_or_else(|e| e.into_inner());
     locks.contains(workspace_id)
+}
+
+/// RAII guard for the per-workspace Setup lock. Releases the lock and
+/// promotes the next queued task on Drop, so an early `?` return or panic
+/// inside the locked region cannot strand the workspace.
+struct SetupLockGuard<'a> {
+    workspace_id: String,
+    app: &'a AppHandle,
+}
+
+impl<'a> SetupLockGuard<'a> {
+    fn try_acquire(workspace_id: &str, app: &'a AppHandle) -> Option<Self> {
+        if !try_acquire_setup_lock(workspace_id) {
+            return None;
+        }
+        Some(Self {
+            workspace_id: workspace_id.to_string(),
+            app,
+        })
+    }
+}
+
+impl<'a> Drop for SetupLockGuard<'a> {
+    fn drop(&mut self) {
+        release_setup_lock(&self.workspace_id);
+        promote_setup_queued_tasks(self.app, &self.workspace_id);
+    }
 }
 
 // ─── V2 Trigger Types ─────────────────────────────────────────────────────
@@ -621,33 +648,32 @@ fn ensure_task_batch_id(conn: &Connection, task: &Task) -> Result<Task, AppError
     Ok(db::update_task_batch_id(conn, &task.id, Some(&batch_id))?)
 }
 
-/// Validate that `base_branch` is present and non-blank. Returns the trimmed
-/// value or an `InvalidInput` error explaining the rejection.
+/// Validate that `base_branch` is non-blank. Returns the trimmed value or an
+/// `InvalidInput` error explaining the rejection.
 ///
-/// Bug B: a missing/blank base_branch must hard-fail rather than silently
-/// fall through to whatever HEAD happens to point at in the main repo
-/// working directory.
+/// Bug B: a blank base_branch must hard-fail rather than silently fall
+/// through to whatever HEAD happens to point at in the main repo working
+/// directory.
 fn validate_setup_base_branch<'a>(
-    base_branch: Option<&'a str>,
+    base_branch: &'a str,
     task_id: &str,
 ) -> Result<&'a str, AppError> {
-    base_branch
-        .map(str::trim)
-        .filter(|b| !b.is_empty())
-        .ok_or_else(|| {
-            AppError::InvalidInput(format!(
-                "ensure_task_worktree requires an explicit base_branch (task {})",
-                task_id
-            ))
-        })
+    let trimmed = base_branch.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::InvalidInput(format!(
+            "ensure_task_worktree requires a non-blank base_branch (task {})",
+            task_id
+        )));
+    }
+    Ok(trimmed)
 }
 
 /// Auto-create a branch + worktree for a task if missing.
 /// Returns the updated task with `branch_name` and `worktree_path` set.
 ///
-/// Bug B: callers MUST pass an explicit `base_branch`. Passing `None` is now
-/// a hard error so we never inherit whatever happens to be checked out in
-/// the user's main repo working directory. Use the workspace's
+/// Bug B: callers MUST pass an explicit `base_branch`. A blank value is a
+/// hard error so we never inherit whatever happens to be checked out in the
+/// user's main repo working directory. Use the workspace's
 /// `default_base_branch` (resolved via `EffectivePipelineSettings`) when no
 /// caller-specific base applies.
 ///
@@ -659,7 +685,7 @@ fn ensure_task_worktree(
     task: &Task,
     repo_path: &str,
     settings: &EffectivePipelineSettings,
-    base_branch: Option<&str>,
+    base_branch: &str,
 ) -> Result<Task, AppError> {
     let mut task = task.clone();
 
@@ -762,7 +788,7 @@ fn ensure_task_worktree_with_retry(
     task: &Task,
     repo_path: &str,
     settings: &EffectivePipelineSettings,
-    base_branch: Option<&str>,
+    base_branch: &str,
 ) -> Result<Task, AppError> {
     match ensure_task_worktree(conn, app, task, repo_path, settings, base_branch) {
         Ok(t) => return Ok(t),
@@ -855,39 +881,37 @@ fn execute_auto_setup(
 
     // Bug C: serialize Setup per-workspace. Multiple tasks branching from the
     // same base SHA in parallel race; the loser is stale before it starts.
-    if !try_acquire_setup_lock(&task.workspace_id) {
-        log::info!(
-            "[triggers] Setup lock held for workspace {} — queuing task {}",
-            task.workspace_id,
-            task.id
-        );
-        let queued = db::update_task_pipeline_state(
-            conn,
-            &task.id,
-            PipelineState::SetupQueued.as_str(),
-            None,
-            None,
-        )?;
-        emit_pipeline(
-            app,
-            EVT_TRIGGERED,
-            &queued.id,
-            &column.id,
-            PipelineState::SetupQueued,
-            Some("Waiting for setup slot".to_string()),
-        );
-        super::emit_tasks_changed(app, &task.workspace_id, "setup_queued");
-        return Ok(queued);
-    }
+    let _guard = match SetupLockGuard::try_acquire(&task.workspace_id, app) {
+        Some(g) => g,
+        None => {
+            log::info!(
+                "[triggers] Setup lock held for workspace {} — queuing task {}",
+                task.workspace_id,
+                task.id
+            );
+            let queued = db::update_task_pipeline_state(
+                conn,
+                &task.id,
+                PipelineState::SetupQueued.as_str(),
+                None,
+                None,
+            )?;
+            emit_pipeline(
+                app,
+                EVT_TRIGGERED,
+                &queued.id,
+                &column.id,
+                PipelineState::SetupQueued,
+                Some("Waiting for setup slot".to_string()),
+            );
+            super::emit_tasks_changed(app, &task.workspace_id, "setup_queued");
+            return Ok(queued);
+        }
+    };
 
-    let result = perform_auto_setup_locked(conn, app, task, column, &workspace, &pipeline_settings);
-
-    // Always release the lock — promote any queued setup tasks regardless of
-    // success/failure so a stuck task does not strand the rest.
-    release_setup_lock(&task.workspace_id);
-    promote_setup_queued_tasks(app, &task.workspace_id);
-
-    result
+    // Guard's Drop releases the lock and promotes the next queued task,
+    // even if `perform_auto_setup_locked` returns early via `?` or panics.
+    perform_auto_setup_locked(conn, app, task, column, &workspace, &pipeline_settings)
 }
 
 fn perform_auto_setup_locked(
@@ -904,7 +928,7 @@ fn perform_auto_setup_locked(
         task,
         &workspace.repo_path,
         pipeline_settings,
-        Some(&pipeline_settings.default_base_branch),
+        &pipeline_settings.default_base_branch,
     ) {
         Ok(task) => task,
         Err(e) => return fail_auto_setup(conn, app, task, column, e.to_string()),
@@ -1092,7 +1116,7 @@ fn execute_spawn_cli(
             &fresh_task,
             &workspace.repo_path,
             &pipeline_settings,
-            Some(&pipeline_settings.default_base_branch),
+            &pipeline_settings.default_base_branch,
         )?
     } else {
         task.clone()
@@ -3149,23 +3173,15 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_setup_base_branch_rejects_none() {
-        let err = validate_setup_base_branch(None, "task-1")
-            .expect_err("None must be rejected");
+    fn test_validate_setup_base_branch_rejects_blank() {
+        let err = validate_setup_base_branch("", "task-1")
+            .expect_err("empty must be rejected");
         match err {
             AppError::InvalidInput(msg) => assert!(msg.contains("base_branch")),
             other => panic!("unexpected error: {:?}", other),
         }
-    }
-
-    #[test]
-    fn test_validate_setup_base_branch_rejects_blank() {
         assert!(matches!(
-            validate_setup_base_branch(Some("   "), "task-1"),
-            Err(AppError::InvalidInput(_))
-        ));
-        assert!(matches!(
-            validate_setup_base_branch(Some(""), "task-1"),
+            validate_setup_base_branch("   ", "task-1"),
             Err(AppError::InvalidInput(_))
         ));
     }
@@ -3173,11 +3189,11 @@ mod tests {
     #[test]
     fn test_validate_setup_base_branch_trims_and_returns() {
         assert_eq!(
-            validate_setup_base_branch(Some("  main  "), "task-1").unwrap(),
+            validate_setup_base_branch("  main  ", "task-1").unwrap(),
             "main"
         );
         assert_eq!(
-            validate_setup_base_branch(Some("develop"), "task-1").unwrap(),
+            validate_setup_base_branch("develop", "task-1").unwrap(),
             "develop"
         );
     }
