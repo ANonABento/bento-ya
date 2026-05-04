@@ -511,13 +511,11 @@ fn parse_clock_time(s: &str) -> Option<chrono::NaiveTime> {
         return None;
     }
 
+    // `extract_time_token` strips non-alphanumeric chars (including dots), so
+    // we only need to handle the bare am/pm forms here.
     let (time_part, ampm) = if let Some(rest) = lower.strip_suffix("am") {
         (rest.trim(), Some(false))
     } else if let Some(rest) = lower.strip_suffix("pm") {
-        (rest.trim(), Some(true))
-    } else if let Some(rest) = lower.strip_suffix(" a.m.") {
-        (rest.trim(), Some(false))
-    } else if let Some(rest) = lower.strip_suffix(" p.m.") {
         (rest.trim(), Some(true))
     } else {
         (lower.as_str(), None)
@@ -608,7 +606,13 @@ fn schedule_rate_limit_retry(
             Ok(c) => c,
             Err(_) => return,
         };
-        let _ = db::update_task_pipeline_state(&conn, &task.id, "idle", None, None);
+        let _ = db::update_task_pipeline_state(
+            &conn,
+            &task.id,
+            pipeline::PipelineState::Idle.as_str(),
+            None,
+            None,
+        );
         if let Err(e) = pipeline::fire_trigger(&conn, &app, &task, &column) {
             log::warn!(
                 "[bridge] rate-limit retry: re-fire failed for task {}: {}",
