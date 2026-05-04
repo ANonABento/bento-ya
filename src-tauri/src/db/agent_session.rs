@@ -123,6 +123,41 @@ pub fn delete_agent_session(conn: &Connection, id: &str) -> SqlResult<()> {
     Ok(())
 }
 
+/// Targeted update for streaming pipeline output. Avoids the read-modify-write
+/// cost of `update_agent_session` when we only want to touch `last_output`
+/// and/or `scrollback` (e.g. mid-run live tailing or end-of-run scrollback
+/// commit). Only the fields passed as `Some(_)` are written.
+pub fn update_agent_session_output(
+    conn: &Connection,
+    id: &str,
+    last_output: Option<&str>,
+    scrollback: Option<&str>,
+) -> SqlResult<()> {
+    let ts = now();
+    match (last_output, scrollback) {
+        (Some(lo), Some(sb)) => {
+            conn.execute(
+                "UPDATE agent_sessions SET last_output = ?1, scrollback = ?2, updated_at = ?3 WHERE id = ?4",
+                params![lo, sb, ts, id],
+            )?;
+        }
+        (Some(lo), None) => {
+            conn.execute(
+                "UPDATE agent_sessions SET last_output = ?1, updated_at = ?2 WHERE id = ?3",
+                params![lo, ts, id],
+            )?;
+        }
+        (None, Some(sb)) => {
+            conn.execute(
+                "UPDATE agent_sessions SET scrollback = ?1, updated_at = ?2 WHERE id = ?3",
+                params![sb, ts, id],
+            )?;
+        }
+        (None, None) => {}
+    }
+    Ok(())
+}
+
 /// Update CLI session fields for an agent session
 pub fn update_agent_session_cli(
     conn: &Connection,

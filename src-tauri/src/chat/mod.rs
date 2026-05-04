@@ -16,6 +16,7 @@ pub mod bridge;
 pub mod chef;
 pub mod events;
 pub mod gc;
+pub mod log_retention;
 pub mod pipe_transport;
 pub mod pty_transport;
 pub mod registry;
