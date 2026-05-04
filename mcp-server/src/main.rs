@@ -27,11 +27,16 @@ fn default_db_path() -> String {
         return primary.to_string_lossy().to_string();
     }
 
-    // Fallback: platform-specific Tauri data dir
-    // macOS: ~/Library/Application Support/com.bento-ya.app/bento-ya.db
+    // Fallback: platform-specific Tauri data dirs.
     let data_dir = dirs::data_dir().expect("Could not determine data directory");
-    let fallback = data_dir.join("com.bento-ya.app").join("bento-ya.db");
-    fallback.to_string_lossy().to_string()
+    let current_fallback = data_dir.join("com.bentoya.desktop").join("bento-ya.db");
+    if current_fallback.exists() {
+        return current_fallback.to_string_lossy().to_string();
+    }
+
+    // Legacy identifier retained as a final fallback for pre-fix installs.
+    let legacy_fallback = data_dir.join("com.bento-ya.app").join("bento-ya.db");
+    legacy_fallback.to_string_lossy().to_string()
 }
 
 // ---------------------------------------------------------------------------

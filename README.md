@@ -52,7 +52,7 @@ This runs `beforeBuildCommand` (frontend build via vite) → cargo build → pro
 
 **Fix (if still white after `tauri build`):** clear WebKit cache (sometimes stores stale asset hashes):
 ```bash
-rm -rf ~/Library/WebKit/com.bento-ya.app ~/Library/Caches/com.bento-ya.app
+rm -rf ~/Library/WebKit/com.bentoya.desktop ~/Library/Caches/com.bentoya.desktop
 ```
 
 **Cheat sheet:**
@@ -60,13 +60,6 @@ rm -rf ~/Library/WebKit/com.bento-ya.app ~/Library/Caches/com.bento-ya.app
 - Any frontend change OR full rebuild → `pnpm tauri build` (mandatory)
 - Webview still blank → nuke WebKit cache, restart binary
 
-#### .app bundle crashes on Finder launch (SIGABRT)
+#### .app bundle Finder launch
 
-The bundled `.app` (`target/release/bundle/macos/Bento-ya.app`) crashes with `SIGABRT` when launched via Finder/Spotlight on macOS. Workaround: run the bare binary from terminal:
-
-```bash
-./target/release/bento-ya &
-```
-
-Root cause: `setup()` closure in `lib.rs` is too heavy for macOS app delegate watchdog. Fix in progress (see backlog).
-
+The bundled `.app` (`target/release/bundle/macos/Bento-ya.app`) should launch via Finder/Spotlight. The previous `SIGABRT` in `tao::did_finish_launching` was fixed by using the non-`.app` bundle identifier `com.bentoya.desktop` and keeping heavyweight startup recovery off the macOS launch delegate path. See `docs/macos-bundle.md` for verification steps.
