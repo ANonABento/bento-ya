@@ -315,6 +315,9 @@ pub fn run() {
             // Start GitHub issues sync poller (every 5 minutes)
             github_sync::start_github_sync(app.handle().clone());
 
+            // Start pipeline hygiene worker (auto-archive Done + clear stale failure flags)
+            start_pipeline_hygiene(app.handle().clone());
+
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -449,6 +452,64 @@ fn start_nightly_worktree_sweep(app: tauri::AppHandle) {
             warn_stale_worktrees_once(&app);
         }
     });
+}
+
+/// Pipeline hygiene worker: auto-archives Done tasks past the per-workspace
+/// grace period and clears stale `agent_status='failed'` / `pipeline_error`
+/// markers on tasks that already reached Done. Runs once a minute.
+fn start_pipeline_hygiene(app: tauri::AppHandle) {
+    const HYGIENE_INTERVAL_SECS: u64 = 60;
+    const STARTUP_DELAY_SECS: u64 = 30;
+
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(STARTUP_DELAY_SECS)).await;
+        loop {
+            run_hygiene_once(&app);
+            tokio::time::sleep(std::time::Duration::from_secs(HYGIENE_INTERVAL_SECS)).await;
+        }
+    });
+}
+
+fn run_hygiene_once(app: &tauri::AppHandle) {
+    let workspaces = {
+        let state: tauri::State<db::AppState> = app.state();
+        let conn = match state.db.lock() {
+            Ok(c) => c,
+            Err(e) => {
+                log::warn!("[hygiene] DB lock failed: {}", e);
+                return;
+            }
+        };
+
+        let result = match pipeline::hygiene::run_hygiene_cycle(&conn) {
+            Ok(r) => r,
+            Err(e) => {
+                log::warn!("[hygiene] cycle failed: {}", e);
+                return;
+            }
+        };
+
+        if result.is_empty() {
+            return;
+        }
+
+        log::info!(
+            "[hygiene] archived={} reconciled={} sessions_cleared={}",
+            result.archived,
+            result.tasks_reconciled,
+            result.sessions_cleared,
+        );
+
+        match db::list_workspaces(&conn) {
+            Ok(ws) => ws.into_iter().map(|w| w.id).collect::<Vec<_>>(),
+            Err(_) => Vec::new(),
+        }
+    };
+
+    // Notify each workspace so the frontend re-fetches tasks.
+    for workspace_id in workspaces {
+        pipeline::emit_tasks_changed(app, &workspace_id, "pipeline_hygiene");
+    }
 }
 
 /// Recover tmux sessions from a previous app instance.

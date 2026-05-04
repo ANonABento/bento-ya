@@ -422,9 +422,17 @@ export const TaskCard = memo(function TaskCard({
             {task.title}
           </h4>
           {task.archivedAt && (
-            <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium bg-surface-hover text-text-secondary/70 border border-border-default">
-              archived
-            </span>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); actions.handleUnarchiveTask(); }}
+              title="Restore — move back to the active board"
+              className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-surface-hover text-text-secondary/80 border border-border-default hover:border-accent hover:text-accent transition-colors"
+            >
+              <svg viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
+                <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H4.598a.75.75 0 0 0-.75.75v3.634a.75.75 0 0 0 1.5 0v-2.033l.312.311a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39l-.611.21ZM4.688 8.576a5.5 5.5 0 0 1 9.201-2.466l.312.311h-2.433a.75.75 0 0 0 0 1.5h3.634a.75.75 0 0 0 .75-.75V3.537a.75.75 0 0 0-1.5 0v2.033l-.312-.311A7 7 0 0 0 3.628 8.397a.75.75 0 0 0 1.449.39l-.389-.211Z" clipRule="evenodd" />
+              </svg>
+              Restore
+            </button>
           )}
         </div>
 

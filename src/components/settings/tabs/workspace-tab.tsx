@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { SettingSection, SettingRow, SettingSlider } from '@/components/shared/setting-components'
+import { Toggle } from '@/components/shared/toggle'
 import { PathPicker } from '@/components/shared/path-picker'
 import { parseWorkspaceConfig } from '@/types'
 import type { WorkspaceConfig } from '@/types'
@@ -199,22 +200,37 @@ export function WorkspaceTab() {
             </SettingRow>
 
             <SettingRow label="Auto-Advance" description="Automatically move tasks to next column when exit criteria are met">
-              <button
-                type="button"
-                role="switch"
-                aria-checked={config.autoAdvance ?? true}
-                onClick={() => { void updateConfig({ autoAdvance: !(config.autoAdvance ?? true) }) }}
-                className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-accent/20 ${
-                  (config.autoAdvance ?? true) ? 'bg-accent' : 'bg-border-default'
-                }`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                    (config.autoAdvance ?? true) ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
+              <Toggle
+                checked={config.autoAdvance ?? true}
+                onChange={(v) => { void updateConfig({ autoAdvance: v }) }}
+                size="md"
+              />
             </SettingRow>
+
+            <SettingRow
+              label="Auto-Archive Done"
+              description="Automatically archive tasks that sit in Done past the grace period"
+            >
+              <Toggle
+                checked={config.autoArchiveDone ?? true}
+                onChange={(v) => { void updateConfig({ autoArchiveDone: v }) }}
+                size="md"
+              />
+            </SettingRow>
+
+            {(config.autoArchiveDone ?? true) && (
+              <SettingRow
+                label="Archive Grace Period"
+                description="Minutes a Done task waits before auto-archiving"
+              >
+                <SettingSlider
+                  value={config.autoArchiveGraceMinutes ?? 5}
+                  onChange={(v) => { void updateConfig({ autoArchiveGraceMinutes: v }) }}
+                  min={1}
+                  max={60}
+                />
+              </SettingRow>
+            )}
           </div>
         </SettingSection>
       )}
