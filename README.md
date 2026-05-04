@@ -1,4 +1,5 @@
 # bento-ya
+<!-- A drag-and-drop kanban that turns columns into automated agent pipelines. -->
 
 Tauri desktop app for orchestrating AI coding agents — an automated kanban board where columns are pipeline stages with trigger-driven automation.
 
