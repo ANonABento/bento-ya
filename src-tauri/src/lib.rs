@@ -591,7 +591,8 @@ fn recover_tmux_sessions(app: tauri::AppHandle) {
     }
 }
 
-const STALE_PIPELINE_STATES_SQL: &str = "'running', 'triggered', 'evaluating', 'advancing'";
+const STALE_PIPELINE_STATES_SQL: &str =
+    "'running', 'triggered', 'evaluating', 'advancing', 'setup_queued'";
 
 fn is_stale_pipeline_state(state: &str) -> bool {
     pipeline::PipelineState::from_db_str(state) != pipeline::PipelineState::Idle

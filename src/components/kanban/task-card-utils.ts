@@ -6,6 +6,7 @@ export const PIPELINE_LABELS: Record<PipelineState, string> = {
   running: 'Agent working',
   evaluating: 'Checking exit',
   advancing: 'Auto-advancing',
+  setup_queued: 'Waiting for setup slot',
 }
 
 export const PIPELINE_COLORS: Record<PipelineState, string> = {
@@ -14,6 +15,7 @@ export const PIPELINE_COLORS: Record<PipelineState, string> = {
   running: 'border-l-running',
   evaluating: 'border-l-accent',
   advancing: 'border-l-success',
+  setup_queued: 'border-l-warning',
 }
 
 // Helper to format relative time

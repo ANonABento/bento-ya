@@ -10,13 +10,60 @@ use crate::error::AppError;
 use crate::git::branch_manager;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 use super::template::{self, TemplateContext};
 use super::{emit_pipeline, PipelineState, EVT_ADVANCED, EVT_RUNNING, EVT_TRIGGERED};
 
 const STAGING_BRANCH_PREFIX: &str = "staging/";
+
+/// Backoff delays between worktree creation retries (3 attempts after the
+/// initial try). Total worst-case wait: 10.5s.
+const SETUP_RETRY_BACKOFFS: [Duration; 3] = [
+    Duration::from_millis(500),
+    Duration::from_secs(2),
+    Duration::from_secs(8),
+];
+
+// ─── Setup Serialization (per-workspace) ──────────────────────────────────
+
+/// Workspaces with an active Setup currently holding the lock.
+///
+/// Bug C: N tasks entering Setup at once race on the same base branch SHA.
+/// Even with a pre-fetch, simultaneous setups produce stale dependents the
+/// moment one of them merges. This mutex serializes Setup *per workspace*.
+/// Cross-workspace setup remains parallel (different repos can't conflict).
+static SETUP_LOCKS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn setup_locks() -> &'static Mutex<HashSet<String>> {
+    SETUP_LOCKS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Try to acquire the per-workspace Setup lock. Returns `true` if acquired,
+/// `false` if another setup is already holding it.
+pub(crate) fn try_acquire_setup_lock(workspace_id: &str) -> bool {
+    let mut locks = setup_locks().lock().unwrap_or_else(|e| e.into_inner());
+    if locks.contains(workspace_id) {
+        return false;
+    }
+    locks.insert(workspace_id.to_string());
+    true
+}
+
+/// Release the per-workspace Setup lock. Idempotent.
+pub(crate) fn release_setup_lock(workspace_id: &str) {
+    let mut locks = setup_locks().lock().unwrap_or_else(|e| e.into_inner());
+    locks.remove(workspace_id);
+}
+
+#[cfg(test)]
+pub(crate) fn setup_lock_held(workspace_id: &str) -> bool {
+    let locks = setup_locks().lock().unwrap_or_else(|e| e.into_inner());
+    locks.contains(workspace_id)
+}
 
 // ─── V2 Trigger Types ─────────────────────────────────────────────────────
 
@@ -574,8 +621,38 @@ fn ensure_task_batch_id(conn: &Connection, task: &Task) -> Result<Task, AppError
     Ok(db::update_task_batch_id(conn, &task.id, Some(&batch_id))?)
 }
 
+/// Validate that `base_branch` is present and non-blank. Returns the trimmed
+/// value or an `InvalidInput` error explaining the rejection.
+///
+/// Bug B: a missing/blank base_branch must hard-fail rather than silently
+/// fall through to whatever HEAD happens to point at in the main repo
+/// working directory.
+fn validate_setup_base_branch<'a>(
+    base_branch: Option<&'a str>,
+    task_id: &str,
+) -> Result<&'a str, AppError> {
+    base_branch
+        .map(str::trim)
+        .filter(|b| !b.is_empty())
+        .ok_or_else(|| {
+            AppError::InvalidInput(format!(
+                "ensure_task_worktree requires an explicit base_branch (task {})",
+                task_id
+            ))
+        })
+}
+
 /// Auto-create a branch + worktree for a task if missing.
 /// Returns the updated task with `branch_name` and `worktree_path` set.
+///
+/// Bug B: callers MUST pass an explicit `base_branch`. Passing `None` is now
+/// a hard error so we never inherit whatever happens to be checked out in
+/// the user's main repo working directory. Use the workspace's
+/// `default_base_branch` (resolved via `EffectivePipelineSettings`) when no
+/// caller-specific base applies.
+///
+/// Bug D: a worktree creation failure now hard-fails. The previous silent
+/// fallback caused agents to mutate the user's actual main checkout.
 fn ensure_task_worktree(
     conn: &Connection,
     app: &AppHandle,
@@ -588,18 +665,20 @@ fn ensure_task_worktree(
 
     // Step 1: Ensure task has a branch
     if task.branch_name.as_deref().unwrap_or("").is_empty() {
+        let base = validate_setup_base_branch(base_branch, &task.id)?;
         let slug = branch_manager::slugify(&task.title);
         match branch_manager::create_task_branch_with_prefix(
             repo_path,
             &slug,
-            base_branch,
+            Some(base),
             &settings.branch_prefix,
         ) {
             Ok(branch_name) => {
                 task = db::update_task_branch(conn, &task.id, Some(&branch_name))?;
                 log::info!(
-                    "[triggers] Auto-created branch '{}' for task {}",
+                    "[triggers] Auto-created branch '{}' from '{}' for task {}",
                     branch_name,
+                    base,
                     task.id
                 );
             }
@@ -610,8 +689,8 @@ fn ensure_task_worktree(
                     .map_err(AppError::CommandError)?;
                 if !branch_exists {
                     return Err(AppError::CommandError(format!(
-                        "Failed to create branch '{}': {}",
-                        branch_name, e
+                        "Failed to create branch '{}' from base '{}': {}",
+                        branch_name, base, e
                     )));
                 }
                 log::warn!(
@@ -624,37 +703,114 @@ fn ensure_task_worktree(
         }
     }
 
-    let branch_name = task.branch_name.as_deref().unwrap_or("");
+    let branch_name = task.branch_name.as_deref().unwrap_or("").to_string();
     if branch_name.is_empty() {
-        log::warn!(
-            "[triggers] Could not determine branch for task {}, skipping worktree",
+        return Err(AppError::CommandError(format!(
+            "Failed to resolve branch_name for task {} after creation",
             task.id
-        );
-        return Ok(task);
+        )));
     }
 
-    // Step 2: Create worktree
-    match branch_manager::create_task_worktree(repo_path, branch_name, &task.id) {
-        Ok(wt_path) => {
-            task = db::update_task_worktree_path(conn, &task.id, Some(&wt_path))?;
-            super::emit_tasks_changed(app, &task.workspace_id, "worktree_auto_created");
-            log::info!(
-                "[triggers] Auto-created worktree at '{}' for task {}",
-                wt_path,
-                task.id
-            );
-        }
+    // Step 2: Create worktree (hard-fail on error per Bug D)
+    let wt_path = branch_manager::create_task_worktree(repo_path, &branch_name, &task.id)
+        .map_err(|e| {
+            AppError::CommandError(format!(
+                "Failed to create worktree for task {}: {}",
+                task.id, e
+            ))
+        })?;
+
+    task = db::update_task_worktree_path(conn, &task.id, Some(&wt_path))?;
+    super::emit_tasks_changed(app, &task.workspace_id, "worktree_auto_created");
+    log::info!(
+        "[triggers] Auto-created worktree at '{}' for task {}",
+        wt_path,
+        task.id
+    );
+
+    Ok(task)
+}
+
+/// Best-effort classification of a setup error as transient. Transient errors
+/// (filesystem races, libgit2 lock contention, "branch already exists with
+/// different ref") get retried with backoff; config errors do not.
+fn is_transient_setup_error(err: &AppError) -> bool {
+    let msg = match err {
+        AppError::CommandError(m) | AppError::DatabaseError(m) => m.to_lowercase(),
+        AppError::NotFound(_) | AppError::InvalidInput(_) => return false,
+    };
+    let needles = [
+        "lock",
+        "locked",
+        "resource temporarily unavailable",
+        "already exists",
+        "would clobber",
+        "another git process",
+        "index.lock",
+        "cannot lock ref",
+        "stale file",
+        "interrupt",
+        "timed out",
+    ];
+    needles.iter().any(|n| msg.contains(n))
+}
+
+/// Wrap `ensure_task_worktree` with bounded retries on transient errors.
+fn ensure_task_worktree_with_retry(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    repo_path: &str,
+    settings: &EffectivePipelineSettings,
+    base_branch: Option<&str>,
+) -> Result<Task, AppError> {
+    match ensure_task_worktree(conn, app, task, repo_path, settings, base_branch) {
+        Ok(t) => return Ok(t),
+        Err(e) if !is_transient_setup_error(&e) => return Err(e),
         Err(e) => {
-            log::error!(
-                "[triggers] Failed to create worktree for task {}: {}",
+            log::warn!(
+                "[triggers] Transient setup failure for task {} (attempt 1): {} — retrying",
                 task.id,
                 e
             );
-            // Continue without worktree — agent falls back to repo root
         }
     }
 
-    Ok(task)
+    let mut last_err = None;
+    for (idx, backoff) in SETUP_RETRY_BACKOFFS.iter().enumerate() {
+        std::thread::sleep(*backoff);
+        // Re-fetch the task in case prior attempt persisted partial state.
+        let fresh = match db::get_task(conn, &task.id) {
+            Ok(t) => t,
+            Err(e) => return Err(AppError::from(e)),
+        };
+        match ensure_task_worktree(conn, app, &fresh, repo_path, settings, base_branch) {
+            Ok(t) => {
+                log::info!(
+                    "[triggers] Setup succeeded for task {} on retry attempt {}",
+                    task.id,
+                    idx + 2
+                );
+                return Ok(t);
+            }
+            Err(e) if !is_transient_setup_error(&e) => return Err(e),
+            Err(e) => {
+                log::warn!(
+                    "[triggers] Transient setup failure for task {} (attempt {}): {}",
+                    task.id,
+                    idx + 2,
+                    e
+                );
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| {
+        AppError::CommandError(format!(
+            "Setup retries exhausted for task {} with no captured error",
+            task.id
+        ))
+    }))
 }
 
 // ─── Per-Action Handlers ──────────────────────────────────────────────────
@@ -696,13 +852,59 @@ fn execute_auto_setup(
     }
 
     let pipeline_settings = config::effective_pipeline_settings(&workspace.config);
-    let setup_task = match ensure_task_worktree(
+
+    // Bug C: serialize Setup per-workspace. Multiple tasks branching from the
+    // same base SHA in parallel race; the loser is stale before it starts.
+    if !try_acquire_setup_lock(&task.workspace_id) {
+        log::info!(
+            "[triggers] Setup lock held for workspace {} — queuing task {}",
+            task.workspace_id,
+            task.id
+        );
+        let queued = db::update_task_pipeline_state(
+            conn,
+            &task.id,
+            PipelineState::SetupQueued.as_str(),
+            None,
+            None,
+        )?;
+        emit_pipeline(
+            app,
+            EVT_TRIGGERED,
+            &queued.id,
+            &column.id,
+            PipelineState::SetupQueued,
+            Some("Waiting for setup slot".to_string()),
+        );
+        super::emit_tasks_changed(app, &task.workspace_id, "setup_queued");
+        return Ok(queued);
+    }
+
+    let result = perform_auto_setup_locked(conn, app, task, column, &workspace, &pipeline_settings);
+
+    // Always release the lock — promote any queued setup tasks regardless of
+    // success/failure so a stuck task does not strand the rest.
+    release_setup_lock(&task.workspace_id);
+    promote_setup_queued_tasks(app, &task.workspace_id);
+
+    result
+}
+
+fn perform_auto_setup_locked(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    column: &Column,
+    workspace: &Workspace,
+    pipeline_settings: &EffectivePipelineSettings,
+) -> Result<Task, AppError> {
+    let setup_task = match ensure_task_worktree_with_retry(
         conn,
         app,
         task,
         &workspace.repo_path,
-        &pipeline_settings,
-        None,
+        pipeline_settings,
+        Some(&pipeline_settings.default_base_branch),
     ) {
         Ok(task) => task,
         Err(e) => return fail_auto_setup(conn, app, task, column, e.to_string()),
@@ -747,6 +949,86 @@ fn execute_auto_setup(
     );
 
     execute_move_column(conn, app, &setup_task, "next")
+}
+
+/// Re-fire setup triggers for any tasks queued behind a finished Setup.
+/// Mirrors `promote_queued_tasks` but for the per-workspace setup lock.
+fn promote_setup_queued_tasks(app: &AppHandle, workspace_id: &str) {
+    let conn = match Connection::open(db::db_path()) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!(
+                "[triggers] promote_setup_queued_tasks: DB open failed: {}",
+                e
+            );
+            return;
+        }
+    };
+    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+
+    let queued = match db::get_setup_queued_tasks(&conn, workspace_id) {
+        Ok(q) => q,
+        Err(e) => {
+            log::warn!(
+                "[triggers] promote_setup_queued_tasks: query failed: {}",
+                e
+            );
+            return;
+        }
+    };
+
+    let next = match queued.into_iter().next() {
+        Some(t) => t,
+        None => return,
+    };
+
+    let column = match db::get_column(&conn, &next.column_id) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!(
+                "[triggers] promote_setup_queued_tasks: column lookup failed: {}",
+                e
+            );
+            return;
+        }
+    };
+
+    // Reset pipeline state so fire_on_entry treats it as a fresh trigger.
+    if let Err(e) = db::update_task_pipeline_state(
+        &conn,
+        &next.id,
+        PipelineState::Idle.as_str(),
+        None,
+        None,
+    ) {
+        log::warn!(
+            "[triggers] promote_setup_queued_tasks: reset state failed: {}",
+            e
+        );
+        return;
+    }
+
+    let refreshed = match db::get_task(&conn, &next.id) {
+        Ok(t) => t,
+        Err(e) => {
+            log::warn!("[triggers] promote_setup_queued_tasks: reload failed: {}", e);
+            return;
+        }
+    };
+
+    log::info!(
+        "[triggers] Promoting setup-queued task {} (workspace {})",
+        refreshed.id,
+        workspace_id
+    );
+
+    if let Err(e) = super::fire_trigger(&conn, app, &refreshed, &column) {
+        log::warn!(
+            "[triggers] Failed to re-fire trigger for promoted task {}: {}",
+            refreshed.id,
+            e
+        );
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -810,7 +1092,7 @@ fn execute_spawn_cli(
             &fresh_task,
             &workspace.repo_path,
             &pipeline_settings,
-            None,
+            Some(&pipeline_settings.default_base_branch),
         )?
     } else {
         task.clone()
@@ -2741,5 +3023,230 @@ mod tests {
             .and_then(|v| v.as_u64())
             .unwrap_or(300);
         assert_eq!(timeout, 600);
+    }
+
+    // ─── Setup hardening tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_setup_lock_acquire_release() {
+        let ws = format!("ws-lock-acquire-{}", std::process::id());
+        // Clean any leftover state.
+        release_setup_lock(&ws);
+
+        assert!(try_acquire_setup_lock(&ws), "first acquire should succeed");
+        assert!(setup_lock_held(&ws));
+        assert!(
+            !try_acquire_setup_lock(&ws),
+            "second acquire should fail while held"
+        );
+
+        release_setup_lock(&ws);
+        assert!(!setup_lock_held(&ws));
+        assert!(
+            try_acquire_setup_lock(&ws),
+            "after release, lock should be re-acquirable"
+        );
+        release_setup_lock(&ws);
+    }
+
+    #[test]
+    fn test_setup_locks_are_per_workspace() {
+        let ws_a = format!("ws-A-{}", std::process::id());
+        let ws_b = format!("ws-B-{}", std::process::id());
+        release_setup_lock(&ws_a);
+        release_setup_lock(&ws_b);
+
+        assert!(try_acquire_setup_lock(&ws_a));
+        assert!(
+            try_acquire_setup_lock(&ws_b),
+            "different workspace should not be blocked by another's lock"
+        );
+        release_setup_lock(&ws_a);
+        release_setup_lock(&ws_b);
+    }
+
+    #[test]
+    fn test_is_transient_setup_error_classifies_lock_messages() {
+        let transient = AppError::CommandError("git index.lock exists".into());
+        assert!(is_transient_setup_error(&transient));
+
+        let already_exists = AppError::CommandError(
+            "fatal: A branch named 'foo' already exists.".into(),
+        );
+        assert!(is_transient_setup_error(&already_exists));
+
+        let cannot_lock = AppError::CommandError("cannot lock ref 'refs/heads/foo'".into());
+        assert!(is_transient_setup_error(&cannot_lock));
+
+        let timed_out = AppError::CommandError("operation timed out".into());
+        assert!(is_transient_setup_error(&timed_out));
+    }
+
+    #[test]
+    fn test_is_transient_setup_error_rejects_config_errors() {
+        let invalid = AppError::InvalidInput("base_branch missing".into());
+        assert!(!is_transient_setup_error(&invalid));
+
+        let not_found = AppError::NotFound("workspace gone".into());
+        assert!(!is_transient_setup_error(&not_found));
+
+        let other = AppError::CommandError("permission denied".into());
+        assert!(!is_transient_setup_error(&other));
+    }
+
+    #[test]
+    fn test_pipeline_setup_queued_state_roundtrip() {
+        assert_eq!(PipelineState::SetupQueued.as_str(), "setup_queued");
+        assert_eq!(
+            PipelineState::from_db_str("setup_queued"),
+            PipelineState::SetupQueued
+        );
+    }
+
+    fn make_test_pipeline_settings() -> EffectivePipelineSettings {
+        EffectivePipelineSettings {
+            default_agent_cli: "codex".to_string(),
+            default_model: None,
+            max_concurrent_agents: config::DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS,
+            branch_prefix: config::DEFAULT_BRANCH_PREFIX.to_string(),
+            default_base_branch: config::DEFAULT_BASE_BRANCH.to_string(),
+        }
+    }
+
+    fn init_test_repo(path: &std::path::Path) {
+        use std::process::Command;
+        Command::new("git")
+            .args(["init", "-q", "-b", "main"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "commit.gpgsign", "false"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        std::fs::write(path.join("README.md"), "baseline\n").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-q", "-m", "init"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_validate_setup_base_branch_rejects_none() {
+        let err = validate_setup_base_branch(None, "task-1")
+            .expect_err("None must be rejected");
+        match err {
+            AppError::InvalidInput(msg) => assert!(msg.contains("base_branch")),
+            other => panic!("unexpected error: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_validate_setup_base_branch_rejects_blank() {
+        assert!(matches!(
+            validate_setup_base_branch(Some("   "), "task-1"),
+            Err(AppError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            validate_setup_base_branch(Some(""), "task-1"),
+            Err(AppError::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn test_validate_setup_base_branch_trims_and_returns() {
+        assert_eq!(
+            validate_setup_base_branch(Some("  main  "), "task-1").unwrap(),
+            "main"
+        );
+        assert_eq!(
+            validate_setup_base_branch(Some("develop"), "task-1").unwrap(),
+            "develop"
+        );
+    }
+
+    /// End-to-end on the underlying git layer: ensures the *actual* branch
+    /// creation goes through with the explicit base, sidestepping the
+    /// AppHandle-typed pipeline wrapper.
+    #[test]
+    fn test_branch_creation_uses_explicit_base() {
+        let tmp = tempfile::tempdir().unwrap();
+        init_test_repo(tmp.path());
+
+        let settings = make_test_pipeline_settings();
+        let branch = crate::git::branch_manager::create_task_branch_with_prefix(
+            tmp.path().to_str().unwrap(),
+            "Implement Feature",
+            Some(&settings.default_base_branch),
+            &settings.branch_prefix,
+        )
+        .expect("branch creation should succeed with explicit base");
+
+        assert_eq!(branch, "bentoya/implement-feature");
+    }
+
+    /// Bogus base branch → hard fail (Bug D test on the underlying git layer).
+    #[test]
+    fn test_branch_creation_hard_fails_on_missing_base() {
+        let tmp = tempfile::tempdir().unwrap();
+        init_test_repo(tmp.path());
+
+        let err = crate::git::branch_manager::create_task_branch_with_prefix(
+            tmp.path().to_str().unwrap(),
+            "Some Task",
+            Some("does-not-exist"),
+            "bentoya/",
+        )
+        .expect_err("nonexistent base must error");
+
+        // The error message must mention the missing base — no silent fallback.
+        let lower = err.to_lowercase();
+        assert!(
+            lower.contains("does-not-exist") || lower.contains("not found"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_promote_setup_queued_query_returns_oldest_first() {
+        let conn = db::init_test().unwrap();
+        let workspace = db::insert_workspace(&conn, "WS", "/tmp/ws").unwrap();
+        let column = db::insert_column(&conn, &workspace.id, "Setup", 0).unwrap();
+
+        let t1 = db::insert_task(&conn, &workspace.id, &column.id, "First", None).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        let t2 = db::insert_task(&conn, &workspace.id, &column.id, "Second", None).unwrap();
+
+        db::update_task_pipeline_state(&conn, &t1.id, "setup_queued", None, None).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        db::update_task_pipeline_state(&conn, &t2.id, "setup_queued", None, None).unwrap();
+
+        let queued = db::get_setup_queued_tasks(&conn, &workspace.id).unwrap();
+        let ids: Vec<_> = queued.into_iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![t1.id.clone(), t2.id.clone()]);
+
+        // After idle, only the un-promoted task should remain queued.
+        db::update_task_pipeline_state(&conn, &t1.id, "idle", None, None).unwrap();
+        let queued = db::get_setup_queued_tasks(&conn, &workspace.id).unwrap();
+        let ids: Vec<_> = queued.into_iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![t2.id]);
     }
 }

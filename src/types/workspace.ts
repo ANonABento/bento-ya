@@ -7,6 +7,7 @@ export type WorkspaceConfig = {
   autoArchiveDone?: boolean
   /** How long a task must sit in Done before auto-archive (minutes). Default: 5. */
   autoArchiveGraceMinutes?: number
+  defaultBaseBranch?: string
   githubRepo?: string
   githubLabelFilter?: string
   githubSyncEnabled?: boolean

@@ -34,6 +34,8 @@ pub enum PipelineState {
     Evaluating,
     /// Task is advancing to next column
     Advancing,
+    /// Setup is queued — another setup is running in this workspace
+    SetupQueued,
 }
 
 impl PipelineState {
@@ -44,6 +46,7 @@ impl PipelineState {
             PipelineState::Running => "running",
             PipelineState::Evaluating => "evaluating",
             PipelineState::Advancing => "advancing",
+            PipelineState::SetupQueued => "setup_queued",
         }
     }
 
@@ -53,6 +56,7 @@ impl PipelineState {
             "running" => PipelineState::Running,
             "evaluating" => PipelineState::Evaluating,
             "advancing" => PipelineState::Advancing,
+            "setup_queued" => PipelineState::SetupQueued,
             _ => PipelineState::Idle,
         }
     }
@@ -1323,6 +1327,7 @@ mod tests {
             PipelineState::Running,
             PipelineState::Evaluating,
             PipelineState::Advancing,
+            PipelineState::SetupQueued,
         ] {
             assert_eq!(PipelineState::from_db_str(state.as_str()), state);
         }
