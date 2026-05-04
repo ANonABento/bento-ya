@@ -696,13 +696,34 @@ fn execute_auto_setup(
     }
 
     let pipeline_settings = config::effective_pipeline_settings(&workspace.config);
+
+    // Chain-aware base resolution: if this task has dependencies on
+    // same-batch predecessors that already have branches, cut the new
+    // branch off the most-progressed predecessor's HEAD instead of
+    // `main`. Without this, sequential tasks in a chain all branch off
+    // the same base SHA and cascade-conflict on shared modules at PR
+    // merge time, defeating the point of `batch_wait` chaining.
+    let chain_base = super::dependencies::predecessor_branch_for_chain(conn, task)
+        .ok()
+        .flatten()
+        .filter(|branch| {
+            branch_manager::branch_exists(&workspace.repo_path, branch).unwrap_or(false)
+        });
+    if let Some(ref branch) = chain_base {
+        log::info!(
+            "[auto_setup] task {} branching off predecessor '{}' (chain-aware)",
+            task.id,
+            branch
+        );
+    }
+
     let setup_task = match ensure_task_worktree(
         conn,
         app,
         task,
         &workspace.repo_path,
         &pipeline_settings,
-        None,
+        chain_base.as_deref(),
     ) {
         Ok(task) => task,
         Err(e) => return fail_auto_setup(conn, app, task, column, e.to_string()),

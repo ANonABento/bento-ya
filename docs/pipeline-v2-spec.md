@@ -23,10 +23,16 @@ Backlog → Setup → Plan → Implement → Review → Verify → PR → Stagin
 
 ### `auto_setup`
 No agent. Pipeline logic only:
-1. Create branch: `bentoya/<task-slug>` from `main`
-2. Create worktree: `.worktrees/bentoya-<task-id>`
-3. Update task: `branch_name`, `worktree_path`
-4. Auto-advance to next column
+1. Resolve base branch:
+   - If the task has dependencies on other tasks in the same `batch_id`
+     and any of them already have a branch on disk, branch off the
+     most-progressed predecessor's HEAD (chain-aware base — see "Chains"
+     below).
+   - Otherwise, branch off the workspace default (`main`/`master`).
+2. Create branch: `bentoya/<task-slug>` from the resolved base
+3. Create worktree: `.worktrees/bentoya-<task-id>`
+4. Update task: `branch_name`, `worktree_path`
+5. Auto-advance to next column
 
 ### `batch_wait`
 No agent. Waits for conditions:
@@ -55,6 +61,28 @@ Tasks queued together (or in the same dependency chain) form a **batch**:
 - All tasks in a batch share one staging branch
 - Staging column waits for the full batch before combining
 - Batch size: configurable per workspace (default: queue everything until user says "go")
+
+## Chains (sequential dependencies inside a batch)
+
+A **chain** is a sequence of batch members where each task depends on its
+predecessor (typically via `in_review`/`at_or_past_column` feeding `batch_wait`).
+When tasks in the chain touch shared modules (db migrations, model structs,
+top-level UI files), branching every chain member off the same `main` SHA
+produces PRs that cascade-conflict at merge time, defeating automation.
+
+`auto_setup` is **chain-aware**:
+1. Detects chain membership: a task has `dependencies` referencing other
+   tasks that share its `batch_id`.
+2. Picks the predecessor with the highest column position whose branch
+   already exists on disk (closest ancestor — contains all earlier
+   predecessors' work too).
+3. Cuts the new branch from that predecessor's HEAD instead of `main`.
+4. Falls back to the workspace default base if no eligible predecessor
+   has a branch yet (e.g. predecessor still in Backlog).
+
+The selection is implemented by
+`pipeline::dependencies::predecessor_branch_for_chain` — see its tests for
+edge cases (different batch, no branch yet, multi-predecessor preference).
 
 ## Conditional E2E
 
