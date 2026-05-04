@@ -829,21 +829,32 @@ async fn run_trigger_with_capture(
     // Wait for the child with a hard timeout. If it times out, kill it.
     let wait_result = tokio::time::timeout(TRIGGER_TIMEOUT, child.wait()).await;
 
-    // Always stop the flusher and finalise the reader before reading the
-    // capture state — otherwise we'd race with in-flight chunks.
-    stop_flusher.store(true, Ordering::Relaxed);
-    notify.notify_one();
-    let _ = reader_handle.await;
-    let _ = flusher_handle.await;
-
-    let status = match wait_result {
-        Ok(Ok(s)) => s,
-        Ok(Err(e)) => return Err(format!("Process wait failed: {}", e)),
+    // Resolve the wait result FIRST so we can kill the child before draining
+    // the reader. Awaiting the reader while the child (or any grandchild
+    // holding the inherited stdout fd) is alive would block indefinitely.
+    let status_result: Result<std::process::ExitStatus, String> = match wait_result {
+        Ok(Ok(s)) => Ok(s),
+        Ok(Err(e)) => {
+            let _ = child.start_kill();
+            Err(format!("Process wait failed: {}", e))
+        }
         Err(_) => {
             let _ = child.start_kill();
-            return Err(format!("Trigger timed out after {:?}", TRIGGER_TIMEOUT));
+            Err(format!("Trigger timed out after {:?}", TRIGGER_TIMEOUT))
         }
     };
+
+    // Stop the flusher and drain the reader. The reader EOFs once the OS
+    // closes the stdout pipe, which happens when every fd-holder (bash and
+    // any orphaned grandchildren) exits. Cap the drain so a stuck grandchild
+    // can't pin this task forever — we'd rather lose the trailing tail than
+    // leak a worker.
+    stop_flusher.store(true, Ordering::Relaxed);
+    notify.notify_one();
+    let _ = tokio::time::timeout(Duration::from_secs(30), reader_handle).await;
+    let _ = flusher_handle.await;
+
+    let status = status_result?;
 
     let exit_code = status.code().unwrap_or(1);
     let success = exit_code == 0;
@@ -1259,5 +1270,79 @@ mod tests {
         let (out, log_path) = run_capture_against("echo bad; exit 1").await;
         assert!(out.full_scrollback().contains("bad"));
         assert!(log_path.exists(), "log file must be retained for failed runs");
+    }
+
+    #[tokio::test]
+    async fn timeout_drain_terminates_even_with_orphaned_grandchild() {
+        // Regression: on timeout, killing the immediate child is not enough —
+        // grandchildren (e.g. `sleep` spawned by bash) keep the inherited
+        // stdout pipe open after their parent dies, so the reader blocks on
+        // a never-closing pipe. The trigger runner protects against this by
+        // bounding the reader drain with a tokio timeout. Verify here that
+        // the bounded drain returns even when the reader cannot EOF.
+        let dir = std::env::temp_dir().join(format!(
+            "bentoya_timeout_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log_path = dir.join("trigger_timeout.log");
+        let log_file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&log_path)
+            .await
+            .unwrap();
+
+        // bash spawns `sleep 60` as a child; SIGKILL on bash leaves sleep
+        // orphaned but holding the inherited stdout fd, reproducing the
+        // grandchild-pipe-hold scenario.
+        let mut child = tokio::process::Command::new("bash")
+            .args(["-c", "(echo started; sleep 60) 2>&1"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .stdin(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+
+        let capture = Arc::new(std::sync::Mutex::new(CapturedOutput::default()));
+        let notify = Arc::new(Notify::new());
+        let stop = Arc::new(AtomicBool::new(false));
+
+        let reader =
+            spawn_output_reader(stdout, log_file, Arc::clone(&capture), Arc::clone(&notify));
+        let flusher = tokio::spawn(run_output_flusher(
+            Arc::clone(&capture),
+            Arc::clone(&notify),
+            Arc::clone(&stop),
+            None,
+        ));
+
+        // Trigger the timeout branch with a short fuse.
+        let wait_result =
+            tokio::time::timeout(Duration::from_millis(200), child.wait()).await;
+        assert!(wait_result.is_err(), "wait should have timed out");
+        let _ = child.start_kill();
+
+        stop.store(true, Ordering::Relaxed);
+        notify.notify_one();
+
+        // The bounded drain must return — by EOF or by the elapsed timer —
+        // even though the orphaned `sleep` keeps the pipe open.
+        let started = std::time::Instant::now();
+        let _ = tokio::time::timeout(Duration::from_secs(2), reader).await;
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "drain blocked beyond the timeout bound"
+        );
+        let _ = flusher.await;
+
+        // Best-effort cleanup so an orphaned `sleep` doesn't linger past the
+        // test process. Killing the parent's process group is fine here.
+        let _ = std::process::Command::new("pkill")
+            .arg("-f")
+            .arg("sleep 60")
+            .status();
     }
 }
