@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import { motion } from 'motion/react'
 
 type Props = {
   onClose: () => void
@@ -108,17 +107,11 @@ export function ShortcutsModal({ onClose }: Props) {
   }, [onClose])
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={(event) => { if (event.target === event.currentTarget) onClose() }}
     >
-      <motion.div
-        initial={{ scale: 0.96, opacity: 0, y: 8 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        exit={{ scale: 0.96, opacity: 0, y: 8 }}
+      <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="shortcuts-title"
@@ -165,7 +158,7 @@ export function ShortcutsModal({ onClose }: Props) {
             ))}
           </div>
         </div>
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   )
 }

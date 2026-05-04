@@ -1,4 +1,4 @@
-//! Database layer: SQLite with WAL mode, 28 versioned migrations.
+//! Database layer: SQLite with WAL mode and versioned migrations.
 //!
 //! Models are in `db/models.rs`. CRUD functions are split by domain:
 //! workspace, column, task, agent_session, agent_message, chat_session,
@@ -214,10 +214,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        let migrations_dir =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/migrations");
-        let expected_count = std::fs::read_dir(migrations_dir).unwrap().count() as i64;
-        assert_eq!(count, expected_count);
+        // Includes split 019 and 030 migration files.
+        assert_eq!(count, 39);
     }
 
     #[test]
