@@ -5,6 +5,7 @@
 //! When exit criteria are met, the task auto-advances to the next column.
 
 pub mod dependencies;
+pub mod hygiene;
 pub mod template;
 pub mod triggers;
 

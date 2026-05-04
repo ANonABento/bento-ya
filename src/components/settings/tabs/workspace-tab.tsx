@@ -215,6 +215,41 @@ export function WorkspaceTab() {
                 />
               </button>
             </SettingRow>
+
+            <SettingRow
+              label="Auto-Archive Done"
+              description="Automatically archive tasks that sit in Done past the grace period"
+            >
+              <button
+                type="button"
+                role="switch"
+                aria-checked={config.autoArchiveDone ?? true}
+                onClick={() => { void updateConfig({ autoArchiveDone: !(config.autoArchiveDone ?? true) }) }}
+                className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-accent/20 ${
+                  (config.autoArchiveDone ?? true) ? 'bg-accent' : 'bg-border-default'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                    (config.autoArchiveDone ?? true) ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </SettingRow>
+
+            {(config.autoArchiveDone ?? true) && (
+              <SettingRow
+                label="Archive Grace Period"
+                description="Minutes a Done task waits before auto-archiving"
+              >
+                <SettingSlider
+                  value={config.autoArchiveGraceMinutes ?? 5}
+                  onChange={(v) => { void updateConfig({ autoArchiveGraceMinutes: v }) }}
+                  min={1}
+                  max={60}
+                />
+              </SettingRow>
+            )}
           </div>
         </SettingSection>
       )}
