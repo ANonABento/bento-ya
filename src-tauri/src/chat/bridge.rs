@@ -1,47 +1,65 @@
-//! Bridges transport events to Tauri frontend events.
+//! Bridges transport events to Tauri frontend events, and runs CLI pipeline
+//! triggers inside per-task tmux sessions.
 //!
-//! The unified transport layer emits events via channels, but the frontend
-//! expects Tauri events (`pty:{taskId}:output`, `pty:{taskId}:exit`).
-//! This module provides helpers to forward transport events to the frontend,
-//! and a background task runner for CLI triggers.
+//! Every pipeline trigger runs inside a tmux session named
+//! `bentoya_<task_id>` — the same naming used by interactive chat sessions.
+//! The frontend's `TerminalView` attaches to that session via
+//! `ensure_pty_session` and gets a live, interactive view. Completion
+//! detection uses `tmux wait-for` plus an exit-code sentinel file, so the
+//! pipeline still knows when the agent finished and with what status.
+//!
+//! The Tauri events `pty:{taskId}:output` and `pty:{taskId}:exit` continue
+//! to be the contract with the frontend; they're emitted by `ManagedBridge`
+//! when a UI client attaches.
+//!
+//! Output capture for rate-limit detection and persistence is done by
+//! `tmux pipe-pane`, which mirrors the pane's raw output to a log file in
+//! `~/.bentoya/trigger_logs/`. We read that file on completion to drive
+//! rate-limit detection and `tasks.pipeline_error`.
 
 use std::collections::HashMap;
+use std::path::Path;
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use rusqlite::Connection;
 use tauri::{AppHandle, Emitter};
-use tokio::io::{AsyncWriteExt, BufReader};
-use tokio::sync::{broadcast, mpsc, Notify};
+use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 
 use super::events::ChatEvent;
 use super::log_retention;
-#[cfg(test)]
 use super::tmux_transport;
 use super::transport::TransportEvent;
 use crate::db;
 use crate::pipeline;
 
-// ─── Output capture tunables ──────────────────────────────────────────────
-//
-// Live tail surfaced in `agent_sessions.last_output` (most recent bytes).
-const LAST_OUTPUT_TAIL_BYTES: usize = 16 * 1024;
-// Final scrollback persisted in `agent_sessions.scrollback` (head-truncated).
-const SCROLLBACK_MAX_BYTES: usize = 256 * 1024;
-// Tail of the log copied into `tasks.pipeline_error` on failure.
-const PIPELINE_ERROR_TAIL_BYTES: usize = 4 * 1024;
-// Periodic flush cadence — the upper bound between live updates.
-const FLUSH_INTERVAL: Duration = Duration::from_secs(3);
-// Byte threshold that triggers an early flush (overrides the timer).
-const FLUSH_BYTE_THRESHOLD: usize = 4 * 1024;
-// Fallback when we can't parse the rate-limit reset time.
-const RATE_LIMIT_FALLBACK_DELAY: Duration = Duration::from_secs(60 * 60);
-// Hard cap on the trigger duration before we kill the child process.
-const TRIGGER_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 2);
+// ─── Tunables ─────────────────────────────────────────────────────────────
 
-/// Generate a random 16-char hex nonce (used for tmux wait-for channel names).
+/// Tail of the log copied into `tasks.pipeline_error` on failure.
+const PIPELINE_ERROR_TAIL_BYTES: usize = 4 * 1024;
+/// Live tail surfaced in `agent_sessions.last_output`.
+const LAST_OUTPUT_TAIL_BYTES: usize = 16 * 1024;
+/// Final scrollback persisted in `agent_sessions.scrollback` (head-truncated).
+const SCROLLBACK_MAX_BYTES: usize = 256 * 1024;
+/// Periodic flush cadence — the upper bound between live updates.
+const FLUSH_INTERVAL: Duration = Duration::from_secs(3);
+/// Fallback when we can't parse the rate-limit reset time.
+const RATE_LIMIT_FALLBACK_DELAY: Duration = Duration::from_secs(60 * 60);
+/// Hard cap on the trigger duration before we kill the tmux session.
+const TRIGGER_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 2);
+/// How often we poll for completion when running `tmux wait-for` is too
+/// blocking. We use a separate task for the wait-for so the timeout still
+/// applies.
+const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(250);
+/// Default window dimensions when the trigger runs headless (no UI attached).
+const DEFAULT_TRIGGER_COLS: u16 = 200;
+const DEFAULT_TRIGGER_ROWS: u16 = 50;
+
+/// Generate a random 16-char hex nonce (used for tmux wait-for channel names
+/// and exit-code sentinel files).
 fn gen_nonce() -> String {
     use std::collections::hash_map::RandomState;
     use std::hash::{BuildHasher, Hasher};
@@ -90,10 +108,6 @@ impl Drop for ManagedBridge {
 }
 
 /// Forward PTY broadcast events to Tauri events for frontend rendering.
-///
-/// This is the broadcast-based equivalent of `bridge_pty_to_tauri`. It subscribes
-/// to the PTY's broadcast channel and emits Tauri events until the channel closes
-/// or the task is aborted.
 async fn bridge_broadcast_to_tauri(
     app: AppHandle,
     task_id: String,
@@ -139,9 +153,6 @@ pub async fn bridge_pty_to_tauri(
 
 /// Shared event handling logic for both mpsc and broadcast bridges.
 /// Returns true if the bridge should stop (Exited event received).
-///
-/// Completion detection is handled by `tmux wait-for` in spawn_cli_trigger_task,
-/// NOT by scanning output. This handler just forwards events to the frontend.
 async fn handle_bridge_event(
     app: &AppHandle,
     task_id: &str,
@@ -282,135 +293,6 @@ fn build_trigger_command(cli_command: &str, args: &[String], initial_prompt: &st
         cmd_parts.push(format!("'{}'", escaped));
     }
     cmd_parts.join(" ")
-}
-
-/// tmux session name for a task (delegates to tmux_transport for single source of truth).
-#[cfg(test)]
-fn tmux_session_name(task_id: &str) -> String {
-    tmux_transport::session_name(task_id)
-}
-
-// ─── Output capture ────────────────────────────────────────────────────────
-
-/// Rolling capture of a child process's combined stdout+stderr.
-///
-/// `scrollback` retains the last `SCROLLBACK_MAX_BYTES` of output (oldest bytes
-/// drained first when full). `pending_bytes` tracks how much new output has
-/// arrived since the last flush so the flusher can decide whether to push an
-/// early update to `agent_sessions.last_output`.
-#[derive(Default)]
-struct CapturedOutput {
-    scrollback: Vec<u8>,
-    pending_bytes: usize,
-}
-
-impl CapturedOutput {
-    fn append(&mut self, data: &[u8]) {
-        self.scrollback.extend_from_slice(data);
-        if self.scrollback.len() > SCROLLBACK_MAX_BYTES {
-            let trim = self.scrollback.len() - SCROLLBACK_MAX_BYTES;
-            self.scrollback.drain(..trim);
-        }
-        self.pending_bytes = self.pending_bytes.saturating_add(data.len());
-    }
-
-    fn last_output_tail(&self) -> String {
-        let len = self.scrollback.len();
-        let start = len.saturating_sub(LAST_OUTPUT_TAIL_BYTES);
-        String::from_utf8_lossy(&self.scrollback[start..]).to_string()
-    }
-
-    fn pipeline_error_tail(&self) -> String {
-        let len = self.scrollback.len();
-        let start = len.saturating_sub(PIPELINE_ERROR_TAIL_BYTES);
-        String::from_utf8_lossy(&self.scrollback[start..]).to_string()
-    }
-
-    fn full_scrollback(&self) -> String {
-        String::from_utf8_lossy(&self.scrollback).to_string()
-    }
-}
-
-/// Flush the most recent output tail into `agent_sessions.last_output`.
-fn flush_last_output_to_db(session_id: &str, tail: &str) {
-    let Ok(conn) = Connection::open(db::db_path()) else {
-        return;
-    };
-    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-    let _ = db::update_agent_session_output(&conn, session_id, Some(tail), None);
-}
-
-/// Periodically push the latest output tail to the DB. Runs until `stop` is
-/// set, then performs one final flush before exiting.
-async fn run_output_flusher(
-    capture: Arc<std::sync::Mutex<CapturedOutput>>,
-    notify: Arc<Notify>,
-    stop: Arc<AtomicBool>,
-    session_id: Option<String>,
-) {
-    loop {
-        tokio::select! {
-            _ = tokio::time::sleep(FLUSH_INTERVAL) => {}
-            _ = notify.notified() => {}
-        }
-        let stopping = stop.load(Ordering::Relaxed);
-        let snapshot = {
-            let mut c = capture.lock().expect("capture mutex");
-            if c.pending_bytes == 0 {
-                None
-            } else {
-                let tail = c.last_output_tail();
-                c.pending_bytes = 0;
-                Some(tail)
-            }
-        };
-        if let (Some(tail), Some(sid)) = (&snapshot, &session_id) {
-            flush_last_output_to_db(sid, tail);
-        }
-        if stopping {
-            break;
-        }
-    }
-}
-
-/// Spawn a reader that pumps the child's merged stdout into the on-disk log
-/// file, the in-memory scrollback, and signals the flusher when the byte
-/// threshold is crossed.
-fn spawn_output_reader(
-    stdout: tokio::process::ChildStdout,
-    log_file: tokio::fs::File,
-    capture: Arc<std::sync::Mutex<CapturedOutput>>,
-    notify: Arc<Notify>,
-) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout);
-        let mut log_writer = tokio::io::BufWriter::new(log_file);
-        let mut buf = vec![0u8; 8192];
-        loop {
-            match tokio::io::AsyncReadExt::read(&mut reader, &mut buf).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    let chunk = &buf[..n];
-                    if let Err(e) = log_writer.write_all(chunk).await {
-                        log::warn!("[bridge] log file write failed: {}", e);
-                    }
-                    let should_notify = {
-                        let mut c = capture.lock().expect("capture mutex");
-                        c.append(chunk);
-                        c.pending_bytes >= FLUSH_BYTE_THRESHOLD
-                    };
-                    if should_notify {
-                        notify.notify_one();
-                    }
-                }
-                Err(e) => {
-                    log::warn!("[bridge] reader error: {}", e);
-                    break;
-                }
-            }
-        }
-        let _ = log_writer.flush().await;
-    })
 }
 
 // ─── Rate-limit detection ─────────────────────────────────────────────────
@@ -623,22 +505,112 @@ fn schedule_rate_limit_retry(
     });
 }
 
-// ─── Trigger runner ───────────────────────────────────────────────────────
+// ─── Trigger runner (tmux-based) ──────────────────────────────────────────
 
-/// Run a CLI trigger as a direct child process with full output capture.
+/// Convenience: tmux session name for a task.
+fn tmux_session_name(task_id: &str) -> String {
+    tmux_transport::session_name(task_id)
+}
+
+/// Run `tmux <args>` and return Ok(stdout) on success, Err(stderr) otherwise.
+fn run_tmux(args: &[&str]) -> Result<String, String> {
+    let output = Command::new("tmux")
+        .args(args)
+        .output()
+        .map_err(|e| format!("Failed to spawn tmux: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "tmux {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Capture pane scrollback (with escape sequences). Returns empty string on
+/// any error so callers can treat it as "no output captured".
+fn capture_pane_scrollback(session: &str) -> String {
+    Command::new("tmux")
+        .args(["capture-pane", "-t", session, "-p", "-e", "-S", "-"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default()
+}
+
+/// Truncate a captured log to the trailing N bytes, on a UTF-8-safe boundary.
+fn tail_bytes(s: &str, n: usize) -> String {
+    if s.len() <= n {
+        return s.to_string();
+    }
+    let start = s.len() - n;
+    // Walk forward to a UTF-8 boundary so we don't slice a multi-byte char.
+    let mut i = start;
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    s[i..].to_string()
+}
+
+/// Truncate the log to the trailing SCROLLBACK_MAX_BYTES on a char boundary.
+fn truncate_for_scrollback(s: &str) -> String {
+    tail_bytes(s, SCROLLBACK_MAX_BYTES)
+}
+
+/// Create a fresh tmux session for a pipeline trigger. Fails if a session
+/// with the same name already exists — callers should kill stale sessions
+/// first if they want a clean slate.
+fn create_trigger_session(
+    task_id: &str,
+    working_dir: &str,
+    cols: u16,
+    rows: u16,
+    env_vars: &HashMap<String, String>,
+) -> Result<(), String> {
+    let name = tmux_session_name(task_id);
+
+    let cols_str = cols.to_string();
+    let rows_str = rows.to_string();
+    let mut args: Vec<&str> = vec![
+        "new-session", "-d", "-s", &name, "-x", &cols_str, "-y", &rows_str,
+    ];
+    if Path::new(working_dir).exists() {
+        args.push("-c");
+        args.push(working_dir);
+    }
+
+    let mut cmd = Command::new("tmux");
+    cmd.args(&args);
+    for (k, v) in env_vars {
+        cmd.env(k, v);
+    }
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to spawn tmux new-session: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("tmux new-session failed: {}", stderr.trim()));
+    }
+    Ok(())
+}
+
+/// Run a CLI trigger inside a tmux session named `bentoya_<task_id>`.
 ///
-/// Captures merged stdout/stderr to:
-/// 1. `~/.bentoya/trigger_logs/trigger_<nonce>.log` — preserved across runs,
-///    GC'd on startup.
-/// 2. `agent_sessions.last_output` — periodic live tail (≤16KB) flushed every
-///    `FLUSH_INTERVAL` or every `FLUSH_BYTE_THRESHOLD` of new output.
-/// 3. `agent_sessions.scrollback` — final full output (≤256KB, head-truncated).
+/// Behavior:
+/// 1. Ensure the tmux server is running and create a fresh session for the task.
+/// 2. Mirror pane output to a log file via `tmux pipe-pane`.
+/// 3. Send the wrapped command into the session via `tmux send-keys`. The
+///    wrapper writes the command's exit code to a sentinel file and signals
+///    completion via `tmux wait-for -S`.
+/// 4. Wait for that signal with a hard timeout; on timeout, kill the session.
+/// 5. Read the exit code, capture pane scrollback for rate-limit detection
+///    and for `tasks.pipeline_error`, then mark complete / schedule retry.
 ///
-/// On non-zero exit, the last `PIPELINE_ERROR_TAIL_BYTES` bytes of output are
-/// copied into `tasks.pipeline_error` so the UI can show the real failure.
-///
-/// Detects provider rate-limit output and re-schedules the trigger instead of
-/// burning a normal retry slot.
+/// The frontend's `TerminalView` can attach (or be attached) at any time
+/// during the trigger via `ensure_pty_session`, which finds the existing
+/// tmux session and starts streaming live to xterm.js.
 pub fn spawn_cli_trigger_task(
     app: AppHandle,
     task_id: String,
@@ -646,7 +618,7 @@ pub fn spawn_cli_trigger_task(
     args: Vec<String>,
     working_dir: String,
     initial_prompt: String,
-    _env_vars: Option<HashMap<String, String>>,
+    env_vars: Option<HashMap<String, String>>,
 ) {
     // Create agent session record so the UI can track this agent
     let session_id = {
@@ -693,6 +665,8 @@ pub fn spawn_cli_trigger_task(
         }
     };
 
+    let env_vars = env_vars.unwrap_or_default();
+
     tokio::spawn(async move {
         let start_time = std::time::Instant::now();
         let full_cmd = build_trigger_command(&cli_command, &args, &initial_prompt);
@@ -700,15 +674,18 @@ pub fn spawn_cli_trigger_task(
         let log_path = log_retention::new_trigger_log_path(&nonce);
         let log_path_str = log_path.display().to_string();
 
-        let result = run_trigger_with_capture(
+        let result = run_trigger_in_tmux(
             &app,
             &task_id,
+            &cli_command,
             &full_cmd,
             &working_dir,
             &log_path_str,
+            &nonce,
             session_id.as_deref(),
             trigger_column_id.as_deref(),
             start_time,
+            &env_vars,
         )
         .await;
 
@@ -754,124 +731,218 @@ pub fn spawn_cli_trigger_task(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn run_trigger_with_capture(
+async fn run_trigger_in_tmux(
     app: &AppHandle,
     task_id: &str,
+    cli_command: &str,
     full_cmd: &str,
     working_dir: &str,
     log_path: &str,
+    nonce: &str,
     session_id: Option<&str>,
     trigger_column_id: Option<&str>,
     start_time: std::time::Instant,
+    env_vars: &HashMap<String, String>,
 ) -> Result<(), String> {
-    eprintln!("[bridge] Spawning direct process for task {}", task_id);
+    eprintln!("[bridge] Starting tmux-backed trigger for task {}", task_id);
     eprintln!("[bridge] CLI command: {}", full_cmd);
     eprintln!("[bridge] Working dir: {}", working_dir);
     eprintln!("[bridge] Log file: {}", log_path);
 
-    let log_file = tokio::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&log_path)
-        .await
-        .map_err(|e| format!("Failed to create log file: {}", e))?;
+    // Make sure the tmux server is up; auto-start a default session if needed.
+    tmux_transport::ensure_tmux_server()?;
 
-    // Merge stderr into stdout via shell so a single reader sees the full
-    // feed. Wrap in a subshell so the redirect applies to the whole pipeline,
-    // not just the trailing statement.
-    let merged_cmd = format!("({}) 2>&1", full_cmd);
-    let mut child = tokio::process::Command::new("bash")
-        .args(["-c", &merged_cmd])
-        .current_dir(working_dir)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .stdin(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("Failed to spawn CLI process: {}", e))?;
+    let session = tmux_session_name(task_id);
 
-    let child_pid = child.id().unwrap_or(0);
-    eprintln!(
-        "[bridge] Process spawned for task {}: PID {}",
-        task_id, child_pid
-    );
-
-    if let Some(sid) = session_id {
-        if let Ok(conn) = Connection::open(db::db_path()) {
-            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-            let _ = db::update_agent_session(
-                &conn,
-                sid,
-                Some(Some(child_pid as i64)),
-                None,
-                None,
-                None,
-                None,
-                None,
-            );
-        }
+    // If a stale session for this task already exists (e.g. previous run crashed),
+    // kill it. We want a clean window for this trigger.
+    if tmux_transport::has_session(task_id) {
+        eprintln!(
+            "[bridge] Killing stale tmux session before trigger: {}",
+            session
+        );
+        let _ = tmux_transport::kill_session(task_id);
     }
 
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "stdout pipe missing".to_string())?;
+    // Create the session detached. UI clients can attach later and see the
+    // same pane. Use a generous default size; UI attach will resize.
+    create_trigger_session(
+        task_id,
+        working_dir,
+        DEFAULT_TRIGGER_COLS,
+        DEFAULT_TRIGGER_ROWS,
+        env_vars,
+    )?;
 
-    // Set up the capture pipeline: reader → buffer + log file; flusher → DB.
-    let capture = Arc::new(std::sync::Mutex::new(CapturedOutput::default()));
-    let notify = Arc::new(Notify::new());
-    let stop_flusher = Arc::new(AtomicBool::new(false));
+    // Mirror pane output to a log file. We use `pipe-pane -O` (Open) to log
+    // to the file; -o would toggle. The shell wrapper handles redirection.
+    let pipe_cmd = format!("cat > '{}'", shell_quote(log_path));
+    if let Err(e) = run_tmux(&["pipe-pane", "-t", &session, "-O", &pipe_cmd]) {
+        log::warn!("[bridge] pipe-pane failed (continuing): {}", e);
+    }
 
-    let reader_handle = spawn_output_reader(stdout, log_file, Arc::clone(&capture), Arc::clone(&notify));
-    let flusher_handle = tokio::spawn(run_output_flusher(
-        Arc::clone(&capture),
-        Arc::clone(&notify),
-        Arc::clone(&stop_flusher),
-        session_id.map(str::to_string),
-    ));
+    // Path for the exit-code sentinel file.
+    let exit_path = format!(
+        "{}/exit_{}.code",
+        log_retention::trigger_logs_dir().display(),
+        nonce
+    );
+    let wait_channel = format!("bentoya_done_{}", nonce);
 
-    // Wait for the child with a hard timeout. If it times out, kill it.
-    let wait_result = tokio::time::timeout(TRIGGER_TIMEOUT, child.wait()).await;
-
-    // Resolve the wait result FIRST so we can kill the child before draining
-    // the reader. Awaiting the reader while the child (or any grandchild
-    // holding the inherited stdout fd) is alive would block indefinitely.
-    let status_result: Result<std::process::ExitStatus, String> = match wait_result {
-        Ok(Ok(s)) => Ok(s),
-        Ok(Err(e)) => {
-            let _ = child.start_kill();
-            Err(format!("Process wait failed: {}", e))
-        }
-        Err(_) => {
-            let _ = child.start_kill();
-            Err(format!("Trigger timed out after {:?}", TRIGGER_TIMEOUT))
-        }
-    };
-
-    // Stop the flusher and drain the reader. The reader EOFs once the OS
-    // closes the stdout pipe, which happens when every fd-holder (bash and
-    // any orphaned grandchildren) exits. Cap the drain so a stuck grandchild
-    // can't pin this task forever — we'd rather lose the trailing tail than
-    // leak a worker.
-    stop_flusher.store(true, Ordering::Relaxed);
-    notify.notify_one();
-    let _ = tokio::time::timeout(Duration::from_secs(30), reader_handle).await;
-    let _ = flusher_handle.await;
-
-    let status = status_result?;
-
-    let exit_code = status.code().unwrap_or(1);
-    let success = exit_code == 0;
-    eprintln!(
-        "[bridge] Trigger completed for task {}: exit_code={}, success={} log={}",
-        task_id, exit_code, success, log_path
+    // Build the wrapped command. We send it as a single line via send-keys
+    // with `Enter`. Layout:
+    //   <full_cmd>; printf '%s' "$?" > <exit_file>; tmux wait-for -S <chan>
+    //
+    // Note: full_cmd already contains shell quoting for the prompt; we just
+    // append our completion-signaling tail. We also `clear` first so the
+    // user sees a clean pane when they attach.
+    let wrapped = format!(
+        "clear; {}; rc=$?; printf '%s' \"$rc\" > {}; tmux wait-for -S {}",
+        full_cmd,
+        shell_quote_arg(&exit_path),
+        wait_channel
     );
 
-    // Snapshot the captured output once so we don't hold the lock across DB IO.
-    let (scrollback, error_tail, last_output_tail) = {
-        let c = capture.lock().expect("capture mutex");
-        (c.full_scrollback(), c.pipeline_error_tail(), c.last_output_tail())
+    // Send the command into the session. Use `-l` to send literally so any
+    // embedded special chars don't get re-interpreted by tmux. Then `Enter`.
+    // We split into two send-keys calls because `-l` doesn't interpret keys.
+    if let Err(e) = run_tmux(&["send-keys", "-t", &session, "-l", &wrapped]) {
+        let _ = tmux_transport::kill_session(task_id);
+        return Err(format!("send-keys (literal) failed: {}", e));
+    }
+    if let Err(e) = run_tmux(&["send-keys", "-t", &session, "Enter"]) {
+        let _ = tmux_transport::kill_session(task_id);
+        return Err(format!("send-keys Enter failed: {}", e));
+    }
+
+    // Spawn a periodic flusher that snapshots scrollback into the DB so the
+    // last_output column stays fresh while the trigger runs. This is the
+    // tmux equivalent of the old direct-subprocess flusher.
+    let flusher_stop = Arc::new(AtomicBool::new(false));
+    let flusher_handle: Option<tokio::task::JoinHandle<()>> = session_id.map(|sid| {
+        let session_for_flusher = session.clone();
+        let sid = sid.to_string();
+        let stop = Arc::clone(&flusher_stop);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(FLUSH_INTERVAL).await;
+                if stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                let scrollback = capture_pane_scrollback(&session_for_flusher);
+                if scrollback.is_empty() {
+                    continue;
+                }
+                let tail = tail_bytes(&scrollback, LAST_OUTPUT_TAIL_BYTES);
+                if let Ok(conn) = Connection::open(db::db_path()) {
+                    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                    let _ = db::update_agent_session_output(&conn, &sid, Some(&tail), None);
+                }
+            }
+        })
+    });
+
+    // Wait for the wait-for signal in a blocking task with a timeout.
+    let wait_handle = tokio::task::spawn_blocking({
+        let chan = wait_channel.clone();
+        move || {
+            let output = Command::new("tmux")
+                .args(["wait-for", &chan])
+                .output();
+            match output {
+                Ok(o) if o.status.success() => Ok(()),
+                Ok(o) => Err(format!(
+                    "tmux wait-for failed: {}",
+                    String::from_utf8_lossy(&o.stderr).trim()
+                )),
+                Err(e) => Err(format!("tmux wait-for spawn error: {}", e)),
+            }
+        }
+    });
+
+    let timed_out = match tokio::time::timeout(TRIGGER_TIMEOUT, wait_handle).await {
+        Ok(Ok(Ok(()))) => false,
+        Ok(Ok(Err(e))) => {
+            // wait-for exited non-zero — usually because the session was killed.
+            log::warn!("[bridge] wait-for returned error for task {}: {}", task_id, e);
+            false
+        }
+        Ok(Err(join_err)) => {
+            log::warn!(
+                "[bridge] wait-for join error for task {}: {}",
+                task_id,
+                join_err
+            );
+            false
+        }
+        Err(_) => true,
     };
+
+    // Stop the flusher.
+    flusher_stop.store(true, Ordering::Relaxed);
+    if let Some(h) = flusher_handle {
+        // Don't await — the flusher sleeps up to FLUSH_INTERVAL between checks
+        // and we don't want to wait that long. Just abort it.
+        h.abort();
+    }
+
+    if timed_out {
+        eprintln!(
+            "[bridge] Trigger timed out for task {} after {:?}; killing session",
+            task_id, TRIGGER_TIMEOUT
+        );
+        // Send a stronger signal first; if pane is still alive, killing the
+        // whole session takes everything down.
+        tmux_transport::cancel_agent(task_id);
+        // Give it a moment to settle, then kill the session.
+        tokio::time::sleep(WAIT_POLL_INTERVAL).await;
+        let _ = tmux_transport::kill_session(task_id);
+    }
+
+    // ─── Result handling ────────────────────────────────────────────────
+
+    // Read exit code from sentinel file (if we got one).
+    let exit_code: Option<i32> = std::fs::read_to_string(&exit_path)
+        .ok()
+        .and_then(|s| s.trim().parse::<i32>().ok());
+
+    // Best-effort cleanup of the sentinel file.
+    let _ = std::fs::remove_file(&exit_path);
+
+    // Capture full scrollback for persistence + rate-limit scan. Prefer the
+    // log file (preserved across runs) but fall back to live pane capture if
+    // the file is empty (e.g. pipe-pane never opened in time).
+    let log_contents = std::fs::read_to_string(log_path).unwrap_or_default();
+    let scrollback_full = if !log_contents.is_empty() {
+        log_contents
+    } else {
+        capture_pane_scrollback(&session)
+    };
+    let scrollback = truncate_for_scrollback(&scrollback_full);
+    let error_tail = tail_bytes(&scrollback, PIPELINE_ERROR_TAIL_BYTES);
+    let last_output_tail = tail_bytes(&scrollback, LAST_OUTPUT_TAIL_BYTES);
+
+    // Resolve effective exit code:
+    //   - timed out: synthetic 124 (mimics `timeout` utility)
+    //   - missing sentinel but session vanished: synthetic 1 (failure)
+    //   - otherwise the parsed value
+    let effective_exit = match (timed_out, exit_code) {
+        (true, _) => 124,
+        (false, Some(code)) => code,
+        (false, None) => 1,
+    };
+    let success = effective_exit == 0;
+
+    eprintln!(
+        "[bridge] Trigger completed for task {}: exit_code={}, success={} log={}",
+        task_id, effective_exit, success, log_path
+    );
+
+    // IMPORTANT: do not kill the tmux session yet. We must update the task's
+    // agent_status BEFORE the session disappears, otherwise the GC sweep
+    // (which marks "running" tasks with no tmux session as failed) can race
+    // us and overwrite a successful completion. The session is killed at the
+    // very end of this function, after all DB writes are committed.
 
     if let Ok(conn) = Connection::open(db::db_path()) {
         let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
@@ -900,7 +971,7 @@ async fn run_trigger_with_capture(
                     sid,
                     None,
                     Some("rate_limited"),
-                    Some(Some(exit_code as i64)),
+                    Some(Some(effective_exit as i64)),
                     None,
                     None,
                     None,
@@ -921,6 +992,9 @@ async fn run_trigger_with_capture(
                 trigger_column_id.map(str::to_string),
                 delay,
             );
+            // Clean up the tmux session — the agent has already exited inside
+            // it, no point leaving a dead shell hanging around.
+            let _ = tmux_transport::kill_session(task_id);
             return Ok(());
         }
 
@@ -946,7 +1020,7 @@ async fn run_trigger_with_capture(
                         sid,
                         None,
                         Some(status_str),
-                        Some(Some(exit_code as i64)),
+                        Some(Some(effective_exit as i64)),
                         None,
                         None,
                         None,
@@ -982,9 +1056,9 @@ async fn run_trigger_with_capture(
                 // Surface the real CLI error tail to the UI tooltip via
                 // pipeline_error instead of a generic "exit code N" message.
                 let detail = if error_tail.trim().is_empty() {
-                    format!("Agent exited with code {}", exit_code)
+                    format!("Agent exited with code {}", effective_exit)
                 } else {
-                    let mut msg = format!("Agent exited with code {}: ", exit_code);
+                    let mut msg = format!("Agent exited with code {}: ", effective_exit);
                     msg.push_str(error_tail.trim());
                     msg
                 };
@@ -998,9 +1072,32 @@ async fn run_trigger_with_capture(
             }
         }
     }
+
     pipeline::emit_tasks_changed(app, "", "trigger_complete");
 
+    // NOW kill the tmux session — DB status is committed, so the GC won't
+    // race us. The agent inside the pane has already exited (we observed
+    // its exit code via the sentinel file), so all this does is clean up
+    // the shell that was waiting on `tmux wait-for`.
+    let _ = tmux_transport::kill_session(task_id);
+
+    // Touch a known-unused parameter to silence dead-code warnings if needed.
+    let _ = cli_command;
+
     Ok(())
+}
+
+// ─── Shell quoting helpers ────────────────────────────────────────────────
+
+/// Wrap a value in single quotes, escaping any inner single quotes.
+fn shell_quote_arg(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// Escape a string so it can be inserted between single quotes (no surrounding
+/// quotes added — the caller wraps it).
+fn shell_quote(s: &str) -> String {
+    s.replace('\'', "'\\''")
 }
 
 #[cfg(test)]
@@ -1050,37 +1147,36 @@ mod tests {
     }
 
     #[test]
-    fn test_captured_output_appends_and_truncates() {
-        let mut out = CapturedOutput::default();
-        // Write 2x SCROLLBACK_MAX_BYTES of distinct bytes so head-truncation kicks in.
-        let mut payload = Vec::with_capacity(SCROLLBACK_MAX_BYTES * 2);
-        for i in 0..(SCROLLBACK_MAX_BYTES * 2) {
-            payload.push((i % 251) as u8);
-        }
-        out.append(&payload);
-        assert_eq!(out.scrollback.len(), SCROLLBACK_MAX_BYTES);
-        // The retained slice must equal the tail of the input (head was dropped).
-        let tail_start = payload.len() - SCROLLBACK_MAX_BYTES;
-        assert_eq!(out.scrollback, &payload[tail_start..]);
+    fn test_shell_quote_arg() {
+        assert_eq!(shell_quote_arg("hello"), "'hello'");
+        assert_eq!(shell_quote_arg("it's me"), "'it'\\''s me'");
     }
 
     #[test]
-    fn test_captured_output_last_output_tail_size() {
-        let mut out = CapturedOutput::default();
-        out.append(&vec![b'a'; LAST_OUTPUT_TAIL_BYTES * 3]);
-        let tail = out.last_output_tail();
-        assert_eq!(tail.len(), LAST_OUTPUT_TAIL_BYTES);
+    fn test_tail_bytes_short_input() {
+        assert_eq!(tail_bytes("abc", 100), "abc");
     }
 
     #[test]
-    fn test_captured_output_pipeline_error_tail() {
-        let mut out = CapturedOutput::default();
-        out.append(b"early prefix that should be dropped\n");
-        out.append(&vec![b'z'; PIPELINE_ERROR_TAIL_BYTES]);
-        let tail = out.pipeline_error_tail();
-        assert_eq!(tail.len(), PIPELINE_ERROR_TAIL_BYTES);
-        assert!(tail.chars().all(|c| c == 'z'));
+    fn test_tail_bytes_truncates() {
+        let s = "a".repeat(2000);
+        let tail = tail_bytes(&s, 1000);
+        assert_eq!(tail.len(), 1000);
+        assert!(tail.chars().all(|c| c == 'a'));
     }
+
+    #[test]
+    fn test_tail_bytes_utf8_safe() {
+        // Build a string with a multi-byte char near the truncation boundary.
+        let prefix = "a".repeat(998);
+        let s = format!("{}é", prefix); // é is 2 bytes
+        let tail = tail_bytes(&s, 1000);
+        // Should land on a char boundary, not in the middle of é.
+        assert!(tail.is_char_boundary(0));
+        assert!(tail.ends_with('é'));
+    }
+
+    // ─── Rate-limit detection ─────────────────────────────────────────────
 
     #[test]
     fn test_is_rate_limit_output_positive() {
@@ -1099,6 +1195,15 @@ mod tests {
         assert!(!is_rate_limit_output(
             "Option '--dangerously-bypass-approvals-and-sandbox' not supported."
         ));
+    }
+
+    #[test]
+    fn test_is_rate_limit_output_with_ansi_escapes() {
+        // Tmux pane scrollback often contains ANSI escape codes around the
+        // rate-limit text. Detection must still work.
+        let ansi_wrapped =
+            "\x1b[31mYou've hit your limit\x1b[0m · resets 12pm";
+        assert!(is_rate_limit_output(ansi_wrapped));
     }
 
     fn anchor() -> chrono::DateTime<chrono::FixedOffset> {
@@ -1189,164 +1294,143 @@ mod tests {
         assert_eq!(extract_time_token("13:00 today").as_deref(), Some("13:00"));
     }
 
-    // ─── End-to-end capture pipeline (no Tauri AppHandle) ─────────────────
-    //
-    // These tests exercise the same reader + flusher tasks that
-    // `run_trigger_with_capture` wires up, against a real `tokio::process`
-    // child that streams output over time. We can't easily test the full DB
-    // path (it requires an AppHandle), but we can prove that the in-memory
-    // capture and the on-disk log file end up populated.
+    // ─── tmux trigger end-to-end (gated on tmux being available) ──────────
 
-    async fn run_capture_against(cmd: &str) -> (CapturedOutput, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join(format!(
-            "bentoya_capture_{}",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let log_path = dir.join("trigger_test.log");
-        let log_file = tokio::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&log_path)
-            .await
-            .unwrap();
-
-        let mut child = tokio::process::Command::new("bash")
-            .args(["-c", &format!("({}) 2>&1", cmd)])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .stdin(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
-        let stdout = child.stdout.take().unwrap();
-
-        let capture = Arc::new(std::sync::Mutex::new(CapturedOutput::default()));
-        let notify = Arc::new(Notify::new());
-        let stop = Arc::new(AtomicBool::new(false));
-
-        let reader = spawn_output_reader(stdout, log_file, Arc::clone(&capture), Arc::clone(&notify));
-        let flusher = tokio::spawn(run_output_flusher(
-            Arc::clone(&capture),
-            Arc::clone(&notify),
-            Arc::clone(&stop),
-            None,
-        ));
-
-        let _ = child.wait().await.unwrap();
-        stop.store(true, Ordering::Relaxed);
-        notify.notify_one();
-        let _ = reader.await;
-        let _ = flusher.await;
-
-        let final_capture = std::mem::take(&mut *capture.lock().unwrap());
-        (final_capture, log_path)
+    fn tmux_available() -> bool {
+        Command::new("tmux")
+            .arg("-V")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     }
 
     #[tokio::test]
-    async fn capture_collects_streamed_output_and_log() {
-        let (out, log_path) =
-            run_capture_against("for i in 1 2 3; do echo line$i; sleep 0.05; done").await;
-        let scrollback = out.full_scrollback();
-        assert!(scrollback.contains("line1"));
-        assert!(scrollback.contains("line2"));
-        assert!(scrollback.contains("line3"));
+    async fn tmux_trigger_creates_session_and_completes() {
+        if !tmux_available() {
+            eprintln!("tmux not available, skipping");
+            return;
+        }
+        // Use a unique task id so we don't collide with other tests or the
+        // running app.
+        let task_id = format!("test-trigger-{}", uuid::Uuid::new_v4());
+        let session = tmux_session_name(&task_id);
 
-        let log_contents = std::fs::read_to_string(&log_path).unwrap();
-        assert_eq!(log_contents, scrollback);
-    }
+        // Make sure we don't have a stale session.
+        let _ = tmux_transport::kill_session(&task_id);
 
-    #[tokio::test]
-    async fn capture_includes_stderr_via_shell_redirect() {
-        // build_trigger_command + run_trigger_with_capture wraps the user
-        // command in `... 2>&1`, so stderr lands in scrollback too. Mirror
-        // that here.
-        let (out, _log) = run_capture_against("echo OUT; echo ERR 1>&2").await;
-        let scrollback = out.full_scrollback();
-        assert!(scrollback.contains("OUT"));
-        assert!(scrollback.contains("ERR"));
-    }
+        tmux_transport::ensure_tmux_server().expect("tmux server");
 
-    #[tokio::test]
-    async fn capture_preserves_log_for_failed_command() {
-        // Important: trigger logs are no longer deleted on success or failure.
-        // This test exercises the failure side of that guarantee.
-        let (out, log_path) = run_capture_against("echo bad; exit 1").await;
-        assert!(out.full_scrollback().contains("bad"));
-        assert!(log_path.exists(), "log file must be retained for failed runs");
-    }
+        // Create the session manually (no AppHandle in tests).
+        let env_vars = HashMap::new();
+        create_trigger_session(&task_id, "/tmp", 80, 24, &env_vars).expect("create session");
+        assert!(tmux_transport::has_session(&task_id));
 
-    #[tokio::test]
-    async fn timeout_drain_terminates_even_with_orphaned_grandchild() {
-        // Regression: on timeout, killing the immediate child is not enough —
-        // grandchildren (e.g. `sleep` spawned by bash) keep the inherited
-        // stdout pipe open after their parent dies, so the reader blocks on
-        // a never-closing pipe. The trigger runner protects against this by
-        // bounding the reader drain with a tokio timeout. Verify here that
-        // the bounded drain returns even when the reader cannot EOF.
-        let dir = std::env::temp_dir().join(format!(
-            "bentoya_timeout_{}",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let log_path = dir.join("trigger_timeout.log");
-        let log_file = tokio::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&log_path)
-            .await
-            .unwrap();
-
-        // bash spawns `sleep 60` as a child; SIGKILL on bash leaves sleep
-        // orphaned but holding the inherited stdout fd, reproducing the
-        // grandchild-pipe-hold scenario.
-        let mut child = tokio::process::Command::new("bash")
-            .args(["-c", "(echo started; sleep 60) 2>&1"])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .stdin(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
-        let stdout = child.stdout.take().unwrap();
-
-        let capture = Arc::new(std::sync::Mutex::new(CapturedOutput::default()));
-        let notify = Arc::new(Notify::new());
-        let stop = Arc::new(AtomicBool::new(false));
-
-        let reader =
-            spawn_output_reader(stdout, log_file, Arc::clone(&capture), Arc::clone(&notify));
-        let flusher = tokio::spawn(run_output_flusher(
-            Arc::clone(&capture),
-            Arc::clone(&notify),
-            Arc::clone(&stop),
-            None,
-        ));
-
-        // Trigger the timeout branch with a short fuse.
-        let wait_result =
-            tokio::time::timeout(Duration::from_millis(200), child.wait()).await;
-        assert!(wait_result.is_err(), "wait should have timed out");
-        let _ = child.start_kill();
-
-        stop.store(true, Ordering::Relaxed);
-        notify.notify_one();
-
-        // The bounded drain must return — by EOF or by the elapsed timer —
-        // even though the orphaned `sleep` keeps the pipe open.
-        let started = std::time::Instant::now();
-        let _ = tokio::time::timeout(Duration::from_secs(2), reader).await;
-        assert!(
-            started.elapsed() < Duration::from_secs(4),
-            "drain blocked beyond the timeout bound"
+        // Send a command that signals completion.
+        let nonce = "abc1234567890def";
+        let dir = log_retention::trigger_logs_dir();
+        std::fs::create_dir_all(&dir).ok();
+        let exit_path = format!("{}/exit_{}.code", dir.display(), nonce);
+        let chan = format!("bentoya_done_{}", nonce);
+        let wrapped = format!(
+            "echo HELLO_FROM_TMUX; printf '%s' \"0\" > {}; tmux wait-for -S {}",
+            shell_quote_arg(&exit_path),
+            chan
         );
-        let _ = flusher.await;
 
-        // Best-effort cleanup so an orphaned `sleep` doesn't linger past the
-        // test process. Killing the parent's process group is fine here.
+        run_tmux(&["send-keys", "-t", &session, "-l", &wrapped]).expect("send-keys literal");
+        run_tmux(&["send-keys", "-t", &session, "Enter"]).expect("send-keys Enter");
+
+        // Wait for completion (with a generous timeout for slow CI).
+        let wait = tokio::task::spawn_blocking({
+            let chan = chan.clone();
+            move || {
+                Command::new("tmux")
+                    .args(["wait-for", &chan])
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false)
+            }
+        });
+        let ok = tokio::time::timeout(Duration::from_secs(10), wait)
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+            .unwrap_or(false);
+        assert!(ok, "wait-for did not return");
+
+        // Exit code file should contain "0".
+        let code = std::fs::read_to_string(&exit_path).expect("read exit code");
+        assert_eq!(code.trim(), "0");
+
+        // Scrollback should contain our echo'd string.
+        let scrollback = capture_pane_scrollback(&session);
+        assert!(scrollback.contains("HELLO_FROM_TMUX"), "got: {}", scrollback);
+
+        // Cleanup.
+        let _ = std::fs::remove_file(&exit_path);
+        let _ = tmux_transport::kill_session(&task_id);
+    }
+
+    #[tokio::test]
+    async fn tmux_trigger_timeout_recovers_when_wait_hangs() {
+        // Regression: `tmux wait-for` is server-global, not session-local. If
+        // a session dies before signaling its channel, wait-for can block
+        // indefinitely (channel never fires). Production code wraps wait-for
+        // in `tokio::time::timeout(TRIGGER_TIMEOUT, ...)` so the trigger
+        // runner always has a path back. This test verifies that the timeout
+        // path does in fact unblock the awaiter, regardless of what tmux is
+        // doing with the orphaned wait-for process.
+        if !tmux_available() {
+            eprintln!("tmux not available, skipping");
+            return;
+        }
+        let task_id = format!("test-killwait-{}", uuid::Uuid::new_v4());
+
+        let _ = tmux_transport::kill_session(&task_id);
+        tmux_transport::ensure_tmux_server().expect("tmux server");
+
+        let env_vars = HashMap::new();
+        create_trigger_session(&task_id, "/tmp", 80, 24, &env_vars).expect("create session");
+
+        // Channel that nobody will ever signal.
+        let chan = format!("bentoya_done_{}", uuid::Uuid::new_v4().simple());
+
+        // Spawn a wait-for in a blocking task — production analog of the
+        // wait_handle in run_trigger_in_tmux.
+        let wait_handle = tokio::task::spawn_blocking({
+            let chan = chan.clone();
+            move || {
+                Command::new("tmux")
+                    .args(["wait-for", &chan])
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false)
+            }
+        });
+
+        // The session has nothing to signal the channel — kill the session,
+        // then prove the timeout path returns within bounds.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let _ = tmux_transport::kill_session(&task_id);
+
+        let started = std::time::Instant::now();
+        let timed_out = tokio::time::timeout(Duration::from_millis(750), wait_handle)
+            .await
+            .is_err();
+
+        assert!(
+            timed_out,
+            "expected the timeout path to fire when wait-for is orphaned"
+        );
+        // The timeout must actually elapse near the bound, not return early.
+        assert!(
+            started.elapsed() >= Duration::from_millis(700),
+            "timeout fired early: {:?}",
+            started.elapsed()
+        );
+        // Best-effort cleanup of any stragglers from the test.
         let _ = std::process::Command::new("pkill")
-            .arg("-f")
-            .arg("sleep 60")
+            .args(["-f", &format!("wait-for {}", chan)])
             .status();
     }
 }
