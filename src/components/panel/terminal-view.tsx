@@ -207,8 +207,8 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
           <div className="pointer-events-auto max-w-sm">
             <EmptyState
               size="md"
-              title="No terminal session active"
-              description="Agent is running headlessly. Switch to the Output tab to see structured activity."
+              title="Spawning terminal"
+              description="A shell is starting in this task's tmux session. Output will appear here as soon as it's ready."
               icon={
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-full w-full">
                   <path d="M4 6h16M4 6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2M6 11l3 3-3 3M12 17h6" strokeLinecap="round" strokeLinejoin="round" />
