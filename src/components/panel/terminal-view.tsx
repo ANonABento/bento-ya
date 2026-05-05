@@ -117,7 +117,15 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
     )
 
     // Wait for listeners to be registered, then wait a frame for layout,
-    // THEN spawn PTY session with accurate dimensions
+    // THEN spawn PTY session with accurate dimensions.
+    //
+    // IMPORTANT: every async hop in this chain (Promise.all, requestAnimationFrame,
+    // ensurePtySession.then, .catch) must short-circuit on `disposed`. If the
+    // user switches tasks before this resolves, the OLD effect's promise can
+    // otherwise write the OLD task's scrollback into a disposed-but-not-yet-
+    // garbage-collected xterm — or worse, into a re-entered version of this
+    // component if React reuses the DOM node. The `disposed` guard is the
+    // single source of truth.
     void Promise.all(listenerPromises).then(() => {
       if (disposed) return
       return new Promise<void>((resolve) => {
@@ -130,6 +138,13 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
           const rows = Math.max(term.rows, 24)
           ensurePtySession(taskId, workingDir, cols, rows)
             .then((info) => {
+              // Re-check `disposed` AFTER the await: a fast task-switch can
+              // tear down this effect while ensure_pty_session is in flight.
+              // Without this guard, scrollback for the old task could be
+              // written into a disposed term (harmless) or — worse — observed
+              // by the user as stale content during a brief window before
+              // the new task's effect starts.
+              if (disposed) { resolve(); return }
               // Restore cached scrollback from previous session
               if (info.scrollback) {
                 try {
