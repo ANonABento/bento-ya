@@ -349,6 +349,12 @@ fn spawn_startup_recovery(app: tauri::AppHandle) {
     // it never sits on the main thread during launch.
     let tmux_app = app;
     let recovery_task = tauri::async_runtime::spawn_blocking(move || {
+        // Sweep stale `tmux wait-for bentoya_done_*` processes left over
+        // from a previous app instance. Their channels are nonce-scoped to
+        // the run that spawned them, so they'd never be signaled and would
+        // otherwise sit forever consuming a PID slot. Must run BEFORE any
+        // new triggers fire, so we don't accidentally kill our own.
+        chat::bridge::sweep_orphan_wait_fors();
         recover_tmux_sessions(tmux_app);
     });
 

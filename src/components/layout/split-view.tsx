@@ -44,7 +44,17 @@ export function TaskSidePanel({
             position="left"
             onMouseDown={handleResize}
           />
-          <AgentPanel task={task} onClose={onClose} />
+          {/*
+            Key the AgentPanel by task.id so switching tasks fully unmounts
+            the panel (and its TerminalView / xterm instance) and remounts a
+            fresh one. Without this, React reuses the same component instance
+            across task switches, which means async work from the OLD task
+            (ensure_pty_session, scrollback fetch, in-flight Tauri events)
+            can race with the NEW task's render and surface stale content.
+            A key guarantees clean teardown — at the cost of one extra
+            xterm instantiation per click, which is cheap.
+          */}
+          <AgentPanel key={task.id} task={task} onClose={onClose} />
         </motion.div>
       )}
     </AnimatePresence>
