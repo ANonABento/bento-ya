@@ -24,6 +24,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev tmux
 
+      - name: Start tmux server (required for bridge integration tests)
+        run: tmux start-server
+
       - name: Cargo check
         run: cargo check
 
