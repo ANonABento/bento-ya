@@ -176,6 +176,7 @@ pub fn run() {
             // PTY / Agent commands
             commands::terminal::write_to_pty,
             commands::terminal::resize_pty,
+            commands::terminal::signal_pty_interrupt,
             commands::terminal::get_pty_scrollback,
             commands::agent::start_agent,
             commands::agent::stop_agent,
