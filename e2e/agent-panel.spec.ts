@@ -1,14 +1,13 @@
 import { test, expect, type Page } from '@playwright/test'
 
 /**
- * AgentPanel — Output / Terminal tabs visual audit.
+ * AgentPanel — single-Terminal layout visual audit.
  *
- * Runs against the Vite dev server with browser mocks. Browser mocks won't
- * populate the agent-streaming store (those events come from Tauri), so this
- * test verifies the *empty-state* path and tab switching, NOT live streaming.
- *
- * Live streaming is verified manually via the running app, OR by adding test
- * hooks that prime the zustand store directly (deferred — see follow-up).
+ * After the unified-PTY migration there is exactly one panel view: the live
+ * tmux-backed terminal. This test runs against the Vite dev server with
+ * browser mocks (no Tauri), so the PTY itself never spawns; we just verify
+ * the panel renders, the Terminal label / Stop button are present, and the
+ * xterm container mounts.
  */
 
 async function openTaskPanel(page: Page, taskTitle: string) {
@@ -25,92 +24,44 @@ async function openTaskPanel(page: Page, taskTitle: string) {
 }
 
 test.describe('AgentPanel — visual audit', () => {
-  test('panel opens with Output/Terminal tabs visible', async ({ page }) => {
+  test('panel opens with Terminal label and Stop button', async ({ page }) => {
     await openTaskPanel(page, 'Sample Task')
 
+    // The Terminal label is text inside the panel header (not a tab anymore)
+    await expect(page.getByText('Terminal').first()).toBeVisible({ timeout: 5000 })
+    await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible({ timeout: 5000 })
+
+    await page.screenshot({ path: 'test-results/panel-default.png', fullPage: false })
+  })
+
+  test('Output tab is gone (single-view layout)', async ({ page }) => {
+    await openTaskPanel(page, 'Sample Task')
+
+    // Ensure neither an Output tab button nor a tab-style toggle exists.
     const outputTab = page.getByRole('button', { name: 'Output' })
-    const terminalTab = page.getByRole('button', { name: 'Terminal' })
-
-    await expect(outputTab).toBeVisible({ timeout: 5000 })
-    await expect(terminalTab).toBeVisible({ timeout: 5000 })
-
-    await page.screenshot({ path: 'test-results/panel-default-tab.png', fullPage: false })
+    await expect(outputTab).toHaveCount(0)
   })
 
-  test('default tab for idle task is Terminal (no agent activity)', async ({ page }) => {
-    // Sample Task in browser-mock has agentStatus: null → not an agent task
-    // → should default to Terminal
+  test('xterm container renders for any task type', async ({ page }) => {
     await openTaskPanel(page, 'Sample Task')
-
-    const terminalTab = page.getByRole('button', { name: 'Terminal' })
-    const cls = await terminalTab.getAttribute('class')
-    expect(cls).toContain('bg-accent')
-  })
-
-  test('default tab for running agent task is Output', async ({ page }) => {
-    // "Task with CI failure" in browser-mock has agentStatus: 'running'
-    // → should default to Output
-    await openTaskPanel(page, 'Task with CI failure')
-
-    const outputTab = page.getByRole('button', { name: 'Output' })
-    const cls = await outputTab.getAttribute('class')
-    expect(cls).toContain('bg-accent')
-
-    await page.screenshot({ path: 'test-results/panel-running-task-output.png', fullPage: false })
-  })
-
-  test('clicking Terminal tab switches the active view', async ({ page }) => {
-    await openTaskPanel(page, 'Sample Task')
-
-    const outputTab = page.getByRole('button', { name: 'Output' })
-    const terminalTab = page.getByRole('button', { name: 'Terminal' })
-
-    await terminalTab.click()
-    await page.waitForTimeout(300)
-
-    let cls = await terminalTab.getAttribute('class')
-    expect(cls).toContain('bg-accent')
-
-    await page.screenshot({ path: 'test-results/panel-terminal-tab.png', fullPage: false })
-
-    await outputTab.click()
-    await page.waitForTimeout(300)
-    cls = await outputTab.getAttribute('class')
-    expect(cls).toContain('bg-accent')
-
-    await page.screenshot({ path: 'test-results/panel-output-tab.png', fullPage: false })
-  })
-
-  test('Output tab shows empty state copy when no streaming data', async ({ page }) => {
-    await openTaskPanel(page, 'Sample Task')
-
-    // Click into Output tab explicitly (default would be Terminal for idle task)
-    const outputTab = page.getByRole('button', { name: 'Output' })
-    await outputTab.click()
-    await page.waitForTimeout(300)
-
-    // In browser mock mode, no Tauri events fire → store stays empty
-    // → empty-state copy should be visible
-    const emptyState = page.locator(
-      'text=/Agent starting|No agent has run|No streaming output/',
-    )
-    await expect(emptyState).toBeVisible({ timeout: 5000 })
-
-    await page.screenshot({ path: 'test-results/panel-output-empty.png', fullPage: false })
-  })
-
-  test('Terminal tab shows xterm container', async ({ page }) => {
-    await openTaskPanel(page, 'Sample Task')
-
-    const terminalTab = page.getByRole('button', { name: 'Terminal' })
-    await terminalTab.click()
-    await page.waitForTimeout(500)
 
     // xterm renders into a div with .xterm class once initialized
-    const xtermDiv = page.locator('.xterm, [class*="terminal"], canvas').first()
+    const xtermDiv = page.locator('.xterm, [class*="xterm-screen"], canvas').first()
     await expect(xtermDiv).toBeVisible({ timeout: 5000 })
 
     await page.screenshot({ path: 'test-results/panel-terminal-rendered.png', fullPage: false })
+  })
+
+  test('Stop button is clickable and does not crash', async ({ page }) => {
+    await openTaskPanel(page, 'Sample Task')
+
+    const stopButton = page.getByRole('button', { name: 'Stop' })
+    await expect(stopButton).toBeEnabled({ timeout: 5000 })
+    await stopButton.click()
+    // In browser-mock mode the Tauri invoke is a no-op; we just verify the
+    // click doesn't throw and the button re-enables shortly after.
+    await page.waitForTimeout(400)
+    await expect(stopButton).toBeEnabled()
   })
 
   test('captures a full-board screenshot for visual review', async ({ page }) => {

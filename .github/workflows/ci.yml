@@ -22,7 +22,10 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev tmux
+
+      - name: Start tmux server (required for bridge integration tests)
+        run: tmux new-session -d -s _bentoya_ci_keepalive 'sleep 86400'
 
       - name: Cargo check
         run: cargo check

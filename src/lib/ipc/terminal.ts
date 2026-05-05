@@ -14,6 +14,14 @@ export async function getPtyScrollback(taskId: string): Promise<string> {
   return invoke<string>('get_pty_scrollback', { taskId })
 }
 
+/**
+ * Send Ctrl+C (SIGINT) to a task's tmux pane. Used by the "Stop agent"
+ * button to interrupt a running agent without tearing down the session.
+ */
+export async function signalPtyInterrupt(taskId: string): Promise<void> {
+  return invoke('signal_pty_interrupt', { taskId })
+}
+
 export async function ensurePtySession(
   taskId: string,
   workingDir: string,
