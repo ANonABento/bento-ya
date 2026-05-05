@@ -62,7 +62,7 @@ Columns define `on_entry`/`on_exit` triggers. Tasks can override. See `.tickets/
 
 **Auto-retry:** When `max_retries` is set on exit criteria, failed triggers automatically re-fire up to N times. Retry count tracked per-task, resets on success.
 
-**Trigger execution:** `spawn_cli` triggers run CLI agents as **direct child processes** via `chat::bridge::spawn_cli_trigger_task()`. The CLI command is executed with `bash -c` as a `tokio::process::Command`, with stdout/stderr captured to a log file. No tmux, no PTY bridge — just process spawn + wait. Exit code determines success/failure. 2-hour timeout kills the process if it hangs. Concurrent limit: max 3 agents per workspace (see `DEFAULT_MAX_CONCURRENT_AGENTS` in triggers.rs).
+**Trigger execution:** `spawn_cli` triggers run CLI agents inside per-task **tmux sessions** via `chat::bridge::spawn_cli_trigger_task()`. The CLI command is injected via `tmux send-keys -l` into a fresh `bentoya_<task_id>` session, with output mirrored to a log file via `tmux pipe-pane` and an exit-code sentinel file written when the agent finishes. Completion is detected via `tmux wait-for`. The same tmux session is what the frontend Terminal panel attaches to — pipeline mode and interactive mode are now the same transport. Exit code determines success/failure. 2-hour timeout kills the session if it hangs. Concurrent limit: max 3 agents per workspace (see `DEFAULT_MAX_CONCURRENT_AGENTS` in triggers.rs).
 
 **Worktree-aware cwd:** `resolve_working_dir()` in triggers.rs picks `task.worktree_path` (if set and exists) over `workspace.repo_path`. Used by `spawn_cli`, `run_script`, and `create_pr` actions. Template variable: `{task.worktree_path}`.
 
@@ -88,28 +88,30 @@ Transport abstraction + session layer with tmux-managed terminal sessions:
 - `pipe_transport.rs` — `PipeTransport` (structured JSON streaming, chat bubbles)
 - `session.rs` — `UnifiedChatSession` (lifecycle: idle/running/suspended, resume ID tracking, pipe + PTY modes)
 - `registry.rs` — `SessionRegistry` (max 20 sessions configurable, LRU eviction, idle sweep, bridge tracking)
-- `bridge.rs` — `ManagedBridge` (single bridge per task, broadcast-based) + `spawn_cli_trigger_task` (direct process execution for pipeline triggers — no tmux)
+- `bridge.rs` — `ManagedBridge` (single bridge per task, broadcast-based) + `spawn_cli_trigger_task` (tmux-backed pipeline trigger runner: creates `bentoya_<task_id>` session, sends command via `send-keys -l`, waits via `tmux wait-for`, captures output via `pipe-pane` log file)
 - `gc.rs` — Garbage collector (periodic tmux session cleanup for interactive sessions, orphan detection, idle kill; skips tasks with active pipelines)
 - `chef.rs` — ChefSession layer (orchestrator capabilities)
 
-### Agent Execution Modes
+### Agent Execution — One Transport for Everything
 
-Two distinct execution modes for running CLI agents:
+Pipeline triggers and the interactive Terminal panel now share a single transport: a per-task tmux session named `bentoya_<task_id>`. The Terminal panel is no longer a separate "raw shell" view — it attaches to whatever tmux session is associated with the task, including the one a pipeline trigger spawned. There is no separate Output panel.
 
 **Pipeline mode (automated triggers):**
-- Direct child process via `tokio::process::Command`
-- `bash -c "{cli_command}"` with stdout/stderr to log file
-- No tmux, no PTY, no terminal bridge
-- Process exit code determines success/failure
-- 2-hour timeout with process kill on expiry
+- Spawns a fresh tmux session via `tmux new-session -d`
+- Mirrors output to a log file via `tmux pipe-pane`
+- Injects the CLI command via `tmux send-keys -l` + `Enter`
+- Detects completion via `tmux wait-for {channel}` against a wrapper that writes exit code to a sentinel file then signals the channel
+- 2-hour timeout kills the session if it hangs
 - Concurrent limit: max 3 per workspace (queued tasks auto-promote)
 - Used by: `spawn_cli` column triggers
 
 **Interactive mode (user opens terminal panel):**
-- tmux session + PTY attach + ManagedBridge
-- Live terminal output streamed to frontend via Tauri events
-- xterm.js rendering in the app's terminal panel
-- Used by: manual agent runs, terminal panel clicks
+- Reuses the same `bentoya_<task_id>` session if it exists (e.g. attaches mid-trigger to a running agent)
+- Otherwise spawns a fresh shell via `TmuxTransport`
+- `ManagedBridge` forwards `pty:{taskId}:output` events to xterm.js
+- User keystrokes flow back via `write_to_pty` (registry path) or `tmux send-keys -l` fallback for bare pipeline sessions
+
+This means clicking a task card mid-trigger drops you straight into the live agent's terminal, and you can interrupt with the Stop button (sends Ctrl+C via `tmux send-keys C-c`).
 
 ### Terminal View (tmux-backed)
 
