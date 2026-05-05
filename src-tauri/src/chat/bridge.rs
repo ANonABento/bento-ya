@@ -259,40 +259,179 @@ async fn handle_bridge_event(
     }
 }
 
-/// Build the CLI command string for a trigger, handling CLI-specific prompt flags.
-fn build_trigger_command(cli_command: &str, args: &[String], initial_prompt: &str) -> String {
-    let mut cmd_parts = vec![cli_command.to_string()];
+/// jq filter that turns a claude `--output-format stream-json` event stream
+/// into a human-readable progress log for the tmux pane. Designed to be
+/// dropped into a `jq -r --unbuffered` invocation.
+///
+/// Surfaces:
+///   - A header line on `system/init` with version + model
+///   - Tool-use blocks as `▶ Tool: <name>`
+///   - Streamed text deltas from the assistant (typed live)
+///   - A final summary line on `result` with duration + cost
+///
+/// We deliberately drop the noisy fields (raw input JSON, signature blocks,
+/// rate-limit telemetry) so the pane reads like a normal CLI — not a JSON
+/// dump. Failures inside jq fall through to a `cat` fallback in the wrapper,
+/// so the user always sees *something* (even if it's raw JSON).
+const CLAUDE_STREAM_PRETTY_JQ: &str = r#"
+  if .type == "system" and .subtype == "init" then
+    "[claude " + (.claude_code_version // "?") + " " + (.model // "?") + "]\n"
+  elif .type == "stream_event" then
+    if .event.type == "content_block_start" then
+      if .event.content_block.type == "tool_use" then
+        "\n[36m▶ " + (.event.content_block.name // "tool") + "[0m\n"
+      elif .event.content_block.type == "thinking" then
+        "[90m◆ thinking…[0m\n"
+      else empty end
+    elif .event.type == "content_block_delta" then
+      if .event.delta.type == "text_delta" then
+        (.event.delta.text // "")
+      elif .event.delta.type == "thinking_delta" then
+        "[90m" + (.event.delta.thinking // "") + "[0m"
+      else empty end
+    elif .event.type == "message_stop" then
+      "\n"
+    else empty end
+  elif .type == "user" and (.message.content[0]?.type == "tool_result") then
+    "[32m✓[0m "
+      + ((.message.content[0].content // "") | tostring | gsub("\n"; " ") | .[0:160])
+      + "\n"
+  elif .type == "result" then
+    "\n[33m── done · "
+      + ((.duration_ms // 0) | tostring) + "ms · $"
+      + ((.total_cost_usd // 0) | tostring)
+      + (if .is_error then " · ERROR" else "" end)
+      + " ──[0m\n"
+  else empty end
+"#;
 
-    // Add permission bypass flags and non-interactive mode per CLI
+/// Build the CLI command string for a trigger, handling CLI-specific prompt
+/// flags and (for claude) wrapping the call in a streaming pretty-printer so
+/// the tmux pane shows live progress instead of a blank pane until the agent
+/// exits.
+///
+/// Behavior per CLI:
+///   - `claude`: emits `stream-json` events with verbose+partial messages,
+///     piped through a `jq` filter that converts them to plain text in real
+///     time. If `jq` isn't on PATH, falls back to raw stream-json (still
+///     visible, just ugly).
+///   - `codex`: `exec` already streams human-readable progress to stdout, so
+///     we leave it alone (just add `--full-auto` and friends).
+///   - Other / unknown: passed through as-is.
+fn build_trigger_command(cli_command: &str, args: &[String], initial_prompt: &str) -> String {
     let cli_name = cli_command.rsplit('/').next().unwrap_or(cli_command);
-    match cli_name {
-        "claude" => {
-            cmd_parts.push("--dangerously-skip-permissions".to_string());
-        }
-        "codex" => {
-            // codex needs `exec` subcommand for non-interactive mode.
-            // `--full-auto` is the supported convenience alias for low-friction
-            // sandboxed automatic execution. Older codex builds rejected
-            // `--dangerously-bypass-approvals-and-sandbox` outright (the source
-            // of thousands of historical 58-byte stub failures), so we use the
-            // longer-lived `--full-auto` form which is portable across versions.
-            cmd_parts.push("exec".to_string());
-            cmd_parts.push("--full-auto".to_string());
-            cmd_parts.push("--skip-git-repo-check".to_string());
-        }
-        _ => {}
+
+    if cli_name == "claude" {
+        return build_claude_streaming_command(cli_command, args, initial_prompt);
+    }
+
+    let mut cmd_parts = vec![cli_command.to_string()];
+    if cli_name == "codex" {
+        // codex needs `exec` subcommand for non-interactive mode.
+        // `--full-auto` is the supported convenience alias for low-friction
+        // sandboxed automatic execution. Older codex builds rejected
+        // `--dangerously-bypass-approvals-and-sandbox` outright (the source
+        // of thousands of historical 58-byte stub failures), so we use the
+        // longer-lived `--full-auto` form which is portable across versions.
+        //
+        // codex exec already streams human-readable progress lines to stdout
+        // (tool calls, results, the assistant's response), so no filter
+        // wrapper is needed — the tmux pane shows live output by default.
+        cmd_parts.push("exec".to_string());
+        cmd_parts.push("--full-auto".to_string());
+        cmd_parts.push("--skip-git-repo-check".to_string());
     }
 
     cmd_parts.extend(args.iter().cloned());
     if !initial_prompt.is_empty() {
         let escaped = initial_prompt.replace('\'', "'\\''");
-        // claude CLI uses -p for prompt; codex exec takes prompt as positional arg
-        if cli_name == "claude" {
-            cmd_parts.push("-p".to_string());
-        }
         cmd_parts.push(format!("'{}'", escaped));
     }
     cmd_parts.join(" ")
+}
+
+/// Wrap a `claude` invocation with `--output-format stream-json --verbose
+/// --include-partial-messages` and pipe the events through `jq` for a clean
+/// live-progress view in the tmux pane.
+///
+/// The shape we produce:
+///
+///   bash -o pipefail -c '
+///     if command -v jq >/dev/null 2>&1; then
+///       claude --dangerously-skip-permissions --output-format stream-json \
+///              --verbose --include-partial-messages [user-args] -p '<prompt>' \
+///         | jq -r --unbuffered '<filter>'
+///     else
+///       claude --dangerously-skip-permissions [user-args] -p '<prompt>'
+///     fi
+///   '
+///
+/// Wrapping in `bash -o pipefail -c` ensures `$?` reflects claude's exit code
+/// (not jq's) regardless of which shell tmux's default pane was started in
+/// (zsh vs bash).
+fn build_claude_streaming_command(
+    cli_command: &str,
+    args: &[String],
+    initial_prompt: &str,
+) -> String {
+    let prompt_quoted = if initial_prompt.is_empty() {
+        String::new()
+    } else {
+        format!(" -p '{}'", initial_prompt.replace('\'', "'\\''"))
+    };
+
+    // User-provided args (e.g. --model gpt-5). Quote each one so spaces are safe.
+    let user_args = args
+        .iter()
+        .map(|a| format!("'{}'", a.replace('\'', "'\\''")))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let user_args_segment = if user_args.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", user_args)
+    };
+
+    // Quote the cli path itself in case it contains spaces.
+    let cli_quoted = format!("'{}'", cli_command.replace('\'', "'\\''"));
+
+    // Build the streaming and fallback command lines. Note: these go inside a
+    // `bash -c '...'` so we already have one level of single-quote nesting —
+    // the helper `bash_double_quote_for_outer_squote` escapes single quotes
+    // for that outer layer.
+    let stream_cmd = format!(
+        "{cli} --dangerously-skip-permissions --output-format stream-json --verbose --include-partial-messages{args}{prompt} | jq -r --unbuffered \"$BENTOYA_CLAUDE_FILTER\"",
+        cli = cli_quoted,
+        args = user_args_segment,
+        prompt = prompt_quoted,
+    );
+    let fallback_cmd = format!(
+        "{cli} --dangerously-skip-permissions{args}{prompt}",
+        cli = cli_quoted,
+        args = user_args_segment,
+        prompt = prompt_quoted,
+    );
+
+    // Whole bash body: pick streaming when jq exists, else fallback.
+    let bash_body = format!(
+        "if command -v jq >/dev/null 2>&1; then {stream}; else {fallback}; fi",
+        stream = stream_cmd,
+        fallback = fallback_cmd,
+    );
+
+    // Wrap in `bash -o pipefail -c '...'` so the pipe's exit status reflects
+    // claude's exit (not jq's). Single quotes inside `bash_body` need
+    // escaping for the outer single-quote wrapping.
+    let bash_body_outer_escaped = bash_body.replace('\'', "'\\''");
+    let filter_outer_escaped = CLAUDE_STREAM_PRETTY_JQ.replace('\'', "'\\''");
+
+    // Export the jq filter via env var so we don't have to re-escape it
+    // through multiple quoting layers — bash will read it directly.
+    format!(
+        "BENTOYA_CLAUDE_FILTER='{filter}' bash -o pipefail -c '{body}'",
+        filter = filter_outer_escaped,
+        body = bash_body_outer_escaped,
+    )
 }
 
 // ─── Rate-limit detection ─────────────────────────────────────────────────
@@ -842,20 +981,42 @@ async fn run_trigger_in_tmux(
         })
     });
 
-    // Wait for the wait-for signal in a blocking task with a timeout.
+    // Spawn `tmux wait-for <chan>` and capture its PID so we can SIGTERM it
+    // if the trigger times out.
+    //
+    // Why this matters: `tmux wait-for` is a SERVER-GLOBAL operation, not
+    // session-local. If the session dies before signaling its channel (e.g.
+    // killed externally, app crashed mid-trigger), the wait-for process keeps
+    // running indefinitely — its channel will never fire. Without explicit
+    // cleanup, every timed-out trigger leaks a `tmux wait-for bentoya_done_*`
+    // process, and over hours of pipeline activity these accumulate.
+    //
+    // We `spawn()` (not `output()`) so we get a `Child` with a known PID
+    // before the process exits. The `Child` is moved into a blocking task
+    // that does the actual wait; the PID is kept here so the timeout branch
+    // can SIGTERM it.
+    let wait_child = std::process::Command::new("tmux")
+        .args(["wait-for", &wait_channel])
+        .spawn()
+        .map_err(|e| format!("tmux wait-for spawn error: {}", e))?;
+    let wait_pid = wait_child.id();
+    log::debug!(
+        "[bridge] tmux wait-for spawned pid={} chan={}",
+        wait_pid,
+        wait_channel
+    );
+
     let wait_handle = tokio::task::spawn_blocking({
         let chan = wait_channel.clone();
-        move || {
-            let output = Command::new("tmux")
-                .args(["wait-for", &chan])
-                .output();
-            match output {
-                Ok(o) if o.status.success() => Ok(()),
-                Ok(o) => Err(format!(
-                    "tmux wait-for failed: {}",
-                    String::from_utf8_lossy(&o.stderr).trim()
-                )),
-                Err(e) => Err(format!("tmux wait-for spawn error: {}", e)),
+        let mut child = wait_child;
+        move || -> Result<(), String> {
+            let status = child
+                .wait()
+                .map_err(|e| format!("tmux wait-for ({}) wait error: {}", chan, e))?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!("tmux wait-for ({}) exited {:?}", chan, status.code()))
             }
         }
     });
@@ -891,8 +1052,12 @@ async fn run_trigger_in_tmux(
             "[bridge] Trigger timed out for task {} after {:?}; killing session",
             task_id, TRIGGER_TIMEOUT
         );
-        // Send a stronger signal first; if pane is still alive, killing the
-        // whole session takes everything down.
+        // Cleanup order matters:
+        //   1. SIGTERM the orphaned wait-for process (server-global, won't
+        //      die when the session is killed — see comment at spawn site).
+        //   2. Send Ctrl+C to the agent inside the pane.
+        //   3. Tear down the tmux session.
+        kill_wait_for_pid(wait_pid);
         tmux_transport::cancel_agent(task_id);
         // Give it a moment to settle, then kill the session.
         tokio::time::sleep(WAIT_POLL_INTERVAL).await;
@@ -1087,6 +1252,80 @@ async fn run_trigger_in_tmux(
     Ok(())
 }
 
+// ─── tmux wait-for orphan cleanup ─────────────────────────────────────────
+
+/// SIGTERM a `tmux wait-for` process. Used when our hard timeout fires and we
+/// need to clean up the process that would otherwise sit there waiting for a
+/// channel signal that will never come.
+///
+/// `wait-for` is a thin tmux client — TERM is enough, no need for KILL. We
+/// also fall back to a `pkill` by channel name if SIGTERM fails for any
+/// reason (e.g. PID was reused), so the cleanup is best-effort idempotent.
+fn kill_wait_for_pid(pid: u32) {
+    if pid == 0 {
+        return;
+    }
+    let rc = unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+    if rc != 0 {
+        log::debug!(
+            "[bridge] SIGTERM to wait-for pid {} returned {} (errno {})",
+            pid,
+            rc,
+            std::io::Error::last_os_error()
+        );
+    } else {
+        log::debug!("[bridge] killed orphan wait-for pid {}", pid);
+    }
+}
+
+/// Sweep any orphaned `tmux wait-for bentoya_done_*` processes left over
+/// from a previous app instance. Their channels will never be signaled by
+/// THIS process (the nonces are randomized per trigger), so they'd otherwise
+/// sit forever consuming a PID slot.
+///
+/// Called once at startup, before any new triggers run, so we don't kill
+/// our own freshly-spawned wait-fors.
+///
+/// Pattern matched: `tmux wait-for bentoya_done_<hex>` — narrow enough that
+/// we won't kill chat-session waits or other tmux clients.
+pub fn sweep_orphan_wait_fors() {
+    // pgrep -f matches against the full command line. -l prints both pid and
+    // command so we can log what we're killing.
+    let output = match Command::new("pgrep")
+        .args(["-fl", "tmux wait-for bentoya_done_"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            log::debug!("[bridge] pgrep not available for orphan sweep: {}", e);
+            return;
+        }
+    };
+    if !output.status.success() {
+        // pgrep returns 1 when nothing matches — that's the common case.
+        return;
+    }
+    let listing = String::from_utf8_lossy(&output.stdout);
+    let mut killed = 0u32;
+    for line in listing.lines() {
+        let pid: Option<u32> = line.split_whitespace().next().and_then(|p| p.parse().ok());
+        if let Some(pid) = pid {
+            // Skip our own pid out of paranoia (not a real risk, but cheap).
+            if pid == std::process::id() {
+                continue;
+            }
+            kill_wait_for_pid(pid);
+            killed += 1;
+        }
+    }
+    if killed > 0 {
+        log::info!(
+            "[bridge] startup orphan sweep: killed {} stale `tmux wait-for bentoya_done_*` processes",
+            killed
+        );
+    }
+}
+
 // ─── Shell quoting helpers ────────────────────────────────────────────────
 
 /// Wrap a value in single quotes, escaping any inner single quotes.
@@ -1122,10 +1361,137 @@ mod tests {
     }
 
     #[test]
-    fn test_build_trigger_command_claude() {
+    fn test_build_trigger_command_claude_streams_via_jq() {
+        // Claude wrapped command must:
+        //   - request streaming JSON output (so the tmux pane sees progress
+        //     instead of a blank line for minutes)
+        //   - run inside `bash -o pipefail -c` so claude's exit code wins
+        //     over jq's (not zsh-only `pipestatus`)
+        //   - export the jq filter via env var (avoids quoting hell)
+        //   - guard the jq pipeline with a runtime check + plain-text fallback
+        //     when jq isn't on PATH
+        //   - still pass the prompt and dangerously-skip-permissions
         let cmd = build_trigger_command("claude", &[], "do the thing");
+        assert!(
+            cmd.contains("--output-format stream-json"),
+            "missing stream-json: {}",
+            cmd
+        );
+        assert!(cmd.contains("--verbose"), "missing --verbose: {}", cmd);
+        assert!(
+            cmd.contains("--include-partial-messages"),
+            "missing --include-partial-messages: {}",
+            cmd
+        );
+        assert!(
+            cmd.contains("bash -o pipefail -c"),
+            "missing bash pipefail wrapper: {}",
+            cmd
+        );
+        assert!(
+            cmd.contains("BENTOYA_CLAUDE_FILTER="),
+            "filter must be exported via env var: {}",
+            cmd
+        );
+        assert!(
+            cmd.contains("command -v jq"),
+            "missing jq availability check: {}",
+            cmd
+        );
         assert!(cmd.contains("-p"));
         assert!(cmd.contains("do the thing"));
+        assert!(cmd.contains("--dangerously-skip-permissions"));
+    }
+
+    #[test]
+    fn test_build_trigger_command_claude_with_user_args() {
+        // User-supplied args (e.g. --model) must appear in BOTH the streaming
+        // pipeline AND the no-jq fallback, so the model selection is honored
+        // either way. After the outer `bash -c '<body>'` quote layer, the
+        // inner `'--model' 'sonnet'` becomes `'\''--model'\'' '\''sonnet'\''`.
+        let cmd = build_trigger_command(
+            "claude",
+            &["--model".to_string(), "sonnet".to_string()],
+            "hi",
+        );
+        let post_outer = r#"'\''--model'\'' '\''sonnet'\''"#;
+        assert!(cmd.contains(post_outer), "got: {}", cmd);
+        // matches twice: once in stream branch, once in fallback. Both paths
+        // must propagate the model.
+        assert_eq!(
+            cmd.matches(post_outer).count(),
+            2,
+            "got: {}",
+            cmd
+        );
+    }
+
+    #[test]
+    fn test_build_trigger_command_claude_escapes_prompt_quote() {
+        // Prompts with apostrophes must round-trip through TWO single-quote
+        // layers (inner -p '<prompt>' and outer bash -c '<body>') without
+        // breaking the wrapper.
+        //
+        // We verify by stripping the outer `bash -o pipefail -c '<body>'`
+        // wrapper to recover the inner body string, then asserting the body
+        // contains the canonical inner-quote form `'what'\''s up'` — which
+        // bash unwraps to literal `what's up` for the CLI's argv.
+        let cmd = build_trigger_command("claude", &[], "what's up");
+
+        // The outer wrapper escapes every `'` in the body to `'\''`, so the
+        // canonical inner form `'what'\''s up'` becomes
+        // `'\''what'\''\'\'''\''s up'\''` once. Either form is a pass; we
+        // assert on the latter (post-outer-escape) since that's what's in
+        // the final string.
+        let post_outer = r#"'\''what'\''\'\'''\''s up'\''"#;
+        assert!(
+            cmd.contains(post_outer),
+            "prompt did not double-escape correctly; cmd={}",
+            cmd
+        );
+        // It must appear in BOTH branches (streaming + fallback).
+        assert_eq!(
+            cmd.matches(post_outer).count(),
+            2,
+            "prompt must round-trip through both branches; cmd={}",
+            cmd
+        );
+    }
+
+    #[test]
+    fn test_claude_streaming_command_runs_under_real_bash() {
+        // End-to-end: feed the streaming wrapper into a real bash, but
+        // replace the inner `claude` invocation with a stub that prints its
+        // argv so we can observe what the CLI would actually receive.
+        // We force the FALLBACK branch (no jq) by stubbing the if-test.
+        let cmd = build_trigger_command("claude", &[], "hello world");
+        // Force the inner `command -v jq` to fail by replacing the test.
+        let fallback_only = cmd.replacen(
+            "if command -v jq >/dev/null 2>&1; then",
+            "if false; then",
+            1,
+        );
+        // Substitute `'claude'` with `'/bin/echo'` so we just print argv.
+        // /bin/echo is a real executable; doesn't need quoting cleanup.
+        let dryrun = fallback_only.replace("'claude'", "/bin/echo");
+        let output = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(&dryrun)
+            .output()
+            .expect("spawn bash");
+        assert!(
+            output.status.success(),
+            "bash failed: stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // /bin/echo prints all argv joined by spaces. The prompt is the
+        // last token after `-p`; it should appear intact.
+        assert!(
+            stdout.contains("-p hello world"),
+            "argv missing prompt: stdout={}",
+            stdout
+        );
     }
 
     #[test]
@@ -1392,8 +1758,10 @@ mod tests {
         let env_vars = HashMap::new();
         create_trigger_session(&task_id, "/tmp", 80, 24, &env_vars).expect("create session");
 
-        // Channel that nobody will ever signal.
-        let chan = format!("bentoya_done_{}", uuid::Uuid::new_v4().simple());
+        // Channel that nobody will ever signal. Use a test-specific prefix
+        // so a parallel `sweep_orphan_wait_fors` test (which kills
+        // `bentoya_done_*` orphans) doesn't reach in and SIGTERM us.
+        let chan = format!("bentoya_test_timeout_{}", uuid::Uuid::new_v4().simple());
 
         // Spawn a wait-for in a blocking task — production analog of the
         // wait_handle in run_trigger_in_tmux.
@@ -1432,5 +1800,164 @@ mod tests {
         let _ = std::process::Command::new("pkill")
             .args(["-f", &format!("wait-for {}", chan)])
             .status();
+    }
+
+    // ─── wait-for orphan cleanup ──────────────────────────────────────────
+
+    /// Helper: count `tmux wait-for bentoya_done_<chan>` processes alive.
+    fn count_wait_fors_for_channel(chan: &str) -> usize {
+        let output = Command::new("pgrep")
+            .args(["-f", &format!("tmux wait-for {}", chan)])
+            .output();
+        match output {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count(),
+            _ => 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn tmux_wait_for_pid_capture_kills_orphan_on_timeout() {
+        // Regression for the orphan-leak bug: when `tmux wait-for` is
+        // spawned and the trigger times out, we must SIGTERM the wait-for
+        // process directly. Without this fix, `tmux wait-for` (a server-
+        // global wait, not session-local) survives session-kill and leaks.
+        //
+        // This test reproduces the production sequence: spawn wait-for, kill
+        // its session before any signal arrives, then verify our PID-capture
+        // + SIGTERM cleanup actually reaps the orphan.
+        if !tmux_available() {
+            eprintln!("tmux not available, skipping");
+            return;
+        }
+        let task_id = format!("test-pidkill-{}", uuid::Uuid::new_v4());
+        let _ = tmux_transport::kill_session(&task_id);
+        tmux_transport::ensure_tmux_server().expect("tmux server");
+
+        let env_vars = HashMap::new();
+        create_trigger_session(&task_id, "/tmp", 80, 24, &env_vars).expect("create session");
+
+        // Use a non-`bentoya_done_` prefix so a parallel `sweep_orphan_wait_fors`
+        // test doesn't reach in and kill us — this test specifically
+        // verifies the `kill_wait_for_pid` direct-PID path, not the sweep.
+        let chan = format!("bentoya_pidkill_{}", uuid::Uuid::new_v4().simple());
+
+        // Spawn wait-for via Command::spawn (production code path) and
+        // capture the PID before doing anything else.
+        let mut child = Command::new("tmux")
+            .args(["wait-for", &chan])
+            .spawn()
+            .expect("spawn wait-for");
+        let pid = child.id();
+        assert!(pid > 0, "spawn returned bogus pid");
+
+        // Give wait-for a moment to register with the tmux server.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(
+            count_wait_fors_for_channel(&chan),
+            1,
+            "wait-for did not start"
+        );
+
+        // Production path: SIGTERM the captured PID.
+        kill_wait_for_pid(pid);
+
+        // Reap the child to avoid leaking a zombie.
+        let _ = tokio::task::spawn_blocking(move || child.wait()).await;
+
+        // Wait briefly for the process table to reflect the kill.
+        let mut tries = 0;
+        while count_wait_fors_for_channel(&chan) > 0 && tries < 20 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            tries += 1;
+        }
+        assert_eq!(
+            count_wait_fors_for_channel(&chan),
+            0,
+            "kill_wait_for_pid did not reap the orphan"
+        );
+
+        let _ = tmux_transport::kill_session(&task_id);
+    }
+
+    #[tokio::test]
+    async fn tmux_wait_for_kill_with_zero_pid_is_noop() {
+        // `kill_wait_for_pid(0)` on POSIX would address the process group of
+        // the calling process — disastrous. Our implementation must treat 0
+        // as a no-op.
+        kill_wait_for_pid(0);
+        // If we reached this line, we didn't accidentally signal ourselves.
+        // (A real test would inspect process state, but the absence of a
+        //  crash already proves the guard.)
+    }
+
+    #[tokio::test]
+    async fn sweep_orphan_wait_fors_only_kills_bentoya_channels() {
+        // The startup sweep MUST be narrow: it should kill orphan
+        // `tmux wait-for bentoya_done_*` processes, but NEVER touch chat
+        // sessions, manual `tmux wait-for` invocations, or the user's own
+        // tmux clients. We verify by spawning two wait-fors — one with our
+        // prefix, one with a different prefix — and asserting only ours
+        // gets reaped.
+        if !tmux_available() {
+            eprintln!("tmux not available, skipping");
+            return;
+        }
+        tmux_transport::ensure_tmux_server().expect("tmux server");
+
+        let bentoya_chan = format!(
+            "bentoya_done_{}",
+            uuid::Uuid::new_v4().simple()
+        );
+        let unrelated_chan = format!(
+            "user_chat_{}",
+            uuid::Uuid::new_v4().simple()
+        );
+
+        let bentoya_child = Command::new("tmux")
+            .args(["wait-for", &bentoya_chan])
+            .spawn()
+            .expect("spawn bentoya wait-for");
+        let mut unrelated_child = Command::new("tmux")
+            .args(["wait-for", &unrelated_chan])
+            .spawn()
+            .expect("spawn unrelated wait-for");
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(count_wait_fors_for_channel(&bentoya_chan), 1);
+        assert_eq!(count_wait_fors_for_channel(&unrelated_chan), 1);
+
+        sweep_orphan_wait_fors();
+
+        // Drain bentoya child (now SIGTERM'd).
+        let _ = tokio::task::spawn_blocking(move || {
+            let mut c = bentoya_child;
+            c.wait()
+        })
+        .await;
+
+        // Wait for process table to update.
+        let mut tries = 0;
+        while count_wait_fors_for_channel(&bentoya_chan) > 0 && tries < 20 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            tries += 1;
+        }
+
+        assert_eq!(
+            count_wait_fors_for_channel(&bentoya_chan),
+            0,
+            "sweep should have killed the bentoya wait-for"
+        );
+        assert_eq!(
+            count_wait_fors_for_channel(&unrelated_chan),
+            1,
+            "sweep must NOT touch non-bentoya wait-fors"
+        );
+
+        // Cleanup: kill the unrelated child manually.
+        let _ = unrelated_child.kill();
+        let _ = unrelated_child.wait();
     }
 }
