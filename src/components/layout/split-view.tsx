@@ -1,13 +1,47 @@
-import { motion, AnimatePresence } from 'motion/react'
 import { useTaskStore } from '@/stores/task-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useResizablePanel } from '@/hooks/use-resizable-panel'
 import { ResizeHandle } from '@/components/shared/resize-handle'
 import { AgentPanel } from '@/components/panel/agent-panel'
 
-const SPRING = { type: 'spring' as const, stiffness: 300, damping: 28 }
+/** Resizable chat panel docked to the right side of the board.
+ *
+ * Open / close uses a CSS `width` transition instead of Framer Motion.
+ * Why CSS and not motion?
+ *
+ *   PR #192 added `<AgentPanel key={task.id}>` inside an outer
+ *   `<motion.div>` to force a remount on task switch. In some lifecycle
+ *   sequences (HMR refresh, tight task→task switching, React StrictMode
+ *   double-invokes) motion's animation state could end up convinced
+ *   it had animated to the target while motion's async keyframe
+ *   resolver had never flushed — leaving the actual element stuck at
+ *   the `initial` values (`width: 0; opacity: 0`). The panel mounted
+ *   but never visibly opened, so users couldn't see streaming agent
+ *   output. With `mode="wait"` the exit on the old key never resolved
+ *   either, so the new panel never got to mount at all.
+ *
+ *   Plain CSS doesn't depend on a JS frame-loop or async keyframe
+ *   resolution. The browser sets the inline width on render and
+ *   transitions to the target width over `--panel-anim-duration`.
+ *   No queued-but-unresolved animations, no stuck exit, no remount-
+ *   per-task gymnastics.
+ *
+ * Stale-content protection (the original reason #192 keyed the inner
+ * AgentPanel): we still key `<AgentPanel key={task?.id}>` so switching
+ * between tasks unmounts the previous AgentPanel + TerminalView +
+ * xterm instance before the new one mounts. That kills any in-flight
+ * `ensure_pty_session` / scrollback fetches / Tauri listeners from
+ * the old task before they can race with the new task's render.
+ *
+ * The container itself stays mounted (collapsed to width 0) when no
+ * task is selected. Keeping it in the DOM means the CSS transition has
+ * an element to animate.
+ */
 
-/** Resizable chat panel docked to the right */
+// Animation timing matches the previous Framer Motion spring's
+// perceived duration; tuned to feel snappy without overshoot.
+const PANEL_ANIM_MS = 200
+
 export function TaskSidePanel({
   taskId,
   onClose,
@@ -28,35 +62,46 @@ export function TaskSidePanel({
     disabled: !task,
   })
 
+  const isOpen = !!task
+  const targetWidth = isOpen ? agentPanelWidth : 0
+
+  // While the user is actively dragging the resize handle, kill the
+  // transition so the panel tracks the cursor 1:1. We restore it as
+  // soon as the drag ends.
+  const transition = isDragging
+    ? 'none'
+    : `width ${String(PANEL_ANIM_MS)}ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${String(PANEL_ANIM_MS)}ms ease`
+
   return (
-    <AnimatePresence mode="wait">
-      {task && (
-        <motion.div
-          key="task-chat-panel"
-          initial={{ width: 0, opacity: 0 }}
-          animate={{ width: agentPanelWidth, opacity: 1 }}
-          exit={{ width: 0, opacity: 0 }}
-          transition={isDragging ? { duration: 0 } : SPRING}
-          className="relative h-full shrink-0 overflow-hidden border-l border-border-default"
-        >
-          <ResizeHandle
-            direction="horizontal"
-            position="left"
-            onMouseDown={handleResize}
-          />
-          {/*
-            Key the AgentPanel by task.id so switching tasks fully unmounts
-            the panel (and its TerminalView / xterm instance) and remounts a
-            fresh one. Without this, React reuses the same component instance
-            across task switches, which means async work from the OLD task
-            (ensure_pty_session, scrollback fetch, in-flight Tauri events)
-            can race with the NEW task's render and surface stale content.
-            A key guarantees clean teardown — at the cost of one extra
-            xterm instantiation per click, which is cheap.
-          */}
-          <AgentPanel key={task.id} task={task} onClose={onClose} />
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <div
+      className="relative h-full shrink-0 overflow-hidden border-l border-border-default"
+      style={{
+        width: `${String(targetWidth)}px`,
+        opacity: isOpen ? 1 : 0,
+        transition,
+        // Hide the border when collapsed so a 1px slice doesn't peek
+        // out at the edge of the board.
+        borderLeftWidth: isOpen ? undefined : 0,
+        // Collapsed panel must not catch pointer events (would steal
+        // hover/click on the column behind it).
+        pointerEvents: isOpen ? undefined : 'none',
+      }}
+      // Hide from the a11y tree when collapsed.
+      aria-hidden={isOpen ? undefined : true}
+    >
+      <ResizeHandle
+        direction="horizontal"
+        position="left"
+        onMouseDown={handleResize}
+      />
+      {/*
+        Key AgentPanel by task.id so the inner panel + TerminalView +
+        xterm fully unmount on task switch. This is the stale-content
+        fix from PR #192, kept here. We render `null` when no task is
+        active so `useMemo`/`useEffect` chains inside AgentPanel don't
+        run against a stale taskId.
+      */}
+      {task && <AgentPanel key={task.id} task={task} onClose={onClose} />}
+    </div>
   )
 }
