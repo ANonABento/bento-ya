@@ -321,7 +321,7 @@ const CLAUDE_STREAM_PRETTY_JQ: &str = r#"
 fn build_trigger_command(cli_command: &str, args: &[String], initial_prompt: &str) -> String {
     let cli_name = cli_command.rsplit('/').next().unwrap_or(cli_command);
 
-    if cli_name == "claude" {
+    if cli_name == "claude" || cli_name == "claude-mock" {
         return build_claude_streaming_command(cli_command, args, initial_prompt);
     }
 

@@ -63,7 +63,8 @@ pub fn run() {
     let session_registry_for_shutdown = Arc::clone(&session_registry);
     let session_registry_for_sweep = Arc::clone(&session_registry);
 
-    let builder = tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
