@@ -27,10 +27,10 @@ export function AttachmentButton({
         type="button"
         onClick={onClick}
         disabled={disabled || isLoading}
-        className={`flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg border transition-colors ${
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md border transition-colors ${
           count > 0
             ? 'border-accent bg-accent/10 text-accent'
-            : 'border-border-default bg-bg text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+            : 'border-border-default bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
         } disabled:opacity-50 disabled:cursor-not-allowed`}
       >
         {isLoading ? (

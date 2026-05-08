@@ -219,7 +219,7 @@ export function useChatInputState({
     voice,
     showVoice: config.showVoiceInput,
     hasSelectors: config.showModelSelector || config.showThinkingSelector || config.showPermissionSelector || config.showContextToggle,
-    canSend: message.trim() || attachments.attachments.length > 0,
+    canSend: message.trim().length > 0 || attachments.attachments.length > 0,
     currentModelName: caps.name,
     setThinkingLevel,
     setPermissionMode,

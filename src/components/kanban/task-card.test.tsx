@@ -4,8 +4,9 @@ import { TaskCard } from './task-card'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useUIStore } from '@/stores/ui-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { Task } from '@/types'
-import { mockKanbanColumn, mockKanbanTask, setupInvokeMock } from '@/test/mocks/tauri'
+import { mockKanbanColumn, mockKanbanTask, mockWorkspace, setupInvokeMock } from '@/test/mocks/tauri'
 
 vi.mock('@dnd-kit/sortable', () => ({
   useSortable: () => ({
@@ -36,6 +37,11 @@ function resetStores(task: Task) {
   })
   useTaskStore.setState({ tasks: [task], loaded: true })
   useUIStore.setState({ viewMode: 'board', activeTaskId: null, modal: null })
+  useWorkspaceStore.setState({
+    workspaces: [mockWorkspace({ id: task.workspaceId, name: 'Test Workspace' })],
+    activeWorkspaceId: task.workspaceId,
+    loaded: true,
+  })
 }
 
 describe('TaskCard quick-action keyboard behavior', () => {
@@ -74,8 +80,8 @@ describe('TaskCard quick-action keyboard behavior', () => {
     resetStores(task)
     render(<TaskCard task={task} />)
 
-    const deleteButton = screen.getByTitle(/Delete task/)
-    fireEvent.keyDown(deleteButton, { key: ' ' })
+    const moreButton = screen.getByTitle(/More actions/)
+    fireEvent.keyDown(moreButton, { key: ' ' })
 
     expect(useUIStore.getState().activeTaskId).toBeNull()
     expect(useTaskStore.getState().tasks[0]?.agentStatus).toBe('idle')
@@ -86,7 +92,7 @@ describe('TaskCard quick-action keyboard behavior', () => {
     resetStores(task)
     const { rerender } = render(<TaskCard task={task} />)
 
-    fireEvent.click(screen.getByTitle(/Delete task/))
+    fireEvent.keyDown(screen.getByText('Test task'), { key: 'Delete' })
     expect(screen.getByTitle(/Click again to confirm/)).toBeInTheDocument()
 
     const nextTask = mockKanbanTask({ id: 't2', title: 'Next task' })
@@ -95,7 +101,7 @@ describe('TaskCard quick-action keyboard behavior', () => {
       rerender(<TaskCard task={nextTask} />)
     })
 
-    expect(screen.getByTitle(/Delete task/)).toBeInTheDocument()
+    expect(screen.getByTitle(/More actions/)).toBeInTheDocument()
     expect(screen.queryByTitle(/Click again to confirm/)).not.toBeInTheDocument()
   })
 
@@ -166,5 +172,21 @@ describe('TaskCard quick-action keyboard behavior', () => {
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith('delete_task', { id: 't1' })
     })
+  })
+
+  it('renders a trailing workspace suffix as metadata instead of title text', () => {
+    const task = mockKanbanTask({ title: 'Migrate Clerk to NextAuth.js — Slothing' })
+    resetStores(task)
+    useWorkspaceStore.setState({
+      workspaces: [mockWorkspace({ id: task.workspaceId, name: 'Slothing' })],
+      activeWorkspaceId: task.workspaceId,
+      loaded: true,
+    })
+
+    render(<TaskCard task={task} />)
+
+    expect(screen.getByRole('heading', { name: 'Migrate Clerk to NextAuth.js' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /Slothing/ })).not.toBeInTheDocument()
+    expect(screen.getByText('Slothing')).toBeInTheDocument()
   })
 })

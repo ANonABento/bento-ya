@@ -140,10 +140,11 @@ pub fn run_hygiene_cycle(conn: &Connection) -> rusqlite::Result<HygieneCycleResu
         log::warn!("[hygiene] auto-archive failed: {}", e);
         0
     });
-    let (tasks_reconciled, sessions_cleared) = reconcile_done_task_state(conn).unwrap_or_else(|e| {
-        log::warn!("[hygiene] reconcile failed: {}", e);
-        (0, 0)
-    });
+    let (tasks_reconciled, sessions_cleared) =
+        reconcile_done_task_state(conn).unwrap_or_else(|e| {
+            log::warn!("[hygiene] reconcile failed: {}", e);
+            (0, 0)
+        });
 
     Ok(HygieneCycleResult {
         archived,
@@ -228,9 +229,18 @@ mod tests {
         let n = archive_done_tasks_for_workspace(&conn, &ws.id, 5).unwrap();
         assert_eq!(n, 1);
 
-        assert!(db::get_task(&conn, &stale_done.id).unwrap().archived_at.is_some());
-        assert!(db::get_task(&conn, &fresh_done.id).unwrap().archived_at.is_none());
-        assert!(db::get_task(&conn, &stale_backlog.id).unwrap().archived_at.is_none());
+        assert!(db::get_task(&conn, &stale_done.id)
+            .unwrap()
+            .archived_at
+            .is_some());
+        assert!(db::get_task(&conn, &fresh_done.id)
+            .unwrap()
+            .archived_at
+            .is_none());
+        assert!(db::get_task(&conn, &stale_backlog.id)
+            .unwrap()
+            .archived_at
+            .is_none());
     }
 
     #[test]
@@ -249,7 +259,10 @@ mod tests {
         assert_eq!(n, 0);
 
         let after = db::get_task(&conn, &task.id).unwrap();
-        assert_eq!(after.archived_at.as_deref(), Some(originally_archived_at.as_str()));
+        assert_eq!(
+            after.archived_at.as_deref(),
+            Some(originally_archived_at.as_str())
+        );
     }
 
     #[test]
@@ -355,7 +368,8 @@ mod tests {
         let backlog = db::insert_column(&conn, &ws.id, "Backlog", 0).unwrap();
         let _done = done_column(&conn, &ws.id, 1);
         let task = db::insert_task(&conn, &ws.id, &backlog.id, "Active", None).unwrap();
-        db::update_task_pipeline_state(&conn, &task.id, "idle", None, Some("real failure")).unwrap();
+        db::update_task_pipeline_state(&conn, &task.id, "idle", None, Some("real failure"))
+            .unwrap();
         db::update_task_agent_status(&conn, &task.id, Some("failed"), None).unwrap();
 
         let (tasks, _) = reconcile_done_task_state(&conn).unwrap();
@@ -376,14 +390,8 @@ mod tests {
         back_date_task(&conn, &archive_target.id, 30);
 
         let reconcile_target = db::insert_task(&conn, &ws.id, &done.id, "Reconcile", None).unwrap();
-        db::update_task_pipeline_state(
-            &conn,
-            &reconcile_target.id,
-            "idle",
-            None,
-            Some("stale"),
-        )
-        .unwrap();
+        db::update_task_pipeline_state(&conn, &reconcile_target.id, "idle", None, Some("stale"))
+            .unwrap();
 
         let result = run_hygiene_cycle(&conn).unwrap();
         // Reconcile happens after archive, so the reconcile target was untouched

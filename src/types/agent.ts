@@ -14,6 +14,8 @@ export type AgentMode =
   | 'ask'
   | 'plan'
   | 'review'
+  | 'terminal'
+  | 'managed'
 
 export type AgentSession = {
   id: string

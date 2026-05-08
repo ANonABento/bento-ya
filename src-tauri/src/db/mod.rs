@@ -9,7 +9,9 @@ pub mod schema;
 
 // Domain modules
 pub mod agent_message;
+pub mod agent_runtime_input_queue;
 pub mod agent_session;
+pub mod agent_transcript_event;
 pub mod chat_message;
 pub mod chat_session;
 pub mod checklist;
@@ -20,8 +22,8 @@ pub mod label;
 pub mod orchestrator_session;
 pub mod pipeline_timing;
 pub mod script;
-pub mod task_template;
 pub mod task;
+pub mod task_template;
 pub mod usage;
 pub mod workspace;
 
@@ -30,7 +32,9 @@ pub use models::*;
 
 // Re-export all domain functions so callers can use db::insert_task(), db::get_workspace(), etc.
 pub use agent_message::*;
+pub use agent_runtime_input_queue::*;
 pub use agent_session::*;
+pub use agent_transcript_event::*;
 pub use chat_message::*;
 pub use chat_session::*;
 pub use checklist::*;
@@ -41,8 +45,8 @@ pub use label::*;
 pub use orchestrator_session::*;
 pub use pipeline_timing::*;
 pub use script::*;
-pub use task_template::*;
 pub use task::*;
+pub use task_template::*;
 pub use usage::*;
 pub use workspace::*;
 
@@ -114,44 +118,171 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
 
     let migrations: Vec<(&str, &str)> = vec![
         ("001_initial", include_str!("migrations/001_initial.sql")),
-        ("002_column_config", include_str!("migrations/002_column_config.sql")),
-        ("003_pipeline_state", include_str!("migrations/003_pipeline_state.sql")),
-        ("004_chat_messages", include_str!("migrations/004_chat_messages.sql")),
-        ("005_checklists", include_str!("migrations/005_checklists.sql")),
-        ("006_session_resume", include_str!("migrations/006_session_resume.sql")),
-        ("007_cost_tracking", include_str!("migrations/007_cost_tracking.sql")),
-        ("008_session_history", include_str!("migrations/008_session_history.sql")),
-        ("009_chat_sessions", include_str!("migrations/009_chat_sessions.sql")),
-        ("010_cli_sessions", include_str!("migrations/010_cli_sessions.sql")),
-        ("011_workspace_config", include_str!("migrations/011_workspace_config.sql")),
-        ("012_task_agent_session", include_str!("migrations/012_task_agent_session.sql")),
-        ("013_task_script_exit_code", include_str!("migrations/013_task_script_exit_code.sql")),
-        ("014_review_status", include_str!("migrations/014_review_status.sql")),
-        ("015_pr_fields", include_str!("migrations/015_pr_fields.sql")),
-        ("016_siege_fields", include_str!("migrations/016_siege_fields.sql")),
-        ("017_pr_status_fields", include_str!("migrations/017_pr_status_fields.sql")),
-        ("018_discord_integration", include_str!("migrations/018_discord_integration.sql")),
-        ("019_checklist_autodetect", include_str!("migrations/019_checklist_autodetect.sql")),
-        ("019_discord_agent_routes", include_str!("migrations/019_discord_agent_routes.sql")),
-        ("020_notify_fields", include_str!("migrations/020_notify_fields.sql")),
-        ("021_agent_messages", include_str!("migrations/021_agent_messages.sql")),
-        ("022_agent_queue", include_str!("migrations/022_agent_queue.sql")),
-        ("023_column_triggers", include_str!("migrations/023_column_triggers.sql")),
-        ("024_drop_legacy_trigger_columns", include_str!("migrations/024_drop_legacy_trigger_columns.sql")),
-        ("025_task_retry_count", include_str!("migrations/025_task_retry_count.sql")),
-        ("026_remove_discord", include_str!("migrations/026_remove_discord.sql")),
-        ("027_task_model", include_str!("migrations/027_task_model.sql")),
+        (
+            "002_column_config",
+            include_str!("migrations/002_column_config.sql"),
+        ),
+        (
+            "003_pipeline_state",
+            include_str!("migrations/003_pipeline_state.sql"),
+        ),
+        (
+            "004_chat_messages",
+            include_str!("migrations/004_chat_messages.sql"),
+        ),
+        (
+            "005_checklists",
+            include_str!("migrations/005_checklists.sql"),
+        ),
+        (
+            "006_session_resume",
+            include_str!("migrations/006_session_resume.sql"),
+        ),
+        (
+            "007_cost_tracking",
+            include_str!("migrations/007_cost_tracking.sql"),
+        ),
+        (
+            "008_session_history",
+            include_str!("migrations/008_session_history.sql"),
+        ),
+        (
+            "009_chat_sessions",
+            include_str!("migrations/009_chat_sessions.sql"),
+        ),
+        (
+            "010_cli_sessions",
+            include_str!("migrations/010_cli_sessions.sql"),
+        ),
+        (
+            "011_workspace_config",
+            include_str!("migrations/011_workspace_config.sql"),
+        ),
+        (
+            "012_task_agent_session",
+            include_str!("migrations/012_task_agent_session.sql"),
+        ),
+        (
+            "013_task_script_exit_code",
+            include_str!("migrations/013_task_script_exit_code.sql"),
+        ),
+        (
+            "014_review_status",
+            include_str!("migrations/014_review_status.sql"),
+        ),
+        (
+            "015_pr_fields",
+            include_str!("migrations/015_pr_fields.sql"),
+        ),
+        (
+            "016_siege_fields",
+            include_str!("migrations/016_siege_fields.sql"),
+        ),
+        (
+            "017_pr_status_fields",
+            include_str!("migrations/017_pr_status_fields.sql"),
+        ),
+        (
+            "018_discord_integration",
+            include_str!("migrations/018_discord_integration.sql"),
+        ),
+        (
+            "019_checklist_autodetect",
+            include_str!("migrations/019_checklist_autodetect.sql"),
+        ),
+        (
+            "019_discord_agent_routes",
+            include_str!("migrations/019_discord_agent_routes.sql"),
+        ),
+        (
+            "020_notify_fields",
+            include_str!("migrations/020_notify_fields.sql"),
+        ),
+        (
+            "021_agent_messages",
+            include_str!("migrations/021_agent_messages.sql"),
+        ),
+        (
+            "022_agent_queue",
+            include_str!("migrations/022_agent_queue.sql"),
+        ),
+        (
+            "023_column_triggers",
+            include_str!("migrations/023_column_triggers.sql"),
+        ),
+        (
+            "024_drop_legacy_trigger_columns",
+            include_str!("migrations/024_drop_legacy_trigger_columns.sql"),
+        ),
+        (
+            "025_task_retry_count",
+            include_str!("migrations/025_task_retry_count.sql"),
+        ),
+        (
+            "026_remove_discord",
+            include_str!("migrations/026_remove_discord.sql"),
+        ),
+        (
+            "027_task_model",
+            include_str!("migrations/027_task_model.sql"),
+        ),
         ("028_scripts", include_str!("migrations/028_scripts.sql")),
-        ("029_task_worktree", include_str!("migrations/029_task_worktree.sql")),
-        ("030_pipeline_timing", include_str!("migrations/030_pipeline_timing.sql")),
-        ("030_usage_column_duration", include_str!("migrations/030_usage_column_duration.sql")),
-        ("031_task_batch_id", include_str!("migrations/031_task_batch_id.sql")),
-        ("032_github_sync", include_str!("migrations/032_github_sync.sql")),
-        ("033_github_issue_unique", include_str!("migrations/033_github_issue_unique.sql")),
-        ("034_task_time_tracking", include_str!("migrations/034_task_time_tracking.sql")),
-        ("035_task_labels", include_str!("migrations/035_task_labels.sql")),
-        ("036_task_templates", include_str!("migrations/036_task_templates.sql")),
-        ("037_task_archive", include_str!("migrations/037_task_archive.sql")),
+        (
+            "029_task_worktree",
+            include_str!("migrations/029_task_worktree.sql"),
+        ),
+        (
+            "030_pipeline_timing",
+            include_str!("migrations/030_pipeline_timing.sql"),
+        ),
+        (
+            "030_usage_column_duration",
+            include_str!("migrations/030_usage_column_duration.sql"),
+        ),
+        (
+            "031_task_batch_id",
+            include_str!("migrations/031_task_batch_id.sql"),
+        ),
+        (
+            "032_github_sync",
+            include_str!("migrations/032_github_sync.sql"),
+        ),
+        (
+            "033_github_issue_unique",
+            include_str!("migrations/033_github_issue_unique.sql"),
+        ),
+        (
+            "034_task_time_tracking",
+            include_str!("migrations/034_task_time_tracking.sql"),
+        ),
+        (
+            "035_task_labels",
+            include_str!("migrations/035_task_labels.sql"),
+        ),
+        (
+            "036_task_templates",
+            include_str!("migrations/036_task_templates.sql"),
+        ),
+        (
+            "037_task_archive",
+            include_str!("migrations/037_task_archive.sql"),
+        ),
+        (
+            "038_persistent_agent_lifecycle",
+            include_str!("migrations/038_persistent_agent_lifecycle.sql"),
+        ),
+        (
+            "039_agent_transcript_events",
+            include_str!("migrations/039_agent_transcript_events.sql"),
+        ),
+        (
+            "040_agent_runtime_session_fields",
+            include_str!("migrations/040_agent_runtime_session_fields.sql"),
+        ),
+        (
+            "041_agent_runtime_input_queue",
+            include_str!("migrations/041_agent_runtime_input_queue.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {
@@ -175,6 +306,11 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
 /// Generate a new UUID v4 string.
 pub fn new_id() -> String {
     Uuid::new_v4().to_string()
+}
+
+/// Current Unix timestamp in milliseconds.
+pub fn now_millis() -> i64 {
+    Utc::now().timestamp_millis()
 }
 
 /// Current timestamp as ISO 8601 string.
@@ -215,7 +351,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
         // Includes split 019 and 030 migration files.
-        assert_eq!(count, 39);
+        assert_eq!(count, 43);
     }
 
     #[test]
@@ -229,7 +365,8 @@ mod tests {
         let fetched = get_workspace(&conn, &ws.id).unwrap();
         assert_eq!(fetched.id, ws.id);
 
-        let updated = update_workspace(&conn, &ws.id, Some("Renamed"), None, None, Some(true), None).unwrap();
+        let updated =
+            update_workspace(&conn, &ws.id, Some("Renamed"), None, None, Some(true), None).unwrap();
         assert_eq!(updated.name, "Renamed");
         assert!(updated.is_active);
 
@@ -250,7 +387,17 @@ mod tests {
         assert_eq!(col.position, 0);
         assert!(col.visible);
 
-        let updated = update_column(&conn, &col.id, Some("Todo"), None, Some(1), None, None, None).unwrap();
+        let updated = update_column(
+            &conn,
+            &col.id,
+            Some("Todo"),
+            None,
+            Some(1),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(updated.name, "Todo");
         assert_eq!(updated.position, 1);
 
@@ -279,7 +426,17 @@ mod tests {
         let task2 = insert_task(&conn, &ws.id, &col.id, "Add feature", None).unwrap();
         assert_eq!(task2.position, 1);
 
-        let updated = update_task(&conn, &task.id, Some("Fix critical bug"), None, None, None, None, Some("high")).unwrap();
+        let updated = update_task(
+            &conn,
+            &task.id,
+            Some("Fix critical bug"),
+            None,
+            None,
+            None,
+            None,
+            Some("high"),
+        )
+        .unwrap();
         assert_eq!(updated.title, "Fix critical bug");
         assert_eq!(updated.priority, "high");
 
@@ -343,11 +500,54 @@ mod tests {
         assert_eq!(session.pty_cols, 80);
         assert_eq!(session.pty_rows, 24);
         assert_eq!(session.agent_type, "claude");
+        assert_eq!(session.adapter_kind.as_deref(), Some("claude_cli"));
+        assert_eq!(session.runtime_mode, "terminal");
         assert_eq!(session.working_dir, Some("/tmp".to_string()));
 
-        let updated = update_agent_session(&conn, &session.id, Some(Some(12345)), Some("running"), None, None, None, None).unwrap();
+        let updated = update_agent_session(
+            &conn,
+            &session.id,
+            Some(Some(12345)),
+            Some("running"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(updated.pid, Some(12345));
         assert_eq!(updated.status, "running");
+
+        let updated = update_agent_session_cli(
+            &conn,
+            &session.id,
+            Some("provider-thread-1"),
+            Some("claude-sonnet"),
+            Some("medium"),
+        )
+        .unwrap();
+        assert_eq!(updated.cli_session_id.as_deref(), Some("provider-thread-1"));
+        assert_eq!(
+            updated.provider_session_id.as_deref(),
+            Some("provider-thread-1")
+        );
+
+        let updated = update_agent_session_runtime(
+            &conn,
+            &session.id,
+            Some("api"),
+            Some("managed"),
+            Some(Some("remote-session-1")),
+            Some(Some("bentoya_task")),
+        )
+        .unwrap();
+        assert_eq!(updated.adapter_kind.as_deref(), Some("api"));
+        assert_eq!(updated.runtime_mode, "managed");
+        assert_eq!(
+            updated.provider_session_id.as_deref(),
+            Some("remote-session-1")
+        );
+        assert_eq!(updated.tmux_session_name.as_deref(), Some("bentoya_task"));
 
         let sessions = list_agent_sessions(&conn, &task.id).unwrap();
         assert_eq!(sessions.len(), 1);
@@ -437,7 +637,8 @@ mod tests {
         let conn = init_test().unwrap();
 
         // Create
-        let script = insert_script(&conn, "test-1", "My Script", "Does stuff", "[]", false).unwrap();
+        let script =
+            insert_script(&conn, "test-1", "My Script", "Does stuff", "[]", false).unwrap();
         assert_eq!(script.name, "My Script");
         assert_eq!(script.description, "Does stuff");
         assert!(!script.is_built_in);
@@ -447,7 +648,14 @@ mod tests {
         assert_eq!(fetched.id, "test-1");
 
         // Update
-        let updated = update_script(&conn, "test-1", Some("Renamed"), None, Some("[{\"type\":\"bash\"}]")).unwrap();
+        let updated = update_script(
+            &conn,
+            "test-1",
+            Some("Renamed"),
+            None,
+            Some("[{\"type\":\"bash\"}]"),
+        )
+        .unwrap();
         assert_eq!(updated.name, "Renamed");
         assert_eq!(updated.description, "Does stuff"); // unchanged
 
@@ -480,7 +688,15 @@ mod tests {
     #[test]
     fn test_script_update_preserves_unchanged_fields() {
         let conn = init_test().unwrap();
-        let script = insert_script(&conn, "s1", "Original", "Desc", "[{\"type\":\"bash\",\"command\":\"echo hi\"}]", false).unwrap();
+        let script = insert_script(
+            &conn,
+            "s1",
+            "Original",
+            "Desc",
+            "[{\"type\":\"bash\",\"command\":\"echo hi\"}]",
+            false,
+        )
+        .unwrap();
         assert_eq!(script.name, "Original");
         assert_eq!(script.description, "Desc");
 
@@ -520,7 +736,11 @@ mod tests {
         assert_eq!(scripts.len(), 9);
         assert!(scripts[0].is_built_in, "Built-ins should come first");
         // Custom scripts should be last, sorted by name
-        let custom: Vec<&str> = scripts.iter().filter(|s| !s.is_built_in).map(|s| s.name.as_str()).collect();
+        let custom: Vec<&str> = scripts
+            .iter()
+            .filter(|s| !s.is_built_in)
+            .map(|s| s.name.as_str())
+            .collect();
         assert_eq!(custom, vec!["Alpha Script", "Zebra Script"]);
     }
 
@@ -532,7 +752,12 @@ mod tests {
 
         for script in &scripts {
             let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(&script.steps);
-            assert!(parsed.is_ok(), "Built-in '{}' has invalid steps JSON: {}", script.name, script.steps);
+            assert!(
+                parsed.is_ok(),
+                "Built-in '{}' has invalid steps JSON: {}",
+                script.name,
+                script.steps
+            );
             let steps = parsed.unwrap();
             assert!(!steps.is_empty(), "Built-in '{}' has no steps", script.name);
         }

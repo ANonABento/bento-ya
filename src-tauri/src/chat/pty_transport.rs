@@ -18,8 +18,7 @@ use tokio::sync::{broadcast, mpsc};
 
 use super::events::{base64_encode, ChatEvent};
 use super::transport::{
-    ChatTransport, SpawnConfig, TransportEvent,
-    DEFAULT_SCROLLBACK_BYTES, OUTPUT_BUFFER_INTERVAL_MS,
+    ChatTransport, SpawnConfig, TransportEvent, DEFAULT_SCROLLBACK_BYTES, OUTPUT_BUFFER_INTERVAL_MS,
 };
 
 /// PTY transport — interactive terminal session.
@@ -257,7 +256,9 @@ impl ChatTransport for PtyTransport {
         }
         // Explicitly terminate the child process
         if let Some(pid) = self.child_pid {
-            unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM); }
+            unsafe {
+                libc::kill(pid as libc::pid_t, libc::SIGTERM);
+            }
         }
         self.pty = None;
         self.alive.store(false, Ordering::SeqCst);

@@ -15,7 +15,7 @@ export const config = {
 
   capabilities: [{
     'tauri:options': {
-      binary: '/Users/bentomac/bento-ya/src-tauri/target/debug/bento-ya',
+      binary: '/Users/bentomac/bento-ya/target/debug/bento-ya',
     },
   }],
 

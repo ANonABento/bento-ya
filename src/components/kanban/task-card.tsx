@@ -9,6 +9,7 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useLabelStore } from '@/stores/label-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { TaskContextMenu } from './task-context-menu'
 import { TaskSettingsModal } from './task-settings-modal'
 import { TaskQuickActions } from './task-quick-actions'
@@ -17,6 +18,7 @@ import { useAgentStreamingStore } from '@/stores/agent-streaming-store'
 import { getColumnTriggers } from '@/types/column'
 import { useCardPosition } from '@/hooks/use-card-positions'
 import { useDepDragContext } from '@/hooks/use-dep-drag-context'
+import { holdTask } from '@/lib/ipc/agent'
 import { parseDeps } from '@/lib/dependency-utils'
 import { PIPELINE_LABELS, PIPELINE_COLORS, formatRelativeTime } from './task-card-utils'
 import { PrStatusIndicator, SiegeBadge } from './task-card-badges'
@@ -49,6 +51,7 @@ export const TaskCard = memo(function TaskCard({
   const [settingsTab, setSettingsTab] = useState<'triggers' | 'dependencies'>('triggers')
   const columns = useColumnStore((s) => s.columns)
   const workspaceLabels = useLabelStore((s) => s.labels)
+  const workspaceName = useWorkspaceStore((s) => s.workspaces.find((workspace) => workspace.id === task.workspaceId)?.name)
 
   // Get exit criteria type for this task's column
   const columnTriggers = useMemo(() => {
@@ -113,6 +116,23 @@ export const TaskCard = memo(function TaskCard({
       return current ? [current] : []
     })
   }, [task.labels, workspaceLabels])
+
+  const { displayTitle, titleWorkspaceName } = useMemo(() => {
+    const trimmedWorkspaceName = workspaceName?.trim()
+    if (!trimmedWorkspaceName) {
+      return { displayTitle: task.title, titleWorkspaceName: null }
+    }
+
+    const suffix = ` — ${trimmedWorkspaceName}`
+    if (!task.title.endsWith(suffix)) {
+      return { displayTitle: task.title, titleWorkspaceName: null }
+    }
+
+    return {
+      displayTitle: task.title.slice(0, -suffix.length).trim(),
+      titleWorkspaceName: trimmedWorkspaceName,
+    }
+  }, [task.title, workspaceName])
 
   const openChat = useUIStore((s) => s.openChat)
   const closeChat = useUIStore((s) => s.closeChat)
@@ -220,6 +240,9 @@ export const TaskCard = memo(function TaskCard({
   }, [columns, task.columnId])
 
   const handleRetry = useCallback(() => { void actions.handleRetryPipeline() }, [actions])
+  const handleToggleHold = useCallback(() => {
+    void holdTask(task.id, !task.heldByUser)
+  }, [task.id, task.heldByUser])
 
   const [deleteConfirmPending, setDeleteConfirmPending] = useState(false)
   const deleteConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -284,6 +307,8 @@ export const TaskCard = memo(function TaskCard({
     (cardSettings.showTimestamp && !isPipelineActive) ||
     isPipelineActive ||
     task.siegeActive ||
+    task.heldByUser ||
+    titleWorkspaceName ||
     task.model ||
     (cardSettings.showPrBadge && task.prNumber) ||
     (cardSettings.showCommentCount && task.prCommentCount > 0) ||
@@ -418,8 +443,8 @@ export const TaskCard = memo(function TaskCard({
       >
         {/* Title */}
         <div className="flex items-start gap-2">
-          <h4 className="flex-1 text-sm font-medium text-text-primary leading-snug line-clamp-2">
-            {task.title}
+          <h4 className="flex-1 pr-24 text-sm font-medium text-text-primary leading-snug line-clamp-2">
+            {displayTitle}
           </h4>
           {task.archivedAt && (
             <button
@@ -467,6 +492,16 @@ export const TaskCard = memo(function TaskCard({
               </span>
             )}
             <SiegeBadge task={task} />
+            {task.heldByUser && (
+              <span className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning">
+                Held
+              </span>
+            )}
+            {titleWorkspaceName && (
+              <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
+                {titleWorkspaceName}
+              </span>
+            )}
             {cardSettings.showPrBadge && task.prNumber && (
               <button onClick={handlePrClick} className="inline-flex items-center hover:text-accent transition-colors">
                 <PrStatusIndicator task={task} settings={cardSettings} />
@@ -554,6 +589,7 @@ export const TaskCard = memo(function TaskCard({
         onDeleteTask={actions.handleDeleteTask}
         onRunAgent={actions.handleRunAgent}
         onStopAgent={actions.handleStopAgent}
+        onToggleHold={handleToggleHold}
         onStartSiege={() => { void actions.handleStartSiege(); }}
         onStopSiege={() => { void actions.handleStopSiege(); }}
         onConfigureTask={() => { setShowSettings(true) }}

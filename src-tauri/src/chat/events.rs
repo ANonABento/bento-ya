@@ -20,6 +20,8 @@ pub struct TokenUsage {
 pub enum ChatEvent {
     /// Session ID captured from CLI system event (pipe transport only)
     SessionId(String),
+    /// A structured agent turn has started.
+    TurnStarted,
     /// Text content from assistant response
     TextContent(String),
     /// Extended thinking content
@@ -30,6 +32,21 @@ pub enum ChatEvent {
         name: String,
         input: Option<String>,
         status: ToolStatus,
+    },
+    /// Structured command execution started.
+    CommandStarted { id: String, command: String },
+    /// Structured command execution emitted or completed with output.
+    CommandOutput {
+        id: String,
+        command: Option<String>,
+        output: String,
+        exit_code: Option<i32>,
+    },
+    /// Structured command execution completed.
+    CommandCompleted {
+        id: String,
+        command: Option<String>,
+        exit_code: Option<i32>,
     },
     /// Response is complete, with optional token usage data
     Complete,
@@ -68,6 +85,15 @@ pub fn parse_json_event(line: &str) -> ChatEvent {
     };
 
     match event_type {
+        "thread.started" => json
+            .get("thread_id")
+            .and_then(|s| s.as_str())
+            .map(|sid| ChatEvent::SessionId(sid.to_string()))
+            .unwrap_or(ChatEvent::Unknown),
+        "turn.started" => ChatEvent::TurnStarted,
+        "turn.completed" => parse_codex_turn_completed(&json),
+        "turn.failed" => ChatEvent::Complete,
+        "item.started" | "item.completed" => parse_codex_item_event(event_type, &json),
         "system" => {
             if let Some(sid) = json
                 .get("session_id")
@@ -79,6 +105,11 @@ pub fn parse_json_event(line: &str) -> ChatEvent {
                 ChatEvent::Unknown
             }
         }
+        "stream_event" => json
+            .get("event")
+            .map(parse_stream_event)
+            .unwrap_or(ChatEvent::Unknown),
+        "user" => parse_user_event(&json),
         "assistant" => parse_assistant_event(&json),
         "content_block_start" => parse_content_block_start(&json),
         "content_block_delta" => parse_content_block_delta(&json),
@@ -89,6 +120,126 @@ pub fn parse_json_event(line: &str) -> ChatEvent {
         "result" => parse_result_event(&json),
         _ => ChatEvent::Unknown,
     }
+}
+
+fn parse_codex_turn_completed(json: &serde_json::Value) -> ChatEvent {
+    let mut usage = TokenUsage::default();
+    if let Some(usage_obj) = json.get("usage") {
+        usage.input_tokens = usage_obj
+            .get("input_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        usage.output_tokens = usage_obj
+            .get("output_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+    }
+
+    if usage.input_tokens > 0 || usage.output_tokens > 0 {
+        ChatEvent::Result(usage)
+    } else {
+        ChatEvent::Complete
+    }
+}
+
+fn parse_codex_item_event(event_type: &str, json: &serde_json::Value) -> ChatEvent {
+    let Some(item) = json.get("item") else {
+        return ChatEvent::Unknown;
+    };
+    let item_id = item
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    match item.get("type").and_then(|v| v.as_str()) {
+        Some("agent_message") if event_type == "item.completed" => item
+            .get("text")
+            .and_then(|v| v.as_str())
+            .map(|text| ChatEvent::TextContent(text.to_string()))
+            .unwrap_or(ChatEvent::Unknown),
+        Some("command_execution") if event_type == "item.started" => {
+            let command = item
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            ChatEvent::CommandStarted {
+                id: item_id,
+                command,
+            }
+        }
+        Some("command_execution") if event_type == "item.completed" => {
+            let output = item
+                .get("aggregated_output")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            ChatEvent::CommandOutput {
+                id: item_id,
+                command: item
+                    .get("command")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                output,
+                exit_code: item
+                    .get("exit_code")
+                    .and_then(|v| v.as_i64())
+                    .and_then(|v| i32::try_from(v).ok()),
+            }
+        }
+        _ => ChatEvent::Unknown,
+    }
+}
+
+fn parse_stream_event(event: &serde_json::Value) -> ChatEvent {
+    match event.get("type").and_then(|t| t.as_str()) {
+        Some("content_block_start") => parse_content_block_start(event),
+        Some("content_block_delta") => parse_content_block_delta(event),
+        Some("content_block_stop") => ChatEvent::ThinkingContent {
+            content: String::new(),
+            is_complete: true,
+        },
+        Some("message_stop") => ChatEvent::Complete,
+        _ => ChatEvent::Unknown,
+    }
+}
+
+fn parse_user_event(json: &serde_json::Value) -> ChatEvent {
+    let Some(content) = json
+        .get("message")
+        .and_then(|message| message.get("content"))
+        .and_then(|content| content.as_array())
+    else {
+        return ChatEvent::Unknown;
+    };
+
+    for block in content {
+        if block.get("type").and_then(|t| t.as_str()) != Some("tool_result") {
+            continue;
+        }
+        let id = block
+            .get("tool_use_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let content = block
+            .get("content")
+            .map(|v| {
+                v.as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| v.to_string())
+            })
+            .unwrap_or_default();
+        return ChatEvent::ToolUse {
+            id,
+            name: "tool_result".to_string(),
+            input: Some(content),
+            status: ToolStatus::Complete,
+        };
+    }
+
+    ChatEvent::Unknown
 }
 
 fn parse_result_event(json: &serde_json::Value) -> ChatEvent {
@@ -436,6 +587,112 @@ mod tests {
         match parse_json_event(json) {
             ChatEvent::TextContent(text) => assert_eq!(text, "streaming text"),
             _ => panic!("Expected TextContent event"),
+        }
+    }
+
+    #[test]
+    fn test_parse_claude_stream_json_text_delta() {
+        let json = r#"{
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "delta": {"type": "text_delta", "text": "semantic text"}
+            }
+        }"#;
+        match parse_json_event(json) {
+            ChatEvent::TextContent(text) => assert_eq!(text, "semantic text"),
+            _ => panic!("Expected TextContent event from stream_event wrapper"),
+        }
+    }
+
+    #[test]
+    fn test_parse_claude_stream_json_thinking_and_tool_events() {
+        let thinking = r#"{
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "delta": {"type": "thinking_delta", "thinking": "plan"}
+            }
+        }"#;
+        match parse_json_event(thinking) {
+            ChatEvent::ThinkingContent {
+                content,
+                is_complete,
+            } => {
+                assert_eq!(content, "plan");
+                assert!(!is_complete);
+            }
+            _ => panic!("Expected ThinkingContent event from stream_event wrapper"),
+        }
+
+        let tool = r#"{
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "content_block": {"type": "tool_use", "id": "toolu_1", "name": "Bash"}
+            }
+        }"#;
+        match parse_json_event(tool) {
+            ChatEvent::ToolUse {
+                id, name, status, ..
+            } => {
+                assert_eq!(id, "toolu_1");
+                assert_eq!(name, "Bash");
+                assert_eq!(status, ToolStatus::Running);
+            }
+            _ => panic!("Expected ToolUse event from stream_event wrapper"),
+        }
+    }
+
+    #[test]
+    fn test_parse_codex_thread_and_turn_events() {
+        let thread = r#"{"type":"thread.started","thread_id":"019e0622-647e"}"#;
+        match parse_json_event(thread) {
+            ChatEvent::SessionId(id) => assert_eq!(id, "019e0622-647e"),
+            _ => panic!("Expected Codex thread id as SessionId"),
+        }
+
+        let turn = r#"{"type":"turn.started"}"#;
+        match parse_json_event(turn) {
+            ChatEvent::TurnStarted => {}
+            _ => panic!("Expected TurnStarted"),
+        }
+    }
+
+    #[test]
+    fn test_parse_codex_agent_message() {
+        let json = r#"{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"hello"}} "#;
+        match parse_json_event(json) {
+            ChatEvent::TextContent(text) => assert_eq!(text, "hello"),
+            _ => panic!("Expected Codex agent_message as TextContent"),
+        }
+    }
+
+    #[test]
+    fn test_parse_codex_command_events() {
+        let started = r#"{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc pwd","aggregated_output":"","exit_code":null,"status":"in_progress"}}"#;
+        match parse_json_event(started) {
+            ChatEvent::CommandStarted { id, command } => {
+                assert_eq!(id, "item_0");
+                assert_eq!(command, "/bin/zsh -lc pwd");
+            }
+            _ => panic!("Expected CommandStarted"),
+        }
+
+        let completed = r#"{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc pwd","aggregated_output":"/tmp/ws\n","exit_code":0,"status":"completed"}}"#;
+        match parse_json_event(completed) {
+            ChatEvent::CommandOutput {
+                id,
+                command,
+                output,
+                exit_code,
+            } => {
+                assert_eq!(id, "item_0");
+                assert_eq!(command.as_deref(), Some("/bin/zsh -lc pwd"));
+                assert_eq!(output, "/tmp/ws\n");
+                assert_eq!(exit_code, Some(0));
+            }
+            _ => panic!("Expected CommandOutput"),
         }
     }
 

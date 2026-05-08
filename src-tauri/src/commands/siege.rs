@@ -34,7 +34,7 @@ pub struct PrComment {
 #[serde(rename_all = "camelCase")]
 pub struct PrStatus {
     pub number: i64,
-    pub state: String,         // OPEN, CLOSED, MERGED
+    pub state: String,                   // OPEN, CLOSED, MERGED
     pub review_decision: Option<String>, // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED
     pub comments: Vec<PrComment>,
     pub unresolved_count: i64,
@@ -78,9 +78,11 @@ fn fetch_pr_status(repo_path: &str, pr_number: i64) -> Result<PrStatus, AppError
     // Get PR state and review decision
     let output = Command::new("gh")
         .args([
-            "pr", "view",
+            "pr",
+            "view",
             &pr_number.to_string(),
-            "--json", "number,state,reviewDecision",
+            "--json",
+            "number,state,reviewDecision",
         ])
         .current_dir(repo_path)
         .output()
@@ -88,7 +90,10 @@ fn fetch_pr_status(repo_path: &str, pr_number: i64) -> Result<PrStatus, AppError
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::CommandError(format!("gh pr view failed: {}", stderr)));
+        return Err(AppError::CommandError(format!(
+            "gh pr view failed: {}",
+            stderr
+        )));
     }
 
     #[derive(Deserialize)]
@@ -105,9 +110,11 @@ fn fetch_pr_status(repo_path: &str, pr_number: i64) -> Result<PrStatus, AppError
     // Get PR review comments
     let comments_output = Command::new("gh")
         .args([
-            "pr", "view",
+            "pr",
+            "view",
             &pr_number.to_string(),
-            "--json", "comments,reviews",
+            "--json",
+            "comments,reviews",
         ])
         .current_dir(repo_path)
         .output()
@@ -180,7 +187,8 @@ fn fetch_pr_status(repo_path: &str, pr_number: i64) -> Result<PrStatus, AppError
     }
 
     // Count unresolved comments (reviews with CHANGES_REQUESTED state)
-    let unresolved_count = comments.iter()
+    let unresolved_count = comments
+        .iter()
         .filter(|c| c.state.as_deref() == Some("CHANGES_REQUESTED"))
         .count() as i64;
 
@@ -235,7 +243,10 @@ pub async fn start_siege(
 ) -> Result<StartSiegeResult, String> {
     // Get task, workspace, and verify PR exists
     let (task, workspace) = {
-        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("Database lock error: {}", e))?;
         let task = db::get_task(&conn, &task_id).map_err(|e| format!("Task not found: {}", e))?;
         let workspace = db::get_workspace(&conn, &task.workspace_id)
             .map_err(|e| format!("Workspace not found: {}", e))?;
@@ -252,7 +263,10 @@ pub async fn start_siege(
     // Check if PR is already approved
     if pr_status.review_decision.as_deref() == Some("APPROVED") {
         let task = {
-            let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+            let conn = state
+                .db
+                .lock()
+                .map_err(|e| format!("Database lock error: {}", e))?;
             db::stop_siege(&conn, &task_id).map_err(|e| format!("Failed to update task: {}", e))?
         };
         return Ok(StartSiegeResult {
@@ -266,7 +280,10 @@ pub async fn start_siege(
     // Check if there are comments to address
     if pr_status.comments.is_empty() {
         let task = {
-            let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+            let conn = state
+                .db
+                .lock()
+                .map_err(|e| format!("Database lock error: {}", e))?;
             db::start_siege(&conn, &task_id, max_iterations)
                 .map_err(|e| format!("Failed to start siege: {}", e))?
         };
@@ -280,7 +297,10 @@ pub async fn start_siege(
 
     // Start the siege
     {
-        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("Database lock error: {}", e))?;
         db::start_siege(&conn, &task_id, max_iterations)
             .map_err(|e| format!("Failed to start siege: {}", e))?;
     }
@@ -318,9 +338,8 @@ pub async fn start_siege(
 
         // Start managed bridge via broadcast
         if let Some(rx) = session.resubscribe() {
-            let bridge = crate::chat::bridge::ManagedBridge::start(
-                app_handle.clone(), task_id.clone(), rx,
-            );
+            let bridge =
+                crate::chat::bridge::ManagedBridge::start(app_handle.clone(), task_id.clone(), rx);
             registry.set_bridge(&task_id, bridge);
         }
 
@@ -329,7 +348,10 @@ pub async fn start_siege(
 
     // Increment iteration counter
     let task = {
-        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("Database lock error: {}", e))?;
         db::increment_siege_iteration(&conn, &task_id)
             .map_err(|e| format!("Failed to increment iteration: {}", e))?
     };
@@ -339,17 +361,19 @@ pub async fn start_siege(
     let iteration = task.siege_iteration;
     let max_iter = task.siege_max_iterations;
 
-    let _ = app_handle.emit("siege:started", &SiegeEvent {
-        task_id: task_id.clone(),
-        event_type: "started".to_string(),
-        iteration,
-        max_iterations: max_iter,
-        message: format!(
-            "Siege started. Addressing {} comments. Agent spawned (pid: {:?})",
-            comment_count,
-            pid
-        ),
-    });
+    let _ = app_handle.emit(
+        "siege:started",
+        &SiegeEvent {
+            task_id: task_id.clone(),
+            event_type: "started".to_string(),
+            iteration,
+            max_iterations: max_iter,
+            message: format!(
+                "Siege started. Addressing {} comments. Agent spawned (pid: {:?})",
+                comment_count, pid
+            ),
+        },
+    );
 
     Ok(StartSiegeResult {
         task,
@@ -357,8 +381,7 @@ pub async fn start_siege(
         agent_spawned: true,
         message: format!(
             "Siege iteration {} started. Addressing {} comments.",
-            iteration,
-            comment_count
+            iteration, comment_count
         ),
     })
 }
@@ -376,7 +399,10 @@ pub async fn check_siege_status(
 ) -> Result<CheckSiegeResult, String> {
     // Get task and workspace
     let (task, workspace) = {
-        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("Database lock error: {}", e))?;
         let task = db::get_task(&conn, &task_id).map_err(|e| format!("Task not found: {}", e))?;
         let workspace = db::get_workspace(&conn, &task.workspace_id)
             .map_err(|e| format!("Workspace not found: {}", e))?;
@@ -397,7 +423,10 @@ pub async fn check_siege_status(
 
     // Update last checked timestamp
     let task = {
-        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("Database lock error: {}", e))?;
         db::update_siege_last_checked(&conn, &task_id)
             .map_err(|e| format!("Failed to update timestamp: {}", e))?
     };
@@ -410,19 +439,28 @@ pub async fn check_siege_status(
     } else if pr_status.state == "CLOSED" {
         (false, "PR has been closed.".to_string())
     } else if task.siege_iteration >= task.siege_max_iterations {
-        (false, format!(
-            "Max iterations ({}) reached. Manual review required.",
-            task.siege_max_iterations
-        ))
+        (
+            false,
+            format!(
+                "Max iterations ({}) reached. Manual review required.",
+                task.siege_max_iterations
+            ),
+        )
     } else if pr_status.comments.is_empty() {
-        (false, "No comments to address. Waiting for reviews.".to_string())
+        (
+            false,
+            "No comments to address. Waiting for reviews.".to_string(),
+        )
     } else {
-        (true, format!(
-            "{} comments to address. Iteration {}/{}.",
-            pr_status.comments.len(),
-            task.siege_iteration,
-            task.siege_max_iterations
-        ))
+        (
+            true,
+            format!(
+                "{} comments to address. Iteration {}/{}.",
+                pr_status.comments.len(),
+                task.siege_iteration,
+                task.siege_max_iterations
+            ),
+        )
     };
 
     Ok(CheckSiegeResult {
@@ -441,19 +479,24 @@ pub async fn stop_siege(
     state: State<'_, AppState>,
 ) -> Result<Task, String> {
     let task = {
-        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
-        db::stop_siege(&conn, &task_id)
-            .map_err(|e| format!("Failed to stop siege: {}", e))?
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("Database lock error: {}", e))?;
+        db::stop_siege(&conn, &task_id).map_err(|e| format!("Failed to stop siege: {}", e))?
     };
 
     // Emit siege stopped event
-    let _ = app_handle.emit("siege:stopped", &SiegeEvent {
-        task_id: task_id.clone(),
-        event_type: "stopped".to_string(),
-        iteration: task.siege_iteration,
-        max_iterations: task.siege_max_iterations,
-        message: "Siege loop stopped manually.".to_string(),
-    });
+    let _ = app_handle.emit(
+        "siege:stopped",
+        &SiegeEvent {
+            task_id: task_id.clone(),
+            event_type: "stopped".to_string(),
+            iteration: task.siege_iteration,
+            max_iterations: task.siege_max_iterations,
+            message: "Siege loop stopped manually.".to_string(),
+        },
+    );
 
     Ok(task)
 }
@@ -476,18 +519,23 @@ pub async fn continue_siege(
     if !check_result.should_continue {
         // Stop the siege if we shouldn't continue
         let task = {
-            let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
-            db::stop_siege(&conn, &task_id)
-                .map_err(|e| format!("Failed to stop siege: {}", e))?
+            let conn = state
+                .db
+                .lock()
+                .map_err(|e| format!("Database lock error: {}", e))?;
+            db::stop_siege(&conn, &task_id).map_err(|e| format!("Failed to stop siege: {}", e))?
         };
 
-        let _ = app_handle.emit("siege:complete", &SiegeEvent {
-            task_id: task_id.clone(),
-            event_type: "complete".to_string(),
-            iteration: task.siege_iteration,
-            max_iterations: task.siege_max_iterations,
-            message: check_result.reason.clone(),
-        });
+        let _ = app_handle.emit(
+            "siege:complete",
+            &SiegeEvent {
+                task_id: task_id.clone(),
+                event_type: "complete".to_string(),
+                iteration: task.siege_iteration,
+                max_iterations: task.siege_max_iterations,
+                message: check_result.reason.clone(),
+            },
+        );
 
         return Ok(StartSiegeResult {
             task,
@@ -499,7 +547,10 @@ pub async fn continue_siege(
 
     // Get workspace for agent spawn
     let workspace = {
-        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("Database lock error: {}", e))?;
         let task = db::get_task(&conn, &task_id).map_err(|e| format!("Task not found: {}", e))?;
         db::get_workspace(&conn, &task.workspace_id)
             .map_err(|e| format!("Workspace not found: {}", e))?
@@ -534,9 +585,8 @@ pub async fn continue_siege(
 
         // Start managed bridge via broadcast
         if let Some(rx) = session.resubscribe() {
-            let bridge = crate::chat::bridge::ManagedBridge::start(
-                app_handle.clone(), task_id.clone(), rx,
-            );
+            let bridge =
+                crate::chat::bridge::ManagedBridge::start(app_handle.clone(), task_id.clone(), rx);
             registry.set_bridge(&task_id, bridge);
         }
 
@@ -545,7 +595,10 @@ pub async fn continue_siege(
 
     // Increment iteration counter
     let task = {
-        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("Database lock error: {}", e))?;
         db::increment_siege_iteration(&conn, &task_id)
             .map_err(|e| format!("Failed to increment iteration: {}", e))?
     };
@@ -553,17 +606,19 @@ pub async fn continue_siege(
     let iteration = task.siege_iteration;
     let max_iter = task.siege_max_iterations;
 
-    let _ = app_handle.emit("siege:iteration", &SiegeEvent {
-        task_id: task_id.clone(),
-        event_type: "iteration".to_string(),
-        iteration,
-        max_iterations: max_iter,
-        message: format!(
-            "Siege iteration {} started. Agent spawned (pid: {:?})",
+    let _ = app_handle.emit(
+        "siege:iteration",
+        &SiegeEvent {
+            task_id: task_id.clone(),
+            event_type: "iteration".to_string(),
             iteration,
-            pid
-        ),
-    });
+            max_iterations: max_iter,
+            message: format!(
+                "Siege iteration {} started. Agent spawned (pid: {:?})",
+                iteration, pid
+            ),
+        },
+    );
 
     Ok(StartSiegeResult {
         task,
@@ -580,7 +635,10 @@ pub async fn get_pr_status(
     state: State<'_, AppState>,
 ) -> Result<PrStatus, String> {
     let (task, workspace) = {
-        let conn = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("Database lock error: {}", e))?;
         let task = db::get_task(&conn, &task_id).map_err(|e| format!("Task not found: {}", e))?;
         let workspace = db::get_workspace(&conn, &task.workspace_id)
             .map_err(|e| format!("Workspace not found: {}", e))?;
@@ -629,9 +687,12 @@ mod tests {
 
     #[test]
     fn test_build_comment_prompt_with_file_comment() {
-        let status = mock_pr_status(vec![
-            mock_comment("reviewer", "This function is too long", Some("src/main.rs"), Some(42)),
-        ]);
+        let status = mock_pr_status(vec![mock_comment(
+            "reviewer",
+            "This function is too long",
+            Some("src/main.rs"),
+            Some(42),
+        )]);
         let prompt = build_comment_prompt(&status);
         assert!(prompt.contains("@reviewer"));
         assert!(prompt.contains("File: src/main.rs"));
@@ -641,9 +702,12 @@ mod tests {
 
     #[test]
     fn test_build_comment_prompt_general_comment() {
-        let status = mock_pr_status(vec![
-            mock_comment("reviewer", "Please add tests", None, None),
-        ]);
+        let status = mock_pr_status(vec![mock_comment(
+            "reviewer",
+            "Please add tests",
+            None,
+            None,
+        )]);
         let prompt = build_comment_prompt(&status);
         assert!(prompt.contains("@reviewer"));
         assert!(prompt.contains("Please add tests"));
@@ -665,9 +729,12 @@ mod tests {
 
     #[test]
     fn test_pr_status_serialization() {
-        let status = mock_pr_status(vec![
-            mock_comment("reviewer", "Fix this", Some("src/lib.rs"), Some(5)),
-        ]);
+        let status = mock_pr_status(vec![mock_comment(
+            "reviewer",
+            "Fix this",
+            Some("src/lib.rs"),
+            Some(5),
+        )]);
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("\"number\":42"));
         assert!(json.contains("\"reviewDecision\""));

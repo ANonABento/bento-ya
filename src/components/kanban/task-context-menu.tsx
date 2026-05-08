@@ -35,6 +35,7 @@ type TaskContextMenuProps = {
   onSaveAsTemplate: () => void
   onRunAgent: () => void
   onStopAgent: () => void
+  onToggleHold: () => void
   onStartSiege: () => void
   onStopSiege: () => void
   onConfigureTask?: () => void
@@ -56,6 +57,11 @@ const Icons = {
   stop: (
     <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
       <path d="M5.75 3A2.75 2.75 0 0 0 3 5.75v8.5A2.75 2.75 0 0 0 5.75 17h8.5A2.75 2.75 0 0 0 17 14.25v-8.5A2.75 2.75 0 0 0 14.25 3h-8.5Z" />
+    </svg>
+  ),
+  hold: (
+    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path d="M6.25 3A2.25 2.25 0 0 0 4 5.25v9.5A2.25 2.25 0 0 0 6.25 17h.5A2.25 2.25 0 0 0 9 14.75v-9.5A2.25 2.25 0 0 0 6.75 3h-.5ZM13.25 3A2.25 2.25 0 0 0 11 5.25v9.5A2.25 2.25 0 0 0 13.25 17h.5A2.25 2.25 0 0 0 16 14.75v-9.5A2.25 2.25 0 0 0 13.75 3h-.5Z" />
     </svg>
   ),
   siege: (
@@ -197,6 +203,7 @@ export function TaskContextMenu({
   onSaveAsTemplate,
   onRunAgent,
   onStopAgent,
+  onToggleHold,
   onStartSiege,
   onStopSiege,
   onConfigureTask,
@@ -255,6 +262,11 @@ export function TaskContextMenu({
     isRunning
       ? { label: 'Stop agent', icon: Icons.stop, onClick: onStopAgent }
       : { label: 'Run agent', icon: Icons.play, shortcut: 'Space', onClick: onRunAgent },
+    {
+      label: task.heldByUser ? 'Release auto-advance hold' : 'Hold auto-advance',
+      icon: Icons.hold,
+      onClick: onToggleHold,
+    },
     // Siege loop option - only show if task has a PR
     ...(hasPr ? [
       task.siegeActive

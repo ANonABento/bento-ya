@@ -37,7 +37,7 @@ export function ChatInputSettingsRow({
   onPermissionChange,
 }: ChatInputSettingsRowProps) {
   return (
-    <div className="mb-2 flex items-center gap-1">
+    <div className="mb-1.5 flex flex-wrap items-center gap-1">
       {config.showModelSelector && (
         <ModelSelector
           value={model}
@@ -55,11 +55,12 @@ export function ChatInputSettingsRow({
           <button
             type="button"
             onClick={onContextToggle}
-            className={`flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium transition-colors ${
+            className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
               extendedContext
                 ? 'bg-accent/15 text-accent'
                 : 'text-text-muted hover:bg-surface-hover hover:text-text-secondary'
             }`}
+            style={{ cursor: 'pointer' }}
           >
             1M
           </button>

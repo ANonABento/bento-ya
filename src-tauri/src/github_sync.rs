@@ -49,8 +49,7 @@ fn run_sync_cycle(app: AppHandle) {
     };
 
     for ws in workspaces {
-        let config: serde_json::Value =
-            serde_json::from_str(&ws.config).unwrap_or_default();
+        let config: serde_json::Value = serde_json::from_str(&ws.config).unwrap_or_default();
 
         if !config["githubSyncEnabled"].as_bool().unwrap_or(false) {
             continue;
@@ -61,26 +60,37 @@ fn run_sync_cycle(app: AppHandle) {
             None => continue,
         };
 
-        let label_filter = config["githubLabelFilter"].as_str().unwrap_or("").to_string();
-        let done_column_id = config["githubDoneColumnId"].as_str().unwrap_or("").to_string();
-        let pr_column_id = config["githubPrColumnId"].as_str().unwrap_or("").to_string();
-        let inbox_column_id = config["githubInboxColumnId"].as_str().unwrap_or("").to_string();
+        let label_filter = config["githubLabelFilter"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let done_column_id = config["githubDoneColumnId"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let pr_column_id = config["githubPrColumnId"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let inbox_column_id = config["githubInboxColumnId"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
 
         let columns = match db::list_columns(&conn, &ws.id) {
             Ok(c) => c,
             Err(_) => continue,
         };
 
-        let target_column_id = if !inbox_column_id.is_empty()
-            && columns.iter().any(|c| c.id == inbox_column_id)
-        {
-            inbox_column_id
-        } else {
-            match columns.first() {
-                Some(c) => c.id.clone(),
-                None => continue,
-            }
-        };
+        let target_column_id =
+            if !inbox_column_id.is_empty() && columns.iter().any(|c| c.id == inbox_column_id) {
+                inbox_column_id
+            } else {
+                match columns.first() {
+                    Some(c) => c.id.clone(),
+                    None => continue,
+                }
+            };
 
         let mut args = vec![
             "issue".to_string(),
@@ -109,7 +119,10 @@ fn run_sync_cycle(app: AppHandle) {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            eprintln!("[github_sync] gh issue list failed for {}: {}", repo, stderr);
+            eprintln!(
+                "[github_sync] gh issue list failed for {}: {}",
+                repo, stderr
+            );
             continue;
         }
 
@@ -181,10 +194,7 @@ fn run_sync_cycle(app: AppHandle) {
             let pending =
                 db::list_tasks_pending_pr_link(&conn, &ws.id, &pr_column_id).unwrap_or_default();
             for (task_id, issue_number, pr_url) in pending {
-                let body = format!(
-                    "A pull request has been opened for this issue: {}",
-                    pr_url
-                );
+                let body = format!("A pull request has been opened for this issue: {}", pr_url);
                 let ok = Command::new("gh")
                     .args([
                         "issue",

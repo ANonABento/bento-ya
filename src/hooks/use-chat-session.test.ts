@@ -5,7 +5,7 @@ import { useChatSession, type ChatSessionConfig } from './chat-session'
 // Mock IPC module
 vi.mock('@/lib/ipc', () => ({
   // Agent IPC
-  streamAgentChat: vi.fn(),
+  sendTaskInput: vi.fn(),
   cancelAgentChat: vi.fn(),
   getAgentMessages: vi.fn(),
   clearAgentMessages: vi.fn(),
@@ -49,7 +49,7 @@ describe('useChatSession', () => {
     // Default mock implementations
     mockIpc.getAgentMessages.mockResolvedValue([])
     mockIpc.getChatHistory.mockResolvedValue([])
-    mockIpc.streamAgentChat.mockResolvedValue(undefined)
+    mockIpc.sendTaskInput.mockResolvedValue(undefined)
     mockIpc.streamOrchestratorChat.mockResolvedValue(undefined)
     mockIpc.cancelAgentChat.mockResolvedValue(undefined)
     mockIpc.cancelOrchestratorChat.mockResolvedValue(undefined)
@@ -162,7 +162,7 @@ describe('useChatSession', () => {
   })
 
   describe('sendMessage - agent mode', () => {
-    it('should send message via streamAgentChat when canSend=true', async () => {
+    it('should send message via sendTaskInput when canSend=true', async () => {
       const config: ChatSessionConfig = {
         mode: 'agent',
         taskId: 'task-1',
@@ -175,7 +175,7 @@ describe('useChatSession', () => {
         await result.current.sendMessage('Hello')
       })
 
-      expect(mockIpc.streamAgentChat).toHaveBeenCalledWith(
+      expect(mockIpc.sendTaskInput).toHaveBeenCalledWith(
         'task-1',
         'Hello',
         '/tmp',
@@ -196,7 +196,7 @@ describe('useChatSession', () => {
         await result.current.sendMessage('Hello')
       })
 
-      expect(mockIpc.streamAgentChat).not.toHaveBeenCalled()
+      expect(mockIpc.sendTaskInput).not.toHaveBeenCalled()
     })
 
     it('should start streaming state after send', async () => {
@@ -277,7 +277,7 @@ describe('useChatSession', () => {
   })
 
   describe('message queue', () => {
-    it('should queue messages when already processing', async () => {
+    it('should send agent messages to backend even when already processing', async () => {
       const config: ChatSessionConfig = {
         mode: 'agent',
         taskId: 'task-1',
@@ -295,13 +295,20 @@ describe('useChatSession', () => {
         await result.current.sendMessage('Second')
       })
 
-      // First message should be sent, second should be queued
-      expect(mockIpc.streamAgentChat).toHaveBeenCalledTimes(1)
-      expect(result.current.queue).toHaveLength(1)
-      expect(result.current.queue[0]?.content).toBe('Second')
+      // Agent runtime owns live-vs-queued delivery, so both messages go to IPC.
+      expect(mockIpc.sendTaskInput).toHaveBeenCalledTimes(2)
+      expect(mockIpc.sendTaskInput).toHaveBeenLastCalledWith(
+        'task-1',
+        'Second',
+        '/tmp',
+        'claude',
+        undefined,
+        undefined
+      )
+      expect(result.current.queue).toHaveLength(0)
     })
 
-    it('should track queued message count', async () => {
+    it('should leave agent queue empty because durable queueing is backend-owned', async () => {
       const config: ChatSessionConfig = {
         mode: 'agent',
         taskId: 'task-1',
@@ -315,16 +322,15 @@ describe('useChatSession', () => {
       })
 
       // Verify first message was sent
-      expect(mockIpc.streamAgentChat).toHaveBeenCalledTimes(1)
+      expect(mockIpc.sendTaskInput).toHaveBeenCalledTimes(1)
 
-      // Send second message (should be queued since first is processing)
+      // Send second message while first is processing.
       await act(async () => {
         await result.current.sendMessage('Second')
       })
 
-      // Second message should be in the queue
-      expect(result.current.queue.length).toBe(1)
-      expect(result.current.queue[0]?.content).toBe('Second')
+      expect(mockIpc.sendTaskInput).toHaveBeenCalledTimes(2)
+      expect(result.current.queue.length).toBe(0)
     })
   })
 
@@ -343,7 +349,7 @@ describe('useChatSession', () => {
         await result.current.sendMessage('Second')
       })
 
-      expect(result.current.queue).toHaveLength(1)
+      expect(result.current.queue).toHaveLength(0)
 
       // Cancel
       await act(async () => {
@@ -451,7 +457,7 @@ describe('useChatSession', () => {
         workingDir: '/tmp',
         onError,
       }
-      mockIpc.streamAgentChat.mockRejectedValueOnce(new Error('Network error'))
+      mockIpc.sendTaskInput.mockRejectedValueOnce(new Error('Network error'))
 
       const { result } = renderHook(() => useChatSession(config))
 
@@ -471,7 +477,7 @@ describe('useChatSession', () => {
         taskId: 'task-1',
         workingDir: '/tmp',
       }
-      mockIpc.streamAgentChat.mockRejectedValueOnce(new Error('Error'))
+      mockIpc.sendTaskInput.mockRejectedValueOnce(new Error('Error'))
 
       const { result } = renderHook(() => useChatSession(config))
 
@@ -492,7 +498,7 @@ describe('useChatSession', () => {
         workingDir: '/tmp',
       }
       // First call fails, second succeeds
-      mockIpc.streamAgentChat
+      mockIpc.sendTaskInput
         .mockRejectedValueOnce(new Error('Error'))
         .mockResolvedValueOnce(undefined)
 
@@ -511,7 +517,7 @@ describe('useChatSession', () => {
       })
 
       expect(result.current.failedMessage).toBeNull()
-      expect(mockIpc.streamAgentChat).toHaveBeenCalledTimes(2)
+      expect(mockIpc.sendTaskInput).toHaveBeenCalledTimes(2)
     })
 
     it('should dismiss failed message', async () => {
@@ -520,7 +526,7 @@ describe('useChatSession', () => {
         taskId: 'task-1',
         workingDir: '/tmp',
       }
-      mockIpc.streamAgentChat.mockRejectedValueOnce(new Error('Error'))
+      mockIpc.sendTaskInput.mockRejectedValueOnce(new Error('Error'))
 
       const { result } = renderHook(() => useChatSession(config))
 

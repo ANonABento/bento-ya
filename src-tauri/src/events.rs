@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
+use crate::db;
+
 // ─── Event channel name helpers ────────────────────────────────────────────
 
 pub fn pty_output_channel(task_id: &str) -> String {
@@ -9,6 +11,10 @@ pub fn pty_output_channel(task_id: &str) -> String {
 
 pub fn pty_exit_channel(task_id: &str) -> String {
     format!("pty:{}:exit", task_id)
+}
+
+pub fn agent_transcript_event_channel(task_id: &str) -> String {
+    format!("agent:{}:transcript_event", task_id)
 }
 
 pub fn agent_status_channel(task_id: &str) -> String {
@@ -39,6 +45,19 @@ pub struct PtyOutputPayload {
 pub struct PtyExitPayload {
     pub task_id: String,
     pub exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTranscriptEventPayload {
+    pub id: String,
+    pub task_id: String,
+    pub session_id: Option<String>,
+    pub event_type: String,
+    pub content: Option<String>,
+    pub metadata_json: Option<String>,
+    pub sequence: i64,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,6 +120,63 @@ pub fn emit_pty_output(app: &AppHandle, payload: PtyOutputPayload) {
 pub fn emit_pty_exit(app: &AppHandle, payload: PtyExitPayload) {
     let channel = pty_exit_channel(&payload.task_id);
     let _ = app.emit(&channel, &payload);
+}
+
+pub fn emit_agent_transcript_event(app: &AppHandle, payload: AgentTranscriptEventPayload) {
+    let channel = agent_transcript_event_channel(&payload.task_id);
+    let _ = app.emit(&channel, &payload);
+}
+
+pub fn persist_and_emit_agent_transcript_event(
+    app: &AppHandle,
+    task_id: &str,
+    session_id: Option<&str>,
+    event_type: &str,
+    content: Option<&str>,
+    metadata_json: Option<&str>,
+) -> Option<db::AgentTranscriptEvent> {
+    let conn = rusqlite::Connection::open(db::db_path()).ok()?;
+    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+    let event = db::insert_agent_transcript_event(
+        &conn,
+        task_id,
+        session_id,
+        event_type,
+        content,
+        metadata_json,
+    )
+    .ok()?;
+    emit_agent_transcript_event(
+        app,
+        AgentTranscriptEventPayload {
+            id: event.id.clone(),
+            task_id: event.task_id.clone(),
+            session_id: event.session_id.clone(),
+            event_type: event.event_type.clone(),
+            content: event.content.clone(),
+            metadata_json: event.metadata_json.clone(),
+            sequence: event.sequence,
+            created_at: event.created_at.clone(),
+        },
+    );
+    Some(event)
+}
+
+pub fn persist_and_emit_agent_runtime_event(
+    app: &AppHandle,
+    task_id: &str,
+    session_id: Option<&str>,
+    event: crate::chat::AgentRuntimeEvent,
+) -> Option<db::AgentTranscriptEvent> {
+    let (event_type, content, metadata_json) = event.into_transcript_parts();
+    persist_and_emit_agent_transcript_event(
+        app,
+        task_id,
+        session_id,
+        event_type,
+        content.as_deref(),
+        metadata_json.as_deref(),
+    )
 }
 
 pub fn emit_agent_status(app: &AppHandle, payload: AgentStatusPayload) {

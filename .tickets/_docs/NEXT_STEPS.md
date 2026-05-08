@@ -1,13 +1,13 @@
 # Bento-ya Next Steps
 
-> Updated: 2026-04-06.
+> Updated: 2026-05-08.
 
 ## Current State
 
 **Version:** v2.0 in progress
-**Architecture:** Unified chat system (Phases 1-5 complete, Phase 6 partial)
+**Architecture:** Universal Agent Runtime convergence in progress. See [`UNIVERSAL_AGENT_RUNTIME.md`](./UNIVERSAL_AGENT_RUNTIME.md).
 **Tests:** 339 total (156 Rust + 17 MCP + 149 frontend + 17 E2E)
-**DB Migrations:** 29 (latest: 029_task_worktree)
+**DB Migrations:** 41 (latest: 041_agent_runtime_input_queue)
 **Codebase:** ~42k lines (18k Rust, 24k TypeScript/React)
 **Cargo workspace:** bento-ya + bento-mcp share rusqlite build (WAL compatible)
 **MCP Server:** 19 tools, standalone binary
@@ -54,6 +54,35 @@
 | Item | Status | Notes |
 |------|--------|-------|
 | Phase 6 — CliSessionManager removal | Partial | Unified chat phases 1-5 done. Legacy code remains. Blocks Discord integration. |
+| Universal agent runtime | Active | Replace provider-specific transcript/steering paths with runtime adapters that emit durable semantic events. Transcript must be semantic; Terminal remains raw tmux. |
+
+## Current Priority: Universal Agent Runtime
+
+The next architecture push is to converge task agents around a provider-neutral runtime contract:
+
+- `ClaudeCliAdapter`, `CodexCliAdapter`, `GenericCliAdapter`, and future API/remote adapters.
+- One normalized semantic event stream persisted to `agent_transcript_events`.
+- Runtime-aware `send_task_input` that resumes, queues, cancels, or starts turns intentionally.
+- Transcript renders semantic events only.
+- Terminal stays raw tmux/PTY.
+
+Implementation slices are tracked in [`UNIVERSAL_AGENT_RUNTIME.md`](./UNIVERSAL_AGENT_RUNTIME.md).
+
+Canonical active goal:
+
+Rebuild the agent panel transcript system so the primary Transcript view is powered by semantic agent events, not raw tmux scrollback. Preserve the Terminal tab as the raw interactive tmux view. Keep the UI terminal-native, compact, readable, and folded by default for raw command details. Do not regress persistent tmux sessions, Hold/Stop/Kill, task lifecycle state, or the shared ChatInput used by agent/chef chat.
+
+Current session progress:
+
+- Added the universal runtime architecture doc and active goal todo.
+- Added runtime session metadata to `agent_sessions`.
+- Added durable runtime input queue for non-live managed adapters.
+- Added runtime adapter contract and event persistence mapping.
+- Improved Transcript run grouping and folded output behavior.
+- Improved Terminal attach/sizing behavior while preserving raw tmux.
+- Full frontend/Rust gate is green.
+- Updated stale Tauri WebDriver panel spec for the new Transcript/Terminal layout.
+- Tauri WebDriver QA is green for panel open, Transcript/Terminal separation, Terminal xterm mount, lifecycle controls, and core app flow.
 
 ## What Was Completed (Session: 2026-04-06 v2.0)
 

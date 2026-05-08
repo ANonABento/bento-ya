@@ -18,10 +18,12 @@
 //! rate-limit detection and `tasks.pipeline_error`.
 
 use std::collections::HashMap;
+use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use rusqlite::Connection;
@@ -31,6 +33,10 @@ use tokio::task::JoinHandle;
 
 use super::events::ChatEvent;
 use super::log_retention;
+use super::runtime::{
+    runtime_events_from_chat_event, runtime_events_from_provider_json_line, AgentAdapterKind,
+    AgentRuntimeEvent,
+};
 use super::tmux_transport;
 use super::transport::TransportEvent;
 use crate::db;
@@ -45,7 +51,7 @@ const LAST_OUTPUT_TAIL_BYTES: usize = 16 * 1024;
 /// Final scrollback persisted in `agent_sessions.scrollback` (head-truncated).
 const SCROLLBACK_MAX_BYTES: usize = 256 * 1024;
 /// Periodic flush cadence — the upper bound between live updates.
-const FLUSH_INTERVAL: Duration = Duration::from_secs(3);
+const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 /// Fallback when we can't parse the rate-limit reset time.
 const RATE_LIMIT_FALLBACK_DELAY: Duration = Duration::from_secs(60 * 60);
 /// Hard cap on the trigger duration before we kill the tmux session.
@@ -55,8 +61,9 @@ const TRIGGER_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 2);
 /// applies.
 const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// Default window dimensions when the trigger runs headless (no UI attached).
-const DEFAULT_TRIGGER_COLS: u16 = 200;
+const DEFAULT_TRIGGER_COLS: u16 = 120;
 const DEFAULT_TRIGGER_ROWS: u16 = 50;
+const CLAUDE_SESSION_MARKER: &str = "BENTOYA_CLAUDE_SESSION_ID:";
 
 /// Generate a random 16-char hex nonce (used for tmux wait-for channel names
 /// and exit-code sentinel files).
@@ -166,6 +173,7 @@ async fn handle_bridge_event(
         }
         TransportEvent::Chat(ChatEvent::TextContent(ref text)) => {
             accumulated_text.push_str(text);
+            persist_runtime_events_from_chat(app, task_id, event);
             let _ = app.emit(
                 "agent:stream",
                 &serde_json::json!({
@@ -179,6 +187,7 @@ async fn handle_bridge_event(
             ref content,
             is_complete,
         }) => {
+            persist_runtime_events_from_chat(app, task_id, event);
             let _ = app.emit(
                 "agent:thinking",
                 &serde_json::json!({
@@ -195,6 +204,7 @@ async fn handle_bridge_event(
             ref input,
             ref status,
         }) => {
+            persist_runtime_events_from_chat(app, task_id, event);
             let _ = app.emit(
                 "agent:tool_call",
                 &serde_json::json!({
@@ -205,6 +215,18 @@ async fn handle_bridge_event(
                     "status": format!("{:?}", status).to_lowercase(),
                 }),
             );
+            false
+        }
+        TransportEvent::Chat(ChatEvent::CommandStarted { .. }) => {
+            persist_runtime_events_from_chat(app, task_id, event);
+            false
+        }
+        TransportEvent::Chat(ChatEvent::CommandOutput { .. }) => {
+            persist_runtime_events_from_chat(app, task_id, event);
+            false
+        }
+        TransportEvent::Chat(ChatEvent::CommandCompleted { .. }) => {
+            persist_runtime_events_from_chat(app, task_id, event);
             false
         }
         TransportEvent::Chat(ChatEvent::Complete) => {
@@ -224,13 +246,6 @@ async fn handle_bridge_event(
                 }
                 accumulated_text.clear();
             }
-            let _ = app.emit(
-                "agent:complete",
-                &serde_json::json!({
-                    "taskId": task_id,
-                    "success": true,
-                }),
-            );
             false
         }
         TransportEvent::Exited(exit_code) => {
@@ -249,13 +264,48 @@ async fn handle_bridge_event(
                     );
                 }
             }
+            let success = exit_code.unwrap_or(0) == 0;
+            let runtime_event = if success {
+                AgentRuntimeEvent::AgentCompleted {
+                    exit_code: *exit_code,
+                    usage: None,
+                }
+            } else {
+                AgentRuntimeEvent::AgentFailed {
+                    exit_code: *exit_code,
+                    error: None,
+                }
+            };
+            let _ = crate::events::persist_and_emit_agent_runtime_event(
+                app,
+                task_id,
+                None,
+                runtime_event,
+            );
             let _ = app.emit(
                 &format!("pty:{}:exit", task_id),
                 serde_json::json!({ "task_id": task_id, "exit_code": exit_code }),
             );
+            let _ = app.emit(
+                "agent:complete",
+                &serde_json::json!({
+                    "taskId": task_id,
+                    "success": success,
+                }),
+            );
             true
         }
         _ => false,
+    }
+}
+
+fn persist_runtime_events_from_chat(app: &AppHandle, task_id: &str, event: &TransportEvent) {
+    let TransportEvent::Chat(chat_event) = event else {
+        return;
+    };
+    for runtime_event in runtime_events_from_chat_event(chat_event) {
+        let _ =
+            crate::events::persist_and_emit_agent_runtime_event(app, task_id, None, runtime_event);
     }
 }
 
@@ -275,7 +325,10 @@ async fn handle_bridge_event(
 /// so the user always sees *something* (even if it's raw JSON).
 const CLAUDE_STREAM_PRETTY_JQ: &str = r#"
   if .type == "system" and .subtype == "init" then
-    "[claude " + (.claude_code_version // "?") + " " + (.model // "?") + "]\n"
+    (if (.session_id // .conversation_id // "") != "" then
+      "[8mBENTOYA_CLAUDE_SESSION_ID:" + (.session_id // .conversation_id) + "[0m\n"
+    else "" end)
+    + "[claude " + (.claude_code_version // "?") + " " + (.model // "?") + "]\n"
   elif .type == "stream_event" then
     if .event.type == "content_block_start" then
       if .event.content_block.type == "tool_use" then
@@ -318,11 +371,16 @@ const CLAUDE_STREAM_PRETTY_JQ: &str = r#"
 ///   - `codex`: `exec` already streams human-readable progress to stdout, so
 ///     we leave it alone (just add `--full-auto` and friends).
 ///   - Other / unknown: passed through as-is.
-fn build_trigger_command(cli_command: &str, args: &[String], initial_prompt: &str) -> String {
+pub(crate) fn build_trigger_command(
+    cli_command: &str,
+    args: &[String],
+    initial_prompt: &str,
+    resume_id: Option<&str>,
+) -> String {
     let cli_name = cli_command.rsplit('/').next().unwrap_or(cli_command);
 
-    if cli_name == "claude" || cli_name == "claude-mock" {
-        return build_claude_streaming_command(cli_command, args, initial_prompt);
+    if cli_name == "claude" {
+        return build_claude_streaming_command(cli_command, args, initial_prompt, resume_id);
     }
 
     let mut cmd_parts = vec![cli_command.to_string()];
@@ -350,6 +408,44 @@ fn build_trigger_command(cli_command: &str, args: &[String], initial_prompt: &st
     cmd_parts.join(" ")
 }
 
+/// Materialize a long shell command into a short `bash <script>` launcher.
+///
+/// This is intentionally used for tmux injection paths. Sending the full
+/// Claude wrapper through `tmux send-keys` makes zsh echo every embedded
+/// newline from the jq filter as `quote>` continuation prompts, which pollutes
+/// both the raw terminal and transcript fallback. A small script keeps the
+/// terminal readable and avoids interactive-shell quoting edge cases.
+pub(crate) fn materialize_shell_launcher(
+    command: &str,
+    nonce: Option<&str>,
+) -> Result<String, String> {
+    let script_nonce = nonce.map(str::to_string).unwrap_or_else(gen_nonce);
+    let script_dir = log_retention::trigger_logs_dir();
+    fs::create_dir_all(&script_dir)
+        .map_err(|e| format!("failed to create trigger script dir: {}", e))?;
+    let script_path = script_dir.join(format!("run_{}.sh", script_nonce));
+    let mut file = fs::File::create(&script_path)
+        .map_err(|e| format!("failed to create trigger script: {}", e))?;
+    writeln!(file, "#!/usr/bin/env bash").map_err(|e| e.to_string())?;
+    writeln!(file, "set -o pipefail").map_err(|e| e.to_string())?;
+    writeln!(file, "{}", command).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = file
+            .metadata()
+            .map_err(|e| format!("failed to stat trigger script: {}", e))?
+            .permissions();
+        perms.set_mode(0o700);
+        fs::set_permissions(&script_path, perms)
+            .map_err(|e| format!("failed to chmod trigger script: {}", e))?;
+    }
+    Ok(format!(
+        "bash {}",
+        shell_quote_arg(&script_path.display().to_string())
+    ))
+}
+
 /// Wrap a `claude` invocation with `--output-format stream-json --verbose
 /// --include-partial-messages` and pipe the events through `jq` for a clean
 /// live-progress view in the tmux pane.
@@ -373,6 +469,7 @@ fn build_claude_streaming_command(
     cli_command: &str,
     args: &[String],
     initial_prompt: &str,
+    resume_id: Option<&str>,
 ) -> String {
     let prompt_quoted = if initial_prompt.is_empty() {
         String::new()
@@ -391,6 +488,10 @@ fn build_claude_streaming_command(
     } else {
         format!(" {}", user_args)
     };
+    let resume_segment = resume_id
+        .filter(|id| !id.trim().is_empty())
+        .map(|id| format!(" '--resume' '{}'", id.replace('\'', "'\\''")))
+        .unwrap_or_default();
 
     // Quote the cli path itself in case it contains spaces.
     let cli_quoted = format!("'{}'", cli_command.replace('\'', "'\\''"));
@@ -400,14 +501,16 @@ fn build_claude_streaming_command(
     // the helper `bash_double_quote_for_outer_squote` escapes single quotes
     // for that outer layer.
     let stream_cmd = format!(
-        "{cli} --dangerously-skip-permissions --output-format stream-json --verbose --include-partial-messages{args}{prompt} | jq -r --unbuffered \"$BENTOYA_CLAUDE_FILTER\"",
+        "{cli} --dangerously-skip-permissions --output-format stream-json --verbose --include-partial-messages{resume}{args}{prompt} | tee -a \"${{BENTOYA_CLAUDE_JSON_LOG:-/dev/null}}\" | jq -r --unbuffered \"$BENTOYA_CLAUDE_FILTER\"",
         cli = cli_quoted,
+        resume = resume_segment,
         args = user_args_segment,
         prompt = prompt_quoted,
     );
     let fallback_cmd = format!(
-        "{cli} --dangerously-skip-permissions{args}{prompt}",
+        "{cli} --dangerously-skip-permissions{resume}{args}{prompt}",
         cli = cli_quoted,
+        resume = resume_segment,
         args = user_args_segment,
         prompt = prompt_quoted,
     );
@@ -449,8 +552,7 @@ pub(crate) fn is_rate_limit_output(content: &str) -> bool {
 /// message and convert it to a delay from now. Falls back to
 /// `RATE_LIMIT_FALLBACK_DELAY` when parsing fails.
 pub(crate) fn parse_rate_limit_delay(content: &str) -> Duration {
-    parse_rate_limit_delay_from(content, chrono::Local::now())
-        .unwrap_or(RATE_LIMIT_FALLBACK_DELAY)
+    parse_rate_limit_delay_from(content, chrono::Local::now()).unwrap_or(RATE_LIMIT_FALLBACK_DELAY)
 }
 
 fn parse_rate_limit_delay_from<Tz: chrono::TimeZone>(
@@ -651,6 +753,50 @@ fn tmux_session_name(task_id: &str) -> String {
     tmux_transport::session_name(task_id)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TriggerSessionPlan {
+    Create,
+    ReuseExisting,
+    KillAndCreate,
+}
+
+fn trigger_session_plan(session_exists: bool, persistent_lifecycle: bool) -> TriggerSessionPlan {
+    match (session_exists, persistent_lifecycle) {
+        (true, true) => TriggerSessionPlan::ReuseExisting,
+        (true, false) => TriggerSessionPlan::KillAndCreate,
+        (false, _) => TriggerSessionPlan::Create,
+    }
+}
+
+fn should_kill_session_after_completion(persistent_lifecycle: bool) -> bool {
+    !persistent_lifecycle
+}
+
+fn persistent_agent_lifecycle_enabled(workspace_config: Option<&str>) -> bool {
+    let Some(config_json) = workspace_config else {
+        return true;
+    };
+    let Ok(config) = serde_json::from_str::<serde_json::Value>(config_json) else {
+        return true;
+    };
+
+    config
+        .get("persistentAgentLifecycle")
+        .or_else(|| config.get("persistent_agent_lifecycle"))
+        .or_else(|| {
+            config
+                .get("agent")
+                .and_then(|agent| agent.get("persistentAgentLifecycle"))
+        })
+        .or_else(|| {
+            config
+                .get("agent")
+                .and_then(|agent| agent.get("persistent_agent_lifecycle"))
+        })
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(true)
+}
+
 /// Run `tmux <args>` and return Ok(stdout) on success, Err(stderr) otherwise.
 fn run_tmux(args: &[&str]) -> Result<String, String> {
     let output = Command::new("tmux")
@@ -671,12 +817,45 @@ fn run_tmux(args: &[&str]) -> Result<String, String> {
 /// any error so callers can treat it as "no output captured".
 fn capture_pane_scrollback(session: &str) -> String {
     Command::new("tmux")
-        .args(["capture-pane", "-t", session, "-p", "-e", "-S", "-"])
+        .args(["capture-pane", "-t", session, "-p", "-e", "-J", "-S", "-"])
         .output()
         .ok()
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
         .unwrap_or_default()
+}
+
+fn complete_line_delta(contents: &str, start: usize) -> Option<(&str, usize)> {
+    let start = start.min(contents.len());
+    let tail = contents.get(start..)?;
+    let end_offset = tail.rfind('\n')? + 1;
+    Some((&tail[..end_offset], start + end_offset))
+}
+
+fn emit_semantic_events_from_provider_json_delta(
+    app: &AppHandle,
+    task_id: &str,
+    session_id: Option<&str>,
+    adapter: AgentAdapterKind,
+    delta: &str,
+) -> bool {
+    let mut emitted = false;
+    for line in delta.lines().filter(|line| !line.trim().is_empty()) {
+        for event in runtime_events_from_provider_json_line(adapter, line) {
+            if matches!(
+                event,
+                AgentRuntimeEvent::AgentCompleted { .. }
+                    | AgentRuntimeEvent::AgentFailed { .. }
+                    | AgentRuntimeEvent::AgentCancelled { .. }
+            ) {
+                continue;
+            }
+            emitted = true;
+            let _ =
+                crate::events::persist_and_emit_agent_runtime_event(app, task_id, session_id, event);
+        }
+    }
+    emitted
 }
 
 /// Truncate a captured log to the trailing N bytes, on a UTF-8-safe boundary.
@@ -698,6 +877,23 @@ fn truncate_for_scrollback(s: &str) -> String {
     tail_bytes(s, SCROLLBACK_MAX_BYTES)
 }
 
+fn extract_claude_session_id(output: &str) -> Option<String> {
+    output.lines().find_map(|line| {
+        let marker_start = line.find(CLAUDE_SESSION_MARKER)?;
+        let after_marker = &line[marker_start + CLAUDE_SESSION_MARKER.len()..];
+        let session_id = after_marker
+            .split(|ch: char| ch.is_whitespace() || ch == '\u{1b}' || ch == '\u{7}')
+            .next()
+            .unwrap_or_default()
+            .trim();
+        if session_id.is_empty() {
+            None
+        } else {
+            Some(session_id.to_string())
+        }
+    })
+}
+
 /// Create a fresh tmux session for a pipeline trigger. Fails if a session
 /// with the same name already exists — callers should kill stale sessions
 /// first if they want a clean slate.
@@ -713,7 +909,14 @@ fn create_trigger_session(
     let cols_str = cols.to_string();
     let rows_str = rows.to_string();
     let mut args: Vec<&str> = vec![
-        "new-session", "-d", "-s", &name, "-x", &cols_str, "-y", &rows_str,
+        "new-session",
+        "-d",
+        "-s",
+        &name,
+        "-x",
+        &cols_str,
+        "-y",
+        &rows_str,
     ];
     if Path::new(working_dir).exists() {
         args.push("-c");
@@ -733,6 +936,40 @@ fn create_trigger_session(
         return Err(format!("tmux new-session failed: {}", stderr.trim()));
     }
     Ok(())
+}
+
+fn ensure_trigger_session(
+    task_id: &str,
+    working_dir: &str,
+    cols: u16,
+    rows: u16,
+    env_vars: &HashMap<String, String>,
+    persistent_lifecycle: bool,
+) -> Result<TriggerSessionPlan, String> {
+    static ENSURE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = ENSURE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|e| format!("ensure session lock poisoned: {}", e))?;
+
+    let plan = trigger_session_plan(tmux_transport::has_session(task_id), persistent_lifecycle);
+    match plan {
+        TriggerSessionPlan::ReuseExisting => Ok(plan),
+        TriggerSessionPlan::KillAndCreate => {
+            let session = tmux_session_name(task_id);
+            eprintln!(
+                "[bridge] Killing stale tmux session before trigger: {}",
+                session
+            );
+            let _ = tmux_transport::kill_session(task_id);
+            create_trigger_session(task_id, working_dir, cols, rows, env_vars)?;
+            Ok(plan)
+        }
+        TriggerSessionPlan::Create => {
+            create_trigger_session(task_id, working_dir, cols, rows, env_vars)?;
+            Ok(plan)
+        }
+    }
 }
 
 /// Run a CLI trigger inside a tmux session named `bentoya_<task_id>`.
@@ -760,11 +997,31 @@ pub fn spawn_cli_trigger_task(
     env_vars: Option<HashMap<String, String>>,
 ) {
     // Create agent session record so the UI can track this agent
-    let session_id = {
+    let (session_id, resume_id, persistent_lifecycle) = {
         if let Ok(conn) = Connection::open(db::db_path()) {
             let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-            match db::insert_agent_session(&conn, &task_id, &cli_command, Some(&working_dir)) {
+            let task_snapshot = db::get_task(&conn, &task_id).ok();
+            let column_snapshot = task_snapshot
+                .as_ref()
+                .and_then(|task| db::get_column(&conn, &task.column_id).ok());
+            let persistent_lifecycle = task_snapshot
+                .as_ref()
+                .and_then(|task| db::get_workspace(&conn, &task.workspace_id).ok())
+                .map(|workspace| persistent_agent_lifecycle_enabled(Some(&workspace.config)))
+                .unwrap_or(false);
+            let existing_session = if persistent_lifecycle {
+                db::list_agent_sessions(&conn, &task_id)
+                    .ok()
+                    .and_then(|sessions| sessions.into_iter().next())
+            } else {
+                None
+            };
+            let session_result = existing_session.map(Ok).unwrap_or_else(|| {
+                db::insert_agent_session(&conn, &task_id, &cli_command, Some(&working_dir))
+            });
+            match session_result {
                 Ok(session) => {
+                    let tmux_name = tmux_session_name(&task_id);
                     let _ = db::update_agent_session(
                         &conn,
                         &session.id,
@@ -775,6 +1032,20 @@ pub fn spawn_cli_trigger_task(
                         None,
                         None,
                     );
+                    let _ = db::update_agent_session_runtime(
+                        &conn,
+                        &session.id,
+                        Some(db::adapter_kind_for_agent_type(&cli_command)),
+                        Some(
+                            task_snapshot
+                                .as_ref()
+                                .and_then(|task| task.agent_mode.as_deref())
+                                .filter(|mode| *mode == "managed")
+                                .unwrap_or("terminal"),
+                        ),
+                        None,
+                        Some(Some(&tmux_name)),
+                    );
                     let _ = db::update_task_agent_status(&conn, &task_id, Some("running"), None);
                     let ts = db::now();
                     let _ = conn.execute(
@@ -782,15 +1053,46 @@ pub fn spawn_cli_trigger_task(
                         rusqlite::params![session.id, ts, task_id],
                     );
                     pipeline::emit_tasks_changed(&app, "", "agent_session_created");
-                    Some(session.id)
+                    let resume_id = if persistent_lifecycle {
+                        session.cli_session_id.clone()
+                    } else {
+                        None
+                    };
+                    let metadata = serde_json::json!({
+                        "cli": cli_command,
+                        "workdir": working_dir,
+                        "persistentLifecycle": persistent_lifecycle,
+                        "resumeAvailable": resume_id.is_some(),
+                        "columnId": task_snapshot.as_ref().map(|task| task.column_id.as_str()),
+                        "columnName": column_snapshot.as_ref().map(|column| column.name.as_str()),
+                        "pipelineState": task_snapshot.as_ref().map(|task| task.pipeline_state.as_str()),
+                    })
+                    .to_string();
+                    let _ = crate::events::persist_and_emit_agent_transcript_event(
+                        &app,
+                        &task_id,
+                        Some(&session.id),
+                        db::EVENT_SESSION_STARTED,
+                        None,
+                        Some(&metadata),
+                    );
+                    let _ = crate::events::persist_and_emit_agent_transcript_event(
+                        &app,
+                        &task_id,
+                        Some(&session.id),
+                        db::EVENT_AGENT_STARTED,
+                        None,
+                        Some(&metadata),
+                    );
+                    (Some(session.id), resume_id, persistent_lifecycle)
                 }
                 Err(e) => {
                     log::error!("[bridge] Failed to create agent session: {}", e);
-                    None
+                    (None, None, persistent_lifecycle)
                 }
             }
         } else {
-            None
+            (None, None, false)
         }
     };
 
@@ -808,7 +1110,8 @@ pub fn spawn_cli_trigger_task(
 
     tokio::spawn(async move {
         let start_time = std::time::Instant::now();
-        let full_cmd = build_trigger_command(&cli_command, &args, &initial_prompt);
+        let full_cmd =
+            build_trigger_command(&cli_command, &args, &initial_prompt, resume_id.as_deref());
         let nonce = gen_nonce();
         let log_path = log_retention::new_trigger_log_path(&nonce);
         let log_path_str = log_path.display().to_string();
@@ -825,6 +1128,7 @@ pub fn spawn_cli_trigger_task(
             trigger_column_id.as_deref(),
             start_time,
             &env_vars,
+            persistent_lifecycle,
         )
         .await;
 
@@ -832,6 +1136,19 @@ pub fn spawn_cli_trigger_task(
             let error_msg = format!(
                 "CLI trigger '{}' failed for task {}: {}",
                 cli_command, task_id, error_detail
+            );
+            let failure_metadata = serde_json::json!({
+                "cli": cli_command,
+                "error": error_detail,
+            })
+            .to_string();
+            let _ = crate::events::persist_and_emit_agent_transcript_event(
+                &app,
+                &task_id,
+                session_id.as_deref(),
+                db::EVENT_AGENT_FAILED,
+                Some(&error_msg),
+                Some(&failure_metadata),
             );
             eprintln!("[bridge] {}", error_msg);
             if let Ok(conn) = Connection::open(db::db_path()) {
@@ -858,9 +1175,8 @@ pub fn spawn_cli_trigger_task(
 
                 if let Ok(task) = db::get_task(&conn, &task_id) {
                     if let Ok(col) = db::get_column(&conn, &task.column_id) {
-                        let _ = pipeline::handle_trigger_failure(
-                            &conn, &app, &task, &col, &error_msg,
-                        );
+                        let _ =
+                            pipeline::handle_trigger_failure(&conn, &app, &task, &col, &error_msg);
                     }
                 }
             }
@@ -882,36 +1198,43 @@ async fn run_trigger_in_tmux(
     trigger_column_id: Option<&str>,
     start_time: std::time::Instant,
     env_vars: &HashMap<String, String>,
+    persistent_lifecycle: bool,
 ) -> Result<(), String> {
     eprintln!("[bridge] Starting tmux-backed trigger for task {}", task_id);
     eprintln!("[bridge] CLI command: {}", full_cmd);
     eprintln!("[bridge] Working dir: {}", working_dir);
     eprintln!("[bridge] Log file: {}", log_path);
 
+    let command_metadata = serde_json::json!({
+        "cli": cli_command,
+        "workdir": working_dir,
+    })
+    .to_string();
+    let _ = crate::events::persist_and_emit_agent_transcript_event(
+        app,
+        task_id,
+        session_id,
+        db::EVENT_COMMAND_STARTED,
+        None,
+        Some(&command_metadata),
+    );
+
     // Make sure the tmux server is up; auto-start a default session if needed.
     tmux_transport::ensure_tmux_server()?;
 
     let session = tmux_session_name(task_id);
 
-    // If a stale session for this task already exists (e.g. previous run crashed),
-    // kill it. We want a clean window for this trigger.
-    if tmux_transport::has_session(task_id) {
-        eprintln!(
-            "[bridge] Killing stale tmux session before trigger: {}",
-            session
-        );
-        let _ = tmux_transport::kill_session(task_id);
-    }
-
-    // Create the session detached. UI clients can attach later and see the
-    // same pane. Use a generous default size; UI attach will resize.
-    create_trigger_session(
+    let session_plan = ensure_trigger_session(
         task_id,
         working_dir,
         DEFAULT_TRIGGER_COLS,
         DEFAULT_TRIGGER_ROWS,
         env_vars,
+        persistent_lifecycle,
     )?;
+    if session_plan == TriggerSessionPlan::ReuseExisting {
+        eprintln!("[bridge] Reusing persistent tmux session: {}", session);
+    }
 
     // Mirror pane output to a log file. We use `pipe-pane -O` (Open) to log
     // to the file; -o would toggle. The shell wrapper handles redirection.
@@ -926,6 +1249,11 @@ async fn run_trigger_in_tmux(
         log_retention::trigger_logs_dir().display(),
         nonce
     );
+    let semantic_log_path = format!(
+        "{}/semantic_{}.jsonl",
+        log_retention::trigger_logs_dir().display(),
+        nonce
+    );
     let wait_channel = format!("bentoya_done_{}", nonce);
 
     // Build the wrapped command. We send it as a single line via send-keys
@@ -935,17 +1263,29 @@ async fn run_trigger_in_tmux(
     // Note: full_cmd already contains shell quoting for the prompt; we just
     // append our completion-signaling tail. We also `clear` first so the
     // user sees a clean pane when they attach.
+    let command_with_semantic_log = if cli_command.rsplit('/').next().unwrap_or(cli_command) == "claude" {
+        format!(
+            "BENTOYA_CLAUDE_JSON_LOG={} {}",
+            shell_quote_arg(&semantic_log_path),
+            full_cmd
+        )
+    } else {
+        full_cmd.to_string()
+    };
+
     let wrapped = format!(
-        "clear; {}; rc=$?; printf '%s' \"$rc\" > {}; tmux wait-for -S {}",
-        full_cmd,
+        "{}{}; rc=$?; printf '%s' \"$rc\" > {}; tmux wait-for -S {}",
+        if persistent_lifecycle { "" } else { "clear; " },
+        command_with_semantic_log,
         shell_quote_arg(&exit_path),
         wait_channel
     );
+    let launcher = materialize_shell_launcher(&wrapped, Some(nonce))?;
 
-    // Send the command into the session. Use `-l` to send literally so any
-    // embedded special chars don't get re-interpreted by tmux. Then `Enter`.
-    // We split into two send-keys calls because `-l` doesn't interpret keys.
-    if let Err(e) = run_tmux(&["send-keys", "-t", &session, "-l", &wrapped]) {
+    // Send a short script launcher into the session. The actual command lives
+    // in the trigger log dir so multiline jq filters and prompts do not get
+    // echoed into the interactive shell as `quote>` continuation noise.
+    if let Err(e) = run_tmux(&["send-keys", "-t", &session, "-l", &launcher]) {
         let _ = tmux_transport::kill_session(task_id);
         return Err(format!("send-keys (literal) failed: {}", e));
     }
@@ -958,10 +1298,22 @@ async fn run_trigger_in_tmux(
     // last_output column stays fresh while the trigger runs. This is the
     // tmux equivalent of the old direct-subprocess flusher.
     let flusher_stop = Arc::new(AtomicBool::new(false));
+    let live_output_emitted = Arc::new(AtomicBool::new(false));
+    let live_output_offset = Arc::new(AtomicUsize::new(0));
+    let semantic_output_emitted = Arc::new(AtomicBool::new(false));
+    let semantic_output_offset = Arc::new(AtomicUsize::new(0));
     let flusher_handle: Option<tokio::task::JoinHandle<()>> = session_id.map(|sid| {
+        let app = app.clone();
+        let task_id = task_id.to_string();
+        let log_path = log_path.to_string();
+        let semantic_log_path = semantic_log_path.clone();
         let session_for_flusher = session.clone();
         let sid = sid.to_string();
         let stop = Arc::clone(&flusher_stop);
+        let emitted = Arc::clone(&live_output_emitted);
+        let offset = Arc::clone(&live_output_offset);
+        let semantic_emitted = Arc::clone(&semantic_output_emitted);
+        let semantic_offset = Arc::clone(&semantic_output_offset);
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(FLUSH_INTERVAL).await;
@@ -976,6 +1328,45 @@ async fn run_trigger_in_tmux(
                 if let Ok(conn) = Connection::open(db::db_path()) {
                     let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
                     let _ = db::update_agent_session_output(&conn, &sid, Some(&tail), None);
+                }
+                if let Ok(semantic_contents) = std::fs::read_to_string(&semantic_log_path) {
+                    let start = semantic_offset
+                        .load(Ordering::Relaxed)
+                        .min(semantic_contents.len());
+                    if let Some((delta, end)) = complete_line_delta(&semantic_contents, start) {
+                        semantic_offset.store(end, Ordering::Relaxed);
+                        if emit_semantic_events_from_provider_json_delta(
+                            &app,
+                            &task_id,
+                            Some(&sid),
+                            AgentAdapterKind::ClaudeCli,
+                            delta,
+                        ) {
+                            semantic_emitted.store(true, Ordering::Relaxed);
+                        }
+                    }
+                }
+                if let Ok(log_contents) = std::fs::read_to_string(&log_path) {
+                    let start = offset.load(Ordering::Relaxed).min(log_contents.len());
+                    if let Some(delta) = log_contents.get(start..) {
+                        if !delta.trim().is_empty() {
+                            offset.store(log_contents.len(), Ordering::Relaxed);
+                            if !semantic_emitted.load(Ordering::Relaxed) {
+                                emitted.store(true, Ordering::Relaxed);
+                                let _ = crate::events::persist_and_emit_agent_transcript_event(
+                                    &app,
+                                    &task_id,
+                                    Some(&sid),
+                                    db::EVENT_COMMAND_OUTPUT,
+                                    Some(delta),
+                                    Some(
+                                        &serde_json::json!({ "source": "tmux_live_tail" })
+                                            .to_string(),
+                                    ),
+                                );
+                            }
+                        }
+                    }
                 }
             }
         })
@@ -1016,7 +1407,11 @@ async fn run_trigger_in_tmux(
             if status.success() {
                 Ok(())
             } else {
-                Err(format!("tmux wait-for ({}) exited {:?}", chan, status.code()))
+                Err(format!(
+                    "tmux wait-for ({}) exited {:?}",
+                    chan,
+                    status.code()
+                ))
             }
         }
     });
@@ -1025,7 +1420,11 @@ async fn run_trigger_in_tmux(
         Ok(Ok(Ok(()))) => false,
         Ok(Ok(Err(e))) => {
             // wait-for exited non-zero — usually because the session was killed.
-            log::warn!("[bridge] wait-for returned error for task {}: {}", task_id, e);
+            log::warn!(
+                "[bridge] wait-for returned error for task {}: {}",
+                task_id,
+                e
+            );
             false
         }
         Ok(Err(join_err)) => {
@@ -1078,14 +1477,48 @@ async fn run_trigger_in_tmux(
     // log file (preserved across runs) but fall back to live pane capture if
     // the file is empty (e.g. pipe-pane never opened in time).
     let log_contents = std::fs::read_to_string(log_path).unwrap_or_default();
+    let captured_cli_session_id = extract_claude_session_id(&log_contents);
     let scrollback_full = if !log_contents.is_empty() {
         log_contents
     } else {
         capture_pane_scrollback(&session)
     };
+    let semantic_log_contents = std::fs::read_to_string(&semantic_log_path).unwrap_or_default();
+    let semantic_start = semantic_output_offset
+        .load(Ordering::Relaxed)
+        .min(semantic_log_contents.len());
+    if let Some((delta, end)) = complete_line_delta(&semantic_log_contents, semantic_start) {
+        semantic_output_offset.store(end, Ordering::Relaxed);
+        if emit_semantic_events_from_provider_json_delta(
+            app,
+            task_id,
+            session_id,
+            AgentAdapterKind::ClaudeCli,
+            delta,
+        ) {
+            semantic_output_emitted.store(true, Ordering::Relaxed);
+        }
+    }
     let scrollback = truncate_for_scrollback(&scrollback_full);
     let error_tail = tail_bytes(&scrollback, PIPELINE_ERROR_TAIL_BYTES);
     let last_output_tail = tail_bytes(&scrollback, LAST_OUTPUT_TAIL_BYTES);
+    let final_live_start = live_output_offset
+        .load(Ordering::Relaxed)
+        .min(scrollback_full.len());
+    if let Some(delta) = scrollback_full.get(final_live_start..) {
+        if !semantic_output_emitted.load(Ordering::Relaxed) && !delta.trim().is_empty() {
+            live_output_offset.store(scrollback_full.len(), Ordering::Relaxed);
+            live_output_emitted.store(true, Ordering::Relaxed);
+            let _ = crate::events::persist_and_emit_agent_transcript_event(
+                app,
+                task_id,
+                session_id,
+                db::EVENT_COMMAND_OUTPUT,
+                Some(delta),
+                Some(&serde_json::json!({ "source": "tmux_live_tail" }).to_string()),
+            );
+        }
+    }
 
     // Resolve effective exit code:
     //   - timed out: synthetic 124 (mimics `timeout` utility)
@@ -1103,6 +1536,45 @@ async fn run_trigger_in_tmux(
         task_id, effective_exit, success, log_path
     );
 
+    if !semantic_output_emitted.load(Ordering::Relaxed)
+        && !live_output_emitted.load(Ordering::Relaxed)
+        && !last_output_tail.trim().is_empty()
+    {
+        let _ = crate::events::persist_and_emit_agent_transcript_event(
+            app,
+            task_id,
+            session_id,
+            db::EVENT_COMMAND_OUTPUT,
+            Some(&last_output_tail),
+            Some(&serde_json::json!({ "source": "tmux_log_tail" }).to_string()),
+        );
+    }
+    let completion_metadata = serde_json::json!({
+        "exitCode": effective_exit,
+        "timedOut": timed_out,
+    })
+    .to_string();
+    let _ = crate::events::persist_and_emit_agent_transcript_event(
+        app,
+        task_id,
+        session_id,
+        db::EVENT_COMMAND_COMPLETED,
+        None,
+        Some(&completion_metadata),
+    );
+    let _ = crate::events::persist_and_emit_agent_transcript_event(
+        app,
+        task_id,
+        session_id,
+        if success {
+            db::EVENT_AGENT_COMPLETED
+        } else {
+            db::EVENT_AGENT_FAILED
+        },
+        None,
+        Some(&completion_metadata),
+    );
+
     // IMPORTANT: do not kill the tmux session yet. We must update the task's
     // agent_status BEFORE the session disappears, otherwise the GC sweep
     // (which marks "running" tasks with no tmux session as failed) can race
@@ -1114,6 +1586,9 @@ async fn run_trigger_in_tmux(
 
         // Persist final scrollback + a fresh last_output regardless of success.
         if let Some(sid) = session_id {
+            if let Some(ref cli_session_id) = captured_cli_session_id {
+                let _ = db::update_agent_session_cli(&conn, sid, Some(cli_session_id), None, None);
+            }
             let _ = db::update_agent_session_output(
                 &conn,
                 sid,
@@ -1148,7 +1623,10 @@ async fn run_trigger_in_tmux(
                 task_id,
                 pipeline::PipelineState::RateLimited.as_str(),
                 None,
-                Some(&format!("Rate limited; retrying in {}m", delay.as_secs() / 60)),
+                Some(&format!(
+                    "Rate limited; retrying in {}m",
+                    delay.as_secs() / 60
+                )),
             );
             pipeline::emit_tasks_changed(app, "", "trigger_rate_limited");
             schedule_rate_limit_retry(
@@ -1157,9 +1635,9 @@ async fn run_trigger_in_tmux(
                 trigger_column_id.map(str::to_string),
                 delay,
             );
-            // Clean up the tmux session — the agent has already exited inside
-            // it, no point leaving a dead shell hanging around.
-            let _ = tmux_transport::kill_session(task_id);
+            if should_kill_session_after_completion(persistent_lifecycle) {
+                let _ = tmux_transport::kill_session(task_id);
+            }
             return Ok(());
         }
 
@@ -1227,24 +1705,21 @@ async fn run_trigger_in_tmux(
                     msg.push_str(error_tail.trim());
                     msg
                 };
-                let _ = pipeline::mark_complete_with_error(
-                    &conn,
-                    app,
-                    task_id,
-                    false,
-                    Some(&detail),
-                );
+                let _ =
+                    pipeline::mark_complete_with_error(&conn, app, task_id, false, Some(&detail));
             }
         }
     }
 
     pipeline::emit_tasks_changed(app, "", "trigger_complete");
 
-    // NOW kill the tmux session — DB status is committed, so the GC won't
-    // race us. The agent inside the pane has already exited (we observed
-    // its exit code via the sentinel file), so all this does is clean up
-    // the shell that was waiting on `tmux wait-for`.
-    let _ = tmux_transport::kill_session(task_id);
+    if should_kill_session_after_completion(persistent_lifecycle) {
+        // NOW kill the tmux session — DB status is committed, so the GC won't
+        // race us. The agent inside the pane has already exited (we observed
+        // its exit code via the sentinel file), so all this does is clean up
+        // the shell that was waiting on `tmux wait-for`.
+        let _ = tmux_transport::kill_session(task_id);
+    }
 
     // Touch a known-unused parameter to silence dead-code warnings if needed.
     let _ = cli_command;
@@ -1352,7 +1827,7 @@ mod tests {
 
     #[test]
     fn test_build_trigger_command_codex() {
-        let cmd = build_trigger_command("codex", &[], "do the thing");
+        let cmd = build_trigger_command("codex", &[], "do the thing", None);
         assert!(cmd.starts_with("codex exec"));
         assert!(cmd.contains("--full-auto"));
         assert!(!cmd.contains("--dangerously-bypass"));
@@ -1371,7 +1846,7 @@ mod tests {
         //   - guard the jq pipeline with a runtime check + plain-text fallback
         //     when jq isn't on PATH
         //   - still pass the prompt and dangerously-skip-permissions
-        let cmd = build_trigger_command("claude", &[], "do the thing");
+        let cmd = build_trigger_command("claude", &[], "do the thing", None);
         assert!(
             cmd.contains("--output-format stream-json"),
             "missing stream-json: {}",
@@ -1394,6 +1869,21 @@ mod tests {
             cmd
         );
         assert!(
+            cmd.contains("tee -a"),
+            "raw stream-json should be tee'd for semantic transcript parsing: {}",
+            cmd
+        );
+        assert!(
+            cmd.contains("BENTOYA_CLAUDE_JSON_LOG"),
+            "semantic JSON log env var should be supported: {}",
+            cmd
+        );
+        assert!(
+            cmd.contains(CLAUDE_SESSION_MARKER),
+            "filter must surface a hidden Claude session marker: {}",
+            cmd
+        );
+        assert!(
             cmd.contains("command -v jq"),
             "missing jq availability check: {}",
             cmd
@@ -1401,6 +1891,15 @@ mod tests {
         assert!(cmd.contains("-p"));
         assert!(cmd.contains("do the thing"));
         assert!(cmd.contains("--dangerously-skip-permissions"));
+    }
+
+    #[test]
+    fn complete_line_delta_only_returns_full_jsonl_records() {
+        let contents = "{\"type\":\"system\"}\n{\"type\":\"partial\"";
+        let (delta, end) = complete_line_delta(contents, 0).expect("complete line");
+        assert_eq!(delta, "{\"type\":\"system\"}\n");
+        assert_eq!(end, "{\"type\":\"system\"}\n".len());
+        assert!(complete_line_delta(contents, end).is_none());
     }
 
     #[test]
@@ -1413,17 +1912,13 @@ mod tests {
             "claude",
             &["--model".to_string(), "sonnet".to_string()],
             "hi",
+            None,
         );
         let post_outer = r#"'\''--model'\'' '\''sonnet'\''"#;
         assert!(cmd.contains(post_outer), "got: {}", cmd);
         // matches twice: once in stream branch, once in fallback. Both paths
         // must propagate the model.
-        assert_eq!(
-            cmd.matches(post_outer).count(),
-            2,
-            "got: {}",
-            cmd
-        );
+        assert_eq!(cmd.matches(post_outer).count(), 2, "got: {}", cmd);
     }
 
     #[test]
@@ -1436,7 +1931,7 @@ mod tests {
         // wrapper to recover the inner body string, then asserting the body
         // contains the canonical inner-quote form `'what'\''s up'` — which
         // bash unwraps to literal `what's up` for the CLI's argv.
-        let cmd = build_trigger_command("claude", &[], "what's up");
+        let cmd = build_trigger_command("claude", &[], "what's up", None);
 
         // The outer wrapper escapes every `'` in the body to `'\''`, so the
         // canonical inner form `'what'\''s up'` becomes
@@ -1464,7 +1959,7 @@ mod tests {
         // replace the inner `claude` invocation with a stub that prints its
         // argv so we can observe what the CLI would actually receive.
         // We force the FALLBACK branch (no jq) by stubbing the if-test.
-        let cmd = build_trigger_command("claude", &[], "hello world");
+        let cmd = build_trigger_command("claude", &[], "hello world", None);
         // Force the inner `command -v jq` to fail by replacing the test.
         let fallback_only = cmd.replacen(
             "if command -v jq >/dev/null 2>&1; then",
@@ -1500,6 +1995,7 @@ mod tests {
             "codex",
             &["--model".to_string(), "gpt-5".to_string()],
             "hello",
+            None,
         );
         assert_eq!(
             cmd,
@@ -1510,6 +2006,69 @@ mod tests {
     #[test]
     fn test_tmux_session_name() {
         assert_eq!(tmux_session_name("task-123"), "bentoya_task-123");
+    }
+
+    #[test]
+    fn test_persistent_agent_lifecycle_flag_defaults_on() {
+        assert!(persistent_agent_lifecycle_enabled(None));
+        assert!(persistent_agent_lifecycle_enabled(Some("{}")));
+        assert!(persistent_agent_lifecycle_enabled(Some("not json")));
+        assert!(!persistent_agent_lifecycle_enabled(Some(
+            r#"{"agent":{"persistentAgentLifecycle":false}}"#
+        )));
+    }
+
+    #[test]
+    fn test_persistent_agent_lifecycle_flag_accepts_flat_and_nested() {
+        assert!(persistent_agent_lifecycle_enabled(Some(
+            r#"{"persistentAgentLifecycle":true}"#
+        )));
+        assert!(persistent_agent_lifecycle_enabled(Some(
+            r#"{"persistent_agent_lifecycle":true}"#
+        )));
+        assert!(persistent_agent_lifecycle_enabled(Some(
+            r#"{"agent":{"persistentAgentLifecycle":true}}"#
+        )));
+    }
+
+    #[test]
+    fn test_claude_mock_no_longer_uses_claude_streaming_branch() {
+        let cmd = build_trigger_command("claude-mock", &[], "hi", None);
+        assert_eq!(cmd, "claude-mock 'hi'");
+        assert!(!cmd.contains("--output-format stream-json"));
+    }
+
+    #[test]
+    fn test_claude_resume_id_is_threaded_into_both_paths() {
+        let cmd = build_trigger_command("claude", &[], "continue", Some("session-123"));
+        let post_outer = r#"'\''--resume'\'' '\''session-123'\''"#;
+        assert_eq!(cmd.matches(post_outer).count(), 2, "got: {}", cmd);
+    }
+
+    #[test]
+    fn test_trigger_session_plan_reuses_existing_when_persistent() {
+        assert_eq!(
+            trigger_session_plan(true, true),
+            TriggerSessionPlan::ReuseExisting
+        );
+    }
+
+    #[test]
+    fn test_trigger_session_plan_replaces_existing_when_legacy() {
+        assert_eq!(
+            trigger_session_plan(true, false),
+            TriggerSessionPlan::KillAndCreate
+        );
+        assert_eq!(
+            trigger_session_plan(false, false),
+            TriggerSessionPlan::Create
+        );
+    }
+
+    #[test]
+    fn test_should_kill_after_completion_only_for_legacy() {
+        assert!(should_kill_session_after_completion(false));
+        assert!(!should_kill_session_after_completion(true));
     }
 
     #[test]
@@ -1542,6 +2101,15 @@ mod tests {
         assert!(tail.ends_with('é'));
     }
 
+    #[test]
+    fn test_extract_claude_session_id_from_hidden_marker() {
+        let output = "\x1b[8mBENTOYA_CLAUDE_SESSION_ID:abc-123\x1b[0m\n[claude 2 model]\n";
+        assert_eq!(
+            extract_claude_session_id(output).as_deref(),
+            Some("abc-123")
+        );
+    }
+
     // ─── Rate-limit detection ─────────────────────────────────────────────
 
     #[test]
@@ -1567,8 +2135,7 @@ mod tests {
     fn test_is_rate_limit_output_with_ansi_escapes() {
         // Tmux pane scrollback often contains ANSI escape codes around the
         // rate-limit text. Detection must still work.
-        let ansi_wrapped =
-            "\x1b[31mYou've hit your limit\x1b[0m · resets 12pm";
+        let ansi_wrapped = "\x1b[31mYou've hit your limit\x1b[0m · resets 12pm";
         assert!(is_rate_limit_output(ansi_wrapped));
     }
 
@@ -1592,11 +2159,9 @@ mod tests {
     #[test]
     fn test_parse_rate_limit_delay_1_30_pm() {
         let now = anchor();
-        let dur = parse_rate_limit_delay_from(
-            "You've hit your limit. Resets 1:30 PM, please wait.",
-            now,
-        )
-        .unwrap();
+        let dur =
+            parse_rate_limit_delay_from("You've hit your limit. Resets 1:30 PM, please wait.", now)
+                .unwrap();
         // 09:00 → 13:30 == 4h30m
         assert_eq!(dur.as_secs(), 4 * 3600 + 30 * 60);
     }
@@ -1614,8 +2179,8 @@ mod tests {
     fn test_parse_rate_limit_delay_passed_time_rolls_to_next_day() {
         let now = anchor();
         // 06:00 already passed today (anchor is 09:00) → roll over 24h
-        let dur =
-            parse_rate_limit_delay_from("You've hit your limit · resets 6am next day", now).unwrap();
+        let dur = parse_rate_limit_delay_from("You've hit your limit · resets 6am next day", now)
+            .unwrap();
         // 09:00 → 06:00 next day == 21h
         assert_eq!(dur.as_secs(), 21 * 3600);
     }
@@ -1623,8 +2188,7 @@ mod tests {
     #[test]
     fn test_parse_rate_limit_delay_unknown_format_falls_back() {
         let now = anchor();
-        let result =
-            parse_rate_limit_delay_from("You've hit your limit · resets soonish", now);
+        let result = parse_rate_limit_delay_from("You've hit your limit · resets soonish", now);
         assert!(result.is_none());
         // Public API returns the fallback in this case.
         let pub_dur = parse_rate_limit_delay("You've hit your limit · resets soonish");
@@ -1676,6 +2240,7 @@ mod tests {
             eprintln!("tmux not available, skipping");
             return;
         }
+        let _tmux_guard = tmux_transport::tmux_test_lock_async().await;
         // Use a unique task id so we don't collide with other tests or the
         // running app.
         let task_id = format!("test-trigger-{}", uuid::Uuid::new_v4());
@@ -1730,10 +2295,116 @@ mod tests {
 
         // Scrollback should contain our echo'd string.
         let scrollback = capture_pane_scrollback(&session);
-        assert!(scrollback.contains("HELLO_FROM_TMUX"), "got: {}", scrollback);
+        assert!(
+            scrollback.contains("HELLO_FROM_TMUX"),
+            "got: {}",
+            scrollback
+        );
 
         // Cleanup.
         let _ = std::fs::remove_file(&exit_path);
+        let _ = tmux_transport::kill_session(&task_id);
+    }
+
+    #[tokio::test]
+    async fn tmux_persistent_session_reuse_preserves_scrollback() {
+        if !tmux_available() {
+            eprintln!("tmux not available, skipping");
+            return;
+        }
+        let _tmux_guard = tmux_transport::tmux_test_lock_async().await;
+
+        let task_id = format!("test-persist-{}", uuid::Uuid::new_v4());
+        let session = tmux_session_name(&task_id);
+        let env_vars = HashMap::new();
+        let _ = tmux_transport::kill_session(&task_id);
+        tmux_transport::ensure_tmux_server().expect("tmux server");
+
+        let first_plan = ensure_trigger_session(&task_id, "/tmp", 80, 24, &env_vars, true)
+            .expect("create persistent session");
+        assert_eq!(first_plan, TriggerSessionPlan::Create);
+        run_tmux(&[
+            "send-keys",
+            "-t",
+            &session,
+            "-l",
+            "echo FIRST_PERSISTENT_MARK",
+        ])
+        .expect("send first marker");
+        run_tmux(&["send-keys", "-t", &session, "Enter"]).expect("enter first marker");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let second_plan = ensure_trigger_session(&task_id, "/tmp", 80, 24, &env_vars, true)
+            .expect("reuse persistent session");
+        assert_eq!(second_plan, TriggerSessionPlan::ReuseExisting);
+        run_tmux(&[
+            "send-keys",
+            "-t",
+            &session,
+            "-l",
+            "echo SECOND_PERSISTENT_MARK",
+        ])
+        .expect("send second marker");
+        run_tmux(&["send-keys", "-t", &session, "Enter"]).expect("enter second marker");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let scrollback = capture_pane_scrollback(&session);
+        assert!(
+            scrollback.contains("FIRST_PERSISTENT_MARK"),
+            "missing first marker: {}",
+            scrollback
+        );
+        assert!(
+            scrollback.contains("SECOND_PERSISTENT_MARK"),
+            "missing second marker: {}",
+            scrollback
+        );
+
+        let _ = tmux_transport::kill_session(&task_id);
+    }
+
+    #[tokio::test]
+    async fn concurrent_ensure_trigger_session_coalesces_to_one_tmux_session() {
+        if !tmux_available() {
+            eprintln!("tmux not available, skipping");
+            return;
+        }
+        let _tmux_guard = tmux_transport::tmux_test_lock_async().await;
+
+        let task_id = format!("test-concurrent-{}", uuid::Uuid::new_v4());
+        let _ = tmux_transport::kill_session(&task_id);
+        tmux_transport::ensure_tmux_server().expect("tmux server");
+
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let task_id = task_id.clone();
+            handles.push(std::thread::spawn(move || {
+                let env_vars = HashMap::new();
+                ensure_trigger_session(&task_id, "/tmp", 80, 24, &env_vars, true)
+            }));
+        }
+
+        let plans = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("join").expect("ensure"))
+            .collect::<Vec<_>>();
+
+        assert!(tmux_transport::has_session(&task_id));
+        assert_eq!(
+            plans
+                .iter()
+                .filter(|plan| **plan == TriggerSessionPlan::Create)
+                .count(),
+            1
+        );
+        assert_eq!(
+            plans
+                .iter()
+                .filter(|plan| **plan == TriggerSessionPlan::ReuseExisting)
+                .count(),
+            7
+        );
+
         let _ = tmux_transport::kill_session(&task_id);
     }
 
@@ -1750,6 +2421,7 @@ mod tests {
             eprintln!("tmux not available, skipping");
             return;
         }
+        let _tmux_guard = tmux_transport::tmux_test_lock_async().await;
         let task_id = format!("test-killwait-{}", uuid::Uuid::new_v4());
 
         let _ = tmux_transport::kill_session(&task_id);
@@ -1832,6 +2504,7 @@ mod tests {
             eprintln!("tmux not available, skipping");
             return;
         }
+        let _tmux_guard = tmux_transport::tmux_test_lock_async().await;
         let task_id = format!("test-pidkill-{}", uuid::Uuid::new_v4());
         let _ = tmux_transport::kill_session(&task_id);
         tmux_transport::ensure_tmux_server().expect("tmux server");
@@ -1905,16 +2578,11 @@ mod tests {
             eprintln!("tmux not available, skipping");
             return;
         }
+        let _tmux_guard = tmux_transport::tmux_test_lock_async().await;
         tmux_transport::ensure_tmux_server().expect("tmux server");
 
-        let bentoya_chan = format!(
-            "bentoya_done_{}",
-            uuid::Uuid::new_v4().simple()
-        );
-        let unrelated_chan = format!(
-            "user_chat_{}",
-            uuid::Uuid::new_v4().simple()
-        );
+        let bentoya_chan = format!("bentoya_done_{}", uuid::Uuid::new_v4().simple());
+        let unrelated_chan = format!("user_chat_{}", uuid::Uuid::new_v4().simple());
 
         let bentoya_child = Command::new("tmux")
             .args(["wait-for", &bentoya_chan])

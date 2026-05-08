@@ -52,7 +52,10 @@ fn get_search_paths() -> Vec<PathBuf> {
         // Claude Code specific
         PathBuf::from(format!("{}/.claude/local/bin", home)),
         // Conductor/Codex location
-        PathBuf::from(format!("{}/Library/Application Support/com.conductor.app/bin", home)),
+        PathBuf::from(format!(
+            "{}/Library/Application Support/com.conductor.app/bin",
+            home
+        )),
         // Cargo binaries (for rust-based tools)
         PathBuf::from(format!("{}/.cargo/bin", home)),
         // npm global binaries
@@ -90,17 +93,13 @@ fn find_cli(name: &str) -> Option<String> {
 
 /// Get version string from a CLI tool
 fn get_cli_version(path: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(path)
-        .args(args)
-        .output()
-        .ok()?;
+    let output = Command::new(path).args(args).output().ok()?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         // Take first line of output (version usually there)
-        let version_line = stdout.lines().next()
-            .or_else(|| stderr.lines().next())?;
+        let version_line = stdout.lines().next().or_else(|| stderr.lines().next())?;
         Some(version_line.trim().to_string())
     } else {
         None
@@ -126,7 +125,7 @@ fn detect_cli(id: &str, name: &str, binary_name: &str, version_args: &[&str]) ->
             path: String::new(),
             version: None,
             is_available: false,
-        }
+        },
     }
 }
 
@@ -151,14 +150,14 @@ pub fn detect_single_cli(cli_id: String) -> DetectedCli {
             path: String::new(),
             version: None,
             is_available: false,
-        }
+        },
     }
 }
 
 /// Build model capabilities for the Claude CLI from the dynamic model registry.
 fn build_claude_capabilities(_version: &Option<String>) -> Vec<ModelCapability> {
-    use crate::models::{cache, metadata};
     use crate::models::types::ModelTier;
+    use crate::models::{cache, metadata};
 
     // Try cached models first, fall back to metadata-only
     let cached = cache::load_cache();
@@ -271,7 +270,8 @@ pub fn verify_cli_path(path: String) -> DetectedCli {
     let version = get_cli_version(&path, &["--version"]);
 
     // Try to determine which CLI it is based on the binary name
-    let binary_name = path_obj.file_name()
+    let binary_name = path_obj
+        .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown");
 
@@ -332,7 +332,12 @@ pub async fn check_cli_update(cli_id: String) -> Result<CliUpdateInfo, String> {
             let line = out.lines().next()?.trim().to_string();
             // Extract just the version number (e.g. "codex-cli 0.107.0" → "0.107.0")
             line.split_whitespace()
-                .find(|part| part.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))
+                .find(|part| {
+                    part.chars()
+                        .next()
+                        .map(|c| c.is_ascii_digit())
+                        .unwrap_or(false)
+                })
                 .map(|s| s.to_string())
                 .or(Some(line))
         })
@@ -349,7 +354,7 @@ pub async fn check_cli_update(cli_id: String) -> Result<CliUpdateInfo, String> {
                     .stdin(std::process::Stdio::null())
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
-                    .output()
+                    .output(),
             )
             .await
             .map_err(|_| "Update check timed out".to_string())?
@@ -369,7 +374,8 @@ pub async fn check_cli_update(cli_id: String) -> Result<CliUpdateInfo, String> {
         _ => (None, None),
     };
 
-    let has_update = latest_version.as_ref()
+    let has_update = latest_version
+        .as_ref()
         .map(|latest| latest != &current_version)
         .unwrap_or(false);
 
@@ -384,7 +390,10 @@ pub async fn check_cli_update(cli_id: String) -> Result<CliUpdateInfo, String> {
 
 /// Check GitHub releases API for latest version of a repo.
 async fn check_github_latest(owner: &str, repo: &str) -> (Option<String>, Option<String>) {
-    let url = format!("https://api.github.com/repos/{}/{}/releases/latest", owner, repo);
+    let url = format!(
+        "https://api.github.com/repos/{}/{}/releases/latest",
+        owner, repo
+    );
 
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
@@ -410,8 +419,14 @@ async fn check_github_latest(owner: &str, repo: &str) -> (Option<String>, Option
     };
 
     // Prefer "name" (clean version like "0.121.0") over "tag_name" (may have prefix like "rust-v0.121.0")
-    let version_str = body["name"].as_str()
-        .filter(|s| s.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))
+    let version_str = body["name"]
+        .as_str()
+        .filter(|s| {
+            s.chars()
+                .next()
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false)
+        })
         .or_else(|| body["tag_name"].as_str())
         .unwrap_or("");
     let version = version_str
@@ -444,7 +459,10 @@ fn parse_update_output(cli_id: &str, output: &str) -> (Option<String>, Option<St
                     }
                 }
                 // "To update, run:\n  brew upgrade claude-code"
-                if trimmed.starts_with("brew ") || trimmed.starts_with("npm ") || trimmed.starts_with("pip") {
+                if trimmed.starts_with("brew ")
+                    || trimmed.starts_with("npm ")
+                    || trimmed.starts_with("pip")
+                {
                     update_command = Some(trimmed.to_string());
                 }
                 // "already up to date" / "is up to date"
@@ -476,10 +494,7 @@ fn parse_update_output(cli_id: &str, output: &str) -> (Option<String>, Option<St
 /// "Update available! 0.107.0 -> 0.118.0" → Some("0.118.0")
 fn extract_version_after_arrow(s: &str) -> Option<String> {
     // Split on → or -> and take everything after the last arrow
-    let after = s.split("→")
-        .last()
-        .or_else(|| s.split("->").last())?
-        .trim();
+    let after = s.split("→").last().or_else(|| s.split("->").last())?.trim();
 
     // Extract the first version-like token (digits and dots)
     let version: String = after

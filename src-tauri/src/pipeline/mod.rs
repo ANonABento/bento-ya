@@ -557,6 +557,18 @@ pub fn try_auto_advance(
         return Ok(None);
     }
 
+    if task.held_by_user {
+        emit_pipeline(
+            app,
+            "pipeline:auto_advance_deferred",
+            &task.id,
+            &current_column.id,
+            PipelineState::Idle,
+            Some("Auto-advance held while user is steering the task".to_string()),
+        );
+        return Ok(None);
+    }
+
     // Evaluate exit criteria
     let exit_met = evaluate_exit_criteria(conn, app, task, current_column)?;
     if !exit_met {
@@ -807,7 +819,9 @@ pub fn mark_complete_with_error(
                     let error_msg = error_detail.unwrap_or("Execution failed");
                     log::info!(
                         "[pipeline] task {} failed in column '{}' — routing to '{}' via on_failure",
-                        task_id, column.name, target_col.name
+                        task_id,
+                        column.name,
+                        target_col.name
                     );
                     let _ = db::update_task_pipeline_state(
                         conn,
@@ -1008,6 +1022,8 @@ mod tests {
             github_issue_commented: false,
             github_issue_pr_linked: false,
             archived_at: None,
+            last_user_input_at: None,
+            held_by_user: false,
             created_at: "2024-01-01T00:00:00Z".into(),
             updated_at: "2024-01-01T00:00:00Z".into(),
         }

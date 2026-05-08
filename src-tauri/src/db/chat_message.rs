@@ -28,7 +28,10 @@ pub fn insert_chat_message(
     let id = new_id();
     let ts = now();
     conn.execute(
-        &format!("INSERT INTO chat_messages ({}) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", CHAT_MESSAGE_COLUMNS),
+        &format!(
+            "INSERT INTO chat_messages ({}) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            CHAT_MESSAGE_COLUMNS
+        ),
         params![id, workspace_id, session_id, role, content, ts],
     )?;
     // Update session's updated_at
@@ -38,17 +41,25 @@ pub fn insert_chat_message(
 
 pub fn get_chat_message(conn: &Connection, id: &str) -> SqlResult<ChatMessage> {
     conn.query_row(
-        &format!("SELECT {} FROM chat_messages WHERE id = ?1", CHAT_MESSAGE_COLUMNS),
+        &format!(
+            "SELECT {} FROM chat_messages WHERE id = ?1",
+            CHAT_MESSAGE_COLUMNS
+        ),
         params![id],
         map_chat_message_row,
     )
 }
 
-pub fn list_chat_messages(conn: &Connection, session_id: &str, limit: Option<i64>) -> SqlResult<Vec<ChatMessage>> {
+pub fn list_chat_messages(
+    conn: &Connection,
+    session_id: &str,
+    limit: Option<i64>,
+) -> SqlResult<Vec<ChatMessage>> {
     let limit_val = limit.unwrap_or(100);
-    let mut stmt = conn.prepare(
-        &format!("SELECT {} FROM chat_messages WHERE session_id = ?1 ORDER BY created_at DESC LIMIT ?2", CHAT_MESSAGE_COLUMNS),
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM chat_messages WHERE session_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+        CHAT_MESSAGE_COLUMNS
+    ))?;
     let rows = stmt.query_map(params![session_id, limit_val], map_chat_message_row)?;
     let mut messages: Vec<ChatMessage> = rows.collect::<SqlResult<Vec<_>>>()?;
     // Reverse to get chronological order
@@ -57,6 +68,9 @@ pub fn list_chat_messages(conn: &Connection, session_id: &str, limit: Option<i64
 }
 
 pub fn delete_chat_messages(conn: &Connection, session_id: &str) -> SqlResult<()> {
-    conn.execute("DELETE FROM chat_messages WHERE session_id = ?1", params![session_id])?;
+    conn.execute(
+        "DELETE FROM chat_messages WHERE session_id = ?1",
+        params![session_id],
+    )?;
     Ok(())
 }

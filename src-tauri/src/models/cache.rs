@@ -7,7 +7,9 @@ use super::types::ModelsCache;
 
 fn cache_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
-    PathBuf::from(home).join(".bentoya").join("models-cache.json")
+    PathBuf::from(home)
+        .join(".bentoya")
+        .join("models-cache.json")
 }
 
 pub fn load_cache() -> ModelsCache {
@@ -33,8 +35,7 @@ pub fn save_cache(cache: &ModelsCache) -> Result<(), String> {
     let json = serde_json::to_string_pretty(cache)
         .map_err(|e| format!("Failed to serialize models cache: {}", e))?;
 
-    fs::write(&path, json)
-        .map_err(|e| format!("Failed to write models cache: {}", e))?;
+    fs::write(&path, json).map_err(|e| format!("Failed to write models cache: {}", e))?;
 
     Ok(())
 }

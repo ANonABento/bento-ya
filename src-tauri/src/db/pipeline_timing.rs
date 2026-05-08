@@ -89,10 +89,7 @@ pub fn complete_pipeline_timing(
 }
 
 /// Get all timing records for a specific task.
-pub fn get_pipeline_timing(
-    conn: &Connection,
-    task_id: &str,
-) -> SqlResult<Vec<PipelineTiming>> {
+pub fn get_pipeline_timing(conn: &Connection, task_id: &str) -> SqlResult<Vec<PipelineTiming>> {
     let mut stmt = conn.prepare(
         "SELECT id, task_id, column_id, column_name, entered_at, exited_at, duration_seconds, success, retry_count
          FROM pipeline_timing WHERE task_id = ?1 ORDER BY entered_at ASC",

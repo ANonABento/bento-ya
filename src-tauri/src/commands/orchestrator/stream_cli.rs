@@ -265,6 +265,10 @@ fn emit_orchestrator_cli_event(
         }
         ChatEvent::Complete
         | ChatEvent::SessionId(_)
+        | ChatEvent::TurnStarted
+        | ChatEvent::CommandStarted { .. }
+        | ChatEvent::CommandOutput { .. }
+        | ChatEvent::CommandCompleted { .. }
         | ChatEvent::RawOutput(_)
         | ChatEvent::Result(_)
         | ChatEvent::Unknown => {}

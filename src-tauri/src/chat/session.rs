@@ -18,6 +18,7 @@ use tokio::sync::mpsc;
 
 use super::events::ChatEvent;
 use super::pipe_transport::PipeTransport;
+use super::runtime::{ClaudeCliAdapter, CodexCliAdapter};
 use super::tmux_transport::TmuxTransport;
 use super::transport::{ChatTransport, SpawnConfig, TransportEvent};
 
@@ -120,12 +121,17 @@ impl UnifiedChatSession {
 
     /// Get scrollback buffer from the transport (base64-encoded, PTY only).
     pub fn scrollback(&self) -> String {
-        self.transport.as_ref().map(|t| t.scrollback()).unwrap_or_default()
+        self.transport
+            .as_ref()
+            .map(|t| t.scrollback())
+            .unwrap_or_default()
     }
 
     /// Create a new event receiver for an existing PTY session (for bridge reconnection).
     /// Returns None if session has no transport or transport doesn't support resubscription.
-    pub fn resubscribe(&self) -> Option<tokio::sync::broadcast::Receiver<super::transport::TransportEvent>> {
+    pub fn resubscribe(
+        &self,
+    ) -> Option<tokio::sync::broadcast::Receiver<super::transport::TransportEvent>> {
         self.transport.as_ref().and_then(|t| t.resubscribe())
     }
 
@@ -317,29 +323,14 @@ impl UnifiedChatSession {
     // -- Internal helpers --
 
     fn build_pipe_spawn_config(&self, message: &str) -> SpawnConfig {
-        let mut args = vec![
-            "--print".to_string(),
-            "--output-format".to_string(),
-            "stream-json".to_string(),
-            "--verbose".to_string(),
-            "--model".to_string(),
-            self.config.model.clone(),
-            "--system-prompt".to_string(),
-            self.config.system_prompt.clone(),
-        ];
-
-        if let Some(ref effort) = self.config.effort_level {
-            args.push("--effort".to_string());
-            args.push(effort.clone());
-        }
-
-        if let Some(ref id) = self.resume_id {
-            args.push("--resume".to_string());
-            args.push(id.clone());
-        }
-
-        // Message as last positional argument
-        args.push(message.to_string());
+        let args = build_pipe_args_for_cli(
+            &self.config.cli_path,
+            &self.config.model,
+            &self.config.system_prompt,
+            self.config.effort_level.as_deref(),
+            self.resume_id.as_deref(),
+            message,
+        );
 
         SpawnConfig {
             command: self.config.cli_path.clone(),
@@ -349,6 +340,27 @@ impl UnifiedChatSession {
             cols: 80,
             rows: 24,
         }
+    }
+}
+
+fn build_pipe_args_for_cli(
+    cli_path: &str,
+    model: &str,
+    system_prompt: &str,
+    effort_level: Option<&str>,
+    resume_id: Option<&str>,
+    message: &str,
+) -> Vec<String> {
+    let cli_name = cli_path.rsplit('/').next().unwrap_or(cli_path);
+    match cli_name {
+        "codex" => CodexCliAdapter::managed_turn_args(model, resume_id, message),
+        _ => ClaudeCliAdapter::managed_turn_args(
+            model,
+            system_prompt,
+            effort_level,
+            resume_id,
+            message,
+        ),
     }
 }
 
@@ -416,6 +428,40 @@ mod tests {
         let config = session.build_pipe_spawn_config("test");
         assert!(config.args.contains(&"--effort".to_string()));
         assert!(config.args.contains(&"high".to_string()));
+    }
+
+    #[test]
+    fn test_build_pipe_spawn_config_for_codex_json() {
+        let mut cfg = test_config();
+        cfg.cli_path = "codex".to_string();
+        cfg.model = "gpt-5.4".to_string();
+        let session = UnifiedChatSession::new(cfg, TransportType::Pipe);
+
+        let config = session.build_pipe_spawn_config("hello");
+        assert_eq!(config.args[0], "exec");
+        assert!(config.args.contains(&"--json".to_string()));
+        assert!(config.args.contains(&"--skip-git-repo-check".to_string()));
+        assert!(config
+            .args
+            .contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
+        assert!(config.args.contains(&"--model".to_string()));
+        assert!(config.args.contains(&"gpt-5.4".to_string()));
+        assert_eq!(config.args.last().unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_build_pipe_spawn_config_for_codex_resume_json() {
+        let mut cfg = test_config();
+        cfg.cli_path = "/usr/local/bin/codex".to_string();
+        cfg.model = "gpt-5.4".to_string();
+        let mut session = UnifiedChatSession::new(cfg, TransportType::Pipe);
+        session.set_resume_id(Some("thread-123".to_string()));
+
+        let config = session.build_pipe_spawn_config("continue");
+        assert_eq!(&config.args[0..2], ["exec", "resume"]);
+        assert!(config.args.contains(&"--json".to_string()));
+        assert!(config.args.contains(&"thread-123".to_string()));
+        assert_eq!(config.args.last().unwrap(), "continue");
     }
 
     #[test]

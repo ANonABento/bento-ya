@@ -35,18 +35,35 @@ struct ApiResponse {
 }
 
 fn ok_response(data: serde_json::Value) -> impl IntoResponse {
-    Json(ApiResponse { success: true, data: Some(data), error: None })
+    Json(ApiResponse {
+        success: true,
+        data: Some(data),
+        error: None,
+    })
 }
 
 fn err_response(status: StatusCode, msg: String) -> impl IntoResponse {
-    (status, Json(ApiResponse { success: false, data: None, error: Some(msg) }))
+    (
+        status,
+        Json(ApiResponse {
+            success: false,
+            data: None,
+            error: Some(msg),
+        }),
+    )
 }
 
 macro_rules! get_db {
     ($api:expr) => {
         match $api.db.lock() {
             Ok(c) => c,
-            Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB lock failed: {}", e)).into_response(),
+            Err(e) => {
+                return err_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("DB lock failed: {}", e),
+                )
+                .into_response()
+            }
         }
     };
 }
@@ -70,7 +87,8 @@ async fn move_task(
         let conn = get_db!(api);
 
         let task_before = match db::get_task(&conn, &req.id) {
-            Ok(t) => t, Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
+            Ok(t) => t,
+            Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
         };
 
         let old_column_id = task_before.column_id.clone();
@@ -90,7 +108,11 @@ async fn move_task(
         }
 
         let task = match db::get_task(&conn, &req.id) {
-            Ok(t) => t, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+            Ok(t) => t,
+            Err(e) => {
+                return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                    .into_response()
+            }
         };
 
         (task, task_before, old_column_id, column_changed)
@@ -105,21 +127,33 @@ async fn move_task(
         // Cancel running agent if task is leaving its column AND target has no spawn_cli trigger.
         // If target also has a trigger, the new trigger replaces the old agent — no need to cancel.
         if task_before.agent_status.as_deref() == Some("running") {
-            let target_has_trigger = target_column.as_ref()
+            let target_has_trigger = target_column
+                .as_ref()
                 .and_then(|c| c.triggers.as_deref())
                 .map(|t| t.contains("spawn_cli"))
                 .unwrap_or(false);
 
             if !target_has_trigger {
-                eprintln!("[api] Task {} leaving to non-trigger column — cancelling agent", req.id);
+                eprintln!(
+                    "[api] Task {} leaving to non-trigger column — cancelling agent",
+                    req.id
+                );
                 crate::chat::tmux_transport::cancel_task_agent(
-                    &conn, &req.id, task_before.agent_session_id.as_deref(),
+                    &conn,
+                    &req.id,
+                    task_before.agent_session_id.as_deref(),
                 );
             }
         }
 
         if let (Some(ref old_col), Some(ref tgt_col)) = (&old_column, &target_column) {
-            let _ = pipeline::triggers::fire_on_exit(&conn, &api.app, &task_before, old_col, Some(tgt_col));
+            let _ = pipeline::triggers::fire_on_exit(
+                &conn,
+                &api.app,
+                &task_before,
+                old_col,
+                Some(tgt_col),
+            );
         }
 
         pipeline::emit_tasks_changed(&api.app, &task.workspace_id, "api_task_moved");
@@ -150,8 +184,17 @@ async fn create_task(
 ) -> impl IntoResponse {
     let conn = get_db!(api);
 
-    let task = match db::insert_task(&conn, &req.workspace_id, &req.column_id, req.title.trim(), req.description.as_deref()) {
-        Ok(t) => t, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    let task = match db::insert_task(
+        &conn,
+        &req.workspace_id,
+        &req.column_id,
+        req.title.trim(),
+        req.description.as_deref(),
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     };
 
     if let Some(ref prompt) = req.trigger_prompt {
@@ -187,7 +230,8 @@ async fn delete_task(
     let task = {
         let conn = get_db!(api);
         match db::get_task(&conn, &req.id) {
-            Ok(t) => t, Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
+            Ok(t) => t,
+            Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
         }
     };
 
@@ -199,6 +243,8 @@ async fn delete_task(
         }
         drop(conn);
     }
+
+    let _ = crate::chat::tmux_transport::kill_session(&req.id);
 
     {
         let conn = get_db!(api);
@@ -216,14 +262,23 @@ async fn approve_task(
     let conn = get_db!(api);
 
     let task = match db::update_task_review_status(&conn, &req.id, Some("approved")) {
-        Ok(t) => t, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(t) => t,
+        Err(e) => {
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     };
 
     let column = match db::get_column(&conn, &task.column_id) {
-        Ok(c) => c, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(c) => c,
+        Err(e) => {
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     };
 
-    if let Some(advanced) = pipeline::try_auto_advance(&conn, &api.app, &task, &column).ok().flatten() {
+    if let Some(advanced) = pipeline::try_auto_advance(&conn, &api.app, &task, &column)
+        .ok()
+        .flatten()
+    {
         return ok_response(serde_json::to_value(&advanced).unwrap_or_default()).into_response();
     }
 
@@ -237,7 +292,10 @@ async fn reject_task(
     let conn = get_db!(api);
 
     let task = match db::update_task_review_status(&conn, &req.id, Some("rejected")) {
-        Ok(t) => t, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(t) => t,
+        Err(e) => {
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     };
 
     ok_response(serde_json::to_value(&task).unwrap_or_default()).into_response()
@@ -255,17 +313,30 @@ async fn retry_task(
     let conn = get_db!(api);
 
     let task = match db::get_task(&conn, &req.task_id) {
-        Ok(t) => t, Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
+        Ok(t) => t,
+        Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
     };
 
     let column = match db::get_column(&conn, &task.column_id) {
-        Ok(c) => c, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(c) => c,
+        Err(e) => {
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     };
 
-    let _ = db::update_task_pipeline_state(&conn, &req.task_id, pipeline::PipelineState::Idle.as_str(), None, None);
+    let _ = db::update_task_pipeline_state(
+        &conn,
+        &req.task_id,
+        pipeline::PipelineState::Idle.as_str(),
+        None,
+        None,
+    );
 
     let task = match db::get_task(&conn, &req.task_id) {
-        Ok(t) => t, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(t) => t,
+        Err(e) => {
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     };
 
     match pipeline::fire_trigger(&conn, &api.app, &task, &column) {
@@ -281,17 +352,28 @@ async fn retry_from_start(
     let conn = get_db!(api);
 
     let task = match db::get_task(&conn, &req.task_id) {
-        Ok(t) => t, Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
+        Ok(t) => t,
+        Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
     };
 
     let old_column_id = task.column_id.clone();
 
     // Find first column
     let columns = match db::list_columns(&conn, &task.workspace_id) {
-        Ok(c) => c, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(c) => c,
+        Err(e) => {
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     };
     let first_column = match columns.into_iter().next() {
-        Some(c) => c, None => return err_response(StatusCode::INTERNAL_SERVER_ERROR, "No columns found".to_string()).into_response(),
+        Some(c) => c,
+        None => {
+            return err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "No columns found".to_string(),
+            )
+            .into_response()
+        }
     };
 
     let column_changed = old_column_id != first_column.id;
@@ -310,14 +392,23 @@ async fn retry_from_start(
     // Fire on_exit for old column
     if column_changed {
         if let Ok(old_col) = db::get_column(&conn, &old_column_id) {
-            let _ = pipeline::triggers::fire_on_exit(&conn, &api.app, &task, &old_col, Some(&first_column));
+            let _ = pipeline::triggers::fire_on_exit(
+                &conn,
+                &api.app,
+                &task,
+                &old_col,
+                Some(&first_column),
+            );
         }
     }
 
     pipeline::emit_tasks_changed(&api.app, &task.workspace_id, "api_retry_from_start");
 
     let task = match db::get_task(&conn, &req.task_id) {
-        Ok(t) => t, Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(t) => t,
+        Err(e) => {
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     };
 
     match pipeline::fire_trigger(&conn, &api.app, &task, &first_column) {
@@ -327,7 +418,11 @@ async fn retry_from_start(
 }
 
 async fn health() -> impl IntoResponse {
-    Json(ApiResponse { success: true, data: Some(serde_json::json!({"status": "ok"})), error: None })
+    Json(ApiResponse {
+        success: true,
+        data: Some(serde_json::json!({"status": "ok"})),
+        error: None,
+    })
 }
 
 async fn get_settings() -> impl IntoResponse {
@@ -347,15 +442,17 @@ async fn update_settings(Json(updates): Json<serde_json::Value>) -> impl IntoRes
 // ─── Server lifecycle ───────────────────────────────────────────────────────
 
 fn port_file_path() -> std::path::PathBuf {
-    dirs::home_dir().unwrap_or_default().join(".bentoya").join("api.port")
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".bentoya")
+        .join("api.port")
 }
 
 /// Start the HTTP API server on a random port. Writes port to ~/.bentoya/api.port.
 pub fn start(app: AppHandle) {
     // Open a separate DB connection for the API server (WAL allows concurrent access)
     let db = Arc::new(std::sync::Mutex::new(
-        rusqlite::Connection::open(crate::db::db_path())
-            .expect("Failed to open DB for API server"),
+        rusqlite::Connection::open(crate::db::db_path()).expect("Failed to open DB for API server"),
     ));
 
     // Set WAL mode on the API's connection

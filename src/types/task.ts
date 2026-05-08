@@ -73,6 +73,8 @@ export type Task = {
   blocked: boolean                 // Whether task is blocked by dependencies
   worktreePath: string | null      // Per-task git worktree path (absolute)
   archivedAt: string | null        // Set when archived; null = active task
+  lastUserInputAt: number | null    // Unix ms when user last steered the task session
+  heldByUser: boolean               // Explicit auto-advance hold gate
   labels: Label[]                  // Workspace-scoped labels (loaded via JOIN)
   position: number
   createdAt: string

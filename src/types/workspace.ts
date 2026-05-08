@@ -3,6 +3,8 @@ export type WorkspaceConfig = {
   defaultAgentCli?: string
   maxConcurrentAgents?: number
   autoAdvance?: boolean
+  /** Keep per-task tmux agent sessions alive across triggers, panel reopen, and app restart. Default: true. */
+  persistentAgentLifecycle?: boolean
   /** Auto-archive tasks that have sat in Done past the grace period. Default: true. */
   autoArchiveDone?: boolean
   /** How long a task must sit in Done before auto-archive (minutes). Default: 5. */

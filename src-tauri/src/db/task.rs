@@ -2,11 +2,11 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use std::collections::HashMap;
 
 use super::models::Task;
-use super::{new_id, now};
+use super::{new_id, now, now_millis};
 
-/// Shared SELECT columns for tasks (52 fields).
+/// Shared SELECT columns for tasks (54 fields).
 /// Order is load-bearing: `map_task_row` reads by index matching this list.
-const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked, archived_at, estimated_hours, actual_hours";
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked, archived_at, estimated_hours, actual_hours, last_user_input_at, held_by_user";
 
 /// Generate a sortable task batch identifier for staging PR workflows.
 pub fn generate_batch_id() -> String {
@@ -73,6 +73,8 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         archived_at: row.get(49)?,
         estimated_hours: row.get(50)?,
         actual_hours: row.get::<_, Option<f64>>(51)?.unwrap_or(0.0),
+        last_user_input_at: row.get(52)?,
+        held_by_user: row.get::<_, Option<i64>>(53)?.unwrap_or(0) != 0,
         labels: Vec::new(),
     })
 }
@@ -334,6 +336,27 @@ pub fn update_task_time_tracking(
 pub fn delete_task(conn: &Connection, id: &str) -> SqlResult<()> {
     conn.execute("DELETE FROM tasks WHERE id = ?1", params![id])?;
     Ok(())
+}
+
+/// Stamp user-originated input and hold auto-advance for this task.
+pub fn stamp_task_user_input(conn: &Connection, id: &str) -> SqlResult<Task> {
+    let ts = now();
+    let input_at = now_millis();
+    conn.execute(
+        "UPDATE tasks SET last_user_input_at = ?1, held_by_user = 1, updated_at = ?2 WHERE id = ?3",
+        params![input_at, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Toggle the explicit user hold gate for auto-advance.
+pub fn set_task_held_by_user(conn: &Connection, id: &str, held: bool) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET held_by_user = ?1, updated_at = ?2 WHERE id = ?3",
+        params![if held { 1 } else { 0 }, ts, id],
+    )?;
+    get_task(conn, id)
 }
 
 /// List tasks by column ID
@@ -662,4 +685,47 @@ pub fn unarchive_task(conn: &Connection, id: &str) -> SqlResult<Task> {
         params![ts, id],
     )?;
     get_task(conn, id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn seed_task(conn: &Connection) -> Task {
+        let workspace = crate::db::insert_workspace(conn, "WS", "/tmp/ws").unwrap();
+        let column = crate::db::insert_column(conn, &workspace.id, "Backlog", 0).unwrap();
+        insert_task(conn, &workspace.id, &column.id, "Task", None).unwrap()
+    }
+
+    #[test]
+    fn inserted_task_defaults_to_no_user_hold() {
+        let conn = crate::db::init_test().unwrap();
+        let task = seed_task(&conn);
+
+        assert_eq!(task.last_user_input_at, None);
+        assert!(!task.held_by_user);
+    }
+
+    #[test]
+    fn stamp_task_user_input_records_activity_and_holds_auto_advance() {
+        let conn = crate::db::init_test().unwrap();
+        let task = seed_task(&conn);
+
+        let stamped = stamp_task_user_input(&conn, &task.id).unwrap();
+
+        assert!(stamped.last_user_input_at.is_some());
+        assert!(stamped.held_by_user);
+    }
+
+    #[test]
+    fn set_task_held_by_user_toggles_gate_without_clearing_activity_stamp() {
+        let conn = crate::db::init_test().unwrap();
+        let task = seed_task(&conn);
+        let stamped = stamp_task_user_input(&conn, &task.id).unwrap();
+
+        let released = set_task_held_by_user(&conn, &task.id, false).unwrap();
+
+        assert_eq!(released.last_user_input_at, stamped.last_user_input_at);
+        assert!(!released.held_by_user);
+    }
 }

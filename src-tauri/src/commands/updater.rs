@@ -28,8 +28,7 @@ pub async fn check_for_update(app: AppHandle) -> Result<Option<UpdateInfo>, AppE
 pub async fn install_update(app: AppHandle) -> Result<(), AppError> {
     let updater = app.updater_builder().build()?;
     let update = updater.check().await?;
-    let update =
-        update.ok_or_else(|| AppError::CommandError("No update available".to_string()))?;
+    let update = update.ok_or_else(|| AppError::CommandError("No update available".to_string()))?;
 
     update.download_and_install(|_, _| {}, || {}).await?;
 

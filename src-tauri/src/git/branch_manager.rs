@@ -102,8 +102,7 @@ pub fn fetch_and_fastforward_base(repo_path: &str, base_branch: &str) {
             // try `merge --ff-only` in-place instead. (Git's exact wording
             // varies — "refusing to fetch into branch ... checked out".)
             let stderr_lc = stderr.to_lowercase();
-            if stderr_lc.contains("refusing to fetch into")
-                || stderr_lc.contains("checked out at")
+            if stderr_lc.contains("refusing to fetch into") || stderr_lc.contains("checked out at")
             {
                 let merge = Command::new("git")
                     .args(["merge", "--ff-only", &format!("origin/{}", base_branch)])
@@ -914,10 +913,8 @@ mod tests {
     fn test_fetch_and_fastforward_base_no_remote_is_safe() {
         // Repo with no `origin` remote — fetch_and_fastforward_base must
         // log + return without panicking.
-        let tmp = std::env::temp_dir().join(format!(
-            "bentoya-fetch-noremote-{}",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("bentoya-fetch-noremote-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         init_test_repo(&tmp);

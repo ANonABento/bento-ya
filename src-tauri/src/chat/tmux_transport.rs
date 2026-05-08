@@ -25,9 +25,20 @@ use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 
 use super::events::{base64_encode, ChatEvent};
-use super::transport::{
-    ChatTransport, SpawnConfig, TransportEvent, OUTPUT_BUFFER_INTERVAL_MS,
-};
+use super::transport::{ChatTransport, SpawnConfig, TransportEvent, OUTPUT_BUFFER_INTERVAL_MS};
+
+#[cfg(test)]
+static TMUX_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[cfg(test)]
+pub(crate) async fn tmux_test_lock_async() -> tokio::sync::MutexGuard<'static, ()> {
+    TMUX_TEST_LOCK.lock().await
+}
+
+#[cfg(test)]
+pub(crate) fn tmux_test_lock_blocking() -> tokio::sync::MutexGuard<'static, ()> {
+    TMUX_TEST_LOCK.blocking_lock()
+}
 
 /// Prefix for tmux session names to avoid collision with user sessions.
 const SESSION_PREFIX: &str = "bentoya_";
@@ -67,7 +78,10 @@ pub fn ensure_tmux_server() -> Result<(), String> {
                 .output()
                 .map_err(|e| format!("tmux server could not be started: {}", e))?;
             if !start.status.success() {
-                return Err(format!("tmux auto-start failed: {}", String::from_utf8_lossy(&start.stderr)));
+                return Err(format!(
+                    "tmux auto-start failed: {}",
+                    String::from_utf8_lossy(&start.stderr)
+                ));
             }
             eprintln!("[tmux] Server auto-started successfully");
         } else {
@@ -121,10 +135,6 @@ pub fn has_session(task_id: &str) -> bool {
 
 /// Kill a tmux session by task id.
 pub fn kill_session(task_id: &str) -> Result<(), String> {
-    // Log the caller's stack context
-    eprintln!("[tmux] kill_session called for task {} (session: {})", task_id, session_name(task_id));
-    // Capture backtrace for debugging
-    eprintln!("[tmux] kill_session backtrace: {:?}", std::backtrace::Backtrace::force_capture());
     let output = Command::new("tmux")
         .args(["kill-session", "-t", &session_name(task_id)])
         .output()
@@ -136,6 +146,59 @@ pub fn kill_session(task_id: &str) -> Result<(), String> {
             return Err(format!("tmux kill-session failed: {}", stderr));
         }
     }
+    Ok(())
+}
+
+/// Capture scrollback for a task's tmux session as raw text.
+pub fn capture_scrollback_text(task_id: &str) -> String {
+    Command::new("tmux")
+        .args([
+            "capture-pane",
+            "-t",
+            &session_name(task_id),
+            "-p",
+            "-e",
+            "-J",
+            "-S",
+            "-",
+        ])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default()
+}
+
+/// Capture scrollback for a task's tmux session as base64-encoded text.
+pub fn capture_scrollback(task_id: &str) -> String {
+    base64_encode(capture_scrollback_text(task_id).as_bytes())
+}
+
+/// Send a literal line of user input to the task's tmux pane.
+pub fn send_text_line(task_id: &str, text: &str) -> Result<(), String> {
+    let name = session_name(task_id);
+    let output = Command::new("tmux")
+        .args(["send-keys", "-t", &name, "-l", text])
+        .output()
+        .map_err(|e| format!("Failed to send text to tmux: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "tmux send-keys failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let output = Command::new("tmux")
+        .args(["send-keys", "-t", &name, "Enter"])
+        .output()
+        .map_err(|e| format!("Failed to send Enter to tmux: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "tmux send-keys Enter failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
     Ok(())
 }
 
@@ -186,22 +249,7 @@ impl TmuxTransport {
 
     /// Get scrollback from tmux via capture-pane (preserves escape sequences).
     fn capture_scrollback(&self) -> String {
-        Command::new("tmux")
-            .args([
-                "capture-pane",
-                "-t", &session_name(&self.task_id),
-                "-p",   // print to stdout
-                "-e",   // preserve escape sequences
-                "-S", "-", // from start of history
-            ])
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| {
-                let text = String::from_utf8_lossy(&o.stdout);
-                base64_encode(text.as_bytes())
-            })
-            .unwrap_or_default()
+        capture_scrollback(&self.task_id)
     }
 
     /// Create the tmux session (detached).
@@ -287,7 +335,10 @@ impl TmuxTransport {
             .ok()
             .and_then(|o| {
                 if o.status.success() {
-                    String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().ok()
+                    String::from_utf8_lossy(&o.stdout)
+                        .trim()
+                        .parse::<u32>()
+                        .ok()
                 } else {
                     None
                 }
@@ -412,7 +463,6 @@ impl TmuxTransport {
                     }
                 }
             }
-
         });
 
         Ok(event_rx)
@@ -424,7 +474,10 @@ impl ChatTransport for TmuxTransport {
         if has_session(&self.task_id) {
             // Session already exists — reattach instead of killing.
             // This preserves running agents across app restarts.
-            eprintln!("[tmux] Reattaching to existing session: {}", session_name(&self.task_id));
+            eprintln!(
+                "[tmux] Reattaching to existing session: {}",
+                session_name(&self.task_id)
+            );
             self.owns_session = true; // Take ownership since we're managing it now
             return self.attach_in_pty();
         }
@@ -453,9 +506,12 @@ impl ChatTransport for TmuxTransport {
         let output = Command::new("tmux")
             .args([
                 "resize-window",
-                "-t", &session_name(&self.task_id),
-                "-x", &cols.to_string(),
-                "-y", &rows.to_string(),
+                "-t",
+                &session_name(&self.task_id),
+                "-x",
+                &cols.to_string(),
+                "-y",
+                &rows.to_string(),
             ])
             .output()
             .map_err(|e| format!("Failed to resize tmux: {}", e))?;
@@ -477,18 +533,29 @@ impl ChatTransport for TmuxTransport {
     }
 
     fn kill(&mut self) -> Result<(), String> {
-        eprintln!("[tmux-transport] kill() called for task {} (owns_session={})", self.task_id, self.owns_session);
+        eprintln!(
+            "[tmux-transport] kill() called for task {} (owns_session={})",
+            self.task_id, self.owns_session
+        );
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.try_send(());
         }
         // Kill the attach process
         if let Some(pid) = self.attach_pid {
-            eprintln!("[tmux-transport] Killing attach PID {} for task {}", pid, self.task_id);
-            unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM); }
+            eprintln!(
+                "[tmux-transport] Killing attach PID {} for task {}",
+                pid, self.task_id
+            );
+            unsafe {
+                libc::kill(pid as libc::pid_t, libc::SIGTERM);
+            }
         }
         // Kill the tmux session if we own it
         if self.owns_session {
-            eprintln!("[tmux-transport] Killing owned session for task {}", self.task_id);
+            eprintln!(
+                "[tmux-transport] Killing owned session for task {}",
+                self.task_id
+            );
             let _ = kill_session(&self.task_id);
         }
         self.pty = None;
@@ -538,11 +605,24 @@ pub fn cancel_agent(task_id: &str) {
 
 /// Cancel a running agent and update DB status.
 /// Sends Ctrl+C to tmux, sets agent_status=cancelled, updates agent_session.
-pub fn cancel_task_agent(conn: &rusqlite::Connection, task_id: &str, agent_session_id: Option<&str>) {
+pub fn cancel_task_agent(
+    conn: &rusqlite::Connection,
+    task_id: &str,
+    agent_session_id: Option<&str>,
+) {
     cancel_agent(task_id);
     let _ = crate::db::update_task_agent_status(conn, task_id, Some("cancelled"), None);
     if let Some(sid) = agent_session_id {
-        let _ = crate::db::update_agent_session(conn, sid, None, Some("cancelled"), None, None, None, None);
+        let _ = crate::db::update_agent_session(
+            conn,
+            sid,
+            None,
+            Some("cancelled"),
+            None,
+            None,
+            None,
+            None,
+        );
     }
 }
 
@@ -572,6 +652,30 @@ pub fn cleanup_orphaned_sessions(active_task_ids: &[&str]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::thread;
+    use std::time::Duration;
+
+    fn tmux_available() -> bool {
+        Command::new("tmux")
+            .arg("-V")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    fn create_shell_session(task_id: &str) {
+        ensure_tmux_server().expect("tmux server");
+        let _ = kill_session(task_id);
+        let output = Command::new("tmux")
+            .args(["new-session", "-d", "-s", &session_name(task_id), "/bin/sh"])
+            .output()
+            .expect("create tmux session");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     #[test]
     fn test_session_name() {
@@ -580,7 +684,10 @@ mod tests {
 
     #[test]
     fn test_session_name_to_task_id() {
-        assert_eq!(session_name_to_task_id("bentoya_task-123"), Some("task-123"));
+        assert_eq!(
+            session_name_to_task_id("bentoya_task-123"),
+            Some("task-123")
+        );
         assert_eq!(session_name_to_task_id("other_session"), None);
     }
 
@@ -595,6 +702,78 @@ mod tests {
     #[test]
     fn test_has_session_nonexistent() {
         assert!(!has_session("nonexistent-task-id-12345"));
+    }
+
+    #[test]
+    fn send_text_line_writes_to_existing_tmux_session() {
+        if !tmux_available() {
+            eprintln!("tmux not available, skipping");
+            return;
+        }
+        let _tmux_guard = tmux_test_lock_blocking();
+
+        let task_id = format!("test-send-line-{}", uuid::Uuid::new_v4());
+        create_shell_session(&task_id);
+
+        send_text_line(&task_id, "echo BENTOYA_SEND_TEXT_LINE_MARK").expect("send text line");
+        thread::sleep(Duration::from_millis(250));
+
+        let output = Command::new("tmux")
+            .args([
+                "capture-pane",
+                "-t",
+                &session_name(&task_id),
+                "-p",
+                "-S",
+                "-",
+            ])
+            .output()
+            .expect("capture pane");
+        let decoded = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            decoded.contains("BENTOYA_SEND_TEXT_LINE_MARK"),
+            "{}",
+            decoded
+        );
+
+        let _ = kill_session(&task_id);
+    }
+
+    #[test]
+    fn cancel_agent_interrupts_without_killing_session() {
+        if !tmux_available() {
+            eprintln!("tmux not available, skipping");
+            return;
+        }
+        let _tmux_guard = tmux_test_lock_blocking();
+
+        let task_id = format!("test-cancel-preserve-{}", uuid::Uuid::new_v4());
+        create_shell_session(&task_id);
+
+        send_text_line(&task_id, "sleep 30").expect("start sleep");
+        thread::sleep(Duration::from_millis(250));
+        cancel_agent(&task_id);
+        thread::sleep(Duration::from_millis(250));
+
+        assert!(has_session(&task_id));
+        let _ = kill_session(&task_id);
+    }
+
+    #[test]
+    fn kill_session_removes_task_tmux_session() {
+        if !tmux_available() {
+            eprintln!("tmux not available, skipping");
+            return;
+        }
+        let _tmux_guard = tmux_test_lock_blocking();
+
+        let task_id = format!("test-kill-cleanup-{}", uuid::Uuid::new_v4());
+        create_shell_session(&task_id);
+        assert!(has_session(&task_id));
+
+        kill_session(&task_id).expect("kill session");
+
+        assert!(!has_session(&task_id));
     }
 
     #[test]

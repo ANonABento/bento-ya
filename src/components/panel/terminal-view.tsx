@@ -27,10 +27,11 @@ type TerminalViewProps = {
 
 export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const terminalHostRef = useRef<HTMLDivElement>(null)
   const [hasOutput, setHasOutput] = useState(false)
 
   useEffect(() => {
-    const container = containerRef.current
+    const container = terminalHostRef.current
     if (!container) return
 
     // Reset empty-state flag when (re)mounting for a new task
@@ -42,14 +43,16 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
     const term = new Terminal({
       theme: getXtermTheme(getTheme()),
       fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", Menlo, monospace',
-      fontSize: 13,
-      lineHeight: 1.3,
+      fontSize: 12,
+      lineHeight: 1.25,
       cursorBlink: true,
       cursorStyle: 'bar',
       scrollback: 10000,
+      convertEol: false,
       allowProposedApi: true,
       macOptionIsMeta: true,
       macOptionClickForcesSelection: true,
+      scrollOnUserInput: true,
     })
 
     // Addons
@@ -65,6 +68,31 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
     // Open terminal into DOM
     term.open(container)
 
+    const fitAndResize = () => {
+      if (disposed) return
+      try {
+        fitAddon.fit()
+        if (term.cols > 0 && term.rows > 0) {
+          void resizePty(taskId, term.cols, term.rows)
+        }
+      } catch {
+        // fit() can throw if container has zero dimensions
+      }
+    }
+
+    const scheduleFit = (delay = 0) => {
+      const run = () => {
+        requestAnimationFrame(() => {
+          if (!disposed) fitAndResize()
+        })
+      }
+      if (delay <= 0) {
+        run()
+        return undefined
+      }
+      return window.setTimeout(run, delay)
+    }
+
     // Try WebGL renderer (falls back to canvas if unavailable)
     try {
       const webgl = new WebglAddon()
@@ -74,7 +102,13 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
       // WebGL not available, canvas renderer is fine
     }
 
-    fitAddon.fit()
+    fitAndResize()
+    const fitTimers = [
+      scheduleFit(50),
+      scheduleFit(250),
+      scheduleFit(750),
+      scheduleFit(1500),
+    ].filter((timer): timer is number => typeof timer === 'number')
 
     // User input → PTY
     const dataDisposable = term.onData((data) => {
@@ -132,7 +166,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
         // Wait for the container to have real dimensions (panel animation)
         requestAnimationFrame(() => {
           if (disposed) { resolve(); return }
-          try { fitAddon.fit() } catch { /* ignore */ }
+          fitAndResize()
           // Ensure minimum sensible dimensions
           const cols = Math.max(term.cols, 80)
           const rows = Math.max(term.rows, 24)
@@ -155,6 +189,8 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
                   }
                   term.write(bytes)
                   if (bytes.length > 0) setHasOutput(true)
+                  scheduleFit()
+                  scheduleFit(150)
                 } catch { /* ignore decode errors */ }
               }
               resolve()
@@ -172,17 +208,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
 
     // Observe container resize
     const resizeObserver = new ResizeObserver(() => {
-      requestAnimationFrame(() => {
-        if (disposed) return
-        try {
-          fitAddon.fit()
-          if (term.cols > 0 && term.rows > 0) {
-            void resizePty(taskId, term.cols, term.rows)
-          }
-        } catch {
-          // fit() can throw if container has zero dimensions
-        }
-      })
+      scheduleFit()
     })
     resizeObserver.observe(container)
 
@@ -199,6 +225,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
     // Cleanup
     return () => {
       disposed = true
+      fitTimers.forEach((timer) => { window.clearTimeout(timer) })
       dataDisposable.dispose()
       binaryDisposable.dispose()
       resizeObserver.disconnect()
@@ -211,12 +238,10 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
   }, [taskId, workingDir])
 
   return (
-    <div className="relative flex h-full flex-col">
-      <div
-        ref={containerRef}
-        className="min-h-0 flex-1"
-        style={{ padding: '4px 0 4px 4px' }}
-      />
+    <div data-testid="agent-terminal-view" className="relative flex h-full min-h-0 flex-col overflow-hidden bg-bg">
+      <div ref={containerRef} className="min-h-0 flex-1 overflow-hidden" style={{ padding: '4px 8px' }}>
+        <div ref={terminalHostRef} data-testid="agent-terminal-host" className="agent-terminal-host h-full min-h-0 w-full overflow-hidden" />
+      </div>
       {!hasOutput && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-bg/80 backdrop-blur-sm">
           <div className="pointer-events-auto max-w-sm">

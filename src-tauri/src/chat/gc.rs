@@ -174,6 +174,8 @@ pub fn start_gc() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
+    use std::thread;
 
     #[test]
     fn test_collect_no_sessions() {
@@ -181,5 +183,41 @@ mod tests {
         // (can't fully test without tmux, but verify it doesn't crash)
         let conn = Connection::open_in_memory().unwrap();
         collect(&conn); // No-op since no tmux sessions
+    }
+
+    #[test]
+    fn collect_kills_orphaned_tmux_session() {
+        if Command::new("tmux")
+            .arg("-V")
+            .output()
+            .map(|o| !o.status.success())
+            .unwrap_or(true)
+        {
+            eprintln!("tmux not available, skipping");
+            return;
+        }
+        let _tmux_guard = tmux_transport::tmux_test_lock_blocking();
+
+        let conn = db::init_test().unwrap();
+        let task_id = format!("test-gc-orphan-{}", uuid::Uuid::new_v4());
+        let session_name = tmux_transport::session_name(&task_id);
+        tmux_transport::ensure_tmux_server().expect("tmux server");
+        let _ = tmux_transport::kill_session(&task_id);
+
+        let output = Command::new("tmux")
+            .args(["new-session", "-d", "-s", &session_name, "/bin/sh"])
+            .output()
+            .expect("create orphan session");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(tmux_transport::has_session(&task_id));
+
+        collect(&conn);
+        thread::sleep(Duration::from_millis(150));
+
+        assert!(!tmux_transport::has_session(&task_id));
     }
 }

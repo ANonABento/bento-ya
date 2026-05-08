@@ -3,7 +3,8 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use super::models::TaskTemplate;
 use super::now;
 
-const TASK_TEMPLATE_COLUMNS: &str = "id, workspace_id, title, description, labels, model, created_at, updated_at";
+const TASK_TEMPLATE_COLUMNS: &str =
+    "id, workspace_id, title, description, labels, model, created_at, updated_at";
 
 fn map_task_template_row(row: &rusqlite::Row) -> rusqlite::Result<TaskTemplate> {
     Ok(TaskTemplate {
@@ -37,7 +38,10 @@ pub fn insert_task_template(
 
 pub fn get_task_template(conn: &Connection, id: &str) -> SqlResult<TaskTemplate> {
     conn.query_row(
-        &format!("SELECT {} FROM task_templates WHERE id = ?1", TASK_TEMPLATE_COLUMNS),
+        &format!(
+            "SELECT {} FROM task_templates WHERE id = ?1",
+            TASK_TEMPLATE_COLUMNS
+        ),
         params![id],
         map_task_template_row,
     )

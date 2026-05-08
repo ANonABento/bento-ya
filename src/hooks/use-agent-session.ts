@@ -153,7 +153,7 @@ export function useAgentSession({
         })
 
         // Invoke backend streaming command
-        await ipc.streamAgentChat(
+        await ipc.sendTaskInput(
           taskId,
           content,
           workingDir,

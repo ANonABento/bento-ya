@@ -44,9 +44,10 @@ pub fn get_script(conn: &Connection, id: &str) -> SqlResult<Script> {
 }
 
 pub fn list_scripts(conn: &Connection) -> SqlResult<Vec<Script>> {
-    let mut stmt = conn.prepare(
-        &format!("SELECT {} FROM scripts ORDER BY is_built_in DESC, name", SCRIPT_COLUMNS),
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM scripts ORDER BY is_built_in DESC, name",
+        SCRIPT_COLUMNS
+    ))?;
     let rows = stmt.query_map([], map_script_row)?;
     rows.collect()
 }

@@ -1,4 +1,4 @@
-import type { CliType, SpawnCliAction } from '@/types'
+import type { AgentRuntimeMode, CliType, SpawnCliAction } from '@/types'
 import { CLI_TYPES, COMMON_COMMANDS } from './column-config-constants'
 
 type SpawnCliActionEditorProps = {
@@ -6,10 +6,29 @@ type SpawnCliActionEditorProps = {
   setAction: (value: SpawnCliAction) => void
 }
 
+const RUNTIME_MODES: Array<{
+  value: AgentRuntimeMode
+  label: string
+  caption: string
+}> = [
+  {
+    value: 'terminal',
+    label: 'Terminal',
+    caption: 'tmux',
+  },
+  {
+    value: 'managed',
+    label: 'Managed',
+    caption: 'events',
+  },
+]
+
 export function SpawnCliActionEditor({
   action,
   setAction,
 }: SpawnCliActionEditorProps) {
+  const runtimeMode = action.runtime_mode ?? 'terminal'
+
   return (
     <div className="space-y-3 rounded-lg border border-border-default bg-bg/50 p-3">
       <div className="grid grid-cols-2 gap-3">
@@ -49,6 +68,34 @@ export function SpawnCliActionEditor({
               ))}
             </datalist>
           </div>
+        </div>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs font-medium text-text-secondary">
+          Runtime
+        </label>
+        <div className="grid grid-cols-2 gap-2 rounded-lg border border-border-default bg-bg p-1">
+          {RUNTIME_MODES.map((mode) => {
+            const selected = runtimeMode === mode.value
+            return (
+              <button
+                key={mode.value}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => { setAction({ ...action, runtime_mode: mode.value }) }}
+                style={{ cursor: 'pointer' }}
+                className={`rounded-md px-2.5 py-2 text-left transition-colors ${
+                  selected
+                    ? 'bg-bg-elevated text-text-primary shadow-sm'
+                    : 'text-text-secondary hover:bg-bg-elevated/60 hover:text-text-primary'
+                }`}
+              >
+                <span className="block text-sm font-medium">{mode.label}</span>
+                <span className="block text-xs opacity-70">{mode.caption}</span>
+              </button>
+            )
+          })}
         </div>
       </div>
 

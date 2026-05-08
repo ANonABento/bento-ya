@@ -17,10 +17,26 @@ mod column_colors {
 }
 
 const DEFAULT_COLUMNS: &[DefaultColumn] = &[
-    DefaultColumn { name: "Backlog", icon: "inbox", color: Some(column_colors::GRAY) },
-    DefaultColumn { name: "Working", icon: "play", color: Some(column_colors::BLUE) },
-    DefaultColumn { name: "Review", icon: "eye", color: Some(column_colors::AMBER) },
-    DefaultColumn { name: "Done", icon: "check", color: Some(column_colors::GREEN) },
+    DefaultColumn {
+        name: "Backlog",
+        icon: "inbox",
+        color: Some(column_colors::GRAY),
+    },
+    DefaultColumn {
+        name: "Working",
+        icon: "play",
+        color: Some(column_colors::BLUE),
+    },
+    DefaultColumn {
+        name: "Review",
+        icon: "eye",
+        color: Some(column_colors::AMBER),
+    },
+    DefaultColumn {
+        name: "Done",
+        icon: "check",
+        color: Some(column_colors::GREEN),
+    },
 ];
 
 #[tauri::command]
@@ -166,7 +182,14 @@ pub fn clone_workspace(
     let mut column_id_map = std::collections::HashMap::new();
 
     for col in &columns {
-        let new_col = db::insert_column_with_style(&conn, &new_ws.id, &col.name, col.position, &col.icon, col.color.as_deref())?;
+        let new_col = db::insert_column_with_style(
+            &conn,
+            &new_ws.id,
+            &col.name,
+            col.position,
+            &col.icon,
+            col.color.as_deref(),
+        )?;
         // Apply remaining properties (visibility, triggers)
         if !col.visible || col.triggers.is_some() {
             db::update_column(
@@ -252,7 +275,8 @@ pub fn seed_demo_data(state: State<AppState>, repo_path: String) -> Result<Works
     // Create default columns with icons and colors
     let mut columns = Vec::new();
     for (i, col) in DEFAULT_COLUMNS.iter().enumerate() {
-        let c = db::insert_column_with_style(&conn, &ws.id, col.name, i as i64, col.icon, col.color)?;
+        let c =
+            db::insert_column_with_style(&conn, &ws.id, col.name, i as i64, col.icon, col.color)?;
         columns.push(c);
     }
 

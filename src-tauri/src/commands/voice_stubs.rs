@@ -30,7 +30,8 @@ pub struct WhisperModelInfo {
     pub status: String,
 }
 
-const VOICE_DISABLED_MSG: &str = "Voice input is not available. Build with the 'voice' feature to enable.";
+const VOICE_DISABLED_MSG: &str =
+    "Voice input is not available. Build with the 'voice' feature to enable.";
 
 #[command]
 pub async fn transcribe_audio(

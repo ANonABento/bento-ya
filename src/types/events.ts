@@ -6,6 +6,7 @@
 export const EventChannels = {
   ptyOutput: (taskId: string) => `pty:${taskId}:output` as const,
   ptyExit: (taskId: string) => `pty:${taskId}:exit` as const,
+  agentTranscriptEvent: (taskId: string) => `agent:${taskId}:transcript_event` as const,
   agentStatus: (taskId: string) => `agent:${taskId}:status` as const,
   taskUpdated: (taskId: string) => `task:${taskId}:updated` as const,
   gitChanges: (taskId: string) => `git:${taskId}:changes` as const,
@@ -22,6 +23,33 @@ export interface PtyOutputPayload {
 export interface PtyExitPayload {
   task_id: string
   exit_code: number | null
+}
+
+export type AgentTranscriptEventType =
+  | 'session_started'
+  | 'user_input'
+  | 'agent_started'
+  | 'agent_text_delta'
+  | 'agent_thinking_delta'
+  | 'tool_started'
+  | 'tool_output'
+  | 'tool_completed'
+  | 'command_started'
+  | 'command_output'
+  | 'command_completed'
+  | 'agent_completed'
+  | 'agent_failed'
+  | 'agent_cancelled'
+
+export interface AgentTranscriptEvent {
+  id: string
+  taskId: string
+  sessionId: string | null
+  eventType: AgentTranscriptEventType
+  content: string | null
+  metadataJson: string | null
+  sequence: number
+  createdAt: string
 }
 
 export type AgentStatus = 'running' | 'completed' | 'failed' | 'needs_attention'
@@ -60,6 +88,7 @@ export interface WorkspaceUpdatedPayload {
 export type AppEvent =
   | { type: 'pty_output'; payload: PtyOutputPayload }
   | { type: 'pty_exit'; payload: PtyExitPayload }
+  | { type: 'agent_transcript_event'; payload: AgentTranscriptEvent }
   | { type: 'agent_status'; payload: AgentStatusPayload }
   | { type: 'task_updated'; payload: TaskUpdatedPayload }
   | { type: 'git_changes'; payload: GitChangesPayload }

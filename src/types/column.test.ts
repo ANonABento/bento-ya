@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { getColumnTriggers, DEFAULT_TRIGGERS, parseColumnTriggers } from '@/types/column'
+import { getColumnTriggers, DEFAULT_TRIGGERS, DEFAULT_SPAWN_CLI, parseColumnTriggers } from '@/types/column'
 import type { Column } from '@/types/column'
 
 const createMockColumn = (triggers?: Column['triggers']): Column => ({
@@ -23,6 +23,10 @@ const sharedFixture = readFileSync(
 )
 
 describe('getColumnTriggers', () => {
+  it('defaults spawn_cli actions to terminal runtime', () => {
+    expect(DEFAULT_SPAWN_CLI.runtime_mode).toBe('terminal')
+  })
+
   it('should return triggers when column has parsed triggers object', () => {
     const triggers = {
       on_entry: { type: 'spawn_cli' as const },

@@ -309,7 +309,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
       const processQueued = async () => {
         try {
           if (mode === 'agent' && taskId) {
-            await ipc.streamAgentChat(taskId, next.content, workingDir, cliPath, next.model, next.effortLevel)
+            await ipc.sendTaskInput(taskId, next.content, workingDir, cliPath, next.model, next.effortLevel)
           } else if (mode === 'orchestrator' && workspaceId && sessionId) {
             await ipc.streamOrchestratorChat(workspaceId, sessionId, next.content, connectionMode, apiKey, apiKeyEnvVar, next.model, cliPath)
           }
@@ -363,8 +363,20 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
       }
       setMessages((prev) => [...prev, optimisticMessage])
 
-      // Queue if currently processing
+      // Orchestrator chat is still request/response driven on the frontend.
+      // Agent chat is runtime-driven: send immediately so the backend can
+      // persist live vs queued delivery as semantic transcript state.
       if (isProcessingRef.current) {
+        if (mode === 'agent' && taskId) {
+          try {
+            await ipc.sendTaskInput(taskId, effectiveContent, workingDir, cliPath, model, effortLevel)
+          } catch (err) {
+            const errorMsg = getErrorMessage(err)
+            onErrorRef.current?.(`Failed to send message: ${errorMsg}`)
+            setFailedMessage({ id: `failed-${String(Date.now())}`, content: effectiveContent, model, effortLevel, error: errorMsg })
+          }
+          return
+        }
         setQueue((prev) => [...prev, { id: `queued-${String(Date.now())}`, content: effectiveContent, model, effortLevel }])
         return
       }
@@ -376,7 +388,7 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         setFailedMessage(null)
 
         if (mode === 'agent' && taskId) {
-          await ipc.streamAgentChat(taskId, effectiveContent, workingDir, cliPath, model, effortLevel)
+          await ipc.sendTaskInput(taskId, effectiveContent, workingDir, cliPath, model, effortLevel)
         } else if (mode === 'orchestrator' && workspaceId && sessionId) {
           await ipc.streamOrchestratorChat(workspaceId, sessionId, effectiveContent, connectionMode, apiKey, apiKeyEnvVar, model, cliPath)
         }

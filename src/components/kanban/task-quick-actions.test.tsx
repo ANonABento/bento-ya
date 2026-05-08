@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { TaskQuickActions } from './task-quick-actions'
 import { mockKanbanTask } from '@/test/mocks/tauri'
 
@@ -62,7 +62,7 @@ describe('TaskQuickActions', () => {
     expect(screen.getByTitle(/Retry pipeline/)).toBeInTheDocument()
   })
 
-  it('shows Move-next only when hasNextColumn is true', () => {
+  it('shows Move-next only when hasNextColumn is true and the error retry action is absent', () => {
     const handlers = makeHandlers()
     const { rerender } = render(
       <TaskQuickActions
@@ -81,25 +81,26 @@ describe('TaskQuickActions', () => {
       />
     )
     expect(screen.getByTitle(/Move to next column/)).toBeInTheDocument()
+
+    rerender(
+      <TaskQuickActions
+        task={mockKanbanTask({ pipelineError: 'boom' })}
+        hasNextColumn={true}
+        {...handlers}
+      />
+    )
+    expect(screen.queryByTitle(/Move to next column/)).not.toBeInTheDocument()
   })
 
-  it('delete button has two-click confirm behavior', () => {
-    const handlers = makeHandlers()
+  it('keeps Delete out of quick actions because it lives in the overflow menu', () => {
     render(
       <TaskQuickActions
         task={mockKanbanTask()}
         hasNextColumn={false}
-        {...handlers}
+        {...makeHandlers()}
       />
     )
-    // First click arms confirmation (internal state)
-    fireEvent.click(screen.getByTitle(/Delete task/))
-    // After first click, button should show confirm state
-    expect(screen.getByTitle(/Click again to confirm/)).toBeInTheDocument()
-
-    // Second click fires the actual delete
-    fireEvent.click(screen.getByTitle(/Click again to confirm/))
-    expect(handlers.onDelete).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTitle(/Delete task/)).not.toBeInTheDocument()
   })
 
   it('always renders Open and More buttons', () => {

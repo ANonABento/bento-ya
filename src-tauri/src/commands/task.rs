@@ -780,6 +780,14 @@ pub fn delete_task(app: AppHandle, state: State<AppState>, id: String) -> Result
         }
     }
 
+    if let Err(e) = crate::chat::tmux_transport::kill_session(&id) {
+        log::warn!(
+            "Failed to clean up tmux session for deleted task {}: {}",
+            id,
+            e
+        );
+    }
+
     // Re-acquire lock for deletion
     {
         let conn = state
@@ -1663,10 +1671,7 @@ pub async fn list_batches(
             continue;
         }
         let task_count = tasks.len() as i64;
-        let failed_count = tasks
-            .iter()
-            .filter(|t| t.pipeline_error.is_some())
-            .count() as i64;
+        let failed_count = tasks.iter().filter(|t| t.pipeline_error.is_some()).count() as i64;
         let created_at = tasks
             .first()
             .map(|t| t.created_at.clone())

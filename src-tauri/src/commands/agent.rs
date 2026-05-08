@@ -1,9 +1,14 @@
 use serde::Serialize;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::chat::events::{ChatEvent, ToolStatus};
 use crate::chat::registry::SharedSessionRegistry;
-use crate::chat::session::{SessionConfig, SessionState, TransportType, UnifiedChatSession};
+use crate::chat::runtime::{
+    decide_input_delivery, drain_pending_runtime_inputs_for_turn, run_managed_runtime_turn,
+    AgentAdapterKind, AgentInputSource, AgentRuntimeError, AgentRuntimeEvent, ClaudeCliAdapter,
+    CodexCliAdapter, ManagedRuntimeTurnConfig, ManagedRuntimeTurnResult,
+};
+use crate::chat::session::{SessionConfig, SessionState, TransportType};
 use crate::db::{self, AgentMessage, AppState};
 use crate::error::AppError;
 
@@ -31,33 +36,17 @@ pub struct AgentCompletePayload {
     pub message: Option<String>,
 }
 
-/// Agent stream payload for frontend
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AgentStreamPayload {
-    task_id: String,
-    content: String,
+struct TaskInputLine {
+    line: String,
+    completion: Option<TaskInputCompletion>,
 }
 
-/// Agent thinking payload for frontend
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AgentThinkingPayload {
-    task_id: String,
-    content: String,
-    is_complete: bool,
+struct TaskInputCompletion {
+    wait_channel: String,
+    exit_path: String,
 }
 
-/// Agent tool call payload for frontend
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AgentToolCallPayload {
-    task_id: String,
-    tool_id: String,
-    tool_name: String,
-    tool_input: String,
-    status: String,
-}
+const TASK_INPUT_COMPLETION_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 2);
 
 // ─── PTY Agent Commands (via SessionRegistry) ──────────────────────────────
 
@@ -224,6 +213,18 @@ pub fn get_agent_messages(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+pub fn get_agent_transcript_events(
+    state: State<AppState>,
+    task_id: String,
+) -> Result<Vec<db::AgentTranscriptEvent>, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(db::list_agent_transcript_events(&conn, &task_id)?)
+}
+
+#[tauri::command(rename_all = "camelCase")]
 pub fn clear_agent_messages(state: State<AppState>, task_id: String) -> Result<(), AppError> {
     let conn = state
         .db
@@ -235,9 +236,756 @@ pub fn clear_agent_messages(state: State<AppState>, task_id: String) -> Result<(
 
 // ─── Agent CLI Chat (via UnifiedChatSession) ──────────────────────────────
 
-/// Stream a message to the per-task agent CLI and emit response chunks.
+/// Send a user message into the per-task PTY/tmux session.
 ///
-/// Uses `UnifiedChatSession` from the `SessionRegistry`.
+/// Persistent task chat is a terminal input lane: the panel output is already
+/// streamed by `ensure_pty_session`, so task chat must not create a separate
+/// request/response Pipe process.
+#[tauri::command(rename_all = "camelCase")]
+#[allow(clippy::too_many_arguments)]
+pub async fn send_task_input(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_registry: State<'_, SharedSessionRegistry>,
+    task_id: String,
+    text: String,
+    source: String,
+    working_dir: String,
+    cli_path: String,
+    model: Option<String>,
+    effort_level: Option<String>,
+) -> Result<(), AppError> {
+    let model = model.unwrap_or_else(|| "sonnet".to_string());
+    let is_user_input = matches!(source.as_str(), "chat" | "voice" | "command");
+
+    let (
+        resume_id,
+        should_launch_prompt_command,
+        input_delivery,
+        should_queue_runtime_input,
+        session_id,
+        runtime_mode,
+        adapter_kind,
+        column_name,
+        pipeline_state,
+    ) = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let previous_task = db::get_task(&conn, &task_id)?;
+        let column_name = db::get_column(&conn, &previous_task.column_id)
+            .ok()
+            .map(|column| column.name);
+
+        db::insert_agent_message(
+            &conn,
+            &task_id,
+            "user",
+            &text,
+            Some(&model),
+            effort_level.as_deref(),
+            None,
+            None,
+        )?;
+
+        if is_user_input {
+            let task = db::stamp_task_user_input(&conn, &task_id)?;
+            crate::pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_user_input");
+        }
+
+        let agent_type = agent_type_from_cli_path(&cli_path);
+        let agent_session = db::get_or_create_agent_session_for_task(
+            &conn,
+            &task_id,
+            agent_type,
+            Some(&working_dir),
+        )?;
+        let tmux_name = tmux_session_name_for_task(&task_id);
+        let runtime_mode = normalize_agent_runtime_mode(
+            previous_task
+                .agent_mode
+                .as_deref()
+                .or(Some(agent_session.runtime_mode.as_str())),
+        )
+        .to_string();
+        let adapter_kind = db::adapter_kind_for_agent_type(agent_type).to_string();
+        let _ = db::update_agent_session_runtime(
+            &conn,
+            &agent_session.id,
+            Some(&adapter_kind),
+            Some(&runtime_mode),
+            None,
+            Some(Some(&tmux_name)),
+        )?;
+        let should_launch_prompt_command = matches!(source.as_str(), "chat" | "voice")
+            && previous_task.agent_status.as_deref() != Some("running");
+        let resume_id = agent_session
+            .provider_session_id
+            .clone()
+            .or_else(|| agent_session.cli_session_id.clone());
+        let input_delivery = decide_input_delivery(
+            previous_task.agent_status.as_deref() == Some("running"),
+            resume_id.is_some(),
+            runtime_mode == "terminal",
+        );
+        let should_queue_runtime_input = input_delivery == crate::chat::AgentInputDelivery::Queued;
+
+        if let Ok(event) = crate::chat::persist_runtime_event(
+            &conn,
+            &task_id,
+            Some(&agent_session.id),
+            AgentRuntimeEvent::UserInput {
+                source: agent_input_source(&source),
+                delivery: input_delivery,
+                content: text.clone(),
+            },
+        ) {
+            crate::events::emit_agent_transcript_event(
+                &app,
+                crate::events::AgentTranscriptEventPayload {
+                    id: event.id,
+                    task_id: event.task_id,
+                    session_id: event.session_id,
+                    event_type: event.event_type,
+                    content: event.content,
+                    metadata_json: event.metadata_json,
+                    sequence: event.sequence,
+                    created_at: event.created_at,
+                },
+            );
+        }
+        if should_queue_runtime_input {
+            let source_key = agent_input_source_key(agent_input_source(&source));
+            db::enqueue_agent_runtime_input(
+                &conn,
+                &task_id,
+                Some(&agent_session.id),
+                source_key,
+                &text,
+                Some(&model),
+                effort_level.as_deref(),
+                "queued",
+            )?;
+        }
+        let _ = db::update_task_agent_status(&conn, &task_id, Some("running"), None)?;
+        (
+            resume_id,
+            should_launch_prompt_command,
+            input_delivery,
+            should_queue_runtime_input,
+            agent_session.id,
+            runtime_mode,
+            adapter_kind,
+            column_name,
+            previous_task.pipeline_state,
+        )
+    };
+
+    if should_queue_runtime_input {
+        return Ok(());
+    }
+
+    if runtime_mode == "managed" && should_launch_prompt_command {
+        let resume_available = resume_id.is_some();
+        let metadata = serde_json::json!({
+            "cli": cli_path,
+            "model": model,
+            "workdir": working_dir,
+            "effortLevel": effort_level,
+            "resumeAvailable": resume_available,
+            "inputDelivery": input_delivery,
+            "columnName": column_name,
+            "pipelineState": pipeline_state,
+            "runtimeMode": runtime_mode,
+        })
+        .to_string();
+        let _ = crate::events::persist_and_emit_agent_transcript_event(
+            &app,
+            &task_id,
+            Some(&session_id),
+            db::EVENT_SESSION_STARTED,
+            None,
+            Some(&metadata),
+        );
+        let _ = crate::events::persist_and_emit_agent_transcript_event(
+            &app,
+            &task_id,
+            Some(&session_id),
+            db::EVENT_AGENT_STARTED,
+            None,
+            Some(&metadata),
+        );
+
+        spawn_managed_task_turn(
+            app.clone(),
+            task_id.clone(),
+            session_id,
+            adapter_kind,
+            cli_path,
+            model,
+            effort_level,
+            working_dir,
+            text,
+            resume_id,
+        );
+        return Ok(());
+    }
+
+    let pre_command_scrollback = if should_launch_prompt_command {
+        Some(crate::chat::tmux_transport::capture_scrollback_text(&task_id))
+    } else {
+        None
+    };
+
+    let input_line = build_task_input_line(
+        &cli_path,
+        &model,
+        &text,
+        resume_id.as_deref(),
+        should_launch_prompt_command,
+    )
+    .map_err(AppError::InvalidInput)?;
+    let resume_available = resume_id.is_some();
+
+    {
+        let mut registry = session_registry.lock().await;
+
+        if registry
+            .get(&task_id)
+            .map(|s| s.is_alive())
+            .unwrap_or(false)
+        {
+            crate::chat::tmux_transport::send_text_line(&task_id, &input_line.line)
+                .map_err(AppError::InvalidInput)?;
+        } else {
+            registry.remove(&task_id);
+
+            let config = SessionConfig {
+                cli_path: cli_path.clone(),
+                model: model.clone(),
+                system_prompt: String::new(),
+                working_dir: Some(working_dir.clone()),
+                effort_level: effort_level.clone(),
+            };
+
+            let session = registry
+                .get_or_create(&task_id, config, TransportType::Pty)
+                .map_err(AppError::InvalidInput)?;
+
+            session.set_model(model.clone());
+            if let Some(resume_id) = resume_id.clone() {
+                session.set_resume_id(Some(resume_id));
+            }
+
+            let _mpsc_rx = session.start_pty(120, 40).map_err(AppError::InvalidInput)?;
+            let rx = session.resubscribe();
+            crate::chat::tmux_transport::send_text_line(&task_id, &input_line.line)
+                .map_err(AppError::InvalidInput)?;
+
+            if let Some(rx) = rx {
+                let bridge =
+                    crate::chat::bridge::ManagedBridge::start(app.clone(), task_id.clone(), rx);
+                registry.set_bridge(&task_id, bridge);
+            }
+        }
+    }
+    if should_launch_prompt_command {
+        let metadata = serde_json::json!({
+            "cli": cli_path,
+            "model": model,
+            "workdir": working_dir,
+            "effortLevel": effort_level,
+            "resumeAvailable": resume_available,
+            "inputDelivery": input_delivery,
+            "columnName": column_name,
+            "pipelineState": pipeline_state,
+        })
+        .to_string();
+        let _ = crate::events::persist_and_emit_agent_transcript_event(
+            &app,
+            &task_id,
+            Some(&session_id),
+            db::EVENT_SESSION_STARTED,
+            None,
+            Some(&metadata),
+        );
+        let _ = crate::events::persist_and_emit_agent_transcript_event(
+            &app,
+            &task_id,
+            Some(&session_id),
+            db::EVENT_AGENT_STARTED,
+            None,
+            Some(&metadata),
+        );
+        let _ = crate::events::persist_and_emit_agent_transcript_event(
+            &app,
+            &task_id,
+            Some(&session_id),
+            db::EVENT_COMMAND_STARTED,
+            None,
+            Some(&metadata),
+        );
+    }
+    if let Some(completion) = input_line.completion {
+        spawn_task_input_completion_watcher(
+            app.clone(),
+            task_id.clone(),
+            session_id,
+            completion.wait_channel,
+            completion.exit_path,
+            pre_command_scrollback.unwrap_or_default(),
+        );
+    }
+
+    Ok(())
+}
+
+fn agent_input_source(source: &str) -> AgentInputSource {
+    match source {
+        "voice" => AgentInputSource::UserVoice,
+        "command" => AgentInputSource::TriggerUserCommand,
+        "trigger" => AgentInputSource::TriggerColumn,
+        "system" => AgentInputSource::System,
+        _ => AgentInputSource::UserChat,
+    }
+}
+
+fn normalize_agent_runtime_mode(runtime_mode: Option<&str>) -> &'static str {
+    match runtime_mode {
+        Some("managed") => "managed",
+        _ => "terminal",
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_managed_task_turn(
+    app: AppHandle,
+    task_id: String,
+    session_id: String,
+    adapter_kind: String,
+    cli_path: String,
+    model: String,
+    effort_level: Option<String>,
+    working_dir: String,
+    text: String,
+    resume_id: Option<String>,
+) {
+    if let Ok(conn) = rusqlite::Connection::open(db::db_path()) {
+        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+        let _ = db::update_agent_session(
+            &conn,
+            &session_id,
+            None,
+            Some("running"),
+            None,
+            None,
+            None,
+            Some(true),
+        );
+        let _ = db::update_task_agent_status(&conn, &task_id, Some("running"), None);
+    }
+    crate::pipeline::emit_tasks_changed(&app, "", "managed_agent_turn_running");
+
+    let adapter = agent_adapter_kind_from_db(&adapter_kind);
+    let invocation = if adapter == AgentAdapterKind::CodexCli {
+        CodexCliAdapter::new(
+            cli_path.clone(),
+            model.clone(),
+            Some(working_dir.clone()),
+            resume_id.clone(),
+        )
+        .managed_turn_invocation(&text)
+    } else {
+        ClaudeCliAdapter::new(
+            cli_path.clone(),
+            model.clone(),
+            String::new(),
+            effort_level.clone(),
+            Some(working_dir.clone()),
+            resume_id.clone(),
+        )
+        .managed_turn_invocation(&text)
+    };
+
+    let command_metadata = serde_json::json!({
+        "cli": cli_path,
+        "model": model,
+        "workdir": working_dir,
+        "adapter": adapter,
+        "runtimeMode": "managed",
+    })
+    .to_string();
+    let _ = crate::events::persist_and_emit_agent_transcript_event(
+        &app,
+        &task_id,
+        Some(&session_id),
+        db::EVENT_COMMAND_STARTED,
+        None,
+        Some(&command_metadata),
+    );
+
+    let app_for_queue = app.clone();
+    let task_id_for_queue = task_id.clone();
+    let session_id_for_queue = session_id.clone();
+    let adapter_kind_for_queue = adapter_kind.clone();
+    let cli_path_for_queue = cli_path.clone();
+    let model_for_queue = model.clone();
+    let effort_level_for_queue = effort_level.clone();
+    let working_dir_for_queue = working_dir.clone();
+
+    tokio::spawn(async move {
+        let result = run_managed_runtime_turn(
+            ManagedRuntimeTurnConfig {
+                adapter,
+                command: invocation.command,
+                args: invocation.args,
+                working_dir: invocation.working_dir,
+            },
+            {
+                let app = app.clone();
+                let task_id = task_id.clone();
+                let session_id = session_id.clone();
+                move |event| {
+                    if let AgentRuntimeEvent::SessionStarted {
+                        provider_session_id: Some(provider_session_id),
+                        ..
+                    } = &event
+                    {
+                        if let Ok(conn) = rusqlite::Connection::open(db::db_path()) {
+                            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                            let _ = db::update_agent_session_runtime(
+                                &conn,
+                                &session_id,
+                                None,
+                                Some("managed"),
+                                Some(Some(provider_session_id)),
+                                None,
+                            );
+                        }
+                    }
+                    let _ = crate::events::persist_and_emit_agent_runtime_event(
+                        &app,
+                        &task_id,
+                        Some(&session_id),
+                        event,
+                    );
+                }
+            },
+        )
+        .await;
+
+        let should_replay_queue = managed_turn_completed_successfully(&result);
+        let success = should_replay_queue;
+        let spawned_queued_turn = if should_replay_queue {
+            spawn_next_queued_managed_turn(
+                app_for_queue,
+                task_id_for_queue,
+                session_id_for_queue,
+                adapter_kind_for_queue,
+                cli_path_for_queue,
+                model_for_queue,
+                effort_level_for_queue,
+                working_dir_for_queue,
+            )
+        } else {
+            false
+        };
+
+        if let Ok(conn) = rusqlite::Connection::open(db::db_path()) {
+            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+            if !spawned_queued_turn {
+                let (session_status, task_status, exit_code) = match &result {
+                    Ok(turn) if turn.exit_code == Some(0) => {
+                        ("completed", "completed", Some(0_i64))
+                    }
+                    Ok(turn) => ("failed", "failed", turn.exit_code.map(i64::from)),
+                    Err(_) => ("failed", "failed", Some(1_i64)),
+                };
+                let _ = db::update_agent_session(
+                    &conn,
+                    &session_id,
+                    None,
+                    Some(session_status),
+                    Some(exit_code),
+                    None,
+                    None,
+                    Some(true),
+                );
+                let _ = db::update_task_agent_status(&conn, &task_id, Some(task_status), None);
+            }
+        }
+
+        if !spawned_queued_turn {
+            let _ = app.emit(
+                "agent:complete",
+                &AgentCompletePayload {
+                    task_id: task_id.clone(),
+                    success,
+                    message: None,
+                },
+            );
+        }
+        crate::pipeline::emit_tasks_changed(
+            &app,
+            "",
+            if spawned_queued_turn {
+                "managed_agent_turn_queued"
+            } else {
+                "managed_agent_turn_complete"
+            },
+        );
+    });
+}
+
+fn managed_turn_completed_successfully(
+    result: &Result<ManagedRuntimeTurnResult, AgentRuntimeError>,
+) -> bool {
+    matches!(result, Ok(turn) if turn.exit_code == Some(0))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_next_queued_managed_turn(
+    app: AppHandle,
+    task_id: String,
+    session_id: String,
+    adapter_kind: String,
+    cli_path: String,
+    model: String,
+    effort_level: Option<String>,
+    working_dir: String,
+) -> bool {
+    let Some((prompt, resume_id)) = (|| {
+        let conn = rusqlite::Connection::open(db::db_path()).ok()?;
+        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+        let (prompt, _) = drain_pending_runtime_inputs_for_turn(&conn, &task_id).ok()??;
+        let session = db::get_agent_session(&conn, &session_id).ok()?;
+        let resume_id = session.provider_session_id.or(session.cli_session_id);
+        Some((prompt, resume_id))
+    })() else {
+        return false;
+    };
+
+    spawn_managed_task_turn(
+        app,
+        task_id,
+        session_id,
+        adapter_kind,
+        cli_path,
+        model,
+        effort_level,
+        working_dir,
+        prompt,
+        resume_id,
+    );
+    true
+}
+
+fn agent_adapter_kind_from_db(adapter_kind: &str) -> AgentAdapterKind {
+    match adapter_kind {
+        "codex_cli" | "codex" => AgentAdapterKind::CodexCli,
+        "generic_cli" | "generic" => AgentAdapterKind::GenericCli,
+        "api" => AgentAdapterKind::Api,
+        "remote" => AgentAdapterKind::Remote,
+        _ => AgentAdapterKind::ClaudeCli,
+    }
+}
+
+fn agent_input_source_key(source: AgentInputSource) -> &'static str {
+    match source {
+        AgentInputSource::UserChat => "user_chat",
+        AgentInputSource::UserVoice => "user_voice",
+        AgentInputSource::TriggerColumn => "trigger_column",
+        AgentInputSource::TriggerUserCommand => "trigger_user_command",
+        AgentInputSource::System => "system",
+    }
+}
+
+fn agent_type_from_cli_path(cli_path: &str) -> &str {
+    let cli = cli_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(cli_path)
+        .to_ascii_lowercase();
+    if cli.contains("codex") {
+        "codex"
+    } else if cli.contains("claude") {
+        "claude"
+    } else {
+        "generic"
+    }
+}
+
+fn tmux_session_name_for_task(task_id: &str) -> String {
+    format!("bentoya_{}", task_id)
+}
+
+fn build_task_input_line(
+    cli_path: &str,
+    model: &str,
+    text: &str,
+    resume_id: Option<&str>,
+    should_launch_prompt_command: bool,
+) -> Result<TaskInputLine, String> {
+    if !should_launch_prompt_command {
+        return Ok(TaskInputLine {
+            line: text.to_string(),
+            completion: None,
+        });
+    }
+
+    let mut args = Vec::new();
+    if !model.trim().is_empty() {
+        args.push("--model".to_string());
+        args.push(model.to_string());
+    }
+
+    let command = crate::chat::bridge::build_trigger_command(cli_path, &args, text, resume_id);
+    let nonce = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let wait_channel = format!("bentoya_chat_done_{}", nonce);
+    let dir = crate::chat::log_retention::trigger_logs_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create log dir: {}", e))?;
+    let exit_path = dir
+        .join(format!("chat_exit_{}.code", nonce))
+        .display()
+        .to_string();
+    let wrapped = format!(
+        "{}; rc=$?; printf '%s' \"$rc\" > {}; tmux wait-for -S {}",
+        command,
+        shell_quote_arg(&exit_path),
+        wait_channel
+    );
+    let line = crate::chat::bridge::materialize_shell_launcher(&wrapped, Some(&nonce))?;
+    Ok(TaskInputLine {
+        line,
+        completion: Some(TaskInputCompletion {
+            wait_channel,
+            exit_path,
+        }),
+    })
+}
+
+fn spawn_task_input_completion_watcher(
+    app: AppHandle,
+    task_id: String,
+    session_id: String,
+    wait_channel: String,
+    exit_path: String,
+    pre_command_scrollback: String,
+) {
+    tokio::spawn(async move {
+        let wait_channel_for_wait = wait_channel.clone();
+        let wait_handle = tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let status = std::process::Command::new("tmux")
+                .args(["wait-for", &wait_channel_for_wait])
+                .status()
+                .map_err(|e| format!("tmux wait-for spawn error: {}", e))?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!("tmux wait-for exited {:?}", status.code()))
+            }
+        });
+
+        let timed_out = tokio::time::timeout(TASK_INPUT_COMPLETION_TIMEOUT, wait_handle)
+            .await
+            .is_err();
+        let exit_code = if timed_out {
+            124
+        } else {
+            std::fs::read_to_string(&exit_path)
+                .ok()
+                .and_then(|s| s.trim().parse::<i32>().ok())
+                .unwrap_or(1)
+        };
+        let _ = std::fs::remove_file(&exit_path);
+        let success = exit_code == 0;
+        let post_command_scrollback =
+            crate::chat::tmux_transport::capture_scrollback_text(&task_id);
+        let output_delta = if !pre_command_scrollback.is_empty()
+            && post_command_scrollback.starts_with(&pre_command_scrollback)
+        {
+            post_command_scrollback[pre_command_scrollback.len()..].to_string()
+        } else {
+            post_command_scrollback
+        };
+        if !output_delta.trim().is_empty() {
+            let _ = crate::events::persist_and_emit_agent_transcript_event(
+                &app,
+                &task_id,
+                Some(&session_id),
+                db::EVENT_COMMAND_OUTPUT,
+                Some(&output_delta),
+                Some(&serde_json::json!({ "source": "tmux_log_tail" }).to_string()),
+            );
+        }
+        let metadata = serde_json::json!({
+            "exitCode": exit_code,
+            "timedOut": timed_out,
+        })
+        .to_string();
+
+        let _ = crate::events::persist_and_emit_agent_transcript_event(
+            &app,
+            &task_id,
+            Some(&session_id),
+            db::EVENT_COMMAND_COMPLETED,
+            None,
+            Some(&metadata),
+        );
+        let _ = crate::events::persist_and_emit_agent_transcript_event(
+            &app,
+            &task_id,
+            Some(&session_id),
+            if success {
+                db::EVENT_AGENT_COMPLETED
+            } else {
+                db::EVENT_AGENT_FAILED
+            },
+            None,
+            Some(&metadata),
+        );
+
+        if let Ok(conn) = rusqlite::Connection::open(db::db_path()) {
+            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+            let status = if success { "completed" } else { "failed" };
+            let _ = db::update_agent_session(
+                &conn,
+                &session_id,
+                None,
+                Some(status),
+                Some(Some(exit_code as i64)),
+                None,
+                None,
+                None,
+            );
+            let _ = db::update_task_agent_status(&conn, &task_id, Some(status), None);
+            if let Ok(task) = db::get_task(&conn, &task_id) {
+                crate::pipeline::emit_tasks_changed(
+                    &app,
+                    &task.workspace_id,
+                    "agent_chat_complete",
+                );
+            }
+        }
+
+        let _ = app.emit(
+            "agent:complete",
+            &AgentCompletePayload {
+                task_id,
+                success,
+                message: None,
+            },
+        );
+    });
+}
+
+fn shell_quote_arg(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// Back-compat wrapper used by older hooks/tests; task chat now writes into
+/// the existing PTY/tmux lane instead of spawning a Pipe subprocess.
 #[tauri::command(rename_all = "camelCase")]
 #[allow(clippy::too_many_arguments)]
 pub async fn stream_agent_chat(
@@ -251,141 +999,64 @@ pub async fn stream_agent_chat(
     model: Option<String>,
     effort_level: Option<String>,
 ) -> Result<(), AppError> {
-    let model = model.unwrap_or_else(|| "sonnet".to_string());
+    send_task_input(
+        app,
+        state,
+        session_registry,
+        task_id,
+        message,
+        "chat".to_string(),
+        working_dir,
+        cli_path,
+        model,
+        effort_level,
+    )
+    .await
+}
 
-    // 1. Save user message to DB
-    {
-        let conn = state
-            .db
-            .lock()
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-        db::insert_agent_message(
-            &conn,
-            &task_id,
-            "user",
-            &message,
-            Some(&model),
-            effort_level.as_deref(),
-            None,
-            None,
-        )?;
-    }
+#[tauri::command(rename_all = "camelCase")]
+pub fn hold_task(
+    app: AppHandle,
+    state: State<AppState>,
+    task_id: String,
+    held: bool,
+) -> Result<db::Task, AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let task = db::set_task_held_by_user(&conn, &task_id, held)?;
+    crate::pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_hold_updated");
+    Ok(task)
+}
 
-    // 2. Build agent system prompt
-    let system_prompt = {
-        let conn = state
-            .db
-            .lock()
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-        let task = db::get_task(&conn, &task_id)?;
-        format!(
-            r#"You are an AI assistant helping with the task: "{}"
-
-Task Description:
-{}
-
-Work in the current directory. You have access to tools for reading/editing files, running commands, etc.
-Be concise and helpful."#,
-            task.title,
-            task.description.unwrap_or_default()
-        )
-    };
-
-    // 3. Get or create session, configure it, then release lock before long await
-    let mut session = {
-        let mut registry = session_registry.lock().await;
-
-        let config = SessionConfig {
-            cli_path,
-            model: model.clone(),
-            system_prompt,
-            working_dir: Some(working_dir.clone()),
-            effort_level: effort_level.clone(),
-        };
-
-        // Take session out of registry so we can release the lock
-        let mut session = if let Some(s) = registry.take(&task_id) {
-            s
-        } else {
-            // Create new session (check capacity)
-            if registry.is_at_capacity() {
-                return Err(AppError::InvalidInput(
-                    "Maximum concurrent sessions reached".to_string(),
-                ));
-            }
-            UnifiedChatSession::new(config.clone(), TransportType::Pipe)
-        };
-
-        // Update config for existing sessions
-        session.set_model(model.clone());
-        session.set_system_prompt(config.system_prompt);
-
-        session
-        // Lock released here — other tasks can use the registry
-    };
-
-    // Send message WITHOUT holding the registry lock
-    let task_id_for_events = task_id.clone();
-    let app_for_events = app.clone();
-
-    let (full_response, captured_cli_session_id) = session
-        .send_message(&message, move |event| {
-            emit_agent_event(&app_for_events, &task_id_for_events, event);
-        })
-        .await
-        .map_err(AppError::InvalidInput)?;
-
-    // Put session back into registry
+#[tauri::command(rename_all = "camelCase")]
+pub async fn kill_task_session(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_registry: State<'_, SharedSessionRegistry>,
+    task_id: String,
+) -> Result<(), AppError> {
     {
         let mut registry = session_registry.lock().await;
-        registry.insert(&task_id, session);
+        registry.remove(&task_id);
     }
-
-    // 4. Save cli_session_id and assistant message
+    crate::chat::tmux_transport::kill_session(&task_id).map_err(AppError::InvalidInput)?;
     {
         let conn = state
             .db
             .lock()
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-        if let Some(cli_sid) = &captured_cli_session_id {
-            let agent_session = db::get_or_create_agent_session_for_task(
-                &conn,
-                &task_id,
-                "claude",
-                Some(&working_dir),
-            )?;
-            db::update_agent_session_cli(
-                &conn,
-                &agent_session.id,
-                Some(cli_sid),
-                Some(&model),
-                effort_level.as_deref(),
-            )?;
-        }
-
-        db::insert_agent_message(
-            &conn,
-            &task_id,
-            "assistant",
-            &full_response,
-            Some(&model),
-            effort_level.as_deref(),
-            None,
-            None,
-        )?;
+        let _ = db::update_task_agent_status(&conn, &task_id, None, None)?;
     }
-
-    // 5. Emit completion event
     let _ = app.emit(
         "agent:complete",
         &AgentCompletePayload {
-            task_id: task_id.clone(),
-            success: true,
-            message: None,
+            task_id,
+            success: false,
+            message: Some("Killed".to_string()),
         },
     );
-
     Ok(())
 }
 
@@ -502,7 +1173,14 @@ pub async fn ensure_pty_session(
             // Resize PTY to match panel dimensions (sends SIGWINCH to running process)
             // This fixes TUI apps (codex, vim) that were spawned at a different size
             let _ = session.resize_pty(cols, rows);
-            let scrollback = session.scrollback();
+            // If we need to create a new bridge, the tmux attach will stream
+            // the current pane contents. Returning captured scrollback too
+            // duplicates the visible terminal on first attach.
+            let scrollback = if needs_bridge {
+                String::new()
+            } else {
+                session.scrollback()
+            };
             let pid = session.pid();
             let rx = if needs_bridge {
                 session.resubscribe()
@@ -552,6 +1230,7 @@ pub async fn ensure_pty_session(
 
     let _mpsc_rx = session.start_pty(cols, rows)?;
     let pid = session.pid();
+    let live_scrollback = session.scrollback();
 
     // Start managed bridge via broadcast
     if let Some(rx) = session.resubscribe() {
@@ -565,7 +1244,9 @@ pub async fn ensure_pty_session(
         status: "Running".to_string(),
         pid,
         working_dir,
-        scrollback: if cached_scrollback.is_empty() {
+        scrollback: if !live_scrollback.is_empty() {
+            Some(live_scrollback)
+        } else if cached_scrollback.is_empty() {
             None
         } else {
             Some(cached_scrollback)
@@ -573,19 +1254,10 @@ pub async fn ensure_pty_session(
     })
 }
 
-/// Cancel an ongoing agent chat (kills the session)
+/// Cancel an ongoing agent chat by sending Ctrl+C, preserving the session.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn cancel_agent_chat(
-    app: AppHandle,
-    session_registry: State<'_, SharedSessionRegistry>,
-    task_id: String,
-) -> Result<(), AppError> {
-    {
-        let mut registry = session_registry.lock().await;
-        if let Some(session) = registry.get_mut(&task_id) {
-            let _ = session.kill();
-        }
-    }
+pub async fn cancel_agent_chat(app: AppHandle, task_id: String) -> Result<(), AppError> {
+    crate::chat::tmux_transport::cancel_agent(&task_id);
 
     let _ = app.emit(
         "agent:complete",
@@ -699,58 +1371,111 @@ pub fn get_next_queued_task(
     Ok(queued.into_iter().next())
 }
 
-// ─── Event Forwarding ─────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// Forward ChatEvent to agent-specific Tauri events for the frontend.
-fn emit_agent_event(app: &AppHandle, task_id: &str, event: ChatEvent) {
-    match event {
-        ChatEvent::TextContent(content) => {
-            let _ = app.emit(
-                "agent:stream",
-                &AgentStreamPayload {
-                    task_id: task_id.to_string(),
-                    content,
-                },
-            );
-        }
-        ChatEvent::ThinkingContent {
-            content,
-            is_complete,
-        } => {
-            let _ = app.emit(
-                "agent:thinking",
-                &AgentThinkingPayload {
-                    task_id: task_id.to_string(),
-                    content,
-                    is_complete,
-                },
-            );
-        }
-        ChatEvent::ToolUse {
-            id,
-            name,
-            input,
-            status,
-        } => {
-            let status_str = match status {
-                ToolStatus::Running => "running",
-                ToolStatus::Complete => "completed",
-            };
-            let _ = app.emit(
-                "agent:tool_call",
-                &AgentToolCallPayload {
-                    task_id: task_id.to_string(),
-                    tool_id: id,
-                    tool_name: name,
-                    tool_input: input.unwrap_or_default(),
-                    status: status_str.to_string(),
-                },
-            );
-        }
-        ChatEvent::Complete
-        | ChatEvent::Result(_)
-        | ChatEvent::SessionId(_)
-        | ChatEvent::RawOutput(_)
-        | ChatEvent::Unknown => {}
+    #[test]
+    fn build_task_input_line_leaves_running_agent_input_literal() {
+        assert_eq!(
+            build_task_input_line("claude", "claude-sonnet-4-6", "hello", None, false)
+                .unwrap()
+                .line,
+            "hello"
+        );
+    }
+
+    #[test]
+    fn build_task_input_line_launches_idle_claude_prompt_with_resume_and_model() {
+        let input = build_task_input_line(
+            "claude",
+            "claude-sonnet-4-6",
+            "hello agent",
+            Some("session-123"),
+            true,
+        )
+        .unwrap();
+
+        let command = input.line;
+        assert!(input.completion.is_some());
+        assert!(command.starts_with("bash "));
+        let script = std::fs::read_to_string(script_path_from_launcher(&command)).unwrap();
+        assert!(script.contains("claude"));
+        assert!(script.contains("--model"));
+        assert!(script.contains("claude-sonnet-4-6"));
+        assert!(script.contains("--resume"));
+        assert!(script.contains("session-123"));
+        assert!(script.contains("-p"));
+        assert!(script.contains("hello agent"));
+        assert!(script.contains("tmux wait-for -S bentoya_chat_done_"));
+    }
+
+    #[test]
+    fn build_task_input_line_launches_codex_exec_for_idle_codex_prompt() {
+        let input = build_task_input_line("codex", "gpt-5.4", "plan this", None, true).unwrap();
+
+        let command = input.line;
+        assert!(input.completion.is_some());
+        assert!(command.starts_with("bash "));
+        let script = std::fs::read_to_string(script_path_from_launcher(&command)).unwrap();
+        assert!(script.contains("codex exec"));
+        assert!(script.contains("--full-auto"));
+        assert!(script.contains("--model"));
+        assert!(script.contains("gpt-5.4"));
+        assert!(script.contains("plan this"));
+    }
+
+    #[test]
+    fn maps_task_input_sources_to_runtime_sources() {
+        assert_eq!(agent_input_source("chat"), AgentInputSource::UserChat);
+        assert_eq!(
+            agent_input_source_key(agent_input_source("chat")),
+            "user_chat"
+        );
+        assert_eq!(agent_input_source("voice"), AgentInputSource::UserVoice);
+        assert_eq!(
+            agent_input_source_key(agent_input_source("voice")),
+            "user_voice"
+        );
+        assert_eq!(
+            agent_input_source("command"),
+            AgentInputSource::TriggerUserCommand
+        );
+        assert_eq!(
+            agent_input_source("trigger"),
+            AgentInputSource::TriggerColumn
+        );
+        assert_eq!(agent_input_source("system"), AgentInputSource::System);
+        assert_eq!(
+            agent_input_source("something-else"),
+            AgentInputSource::UserChat
+        );
+    }
+
+    #[test]
+    fn maps_cli_paths_to_agent_types_and_tmux_session_names() {
+        assert_eq!(agent_type_from_cli_path("claude"), "claude");
+        assert_eq!(agent_type_from_cli_path("/opt/homebrew/bin/codex"), "codex");
+        assert_eq!(agent_type_from_cli_path("my-agent"), "generic");
+        assert_eq!(tmux_session_name_for_task("task-123"), "bentoya_task-123");
+        assert_eq!(
+            agent_adapter_kind_from_db("codex_cli"),
+            AgentAdapterKind::CodexCli
+        );
+        assert_eq!(
+            agent_adapter_kind_from_db("claude_cli"),
+            AgentAdapterKind::ClaudeCli
+        );
+        assert_eq!(normalize_agent_runtime_mode(Some("managed")), "managed");
+        assert_eq!(normalize_agent_runtime_mode(Some("terminal")), "terminal");
+        assert_eq!(normalize_agent_runtime_mode(Some("surprise")), "terminal");
+    }
+
+    fn script_path_from_launcher(command: &str) -> String {
+        command
+            .strip_prefix("bash '")
+            .and_then(|s| s.strip_suffix('\''))
+            .expect("script launcher")
+            .replace("'\\''", "'")
     }
 }

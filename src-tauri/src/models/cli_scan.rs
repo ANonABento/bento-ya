@@ -24,10 +24,7 @@ pub fn scan_cli_models(cli_path: &str, provider: &str) -> Vec<ModelEntry> {
 
 /// Run `strings` on a binary and return the output
 fn extract_strings(path: &str) -> Option<String> {
-    let output = Command::new("strings")
-        .arg(path)
-        .output()
-        .ok()?;
+    let output = Command::new("strings").arg(path).output().ok()?;
 
     if output.status.success() {
         Some(String::from_utf8_lossy(&output.stdout).to_string())
@@ -65,7 +62,12 @@ fn parse_anthropic_models(raw: &str) -> Vec<ModelEntry> {
             continue;
         }
         // The third part should be a number (version)
-        if !parts[2].chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        if !parts[2]
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
+        {
             continue;
         }
         // Skip very short partial matches like "claude-sonnet-4-"
@@ -110,7 +112,9 @@ fn parse_anthropic_models(raw: &str) -> Vec<ModelEntry> {
             ModelTier::Standard => 1,
             ModelTier::Fast => 2,
         };
-        tier_ord(&a.tier).cmp(&tier_ord(&b.tier)).then(b.id.cmp(&a.id))
+        tier_ord(&a.tier)
+            .cmp(&tier_ord(&b.tier))
+            .then(b.id.cmp(&a.id))
     });
 
     models
@@ -160,7 +164,9 @@ fn parse_openai_models(raw: &str) -> Vec<ModelEntry> {
             ModelTier::Standard => 1,
             ModelTier::Fast => 2,
         };
-        tier_ord(&a.tier).cmp(&tier_ord(&b.tier)).then(b.id.cmp(&a.id))
+        tier_ord(&a.tier)
+            .cmp(&tier_ord(&b.tier))
+            .then(b.id.cmp(&a.id))
     });
 
     models
@@ -195,7 +201,9 @@ fn humanize_claude_id(id: &str) -> String {
             parts[1].to_string()
         };
         // If there's a date suffix, include it in parens
-        let date = parts.iter().find(|p| p.len() == 8 && p.chars().all(|c| c.is_ascii_digit()));
+        let date = parts
+            .iter()
+            .find(|p| p.len() == 8 && p.chars().all(|c| c.is_ascii_digit()));
         if let Some(d) = date {
             format!("Claude {} {} ({})", family, version, d)
         } else {
@@ -213,7 +221,13 @@ fn humanize_openai_id(id: &str) -> String {
     }
     id.split('-')
         .enumerate()
-        .map(|(i, part)| if i == 0 { capitalize(part) } else { part.to_string() })
+        .map(|(i, part)| {
+            if i == 0 {
+                capitalize(part)
+            } else {
+                part.to_string()
+            }
+        })
         .collect::<Vec<_>>()
         .join(" ")
 }

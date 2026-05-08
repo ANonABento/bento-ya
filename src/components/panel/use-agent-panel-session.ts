@@ -13,7 +13,7 @@ export function useAgentPanelSession(task: Task) {
   const workspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === task.workspaceId)
   )
-  const workingDir = workspace?.repoPath ?? ''
+  const workingDir = task.worktreePath ?? workspace?.repoPath ?? ''
 
   const {
     cliPath,

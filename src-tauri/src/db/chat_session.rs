@@ -15,13 +15,21 @@ fn map_chat_session_row(row: &rusqlite::Row) -> rusqlite::Result<ChatSession> {
     })
 }
 
-const CHAT_SESSION_COLUMNS: &str = "id, workspace_id, title, cli_session_id, created_at, updated_at";
+const CHAT_SESSION_COLUMNS: &str =
+    "id, workspace_id, title, cli_session_id, created_at, updated_at";
 
-pub fn create_chat_session(conn: &Connection, workspace_id: &str, title: &str) -> SqlResult<ChatSession> {
+pub fn create_chat_session(
+    conn: &Connection,
+    workspace_id: &str,
+    title: &str,
+) -> SqlResult<ChatSession> {
     let id = new_id();
     let ts = now();
     conn.execute(
-        &format!("INSERT INTO chat_sessions ({}) VALUES (?1, ?2, ?3, ?4, ?5)", "id, workspace_id, title, created_at, updated_at"),
+        &format!(
+            "INSERT INTO chat_sessions ({}) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "id, workspace_id, title, created_at, updated_at"
+        ),
         params![id, workspace_id, title, ts, ts],
     )?;
     get_chat_session(conn, &id)
@@ -29,21 +37,29 @@ pub fn create_chat_session(conn: &Connection, workspace_id: &str, title: &str) -
 
 pub fn get_chat_session(conn: &Connection, id: &str) -> SqlResult<ChatSession> {
     conn.query_row(
-        &format!("SELECT {} FROM chat_sessions WHERE id = ?1", CHAT_SESSION_COLUMNS),
+        &format!(
+            "SELECT {} FROM chat_sessions WHERE id = ?1",
+            CHAT_SESSION_COLUMNS
+        ),
         params![id],
         map_chat_session_row,
     )
 }
 
 pub fn list_chat_sessions(conn: &Connection, workspace_id: &str) -> SqlResult<Vec<ChatSession>> {
-    let mut stmt = conn.prepare(
-        &format!("SELECT {} FROM chat_sessions WHERE workspace_id = ?1 ORDER BY updated_at DESC", CHAT_SESSION_COLUMNS),
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM chat_sessions WHERE workspace_id = ?1 ORDER BY updated_at DESC",
+        CHAT_SESSION_COLUMNS
+    ))?;
     let rows = stmt.query_map(params![workspace_id], map_chat_session_row)?;
     rows.collect()
 }
 
-pub fn update_chat_session(conn: &Connection, id: &str, title: Option<&str>) -> SqlResult<ChatSession> {
+pub fn update_chat_session(
+    conn: &Connection,
+    id: &str,
+    title: Option<&str>,
+) -> SqlResult<ChatSession> {
     let ts = now();
     if let Some(t) = title {
         conn.execute(
@@ -64,10 +80,16 @@ pub fn delete_chat_session(conn: &Connection, id: &str) -> SqlResult<()> {
     Ok(())
 }
 
-pub fn get_or_create_active_session(conn: &Connection, workspace_id: &str) -> SqlResult<ChatSession> {
+pub fn get_or_create_active_session(
+    conn: &Connection,
+    workspace_id: &str,
+) -> SqlResult<ChatSession> {
     // Get most recent session or create new one
     let existing = conn.query_row(
-        &format!("SELECT {} FROM chat_sessions WHERE workspace_id = ?1 ORDER BY updated_at DESC LIMIT 1", CHAT_SESSION_COLUMNS),
+        &format!(
+            "SELECT {} FROM chat_sessions WHERE workspace_id = ?1 ORDER BY updated_at DESC LIMIT 1",
+            CHAT_SESSION_COLUMNS
+        ),
         params![workspace_id],
         map_chat_session_row,
     );
@@ -79,7 +101,11 @@ pub fn get_or_create_active_session(conn: &Connection, workspace_id: &str) -> Sq
 }
 
 /// Update the CLI session ID for a chat session (used for --resume fallback)
-pub fn update_chat_session_cli_id(conn: &Connection, id: &str, cli_session_id: Option<&str>) -> SqlResult<()> {
+pub fn update_chat_session_cli_id(
+    conn: &Connection,
+    id: &str,
+    cli_session_id: Option<&str>,
+) -> SqlResult<()> {
     let ts = now();
     conn.execute(
         "UPDATE chat_sessions SET cli_session_id = ?1, updated_at = ?2 WHERE id = ?3",

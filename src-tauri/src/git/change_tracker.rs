@@ -129,11 +129,7 @@ pub fn get_changes(repo_path: &str, branch: &str) -> Result<ChangeSummary, Strin
 
 /// Return a unified diff string for a branch vs its base.
 /// If `file_path` is provided, only that file's diff is returned.
-pub fn get_diff(
-    repo_path: &str,
-    branch: &str,
-    file_path: Option<&str>,
-) -> Result<String, String> {
+pub fn get_diff(repo_path: &str, branch: &str, file_path: Option<&str>) -> Result<String, String> {
     let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
     let diff = get_branch_diff(&repo, branch, file_path)?;
 
@@ -213,10 +209,10 @@ pub fn get_commits(repo_path: &str, branch: &str) -> Result<Vec<CommitInfo>, Str
 
     let mut revwalk = repo.revwalk().map_err(|e| e.to_string())?;
     revwalk.push(task_commit.id()).map_err(|e| e.to_string())?;
+    revwalk.hide(merge_base).map_err(|e| e.to_string())?;
     revwalk
-        .hide(merge_base)
+        .set_sorting(git2::Sort::TIME)
         .map_err(|e| e.to_string())?;
-    revwalk.set_sorting(git2::Sort::TIME).map_err(|e| e.to_string())?;
 
     let mut commits = Vec::new();
     for oid in revwalk {
@@ -224,10 +220,7 @@ pub fn get_commits(repo_path: &str, branch: &str) -> Result<Vec<CommitInfo>, Str
         let commit = repo.find_commit(oid).map_err(|e| e.to_string())?;
         let hash = oid.to_string();
         let short_hash = hash[..7.min(hash.len())].to_string();
-        let message = commit
-            .summary()
-            .unwrap_or("")
-            .to_string();
+        let message = commit.summary().unwrap_or("").to_string();
         let author = commit.author().name().unwrap_or("").to_string();
         let timestamp = commit.time().seconds();
 

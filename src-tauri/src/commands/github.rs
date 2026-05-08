@@ -14,14 +14,14 @@ use tauri::{AppHandle, State};
 pub struct PrStatusResponse {
     pub task_id: String,
     pub pr_number: i64,
-    pub mergeable: String,           // "mergeable", "conflicted", "unknown"
-    pub ci_status: String,           // "pending", "success", "failure", "error"
+    pub mergeable: String,               // "mergeable", "conflicted", "unknown"
+    pub ci_status: String,               // "pending", "success", "failure", "error"
     pub review_decision: Option<String>, // "APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"
     pub comment_count: i64,
     pub is_draft: bool,
     pub labels: Vec<String>,
     pub head_sha: String,
-    pub state: String,               // "OPEN", "CLOSED", "MERGED"
+    pub state: String, // "OPEN", "CLOSED", "MERGED"
 }
 
 /// Fetch PR status from GitHub using gh CLI
@@ -33,20 +33,25 @@ pub async fn fetch_pr_status(
     repo_path: String,
 ) -> Result<PrStatusResponse, AppError> {
     let task = {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         db::get_task(&conn, &task_id)?
     };
 
-    let pr_number = task.pr_number.ok_or_else(|| {
-        AppError::InvalidInput("Task has no PR number".to_string())
-    })?;
+    let pr_number = task
+        .pr_number
+        .ok_or_else(|| AppError::InvalidInput("Task has no PR number".to_string()))?;
 
     // Use gh CLI to fetch PR status (handles auth automatically)
     let output = Command::new("gh")
         .args([
-            "pr", "view",
+            "pr",
+            "view",
             &pr_number.to_string(),
-            "--json", "mergeable,state,reviewDecision,comments,isDraft,labels,headRefOid,statusCheckRollup",
+            "--json",
+            "mergeable,state,reviewDecision,comments,isDraft,labels,headRefOid,statusCheckRollup",
         ])
         .current_dir(&repo_path)
         .output()
@@ -54,7 +59,10 @@ pub async fn fetch_pr_status(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::CommandError(format!("gh pr view failed: {}", stderr)));
+        return Err(AppError::CommandError(format!(
+            "gh pr view failed: {}",
+            stderr
+        )));
     }
 
     let json_str = String::from_utf8_lossy(&output.stdout);
@@ -65,19 +73,20 @@ pub async fn fetch_pr_status(
         Some("MERGEABLE") => "mergeable",
         Some("CONFLICTING") => "conflicted",
         _ => "unknown",
-    }.to_string();
+    }
+    .to_string();
 
     let ci_status = determine_ci_status(&gh_response.status_check_rollup);
 
-    let labels: Vec<String> = gh_response.labels
-        .iter()
-        .map(|l| l.name.clone())
-        .collect();
+    let labels: Vec<String> = gh_response.labels.iter().map(|l| l.name.clone()).collect();
 
     let comment_count = gh_response.comments.len() as i64;
 
     {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         db::update_task_pr_status(
             &conn,
             &task_id,
@@ -131,7 +140,10 @@ pub fn should_refresh_pr_status(
     task_id: String,
     max_age_seconds: i64,
 ) -> Result<bool, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     let task = db::get_task(&conn, &task_id)?;
 
     // No PR number means no status to refresh
@@ -185,30 +197,44 @@ pub async fn sync_github_issues_now(
 ) -> Result<GithubSyncResult, AppError> {
     // 1. Read workspace config + columns (short lock)
     let (repo, label_filter, inbox_column_id, done_column_id, pr_column_id) = {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         let ws = db::get_workspace(&conn, &workspace_id)?;
-        let config: serde_json::Value =
-            serde_json::from_str(&ws.config).unwrap_or_default();
+        let config: serde_json::Value = serde_json::from_str(&ws.config).unwrap_or_default();
 
-        let repo = config["githubRepo"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
+        let repo = config["githubRepo"].as_str().unwrap_or("").to_string();
         if repo.is_empty() {
             return Err(AppError::InvalidInput(
                 "GitHub repo not configured. Set githubRepo in workspace config.".to_string(),
             ));
         }
 
-        let label_filter = config["githubLabelFilter"].as_str().unwrap_or("").to_string();
-        let inbox_col = config["githubInboxColumnId"].as_str().unwrap_or("").to_string();
-        let done_col = config["githubDoneColumnId"].as_str().unwrap_or("").to_string();
-        let pr_col = config["githubPrColumnId"].as_str().unwrap_or("").to_string();
+        let label_filter = config["githubLabelFilter"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let inbox_col = config["githubInboxColumnId"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let done_col = config["githubDoneColumnId"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let pr_col = config["githubPrColumnId"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
         (repo, label_filter, inbox_col, done_col, pr_col)
     };
 
     let target_column_id = {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         let columns = db::list_columns(&conn, &workspace_id)?;
         if !inbox_column_id.is_empty() && columns.iter().any(|c| c.id == inbox_column_id) {
             inbox_column_id
@@ -253,15 +279,17 @@ pub async fn sync_github_issues_now(
     }
 
     let json_str = String::from_utf8_lossy(&output.stdout);
-    let issues: Vec<GhIssue> = serde_json::from_str(&json_str).map_err(|e| {
-        AppError::CommandError(format!("Failed to parse gh issue response: {}", e))
-    })?;
+    let issues: Vec<GhIssue> = serde_json::from_str(&json_str)
+        .map_err(|e| AppError::CommandError(format!("Failed to parse gh issue response: {}", e)))?;
 
     let issues_fetched = issues.len();
 
     // 3. Determine which issues are new (short lock)
     let existing: HashSet<i64> = {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         db::list_github_issue_numbers(&conn, &workspace_id)
             .unwrap_or_default()
             .into_iter()
@@ -271,7 +299,10 @@ pub async fn sync_github_issues_now(
     // 4. Create tasks for new issues (short lock)
     let mut tasks_created = 0usize;
     {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         for issue in &issues {
             if existing.contains(&issue.number) {
                 continue;
@@ -302,7 +333,10 @@ pub async fn sync_github_issues_now(
     let mut issues_commented = 0usize;
     if !done_column_id.is_empty() {
         let pending = {
-            let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            let conn = state
+                .db
+                .lock()
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
             db::list_tasks_pending_done_comment(&conn, &workspace_id, &done_column_id)
                 .unwrap_or_default()
         };
@@ -321,7 +355,10 @@ pub async fn sync_github_issues_now(
                 .map(|o| o.status.success())
                 .unwrap_or(false);
             if ok {
-                let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+                let conn = state
+                    .db
+                    .lock()
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
                 let _ = db::set_task_github_issue_commented(&conn, &task_id);
                 issues_commented += 1;
             }
@@ -332,9 +369,11 @@ pub async fn sync_github_issues_now(
     let mut prs_linked = 0usize;
     if !pr_column_id.is_empty() {
         let pending = {
-            let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
-            db::list_tasks_pending_pr_link(&conn, &workspace_id, &pr_column_id)
-                .unwrap_or_default()
+            let conn = state
+                .db
+                .lock()
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            db::list_tasks_pending_pr_link(&conn, &workspace_id, &pr_column_id).unwrap_or_default()
         };
         for (task_id, issue_number, pr_url) in pending {
             let body = format!("A pull request has been opened for this issue: {}", pr_url);
@@ -352,7 +391,10 @@ pub async fn sync_github_issues_now(
                 .map(|o| o.status.success())
                 .unwrap_or(false);
             if ok {
-                let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+                let conn = state
+                    .db
+                    .lock()
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
                 let _ = db::set_task_github_issue_pr_linked(&conn, &task_id);
                 prs_linked += 1;
             }
@@ -360,7 +402,10 @@ pub async fn sync_github_issues_now(
     }
 
     {
-        let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         let _ = db::upsert_github_sync_state(&conn, &workspace_id);
     }
 
@@ -378,7 +423,10 @@ pub fn get_github_sync_state(
     state: State<'_, AppState>,
     workspace_id: String,
 ) -> Result<Option<GithubSyncStateResponse>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     match db::get_github_sync_state(&conn, &workspace_id) {
         Ok(s) => Ok(Some(GithubSyncStateResponse {
             workspace_id: s.workspace_id,
@@ -414,11 +462,11 @@ struct GhLabel {
 #[serde(rename_all = "camelCase")]
 struct GhCheckRun {
     #[serde(default)]
-    state: Option<String>,       // "SUCCESS", "FAILURE", "PENDING", etc
+    state: Option<String>, // "SUCCESS", "FAILURE", "PENDING", etc
     #[serde(default)]
-    status: Option<String>,      // "COMPLETED", "IN_PROGRESS", etc
+    status: Option<String>, // "COMPLETED", "IN_PROGRESS", etc
     #[serde(default)]
-    conclusion: Option<String>,  // "SUCCESS", "FAILURE", "NEUTRAL", etc
+    conclusion: Option<String>, // "SUCCESS", "FAILURE", "NEUTRAL", etc
 }
 
 fn determine_ci_status(checks: &[GhCheckRun]) -> String {
@@ -441,8 +489,12 @@ fn determine_ci_status(checks: &[GhCheckRun]) -> String {
         }
 
         // Failed checks
-        if conclusion == "FAILURE" || conclusion == "ERROR" || conclusion == "TIMED_OUT" ||
-           state == "FAILURE" || state == "ERROR" {
+        if conclusion == "FAILURE"
+            || conclusion == "ERROR"
+            || conclusion == "TIMED_OUT"
+            || state == "FAILURE"
+            || state == "ERROR"
+        {
             has_failure = true;
         }
     }

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import type { Task } from '@/types'
+import type { AgentRuntimeMode, Task } from '@/types'
 import * as ipc from '@/lib/ipc'
 import { useTaskStore } from '@/stores/task-store'
 import { DependenciesTab } from './task-dependencies-tab'
@@ -28,6 +28,8 @@ export function TaskSettingsModal({ task, onClose, initialTab }: TaskSettingsMod
   const [skipTriggers, setSkipTriggers] = useState(overrides.skip_triggers === true)
   const [triggerPrompt, setTriggerPrompt] = useState(task.triggerPrompt ?? '')
   const [model, setModel] = useState(task.model ?? '')
+  const taskRuntimeMode = isRuntimeMode(task.agentMode) ? task.agentMode : ''
+  const [runtimeMode, setRuntimeMode] = useState<AgentRuntimeMode | ''>(taskRuntimeMode)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Parse dependencies — held as state for interactive editing
@@ -41,9 +43,15 @@ export function TaskSettingsModal({ task, onClose, initialTab }: TaskSettingsMod
         skip_triggers: skipTriggers,
       }
 
-      // Save model separately if changed
+      const taskPatch: Partial<Task> = {}
       if (model !== (task.model ?? '')) {
-        await ipc.updateTask(task.id, { model: model || null })
+        taskPatch.model = model || null
+      }
+      if (runtimeMode !== taskRuntimeMode) {
+        taskPatch.agentMode = runtimeMode || null
+      }
+      if (Object.keys(taskPatch).length > 0) {
+        await ipc.updateTask(task.id, taskPatch)
       }
 
       const updated = await ipc.updateTaskTriggers(task.id, {
@@ -124,6 +132,8 @@ export function TaskSettingsModal({ task, onClose, initialTab }: TaskSettingsMod
                   setTriggerPrompt={setTriggerPrompt}
                   model={model}
                   setModel={setModel}
+                  runtimeMode={runtimeMode}
+                  setRuntimeMode={setRuntimeMode}
                   lastOutput={task.lastOutput}
                 />
               </motion.div>
@@ -163,6 +173,10 @@ export function TaskSettingsModal({ task, onClose, initialTab }: TaskSettingsMod
   )
 }
 
+function isRuntimeMode(mode: Task['agentMode']): mode is AgentRuntimeMode {
+  return mode === 'terminal' || mode === 'managed'
+}
+
 // ─── Triggers Tab ───────────────────────────────────────────────────────────
 
 function TriggersTab({
@@ -172,6 +186,8 @@ function TriggersTab({
   setTriggerPrompt,
   model,
   setModel,
+  runtimeMode,
+  setRuntimeMode,
   lastOutput,
 }: {
   skipTriggers: boolean
@@ -180,6 +196,8 @@ function TriggersTab({
   setTriggerPrompt: (v: string) => void
   model: string
   setModel: (v: string) => void
+  runtimeMode: AgentRuntimeMode | ''
+  setRuntimeMode: (v: AgentRuntimeMode | '') => void
   lastOutput: string | null
 }) {
   return (
@@ -224,6 +242,26 @@ function TriggersTab({
           <option value="opus">Opus (most capable)</option>
           <option value="sonnet">Sonnet (fast + capable)</option>
           <option value="haiku">Haiku (quick + light)</option>
+        </select>
+      </div>
+
+      {/* Runtime Override */}
+      <div>
+        <label htmlFor="task-runtime-mode" className="mb-1.5 block text-sm font-medium text-text-secondary">
+          Runtime
+        </label>
+        <p className="mb-2 text-xs text-text-secondary">
+          Override how this task talks to its agent.
+        </p>
+        <select
+          id="task-runtime-mode"
+          value={runtimeMode}
+          onChange={(e) => { setRuntimeMode(e.target.value as AgentRuntimeMode | '') }}
+          className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
+        >
+          <option value="">Auto (column default)</option>
+          <option value="terminal">Terminal (tmux)</option>
+          <option value="managed">Managed (events)</option>
         </select>
       </div>
 

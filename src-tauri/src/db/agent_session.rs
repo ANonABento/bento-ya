@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use super::models::AgentSession;
 use super::{new_id, now};
 
-/// Inline row mapping for AgentSession (17 fields).
+/// Inline row mapping for AgentSession.
 fn map_agent_session_row(row: &rusqlite::Row) -> rusqlite::Result<AgentSession> {
     Ok(AgentSession {
         id: row.get(0)?,
@@ -19,14 +19,18 @@ fn map_agent_session_row(row: &rusqlite::Row) -> rusqlite::Result<AgentSession> 
         scrollback: row.get(10)?,
         resumable: row.get::<_, i64>(11)? != 0,
         cli_session_id: row.get(12)?,
-        model: row.get(13)?,
-        effort_level: row.get(14)?,
-        created_at: row.get(15)?,
-        updated_at: row.get(16)?,
+        adapter_kind: row.get(13)?,
+        runtime_mode: row.get(14)?,
+        provider_session_id: row.get(15)?,
+        tmux_session_name: row.get(16)?,
+        model: row.get(17)?,
+        effort_level: row.get(18)?,
+        created_at: row.get(19)?,
+        updated_at: row.get(20)?,
     })
 }
 
-const AGENT_SESSION_COLUMNS: &str = "id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, cli_session_id, model, effort_level, created_at, updated_at";
+const AGENT_SESSION_COLUMNS: &str = "id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, cli_session_id, adapter_kind, runtime_mode, provider_session_id, tmux_session_name, model, effort_level, created_at, updated_at";
 
 pub fn insert_agent_session(
     conn: &Connection,
@@ -36,9 +40,10 @@ pub fn insert_agent_session(
 ) -> SqlResult<AgentSession> {
     let id = new_id();
     let ts = now();
+    let adapter_kind = adapter_kind_for_agent_type(agent_type);
     conn.execute(
-        "INSERT INTO agent_sessions (id, task_id, agent_type, working_dir, status, pty_cols, pty_rows, resumable, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 'idle', 80, 24, 0, ?5, ?6)",
-        params![id, task_id, agent_type, working_dir, ts, ts],
+        "INSERT INTO agent_sessions (id, task_id, agent_type, adapter_kind, runtime_mode, working_dir, status, pty_cols, pty_rows, resumable, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 'terminal', ?5, 'idle', 80, 24, 0, ?6, ?7)",
+        params![id, task_id, agent_type, adapter_kind, working_dir, ts, ts],
     )?;
     get_agent_session(conn, &id)
 }
@@ -168,10 +173,60 @@ pub fn update_agent_session_cli(
 ) -> SqlResult<AgentSession> {
     let ts = now();
     conn.execute(
-        "UPDATE agent_sessions SET cli_session_id = ?1, model = ?2, effort_level = ?3, updated_at = ?4 WHERE id = ?5",
+        "UPDATE agent_sessions SET cli_session_id = ?1, provider_session_id = ?1, model = ?2, effort_level = ?3, updated_at = ?4 WHERE id = ?5",
         params![cli_session_id, model, effort_level, ts, id],
     )?;
     get_agent_session(conn, id)
+}
+
+/// Update explicit runtime metadata without disturbing legacy CLI fields.
+pub fn update_agent_session_runtime(
+    conn: &Connection,
+    id: &str,
+    adapter_kind: Option<&str>,
+    runtime_mode: Option<&str>,
+    provider_session_id: Option<Option<&str>>,
+    tmux_session_name: Option<Option<&str>>,
+) -> SqlResult<AgentSession> {
+    let current = get_agent_session(conn, id)?;
+    let ts = now();
+    let new_adapter_kind = adapter_kind
+        .map(str::to_string)
+        .or_else(|| current.adapter_kind.clone());
+    let new_runtime_mode = runtime_mode
+        .map(str::to_string)
+        .unwrap_or(current.runtime_mode);
+    let new_provider_session_id = match provider_session_id {
+        Some(value) => value.map(str::to_string),
+        None => current.provider_session_id.clone(),
+    };
+    let new_tmux_session_name = match tmux_session_name {
+        Some(value) => value.map(str::to_string),
+        None => current.tmux_session_name.clone(),
+    };
+
+    conn.execute(
+        "UPDATE agent_sessions SET adapter_kind = ?1, runtime_mode = ?2, provider_session_id = ?3, tmux_session_name = ?4, updated_at = ?5 WHERE id = ?6",
+        params![
+            new_adapter_kind,
+            new_runtime_mode,
+            new_provider_session_id,
+            new_tmux_session_name,
+            ts,
+            id,
+        ],
+    )?;
+    get_agent_session(conn, id)
+}
+
+pub fn adapter_kind_for_agent_type(agent_type: &str) -> &str {
+    match agent_type.to_ascii_lowercase().as_str() {
+        "codex" => "codex_cli",
+        "api" => "api",
+        "remote" => "remote",
+        "generic" | "generic_cli" => "generic_cli",
+        _ => "claude_cli",
+    }
 }
 
 /// Count running agent sessions across all tasks

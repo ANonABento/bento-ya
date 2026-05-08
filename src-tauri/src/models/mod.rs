@@ -166,7 +166,12 @@ fn scan_cli_binaries() -> Vec<ModelEntry> {
             _ => continue,
         };
         let found = cli_scan::scan_cli_models(&cli.path, provider);
-        log::info!("{} CLI scan: {} models from {}", cli.name, found.len(), cli.path);
+        log::info!(
+            "{} CLI scan: {} models from {}",
+            cli.name,
+            found.len(),
+            cli.path
+        );
         models.extend(found);
     }
 
@@ -180,7 +185,11 @@ fn fallback_from_metadata() -> ModelsCache {
 
     let known_ids = [
         ("claude-opus-4-6-20260217", "Claude Opus 4.6", "anthropic"),
-        ("claude-sonnet-4-6-20260217", "Claude Sonnet 4.6", "anthropic"),
+        (
+            "claude-sonnet-4-6-20260217",
+            "Claude Sonnet 4.6",
+            "anthropic",
+        ),
         ("claude-haiku-4-5-20251001", "Claude Haiku 4.5", "anthropic"),
         ("gpt-5.4", "GPT-5.4", "openai"),
         ("gpt-5", "GPT-5", "openai"),

@@ -1,0 +1,1126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bento-ya Agent Panel Transcript Mockups</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090a0a;
+      --panel: #0f1010;
+      --panel-2: #141515;
+      --panel-3: #191a1a;
+      --line: #2a2c2c;
+      --line-soft: #1d1f1f;
+      --text: #e7e3dc;
+      --muted: #8d8d89;
+      --faint: #5e625f;
+      --accent: #b79270;
+      --blue: #7ca8e8;
+      --cyan: #72c2cc;
+      --green: #93ba7a;
+      --yellow: #d8b85f;
+      --red: #db7d7d;
+      --shadow: rgba(0, 0, 0, 0.35);
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+    }
+
+    body {
+      padding: 22px;
+    }
+
+    button,
+    select,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      color: inherit;
+    }
+
+    .shell {
+      max-width: 1480px;
+      margin: 0 auto;
+    }
+
+    .topbar {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+
+    .title h1 {
+      margin: 0 0 6px;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+
+    .title p {
+      margin: 0;
+      max-width: 820px;
+      color: var(--muted);
+      line-height: 1.45;
+      font-size: 14px;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      min-width: 380px;
+    }
+
+    .segmented,
+    .control {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 4px;
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+      box-shadow: 0 8px 20px var(--shadow);
+    }
+
+    .segment,
+    .chip,
+    .icon-btn {
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      padding: 7px 10px;
+      font-weight: 700;
+      font-size: 13px;
+      line-height: 1;
+    }
+
+    .segment.active,
+    .chip.active {
+      background: #050606;
+      color: var(--text);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+    }
+
+    .chip.warn {
+      color: var(--yellow);
+      border: 1px solid rgba(216, 184, 95, 0.35);
+    }
+
+    .chip.danger {
+      color: var(--red);
+      border: 1px solid rgba(219, 125, 125, 0.35);
+    }
+
+    .label {
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      padding: 0 5px;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 16px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .sidebar h2 {
+      margin: 0;
+      padding: 12px 14px;
+      font-size: 13px;
+      color: var(--muted);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .idea-nav {
+      display: grid;
+      padding: 6px;
+      gap: 4px;
+    }
+
+    .idea-nav button {
+      border: 0;
+      background: transparent;
+      text-align: left;
+      border-radius: 6px;
+      padding: 10px;
+      color: var(--muted);
+    }
+
+    .idea-nav button.active {
+      background: var(--panel-2);
+      color: var(--text);
+      box-shadow: inset 2px 0 0 var(--accent);
+    }
+
+    .idea-nav strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .idea-nav span {
+      display: block;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .notes {
+      border-top: 1px solid var(--line);
+      padding: 12px 14px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .workspace {
+      min-width: 0;
+      border: 1px solid var(--line);
+      background: #070808;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px var(--shadow);
+    }
+
+    .app-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #0b0c0c;
+    }
+
+    .task-title {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr);
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .task-title .chev {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 22px;
+      line-height: 1.1;
+    }
+
+    .task-title strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 14px;
+    }
+
+    .task-title span {
+      display: block;
+      margin-top: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-body {
+      height: 820px;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+    }
+
+    .viewport {
+      min-height: 0;
+      overflow: auto;
+      padding: 18px;
+    }
+
+    .composer {
+      border-top: 1px solid var(--line);
+      background: #0b0c0c;
+      padding: 10px 12px;
+    }
+
+    .composer-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--green);
+      display: inline-block;
+    }
+
+    .compose-row {
+      display: grid;
+      grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+      gap: 8px;
+      align-items: stretch;
+    }
+
+    .compose-row textarea {
+      width: 100%;
+      resize: none;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--text);
+      border-radius: 6px;
+      min-height: 52px;
+      padding: 12px 14px;
+      font-family: var(--mono);
+      font-size: 13px;
+      outline: none;
+    }
+
+    .icon-btn {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      min-width: 44px;
+      display: grid;
+      place-items: center;
+      font-size: 18px;
+    }
+
+    .send {
+      background: var(--accent);
+      color: #080808;
+      border-color: var(--accent);
+    }
+
+    .stop {
+      background: rgba(219, 125, 125, 0.14);
+      color: var(--red);
+      border-color: rgba(219, 125, 125, 0.55);
+    }
+
+    .idea {
+      display: none;
+    }
+
+    .idea.active {
+      display: block;
+    }
+
+    .concept-card {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+
+    .concept-card > header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.015);
+    }
+
+    .concept-card h3 {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .concept-card header p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .status-pill {
+      border: 1px solid rgba(124, 168, 232, 0.35);
+      color: var(--blue);
+      border-radius: 6px;
+      padding: 5px 8px;
+      font-size: 12px;
+      font-family: var(--mono);
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .status-pill.running {
+      color: var(--yellow);
+      border-color: rgba(216, 184, 95, 0.35);
+    }
+
+    .status-pill.failed {
+      color: var(--red);
+      border-color: rgba(219, 125, 125, 0.45);
+    }
+
+    .timeline {
+      padding: 14px 16px 16px;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .run {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.012);
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 14px;
+    }
+
+    .run-head {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
+      gap: 10px;
+      align-items: center;
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .run-head strong {
+      color: var(--text);
+    }
+
+    .run-head .meta {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .run-body {
+      padding: 12px 14px;
+    }
+
+    .entry {
+      border-left: 2px solid var(--line);
+      padding-left: 12px;
+      margin: 0 0 13px;
+    }
+
+    .entry:last-child {
+      margin-bottom: 0;
+    }
+
+    .entry.thinking {
+      color: var(--faint);
+      font-style: italic;
+    }
+
+    .entry.user {
+      border-color: rgba(183, 146, 112, 0.7);
+    }
+
+    .entry.agent {
+      border-color: rgba(124, 168, 232, 0.35);
+    }
+
+    .entry .entry-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 12px;
+      margin-bottom: 5px;
+    }
+
+    .entry p {
+      margin: 0 0 8px;
+      color: var(--text);
+    }
+
+    .entry p:last-child {
+      margin-bottom: 0;
+    }
+
+    .tool {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: rgba(255, 255, 255, 0.01);
+      margin: 8px 0;
+      overflow: hidden;
+    }
+
+    .tool summary {
+      list-style: none;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 8px 10px;
+      color: var(--blue);
+      font-weight: 800;
+    }
+
+    .tool summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .tool .detail-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .tool pre,
+    .terminal pre,
+    .raw pre {
+      margin: 0;
+      padding: 12px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      background: #0b0c0c;
+      border-top: 1px solid var(--line);
+      color: #c9c6bf;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .tool.compact pre {
+      display: none;
+    }
+
+    .summary-line {
+      color: var(--text);
+      padding: 0 10px 10px 34px;
+    }
+
+    .done-line {
+      color: var(--yellow);
+      font-weight: 800;
+      margin-top: 8px;
+    }
+
+    .two-pane {
+      display: grid;
+      grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+      gap: 14px;
+    }
+
+    .mini-panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .mini-panel header {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 12px;
+    }
+
+    .mini-panel .content {
+      padding: 12px;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .terminal {
+      min-height: 520px;
+      background: #050606;
+      font-family: var(--mono);
+      color: #d8d5cd;
+      overflow: hidden;
+    }
+
+    .terminal pre {
+      border: 0;
+      min-height: 520px;
+      color: #d7d5ce;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .terminal .tmux {
+      display: block;
+      margin-top: 16px;
+      background: #a7c787;
+      color: #111;
+      padding: 2px 8px;
+      white-space: nowrap;
+    }
+
+    .feed {
+      max-width: 980px;
+      margin: 0 auto;
+      font-family: var(--mono);
+    }
+
+    .feed-row {
+      display: grid;
+      grid-template-columns: 88px minmax(0, 1fr);
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .feed-row .kind {
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 12px;
+    }
+
+    .feed-row .body {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .feed-row.tool-row .body {
+      color: var(--blue);
+      font-weight: 800;
+    }
+
+    .overview-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 20px;
+      margin-bottom: 4px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .decision {
+      border: 1px solid rgba(183, 146, 112, 0.25);
+      background: rgba(183, 146, 112, 0.07);
+      padding: 12px 14px;
+      border-radius: 8px;
+      margin-top: 14px;
+      color: #d4c2ae;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .hidden-raw .rawish,
+    .hidden-tools .tool,
+    .hidden-thinking .thinking {
+      display: none;
+    }
+
+    .density-compact .timeline,
+    .density-compact .feed {
+      font-size: 12px;
+      line-height: 1.42;
+    }
+
+    .density-compact .run-body,
+    .density-compact .timeline {
+      padding: 10px;
+    }
+
+    .density-compact .entry {
+      margin-bottom: 8px;
+    }
+
+    .density-comfortable .timeline {
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .density-comfortable .run-body {
+      padding: 16px;
+    }
+
+    @media (max-width: 980px) {
+      body {
+        padding: 12px;
+      }
+
+      .topbar,
+      .layout,
+      .two-pane,
+      .overview-grid {
+        grid-template-columns: 1fr;
+        display: grid;
+      }
+
+      .controls {
+        min-width: 0;
+        justify-content: flex-start;
+      }
+
+      .sidebar {
+        position: static;
+      }
+
+      .panel-body {
+        height: 720px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell density-balanced hidden-raw" id="mockup">
+    <section class="topbar">
+      <div class="title">
+        <h1>Agent Panel Transcript Mockups</h1>
+        <p>
+          A high-level playground for deciding what the Bento-ya agent panel should be.
+          Use the ideas on the left and toggles on the right to compare transcript-first,
+          split-view, compact-feed, and terminal-forward designs.
+        </p>
+      </div>
+      <div class="controls" aria-label="Mockup controls">
+        <div class="segmented" role="group" aria-label="Density">
+          <span class="label">density</span>
+          <button class="segment density-btn active" data-density="balanced" style="cursor:pointer">Balanced</button>
+          <button class="segment density-btn" data-density="compact" style="cursor:pointer">Compact</button>
+          <button class="segment density-btn" data-density="comfortable" style="cursor:pointer">Comfort</button>
+        </div>
+        <div class="segmented" role="group" aria-label="Visibility">
+          <button class="chip toggle active" data-toggle="raw" style="cursor:pointer">Hide raw</button>
+          <button class="chip toggle active" data-toggle="thinking" style="cursor:pointer">Thinking</button>
+          <button class="chip toggle active" data-toggle="tools" style="cursor:pointer">Tools</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="layout">
+      <aside class="sidebar">
+        <h2>Ideas</h2>
+        <nav class="idea-nav" aria-label="Mockup ideas">
+          <button class="idea-button active" data-idea="orchestrator" style="cursor:pointer">
+            <strong>1. Orchestrator Transcript</strong>
+            <span>Default product surface. Runs, turns, tools, summaries.</span>
+          </button>
+          <button class="idea-button" data-idea="split" style="cursor:pointer">
+            <strong>2. Transcript Plus Terminal</strong>
+            <span>Side-by-side truth/debug split for power users.</span>
+          </button>
+          <button class="idea-button" data-idea="feed" style="cursor:pointer">
+            <strong>3. Dense Event Feed</strong>
+            <span>More like a log, faster scanning, less ceremony.</span>
+          </button>
+          <button class="idea-button" data-idea="terminal" style="cursor:pointer">
+            <strong>4. Terminal First</strong>
+            <span>Raw terminal primary, semantic rail as overlay.</span>
+          </button>
+        </nav>
+        <div class="notes" id="idea-note">
+          Best fit if Bento-ya wants to feel like an agent workbench, not a terminal wrapper.
+          The risk is over-carded layout and too much metadata.
+        </div>
+      </aside>
+
+      <section class="workspace" aria-label="Mock Bento-ya agent panel">
+        <header class="app-header">
+          <div class="task-title">
+            <div class="chev">&gt;</div>
+            <div>
+              <strong>write a poem for Taiga from Toradora</strong>
+              <span>agent / /Users/bentomac/bento-ya/.worktrees/bentoya-a3652789-dec5-484d-95a4-70f856befcfc</span>
+            </div>
+          </div>
+          <div class="header-actions">
+            <div class="segmented" role="group" aria-label="Agent panel tabs">
+              <button class="segment active" style="cursor:pointer">Transcript</button>
+              <button class="segment" style="cursor:pointer">Terminal</button>
+            </div>
+            <button class="chip warn" style="cursor:pointer">Hold</button>
+            <button class="chip" style="cursor:pointer">Stop</button>
+            <button class="chip danger" style="cursor:pointer">Kill</button>
+          </div>
+        </header>
+
+        <div class="panel-body">
+          <div class="viewport">
+            <section class="idea active" id="idea-orchestrator">
+              <article class="concept-card">
+                <header>
+                  <div>
+                    <h3>Transcript as Agent Workbench</h3>
+                    <p>User sees turns and decisions first. Tools are visible but folded. Raw output is evidence, not the main story.</p>
+                  </div>
+                  <span class="status-pill">recommended</span>
+                </header>
+                <div class="timeline">
+                  <section class="entry user">
+                    <div class="entry-head">&gt; user starts task <span>05:38 AM</span></div>
+                    <p>write a poem for Taiga from Toradora</p>
+                  </section>
+
+                  <section class="run">
+                    <button class="run-head" style="cursor:pointer" data-collapse="run-1">
+                      <span>▼</span>
+                      <span class="meta"><strong>run</strong> · Working · claude · bentoya-a3652789-d...56befcfc</span>
+                      <span class="status-pill">agent completed</span>
+                      <span>05:39 AM</span>
+                    </button>
+                    <div class="run-body" id="run-1">
+                      <section class="entry thinking">
+                        <div class="entry-head">agent thinking</div>
+                        <p>Task is creative writing. Need create file, commit, avoid unnecessary checks.</p>
+                      </section>
+                      <section class="entry agent">
+                        <div class="entry-head">agent</div>
+                        <p>The task is a creative writing request. I will create a poem file at the repo root and commit it.</p>
+                      </section>
+                      <details class="tool compact">
+                        <summary style="cursor:pointer"><span>▶</span><span>Read task context</span><span class="detail-label">details</span></summary>
+                        <pre>Read .task.md
+# write a poem for Taiga from Toradora
+Workspace: bento-ya
+Branch: bentoya/write-a-poem-for-taiga-from-toradora</pre>
+                      </details>
+                      <details class="tool" open>
+                        <summary style="cursor:pointer"><span>▼</span><span>Write poem-for-taiga.md</span><span class="detail-label">summary</span></summary>
+                        <div class="summary-line">File created successfully at <mark>poem-for-taiga.md</mark></div>
+                        <pre class="rawish">Write result:
+File created successfully at /Users/bentomac/bento-ya/.worktrees/.../poem-for-taiga.md
+31 lines written.</pre>
+                      </details>
+                      <details class="tool">
+                        <summary style="cursor:pointer"><span>▶</span><span>Bash git status and commit</span><span class="detail-label">details</span></summary>
+                        <pre>git status --short
+?? poem-for-taiga.md
+git add poem-for-taiga.md && git commit -m "Add poem for Taiga from Toradora"</pre>
+                      </details>
+                      <section class="entry agent">
+                        <div class="entry-head">agent</div>
+                        <p>Committed <mark>poem-for-taiga.md</mark> as <mark>d7ee980</mark>. No code changed, so cargo, tsc, and tests were skipped.</p>
+                        <p class="done-line">done · 33s · $0.42</p>
+                      </section>
+                    </div>
+                  </section>
+
+                  <section class="entry user">
+                    <div class="entry-head">&gt; user continues <span>05:40 AM</span></div>
+                    <p>Can u show me the poem?</p>
+                  </section>
+
+                  <section class="run">
+                    <button class="run-head" style="cursor:pointer" data-collapse="run-2">
+                      <span>▼</span>
+                      <span class="meta"><strong>run</strong> · Resuming · claude · same task context</span>
+                      <span class="status-pill running">agent running</span>
+                      <span>05:40 AM</span>
+                    </button>
+                    <div class="run-body" id="run-2">
+                      <section class="entry thinking">
+                        <div class="entry-head">agent thinking</div>
+                        <p>Need locate the committed file and provide the poem, not rerun the original task.</p>
+                      </section>
+                      <details class="tool">
+                        <summary style="cursor:pointer"><span>▶</span><span>Read poem-for-taiga.md</span><span class="detail-label">details</span></summary>
+                        <pre>cat poem-for-taiga.md</pre>
+                      </details>
+                      <section class="entry agent">
+                        <div class="entry-head">agent streaming</div>
+                        <p>Found it. Here is the poem:</p>
+                        <p><strong>For Taiga</strong></p>
+                        <p>Small storm in a uniform,<br />a tiger pacing the hallway,<br />fists clenched around a feeling<br />you do not yet have a name for.</p>
+                      </section>
+                    </div>
+                  </section>
+                </div>
+              </article>
+
+              <div class="decision">
+                Product bet: Transcript is the default. Terminal remains available but does not compete.
+                This is strongest if follow-up chat clearly says whether it will steer, resume, or start.
+              </div>
+            </section>
+
+            <section class="idea" id="idea-split">
+              <article class="concept-card">
+                <header>
+                  <div>
+                    <h3>Split View for Debug Mode</h3>
+                    <p>Transcript and Terminal appear together only when the user asks for raw truth while keeping the semantic story in sight.</p>
+                  </div>
+                  <span class="status-pill">power mode</span>
+                </header>
+                <div class="timeline">
+                  <div class="two-pane">
+                    <section class="mini-panel">
+                      <header>Transcript</header>
+                      <div class="content">
+                        <section class="entry user">
+                          <div class="entry-head">&gt; user</div>
+                          <p>Can u show me the poem?</p>
+                        </section>
+                        <section class="entry thinking"><p>thinking...</p></section>
+                        <details class="tool" open>
+                          <summary style="cursor:pointer"><span>▼</span><span>Read poem-for-taiga.md</span><span class="detail-label">summary</span></summary>
+                          <div class="summary-line">Read committed poem file from the task worktree.</div>
+                        </details>
+                        <section class="entry agent">
+                          <div class="entry-head">agent</div>
+                          <p>Found it. Here is the poem:</p>
+                          <p><strong>For Taiga</strong></p>
+                          <p>Small storm in a uniform,<br />a tiger pacing the hallway...</p>
+                        </section>
+                      </div>
+                    </section>
+                    <section class="mini-panel terminal">
+                      <header>Terminal, raw tmux session</header>
+                      <pre>bentomac@BentoMac bentoya-a3652789 % bash '/Users/bentomac/.bentoya/trigger_logs/run_7e6c2293.sh'
+
+[claude 2.1.133 claude-sonnet-4-6]
+
+◆ thinking...
+The user wants to see the poem that was written for Taiga from Toradora.
+
+▶ Agent
+✓ commit d7ee98082f426bbe6fb45f4e16834933b5e34662
+✓ 1  # For Taiga
+✓ [{"type":"text","text":"Found it! Here's the information..."}]
+<span class="tmux">[bentoya_a0:zsh*]                                      05:41 08-May-26</span></pre>
+                    </section>
+                  </div>
+                </div>
+              </article>
+              <div class="decision">
+                Product bet: Keep one default tab, but offer split/debug mode later.
+                This reduces duplication anxiety because the two surfaces are visibly serving different purposes.
+              </div>
+            </section>
+
+            <section class="idea" id="idea-feed">
+              <article class="concept-card">
+                <header>
+                  <div>
+                    <h3>Dense Event Feed</h3>
+                    <p>Fast scan, less structure. Better for users who think in logs, weaker for non-technical task review.</p>
+                  </div>
+                  <span class="status-pill">maybe</span>
+                </header>
+                <div class="timeline">
+                  <div class="overview-grid">
+                    <div class="metric"><strong>2</strong><span>turns</span></div>
+                    <div class="metric"><strong>5</strong><span>tools</span></div>
+                    <div class="metric"><strong>33s</strong><span>last run</span></div>
+                    <div class="metric"><strong>d7ee980</strong><span>commit</span></div>
+                  </div>
+                  <div class="feed">
+                    <div class="feed-row"><div class="kind">user</div><div class="body">write a poem for Taiga from Toradora</div></div>
+                    <div class="feed-row"><div class="kind">run</div><div class="body">Working · claude · completed · 05:39 AM</div></div>
+                    <div class="feed-row thinking"><div class="kind">thinking</div><div class="body">Creative writing task. Create file, commit, skip code checks.</div></div>
+                    <div class="feed-row"><div class="kind">agent</div><div class="body">I will create a poem file at the repo root and commit it.</div></div>
+                    <div class="feed-row tool-row"><div class="kind">tool</div><div class="body">Read task context</div></div>
+                    <div class="feed-row tool-row"><div class="kind">tool</div><div class="body">Write poem-for-taiga.md · success</div></div>
+                    <div class="feed-row tool-row"><div class="kind">tool</div><div class="body">Bash git status and commit · d7ee980</div></div>
+                    <div class="feed-row"><div class="kind">agent</div><div class="body">Committed poem-for-taiga.md as d7ee980. No code checks needed.</div></div>
+                    <div class="feed-row"><div class="kind">user</div><div class="body">Can u show me the poem?</div></div>
+                    <div class="feed-row"><div class="kind">run</div><div class="body">Resuming · claude · running</div></div>
+                  </div>
+                </div>
+              </article>
+              <div class="decision">
+                Product bet: Great for density, but it can make agent work feel like system logs.
+                I would borrow its compact rows, not make it the main default.
+              </div>
+            </section>
+
+            <section class="idea" id="idea-terminal">
+              <article class="concept-card">
+                <header>
+                  <div>
+                    <h3>Terminal First With Semantic Rail</h3>
+                    <p>Raw terminal gets priority. Semantic events become a thin navigation rail.</p>
+                  </div>
+                  <span class="status-pill failed">not default</span>
+                </header>
+                <div class="timeline">
+                  <div class="two-pane" style="grid-template-columns: 180px minmax(0, 1fr)">
+                    <section class="mini-panel">
+                      <header>Semantic rail</header>
+                      <div class="content">
+                        <div class="feed-row tool-row" style="grid-template-columns:1fr"><div class="body">Read</div></div>
+                        <div class="feed-row tool-row" style="grid-template-columns:1fr"><div class="body">Write</div></div>
+                        <div class="feed-row tool-row" style="grid-template-columns:1fr"><div class="body">Bash</div></div>
+                        <div class="feed-row" style="grid-template-columns:1fr"><div class="body">Completed</div></div>
+                      </div>
+                    </section>
+                    <section class="mini-panel terminal">
+                      <header>Primary terminal</header>
+                      <pre>bentomac@BentoMac bentoya-a3652789 % bash '/Users/bentomac/.bentoya/trigger_logs/run_7e6c2293.sh'
+
+[claude 2.1.133 claude-sonnet-4-6]
+
+◆ thinking...
+
+▶ Read
+✓ 1  # write a poem for Taiga from Toradora 2 3 4 5 ## Context 6 - Workspace: bento-ya
+
+The task is a creative writing request. I will create a poem file at the repo root.
+
+▶ Write
+✓ File created successfully at: /Users/bentomac/bento-ya/.worktrees/.../poem-for-taiga.md
+
+▶ Bash
+✓ On branch bentoya/write-a-poem-for-taiga-from-toradora Untracked files: poem-for-taiga.md
+Committed as d7ee980.
+
+-- done · 33333ms · $0.423736 --
+<span class="tmux">[bentoya_a0:zsh*]                                      05:39 08-May-26</span></pre>
+                    </section>
+                  </div>
+                </div>
+              </article>
+              <div class="decision">
+                Product bet: This is familiar for terminal-native users, but it fails the durable transcript goal.
+                It keeps the original problem: the product depends on cleaning display residue.
+              </div>
+            </section>
+          </div>
+
+          <footer class="composer">
+            <div class="composer-meta">
+              <span class="dot"></span>
+              <span id="composer-mode">Idle · next message resumes this task</span>
+              <span>Claude Sonnet 4.6</span>
+              <span>Medium</span>
+            </div>
+            <div class="compose-row">
+              <button class="icon-btn" title="Input options" style="cursor:pointer">⌄</button>
+              <button class="icon-btn" title="Attach" style="cursor:pointer">+</button>
+              <textarea id="composer-text" placeholder="Continue this task... /commands, @files, !shell"></textarea>
+              <button class="icon-btn" title="Voice" style="cursor:pointer">◉</button>
+              <button class="icon-btn send" id="send-button" title="Send" style="cursor:pointer">➤</button>
+            </div>
+          </footer>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const root = document.getElementById('mockup');
+    const ideaNote = document.getElementById('idea-note');
+    const notes = {
+      orchestrator: 'Best fit if Bento-ya wants to feel like an agent workbench, not a terminal wrapper. The risk is over-carded layout and too much metadata.',
+      split: 'Best fit as an advanced debug mode. It makes the Transcript and Terminal distinction obvious, but it costs screen space.',
+      feed: 'Best fit for dense scanning and power users. Risk: it feels like logs rather than a humane task transcript.',
+      terminal: 'Best fit if Bento-ya stays terminal-first. Risk: it weakens persistence, readability, and non-terminal review.'
+    };
+
+    document.querySelectorAll('.idea-button').forEach((button) => {
+      button.addEventListener('click', () => {
+        const idea = button.dataset.idea;
+        document.querySelectorAll('.idea-button').forEach((item) => item.classList.remove('active'));
+        document.querySelectorAll('.idea').forEach((item) => item.classList.remove('active'));
+        button.classList.add('active');
+        document.getElementById(`idea-${idea}`).classList.add('active');
+        ideaNote.textContent = notes[idea];
+      });
+    });
+
+    document.querySelectorAll('.density-btn').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.density-btn').forEach((item) => item.classList.remove('active'));
+        button.classList.add('active');
+        root.classList.remove('density-balanced', 'density-compact', 'density-comfortable');
+        root.classList.add(`density-${button.dataset.density}`);
+      });
+    });
+
+    document.querySelectorAll('.toggle').forEach((button) => {
+      button.addEventListener('click', () => {
+        const name = button.dataset.toggle;
+        button.classList.toggle('active');
+        if (name === 'raw') {
+          root.classList.toggle('hidden-raw', button.classList.contains('active'));
+          button.textContent = button.classList.contains('active') ? 'Hide raw' : 'Show raw';
+        }
+        if (name === 'thinking') {
+          root.classList.toggle('hidden-thinking', !button.classList.contains('active'));
+        }
+        if (name === 'tools') {
+          root.classList.toggle('hidden-tools', !button.classList.contains('active'));
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-collapse]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const target = document.getElementById(button.dataset.collapse);
+        const isHidden = target.style.display === 'none';
+        target.style.display = isHidden ? '' : 'none';
+        button.firstElementChild.textContent = isHidden ? '▼' : '▶';
+      });
+    });
+
+    const composer = document.getElementById('composer-text');
+    const send = document.getElementById('send-button');
+    const mode = document.getElementById('composer-mode');
+    composer.addEventListener('input', () => {
+      const hasText = composer.value.trim().length > 0;
+      send.textContent = hasText ? '➤' : '■';
+      send.classList.toggle('stop', !hasText);
+      send.classList.toggle('send', hasText);
+      send.title = hasText ? 'Send follow-up' : 'Stop running agent';
+      mode.textContent = hasText
+        ? 'Idle · sending starts a resumed turn'
+        : 'Running example · empty composer shows stop action';
+    });
+  </script>
+</body>
+</html>

@@ -63,6 +63,18 @@ pub fn try_auto_advance(
         return Ok(None);
     }
 
+    if task.held_by_user {
+        emit_pipeline(
+            app,
+            "pipeline:auto_advance_deferred",
+            &task.id,
+            &current_column.id,
+            PipelineState::Idle,
+            Some("Auto-advance held while user is steering the task".to_string()),
+        );
+        return Ok(None);
+    }
+
     let exit_met = evaluate_exit_criteria(conn, app, task, current_column)?;
     if !exit_met {
         return Ok(None);

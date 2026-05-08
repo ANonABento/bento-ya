@@ -171,5 +171,28 @@ body,
   transition-duration: var(--transition-duration);
 }
 
-/* Cursor during drag is set via document.body.style.cursor in JS */
+/* xterm needs explicit box ownership inside the animated Tauri panel. */
+.agent-terminal-host,
+.agent-terminal-host .xterm {
+  height: 100%;
+  width: 100%;
+}
 
+.agent-terminal-host .xterm {
+  padding: 0;
+}
+
+.agent-terminal-host .xterm-viewport {
+  background-color: transparent !important;
+  overflow-y: auto !important;
+}
+
+.agent-terminal-host .xterm-screen {
+  min-width: 100%;
+}
+
+.agent-terminal-host .xterm-rows {
+  letter-spacing: 0 !important;
+}
+
+/* Cursor during drag is set via document.body.style.cursor in JS */

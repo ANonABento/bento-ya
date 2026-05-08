@@ -29,7 +29,7 @@ fn convert_webm_to_wav(webm_path: &Path) -> Result<PathBuf, String> {
 
     let output = Command::new("ffmpeg")
         .args([
-            "-y",           // overwrite output
+            "-y", // overwrite output
             "-i",
             webm_path.to_str().ok_or("Invalid input path")?,
             "-ar",
@@ -54,8 +54,8 @@ fn convert_webm_to_wav(webm_path: &Path) -> Result<PathBuf, String> {
 
 /// Read WAV file to PCM samples
 fn read_wav_to_pcm(wav_path: &Path) -> Result<Vec<f32>, String> {
-    let reader = hound::WavReader::open(wav_path)
-        .map_err(|e| format!("Failed to open WAV file: {}", e))?;
+    let reader =
+        hound::WavReader::open(wav_path).map_err(|e| format!("Failed to open WAV file: {}", e))?;
 
     let spec = reader.spec();
     log::info!(
@@ -98,8 +98,8 @@ fn convert_to_pcm(audio_path: &Path) -> Result<Vec<f32>, String> {
     }
 
     // For other formats, try symphonia
-    let file = std::fs::File::open(audio_path)
-        .map_err(|e| format!("Failed to open audio file: {}", e))?;
+    let file =
+        std::fs::File::open(audio_path).map_err(|e| format!("Failed to open audio file: {}", e))?;
 
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 

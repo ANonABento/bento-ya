@@ -1,17 +1,10 @@
 /**
- * AgentPanel UI Tests — single-Terminal layout
+ * AgentPanel UI Tests — semantic Transcript + raw Terminal layout
  *
- * After the unified-PTY migration there's exactly one panel view: the live
- * tmux-backed terminal. These tests verify the surface contract:
- *   - The panel mounts on task-card click
- *   - The header shows the Terminal label and a Stop button
- *   - The Output tab is gone
- *   - Stop button is interactive (does not crash the panel)
- *
- * Runs against a real Tauri app via tauri-webdriver. Requires:
- *   1. cd src-tauri && cargo build --features webdriver
- *   2. tauri-wd --port 4444 (already running per session)
- *   3. npx wdio run wdio.conf.mjs
+ * The primary panel surface is now the semantic Transcript tab. The raw
+ * tmux-backed xterm remains available in the Terminal tab for inspection and
+ * direct control. These tests verify that split contract against the real
+ * Tauri app.
  */
 
 async function tauriInvoke(browser, cmd, args = {}) {
@@ -27,7 +20,16 @@ async function tauriInvoke(browser, cmd, args = {}) {
   )
 }
 
-describe('AgentPanel — single-Terminal layout', () => {
+async function waitForTaskCard(taskId) {
+  const selector = `[data-task-id="${taskId}"]`
+  await browser.waitUntil(async () => (await $(selector)).isExisting(), {
+    timeout: 8000,
+    timeoutMsg: `task card ${taskId} did not render`,
+  })
+  return $(selector)
+}
+
+describe('AgentPanel — Transcript/Terminal layout', () => {
   let workspaceId
   let testTaskId
 
@@ -44,7 +46,7 @@ describe('AgentPanel — single-Terminal layout', () => {
     }
 
     const ws = (await tauriInvoke(browser, 'list_workspaces')).data
-    workspaceId = ws[0].id
+    workspaceId = (ws.find(workspace => workspace.isActive) ?? ws[0]).id
 
     // Create a task we control fully
     const cols = (await tauriInvoke(browser, 'list_columns', { workspaceId })).data
@@ -57,27 +59,37 @@ describe('AgentPanel — single-Terminal layout', () => {
     })
     if (!created.ok) throw new Error(`create_task failed: ${created.error}`)
     testTaskId = created.data.id
+    await browser.refresh()
+    await browser.pause(1200)
   })
 
   after(async () => {
     if (testTaskId) {
+      await tauriInvoke(browser, 'update_task_agent_status', {
+        taskId: testTaskId,
+        agentStatus: null,
+        queuedAt: null,
+      })
       await tauriInvoke(browser, 'delete_task', { id: testTaskId })
     }
   })
 
-  it('opens the panel on task-card click and shows the Terminal header', async () => {
-    const card = await $(`[data-task-id="${testTaskId}"]`)
-    expect(await card.isExisting()).toBe(true)
+  it('opens the panel on task-card click and shows Transcript/Terminal tabs', async () => {
+    const card = await waitForTaskCard(testTaskId)
+    await card.scrollIntoView()
     await card.click()
-    await browser.pause(500)
+    await browser.waitUntil(async () => (await $('[data-testid="agent-panel"]')).isExisting(), {
+      timeout: 5000,
+      timeoutMsg: 'agent panel did not open',
+    })
 
-    // The Terminal label is text inside the panel header (not a tab anymore)
-    const terminalLabel = await $('span*=Terminal')
-    expect(await terminalLabel.isExisting()).toBe(true)
+    expect(await $('[data-testid="agent-panel-tab-transcript"]').isExisting()).toBe(true)
+    expect(await $('[data-testid="agent-panel-tab-terminal"]').isExisting()).toBe(true)
 
-    // Stop button must be present
-    const stopButton = await $('button*=Stop')
-    expect(await stopButton.isExisting()).toBe(true)
+    // Lifecycle controls remain in the header.
+    expect(await $('[data-testid="agent-panel-hold-button"]').isExisting()).toBe(true)
+    expect(await $('[data-testid="agent-panel-stop-button"]').isExisting()).toBe(true)
+    expect(await $('[data-testid="agent-panel-kill-button"]').isExisting()).toBe(true)
   })
 
   it('does not render an Output tab', async () => {
@@ -86,27 +98,44 @@ describe('AgentPanel — single-Terminal layout', () => {
     expect(await outputTab.isExisting()).toBe(false)
   })
 
-  it('xterm container mounts in the panel', async () => {
-    // xterm injects a div with class .xterm once initialized
-    const xterm = await $('.xterm, .xterm-screen')
-    // xterm may take a beat to mount after panel slide-in animation
-    await browser.waitUntil(async () => xterm.isExisting(), {
+  it('Terminal tab mounts the raw xterm view', async () => {
+    await $('[data-testid="agent-panel-tab-terminal"]').click()
+    await browser.waitUntil(async () => (await $('[data-testid="agent-terminal-view"]')).isExisting(), {
+      timeout: 5000,
+      timeoutMsg: 'terminal view did not mount',
+    })
+    await browser.waitUntil(async () => (await $('.xterm, .xterm-screen')).isExisting(), {
       timeout: 5000,
       timeoutMsg: 'xterm did not mount',
     })
-    expect(await xterm.isExisting()).toBe(true)
+    expect(await $('[data-testid="agent-terminal-host"]').isExisting()).toBe(true)
   })
 
-  it('Stop button is clickable and does not crash the panel', async () => {
-    const stopButton = await $('button*=Stop')
+  it('Stop button is enabled for running tasks and does not crash the panel', async () => {
+    const update = await tauriInvoke(browser, 'update_task_agent_status', {
+      taskId: testTaskId,
+      agentStatus: 'running',
+      queuedAt: null,
+    })
+    expect(update.ok).toBe(true)
+    await browser.refresh()
+    await browser.pause(1200)
+    const card = await waitForTaskCard(testTaskId)
+    await card.scrollIntoView()
+    await card.click()
+    await browser.waitUntil(async () => (await $('[data-testid="agent-panel-stop-button"]')).isExisting(), {
+      timeout: 5000,
+      timeoutMsg: 'Stop button did not render',
+    })
+
+    const stopButton = await $('[data-testid="agent-panel-stop-button"]')
+    expect(await stopButton.isEnabled()).toBe(true)
     await stopButton.click()
     await browser.pause(400)
-    // Stop is a no-op for a task without a running tmux session, but the
-    // panel must still be interactive afterward.
-    expect(await stopButton.isExisting()).toBe(true)
+    expect(await $('[data-testid="agent-panel"]').isExisting()).toBe(true)
   })
 
   it('captures screenshots for visual review', async () => {
-    await browser.saveScreenshot('./tests/webdriver/screenshots/panel-terminal-only.png')
+    await browser.saveScreenshot('./tests/webdriver/screenshots/panel-transcript-terminal.png')
   })
 })

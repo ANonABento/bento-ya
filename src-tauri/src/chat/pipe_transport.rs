@@ -120,9 +120,7 @@ impl ChatTransport for PipeTransport {
                             if let ChatEvent::TextContent(text) = &event {
                                 if full_response.is_empty() {
                                     full_response = text.clone();
-                                    let _ = event_tx
-                                        .send(TransportEvent::Chat(event))
-                                        .await;
+                                    let _ = event_tx.send(TransportEvent::Chat(event)).await;
                                 }
                             }
                             continue;
@@ -135,9 +133,7 @@ impl ChatTransport for PipeTransport {
                                 full_response.push_str(text);
                             }
                             ChatEvent::Complete => {
-                                let _ = event_tx
-                                    .send(TransportEvent::Chat(event))
-                                    .await;
+                                let _ = event_tx.send(TransportEvent::Chat(event)).await;
                                 break;
                             }
                             _ => {}

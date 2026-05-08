@@ -128,7 +128,8 @@ pub fn read_file_content(file_path: String) -> Result<String, AppError> {
         )));
     }
 
-    fs::read_to_string(&path).map_err(|e| AppError::InvalidInput(format!("Failed to read file: {}", e)))
+    fs::read_to_string(&path)
+        .map_err(|e| AppError::InvalidInput(format!("Failed to read file: {}", e)))
 }
 
 /// Create a new markdown note file

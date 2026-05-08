@@ -21,6 +21,8 @@ export function ChatInput({
   onCancel,
   onInputChange,
   onAttachmentError,
+  deliveryHint,
+  submitLabel,
   isProcessing = false,
   disabled = false,
   queueCount = 0,
@@ -35,11 +37,13 @@ export function ChatInput({
     disabled,
     messageCount,
   })
+  const hasSubmitContent = state.canSend
+  const showInlineStop = Boolean(isProcessing && onCancel && !hasSubmitContent)
 
   return (
     <div
       ref={state.containerRef}
-      className={`border-t border-border-default bg-surface ${
+      className={`border-t border-border-default bg-bg ${
         state.isDragOver ? 'ring-2 ring-accent ring-inset' : ''
       }`}
       onDragOver={state.handleDragOver}
@@ -54,7 +58,18 @@ export function ChatInput({
         />
       )}
 
-      <div className="p-3">
+      <div className="px-3 py-1.5">
+        {deliveryHint && (
+          <div className="mb-1 flex items-center justify-between gap-2 text-[10px] text-text-secondary">
+            <span className="min-w-0 truncate">{deliveryHint}</span>
+            {queueCount > 0 && (
+              <span className="shrink-0 rounded border border-accent/20 px-1.5 py-0.5 text-accent/75">
+                {queueCount} queued
+              </span>
+            )}
+          </div>
+        )}
+
         {state.hasSelectors && state.settingsOpen && (
           <ChatInputSettingsRow
             config={config}
@@ -72,7 +87,7 @@ export function ChatInput({
           />
         )}
 
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-1.5">
           {state.hasSelectors && (
             <Tooltip
               content={state.settingsOpen ? 'Hide settings' : 'Show settings'}
@@ -82,11 +97,12 @@ export function ChatInput({
               <button
                 type="button"
                 onClick={state.handleSettingsToggle}
-                className={`flex h-[38px] shrink-0 items-center gap-1 rounded-lg border px-2 text-xs transition-colors ${
+                className={`flex h-8 shrink-0 items-center gap-1 rounded border px-1.5 text-xs transition-colors ${
                   state.settingsOpen
                     ? 'border-accent/30 bg-accent/5 text-accent'
-                    : 'border-border-default bg-bg text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+                    : 'border-border-default bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
                 }`}
+                style={{ cursor: 'pointer' }}
               >
                 <svg
                   width="10"
@@ -98,7 +114,7 @@ export function ChatInput({
                   <path d="M2.5 6L5 3.5L7.5 6" stroke="currentColor" strokeWidth="1.2" />
                 </svg>
                 {!state.settingsOpen && (
-                  <span className="text-[10px] font-medium">{state.currentModelName}</span>
+                  <span className="max-w-24 truncate text-[10px] font-medium">{state.currentModelName}</span>
                 )}
               </button>
             </Tooltip>
@@ -131,10 +147,10 @@ export function ChatInput({
             rows={config.rows}
             readOnly={state.voice.state === 'recording'}
             disabled={disabled || state.voice.state === 'processing'}
-            className={`flex-1 resize-none rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50 ${
+            className={`flex-1 resize-none rounded border border-border-default bg-surface px-2.5 py-1.5 font-mono text-sm leading-relaxed text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20 disabled:opacity-50 ${
               state.voice.state === 'recording' ? 'italic text-text-secondary' : ''
             } ${state.isDragOver ? 'border-accent' : ''}`}
-            style={{ minHeight: '38px', maxHeight: '120px' }}
+            style={{ minHeight: '36px', maxHeight: '120px' }}
           />
 
           {state.showVoice && (
@@ -165,17 +181,24 @@ export function ChatInput({
                   }
                 }}
                 disabled={disabled || isProcessing || state.voice.state === 'processing'}
-                className={`flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg border transition-colors ${
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded border transition-colors ${
                   state.voice.state === 'recording'
                     ? 'border-accent bg-accent/10 text-accent animate-pulse'
                     : state.voice.state === 'processing'
                       ? 'border-accent bg-accent/10 text-accent'
                       : state.voice.state === 'error'
                         ? 'border-yellow-500 bg-yellow-500/10 text-yellow-500'
-                        : !state.voice.isAvailable
-                          ? 'border-border-default bg-bg text-text-secondary/40 cursor-help'
+                      : !state.voice.isAvailable
+                          ? 'border-border-default bg-bg text-text-secondary/40'
                           : 'border-border-default bg-bg text-text-primary hover:bg-bg-hover hover:border-border-hover'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                } disabled:opacity-50`}
+                style={{
+                  cursor: disabled || isProcessing || state.voice.state === 'processing'
+                    ? 'not-allowed'
+                    : !state.voice.isAvailable
+                      ? 'help'
+                      : 'pointer',
+                }}
               >
                 {state.voice.state === 'processing' ? (
                   <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -192,12 +215,13 @@ export function ChatInput({
             </Tooltip>
           )}
 
-          {isProcessing && onCancel && (
+          {isProcessing && onCancel && !showInlineStop && (
             <Tooltip content={queueCount > 0 ? `Cancel (${String(queueCount)} queued)` : 'Cancel'} side="top" delay={200}>
               <button
                 type="button"
                 onClick={onCancel}
-                className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg border border-red-500/30 bg-red-500/10 text-red-500 transition-colors hover:bg-red-500/20"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-red-500/30 bg-red-500/10 text-red-500 transition-colors hover:bg-red-500/20"
+                style={{ cursor: 'pointer' }}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
                   <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm2.78-4.22a.75.75 0 0 1-1.06 0L8 9.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L6.94 8 5.22 6.28a.75.75 0 0 1 1.06-1.06L8 6.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L9.06 8l1.72 1.72a.75.75 0 0 1 0 1.06Z" clipRule="evenodd" />
@@ -206,16 +230,27 @@ export function ChatInput({
             </Tooltip>
           )}
 
-          <Tooltip content={isProcessing ? 'Queue message' : 'Send'} side="top" delay={200}>
+          <Tooltip content={showInlineStop ? 'Stop agent' : submitLabel ?? (isProcessing ? 'Queue message' : 'Send')} side="top" delay={200}>
             <button
               type="button"
-              onClick={state.handleSubmit}
-              disabled={!state.canSend || disabled}
-              className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg bg-accent text-bg transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={showInlineStop ? onCancel : state.handleSubmit}
+              disabled={showInlineStop ? disabled : !hasSubmitContent || disabled}
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded transition-colors disabled:opacity-50 ${
+                showInlineStop
+                  ? 'border border-red-500/40 bg-red-500/12 text-red-400 hover:bg-red-500/20'
+                  : 'bg-accent text-bg hover:bg-accent/90'
+              }`}
+              style={{ cursor: (!showInlineStop && !hasSubmitContent) || disabled ? 'not-allowed' : 'pointer' }}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                <path d="M3.105 2.288a.75.75 0 0 0-.826.95l1.414 4.926A1.5 1.5 0 0 0 5.135 9.25h6.115a.75.75 0 0 1 0 1.5H5.135a1.5 1.5 0 0 0-1.442 1.086l-1.414 4.926a.75.75 0 0 0 .826.95 28.897 28.897 0 0 0 15.293-7.155.75.75 0 0 0 0-1.114A28.897 28.897 0 0 0 3.105 2.288Z" />
-              </svg>
+              {showInlineStop ? (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
+                  <path d="M5 4.75A1.75 1.75 0 0 1 6.75 3h2.5A1.75 1.75 0 0 1 11 4.75v6.5A1.75 1.75 0 0 1 9.25 13h-2.5A1.75 1.75 0 0 1 5 11.25v-6.5Z" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path d="M3.105 2.288a.75.75 0 0 0-.826.95l1.414 4.926A1.5 1.5 0 0 0 5.135 9.25h6.115a.75.75 0 0 1 0 1.5H5.135a1.5 1.5 0 0 0-1.442 1.086l-1.414 4.926a.75.75 0 0 0 .826.95 28.897 28.897 0 0 0 15.293-7.155.75.75 0 0 0 0-1.114A28.897 28.897 0 0 0 3.105 2.288Z" />
+                </svg>
+              )}
             </button>
           </Tooltip>
         </div>

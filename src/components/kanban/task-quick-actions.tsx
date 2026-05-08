@@ -1,7 +1,5 @@
-import { memo, useState, useCallback, useEffect, useRef } from 'react'
+import { memo } from 'react'
 import type { Task } from '@/types'
-
-const CONFIRM_TIMEOUT_MS = 2000
 
 type TaskQuickActionsProps = {
   task: Task
@@ -28,44 +26,6 @@ export const TaskQuickActions = memo(function TaskQuickActions({
 }: TaskQuickActionsProps) {
   const isRunning = task.agentStatus === 'running'
   const hasError = !!task.pipelineError
-
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const confirmDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isConfirmingDelete = confirmDelete || confirmDeletePending
-
-  useEffect(() => {
-    if (confirmDeleteTimerRef.current) {
-      clearTimeout(confirmDeleteTimerRef.current)
-      confirmDeleteTimerRef.current = null
-    }
-    setConfirmDelete(false)
-
-    return () => {
-      if (confirmDeleteTimerRef.current) {
-        clearTimeout(confirmDeleteTimerRef.current)
-        confirmDeleteTimerRef.current = null
-      }
-    }
-  }, [task.id])
-
-  const handleDelete = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (isConfirmingDelete) {
-      onDelete()
-      setConfirmDelete(false)
-      if (confirmDeleteTimerRef.current) {
-        clearTimeout(confirmDeleteTimerRef.current)
-        confirmDeleteTimerRef.current = null
-      }
-    } else {
-      setConfirmDelete(true)
-      // Auto-dismiss after 2s
-      confirmDeleteTimerRef.current = setTimeout(() => {
-        setConfirmDelete(false)
-        confirmDeleteTimerRef.current = null
-      }, CONFIRM_TIMEOUT_MS)
-    }
-  }, [isConfirmingDelete, onDelete])
 
   return (
     <div
@@ -119,7 +79,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       )}
 
       {/* Move to next column */}
-      {hasNextColumn && (
+      {hasNextColumn && !hasError && (
         <button
           onClick={(e) => { e.stopPropagation(); onMoveNext(); }}
           className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-accent transition-colors"
@@ -131,20 +91,15 @@ export const TaskQuickActions = memo(function TaskQuickActions({
         </button>
       )}
 
-      {/* Delete */}
-      <button
-        onClick={handleDelete}
-        className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
-          isConfirmingDelete
-            ? 'text-error bg-error/20'
-            : 'text-text-secondary hover:bg-error/20 hover:text-error'
-        }`}
-        title={isConfirmingDelete ? 'Click again to confirm' : 'Delete task (Del)'}
-      >
-        <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM7.5 3.75c0-.69.56-1.25 1.25-1.25h2.5c.69 0 1.25.56 1.25 1.25V4.1a40.3 40.3 0 0 0-5 0v-.35ZM9 7.75a.75.75 0 0 0-1.5 0v6.5a.75.75 0 0 0 1.5 0v-6.5Zm3.25-.75a.75.75 0 0 1 .75.75v6.5a.75.75 0 0 1-1.5 0v-6.5a.75.75 0 0 1 .75-.75Z" clipRule="evenodd" />
-        </svg>
-      </button>
+      {confirmDeletePending && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="h-6 rounded bg-error/20 px-2 text-[10px] font-medium text-error transition-colors hover:bg-error/30"
+          title="Click again to confirm"
+        >
+          Confirm
+        </button>
+      )}
 
       {/* More options */}
       <button

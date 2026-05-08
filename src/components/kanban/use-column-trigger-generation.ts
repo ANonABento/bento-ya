@@ -4,6 +4,7 @@ import { useColumnStore } from '@/stores/column-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { parseColumnTriggers } from '@/types/column'
+import { resolveBentoAiTaskPolicy } from '@/lib/ai-task-router'
 import * as ipc from '@/lib/ipc'
 
 type UseColumnTriggerGenerationArgs = {
@@ -56,6 +57,7 @@ export function useColumnTriggerGeneration({
     try {
       const session = await ipc.getActiveChatSession(activeWorkspaceId)
       const message = `Configure triggers for column "${columnName}": ${prompt.trim()}`
+      const taskPolicy = resolveBentoAiTaskPolicy(settings, 'bento_ya.column_trigger_generation')
       const connectionMode = anthropicProvider?.connectionMode ?? 'cli'
       const apiKeyEnvVar = anthropicProvider?.apiKeyEnvVar || 'ANTHROPIC_API_KEY'
       const apiKey = connectionMode === 'api'
@@ -70,7 +72,7 @@ export function useColumnTriggerGeneration({
         connectionMode,
         apiKey,
         apiKeyEnvVar,
-        'haiku',
+        taskPolicy.model,
         cliPath,
       )
 

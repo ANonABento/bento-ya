@@ -20,6 +20,7 @@ pub mod log_retention;
 pub mod pipe_transport;
 pub mod pty_transport;
 pub mod registry;
+pub mod runtime;
 pub mod session;
 pub mod tmux_transport;
 pub mod transport;
@@ -30,8 +31,17 @@ pub use events::{base64_encode, parse_json_event, spawn_stderr_reader, ChatEvent
 pub use pipe_transport::PipeTransport;
 pub use pty_transport::PtyTransport;
 pub use registry::{new_shared_session_registry, SessionRegistry, SharedSessionRegistry};
+pub use runtime::{
+    build_queued_input_turn_prompt, decide_input_delivery, drain_pending_runtime_inputs_for_turn,
+    persist_runtime_event, run_and_persist_managed_runtime_turn, run_managed_runtime_turn,
+    runtime_events_from_provider_json_line, AgentAdapterKind, AgentInputDelivery, AgentInputSource,
+    AgentRuntimeAdapter, AgentRuntimeEvent, AgentRuntimeInput, AgentRuntimeMode,
+    AgentRuntimeResult, AgentSessionRef, ApiAgentAdapter, ClaudeCliAdapter, CodexCliAdapter,
+    GenericCliAdapter, ManagedCliTurnInvocation, ManagedRuntimeTurnConfig,
+    ManagedRuntimeTurnResult, ProviderRuntimeLine, RemoteAgentAdapter,
+};
 pub use session::{SessionConfig, SessionState, TransportType, UnifiedChatSession};
 pub use transport::{
-    ChatTransport, SpawnConfig, TransportEvent,
-    DEFAULT_SCROLLBACK_BYTES, MESSAGE_TIMEOUT, OUTPUT_BUFFER_INTERVAL_MS,
+    ChatTransport, SpawnConfig, TransportEvent, DEFAULT_SCROLLBACK_BYTES, MESSAGE_TIMEOUT,
+    OUTPUT_BUFFER_INTERVAL_MS,
 };

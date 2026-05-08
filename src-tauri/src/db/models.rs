@@ -109,6 +109,10 @@ pub struct Task {
     pub github_issue_pr_linked: bool,
     /// When this task was archived (soft delete). None = active task.
     pub archived_at: Option<String>,
+    /// Last user-originated input sent into this task's PTY/tmux session (Unix ms).
+    pub last_user_input_at: Option<i64>,
+    /// Explicit hold gate: when true, auto-advance is disabled until released.
+    pub held_by_user: bool,
     /// Task labels — workspace-scoped tags. Loaded via JOIN; not a column on tasks table.
     #[serde(default)]
     pub labels: Vec<Label>,
@@ -135,6 +139,10 @@ pub struct AgentSession {
     pub scrollback: Option<String>,
     pub resumable: bool,
     pub cli_session_id: Option<String>,
+    pub adapter_kind: Option<String>,
+    pub runtime_mode: String,
+    pub provider_session_id: Option<String>,
+    pub tmux_session_name: Option<String>,
     pub model: Option<String>,
     pub effort_level: Option<String>,
     pub created_at: String,
@@ -154,6 +162,38 @@ pub struct AgentMessage {
     pub tool_calls: Option<String>,
     pub thinking_content: Option<String>,
     pub created_at: String,
+}
+
+/// A durable semantic event used to replay the agent Transcript view.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTranscriptEvent {
+    pub id: String,
+    pub task_id: String,
+    pub session_id: Option<String>,
+    pub event_type: String,
+    pub content: Option<String>,
+    pub metadata_json: Option<String>,
+    pub sequence: i64,
+    pub created_at: String,
+}
+
+/// A user/runtime input waiting for delivery at a safe adapter boundary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRuntimeQueuedInput {
+    pub id: String,
+    pub task_id: String,
+    pub session_id: Option<String>,
+    pub source: String,
+    pub content: String,
+    pub model: Option<String>,
+    pub effort_level: Option<String>,
+    pub delivery: String,
+    pub status: String,
+    pub sequence: i64,
+    pub created_at: String,
+    pub delivered_at: Option<String>,
 }
 
 // ─── Chat/Orchestrator Entities ─────────────────────────────────────────────

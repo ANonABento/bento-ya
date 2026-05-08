@@ -45,12 +45,12 @@ pub fn interpolate(template: &str, ctx: &TemplateContext) -> String {
     );
     result = result.replace(
         "{task.pr_number}",
-        &ctx.task.pr_number.map(|n| n.to_string()).unwrap_or_default(),
+        &ctx.task
+            .pr_number
+            .map(|n| n.to_string())
+            .unwrap_or_default(),
     );
-    result = result.replace(
-        "{task.pr_url}",
-        ctx.task.pr_url.as_deref().unwrap_or(""),
-    );
+    result = result.replace("{task.pr_url}", ctx.task.pr_url.as_deref().unwrap_or(""));
     result = result.replace(
         "{task.worktree_path}",
         ctx.task.worktree_path.as_deref().unwrap_or(""),
@@ -77,14 +77,8 @@ pub fn interpolate(template: &str, ctx: &TemplateContext) -> String {
         let desc_key = format!("{{dep.{}.description}}", dep_id);
 
         result = result.replace(&title_key, &dep_task.title);
-        result = result.replace(
-            &output_key,
-            dep_task.last_output.as_deref().unwrap_or(""),
-        );
-        result = result.replace(
-            &desc_key,
-            dep_task.description.as_deref().unwrap_or(""),
-        );
+        result = result.replace(&output_key, dep_task.last_output.as_deref().unwrap_or(""));
+        result = result.replace(&desc_key, dep_task.description.as_deref().unwrap_or(""));
     }
 
     result
@@ -147,6 +141,8 @@ mod tests {
             github_issue_commented: false,
             github_issue_pr_linked: false,
             archived_at: None,
+            last_user_input_at: None,
+            held_by_user: false,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
         }
@@ -200,8 +196,14 @@ mod tests {
             dep_tasks: HashMap::new(),
         };
 
-        let result = interpolate("{task.title}\n\n{task.description}\n\n{task.trigger_prompt}", &ctx);
-        assert_eq!(result, "Build auth API\n\nJWT auth implementation\n\nUse refresh tokens");
+        let result = interpolate(
+            "{task.title}\n\n{task.description}\n\n{task.trigger_prompt}",
+            &ctx,
+        );
+        assert_eq!(
+            result,
+            "Build auth API\n\nJWT auth implementation\n\nUse refresh tokens"
+        );
     }
 
     #[test]
@@ -219,8 +221,14 @@ mod tests {
             dep_tasks: HashMap::new(),
         };
 
-        let result = interpolate("Column: {column.name}, from: {prev_column.name}, path: {workspace.path}", &ctx);
-        assert_eq!(result, "Column: Working, from: Backlog, path: /home/user/project");
+        let result = interpolate(
+            "Column: {column.name}, from: {prev_column.name}, path: {workspace.path}",
+            &ctx,
+        );
+        assert_eq!(
+            result,
+            "Column: Working, from: Backlog, path: /home/user/project"
+        );
     }
 
     #[test]
@@ -242,7 +250,13 @@ mod tests {
             dep_tasks,
         };
 
-        let result = interpolate("From {dep.task-123.title}: {dep.task-123.last_output}", &ctx);
-        assert_eq!(result, "From Build auth API: API endpoints: /login, /refresh");
+        let result = interpolate(
+            "From {dep.task-123.title}: {dep.task-123.last_output}",
+            &ctx,
+        );
+        assert_eq!(
+            result,
+            "From Build auth API: API endpoints: /login, /refresh"
+        );
     }
 }

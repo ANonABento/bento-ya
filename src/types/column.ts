@@ -3,6 +3,7 @@
 export type ActionType = 'auto_setup' | 'spawn_cli' | 'move_column' | 'trigger_task' | 'run_script' | 'create_pr' | 'auto_merge' | 'none'
 
 export type CliType = 'claude' | 'codex' | 'aider'
+export type AgentRuntimeMode = 'terminal' | 'managed'
 export type TriggerTaskActionType = 'move_column' | 'start' | 'unblock'
 
 export interface SpawnCliAction {
@@ -23,6 +24,8 @@ export interface SpawnCliAction {
   flags?: string[]
   /** Use existing agent queue (default: true) */
   use_queue?: boolean
+  /** Runtime mode: raw tmux terminal or semantic managed stream */
+  runtime_mode?: AgentRuntimeMode
   /** AI model override (opus, sonnet, haiku) */
   model?: string
 }
@@ -141,6 +144,7 @@ export const DEFAULT_SPAWN_CLI: SpawnCliAction = {
   command: '/start-task',
   prompt_template: '{task.title}\n\n{task.description}\n\n{task.trigger_prompt}',
   use_queue: true,
+  runtime_mode: 'terminal',
 }
 
 export function parseColumnTriggers(triggers: Column['triggers'] | string): ColumnTriggers | null {

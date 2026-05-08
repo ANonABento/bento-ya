@@ -19,6 +19,7 @@ export type {
   ExitCriteriaType,
   ActionType,
   CliType,
+  AgentRuntimeMode,
 } from './column'
 export type { Task, TaskChecklistItem, PipelineState, ReviewStatus, PrCiStatus, PrReviewDecision, PrMergeable, BatchSummary } from './task'
 export type { TaskTemplate } from './task-template'

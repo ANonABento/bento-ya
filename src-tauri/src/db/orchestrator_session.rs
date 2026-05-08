@@ -15,12 +15,19 @@ fn map_orchestrator_session_row(row: &rusqlite::Row) -> rusqlite::Result<Orchest
     })
 }
 
-const ORCHESTRATOR_SESSION_COLUMNS: &str = "id, workspace_id, status, last_error, created_at, updated_at";
+const ORCHESTRATOR_SESSION_COLUMNS: &str =
+    "id, workspace_id, status, last_error, created_at, updated_at";
 
-pub fn get_or_create_orchestrator_session(conn: &Connection, workspace_id: &str) -> SqlResult<OrchestratorSession> {
+pub fn get_or_create_orchestrator_session(
+    conn: &Connection,
+    workspace_id: &str,
+) -> SqlResult<OrchestratorSession> {
     // Try to get existing session
     let existing = conn.query_row(
-        &format!("SELECT {} FROM orchestrator_sessions WHERE workspace_id = ?1", ORCHESTRATOR_SESSION_COLUMNS),
+        &format!(
+            "SELECT {} FROM orchestrator_sessions WHERE workspace_id = ?1",
+            ORCHESTRATOR_SESSION_COLUMNS
+        ),
         params![workspace_id],
         map_orchestrator_session_row,
     );
@@ -43,7 +50,10 @@ pub fn get_or_create_orchestrator_session(conn: &Connection, workspace_id: &str)
 
 pub fn get_orchestrator_session(conn: &Connection, id: &str) -> SqlResult<OrchestratorSession> {
     conn.query_row(
-        &format!("SELECT {} FROM orchestrator_sessions WHERE id = ?1", ORCHESTRATOR_SESSION_COLUMNS),
+        &format!(
+            "SELECT {} FROM orchestrator_sessions WHERE id = ?1",
+            ORCHESTRATOR_SESSION_COLUMNS
+        ),
         params![id],
         map_orchestrator_session_row,
     )

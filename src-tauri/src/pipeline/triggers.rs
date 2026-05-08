@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
+use uuid::Uuid;
 
 use super::template::{self, TemplateContext};
 use super::{emit_pipeline, PipelineState, EVT_ADVANCED, EVT_RUNNING, EVT_TRIGGERED};
@@ -112,6 +113,8 @@ pub enum TriggerActionV2 {
         flags: Option<Vec<String>>,
         #[serde(default)]
         use_queue: Option<bool>,
+        #[serde(default)]
+        runtime_mode: Option<String>,
         #[serde(default)]
         model: Option<String>,
     },
@@ -411,6 +414,7 @@ fn execute_action(
             prompt,
             flags,
             use_queue: _,
+            runtime_mode,
             model,
         } => execute_spawn_cli(
             conn,
@@ -423,6 +427,7 @@ fn execute_action(
             prompt_template.as_deref(),
             prompt.as_deref(),
             flags.as_deref(),
+            runtime_mode.as_deref(),
             model.as_deref(),
         ),
         TriggerActionV2::AutoSetup => execute_auto_setup(conn, app, task, column),
@@ -481,9 +486,7 @@ fn execute_batch_wait(
         // Without this, staging stays empty and maybe_create_ready_batch_pr
         // returns None because there are no commits over main.
         // Conflicts are skipped (logged) — they need manual resolution.
-        if let Ok(batch_tasks) =
-            db::list_tasks_by_batch_id(conn, &task.workspace_id, &batch_id)
-        {
+        if let Ok(batch_tasks) = db::list_tasks_by_batch_id(conn, &task.workspace_id, &batch_id) {
             for bt in &batch_tasks {
                 let pr_num = match bt.pr_number {
                     Some(n) => n,
@@ -552,7 +555,11 @@ fn execute_batch_wait(
             None,
             None,
         )?;
-        let _ = app.emit_to(tauri::EventTarget::any(), "tasks:changed", &task.workspace_id);
+        let _ = app.emit_to(
+            tauri::EventTarget::any(),
+            "tasks:changed",
+            &task.workspace_id,
+        );
         return Ok(updated);
     }
     Ok(task)
@@ -738,8 +745,8 @@ fn ensure_task_worktree(
     }
 
     // Step 2: Create worktree (hard-fail on error per Bug D)
-    let wt_path = branch_manager::create_task_worktree(repo_path, &branch_name, &task.id)
-        .map_err(|e| {
+    let wt_path =
+        branch_manager::create_task_worktree(repo_path, &branch_name, &task.id).map_err(|e| {
             AppError::CommandError(format!(
                 "Failed to create worktree for task {}: {}",
                 task.id, e
@@ -993,10 +1000,7 @@ fn promote_setup_queued_tasks(app: &AppHandle, workspace_id: &str) {
     let queued = match db::get_setup_queued_tasks(&conn, workspace_id) {
         Ok(q) => q,
         Err(e) => {
-            log::warn!(
-                "[triggers] promote_setup_queued_tasks: query failed: {}",
-                e
-            );
+            log::warn!("[triggers] promote_setup_queued_tasks: query failed: {}", e);
             return;
         }
     };
@@ -1018,13 +1022,9 @@ fn promote_setup_queued_tasks(app: &AppHandle, workspace_id: &str) {
     };
 
     // Reset pipeline state so fire_on_entry treats it as a fresh trigger.
-    if let Err(e) = db::update_task_pipeline_state(
-        &conn,
-        &next.id,
-        PipelineState::Idle.as_str(),
-        None,
-        None,
-    ) {
+    if let Err(e) =
+        db::update_task_pipeline_state(&conn, &next.id, PipelineState::Idle.as_str(), None, None)
+    {
         log::warn!(
             "[triggers] promote_setup_queued_tasks: reset state failed: {}",
             e
@@ -1035,7 +1035,10 @@ fn promote_setup_queued_tasks(app: &AppHandle, workspace_id: &str) {
     let refreshed = match db::get_task(&conn, &next.id) {
         Ok(t) => t,
         Err(e) => {
-            log::warn!("[triggers] promote_setup_queued_tasks: reload failed: {}", e);
+            log::warn!(
+                "[triggers] promote_setup_queued_tasks: reload failed: {}",
+                e
+            );
             return;
         }
     };
@@ -1067,6 +1070,7 @@ fn execute_spawn_cli(
     prompt_template: Option<&str>,
     prompt: Option<&str>,
     flags: Option<&[String]>,
+    runtime_mode: Option<&str>,
     model: Option<&str>,
 ) -> Result<Task, AppError> {
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
@@ -1211,9 +1215,10 @@ fn execute_spawn_cli(
 
     // Store resolved prompt
     let ts = db::now();
+    let runtime_mode = normalize_agent_runtime_mode(runtime_mode);
     if let Err(e) = conn.execute(
-        "UPDATE tasks SET trigger_prompt = ?1, updated_at = ?2 WHERE id = ?3",
-        rusqlite::params![initial_prompt, ts, task.id],
+        "UPDATE tasks SET trigger_prompt = ?1, agent_mode = ?2, updated_at = ?3 WHERE id = ?4",
+        rusqlite::params![initial_prompt, runtime_mode, ts, task.id],
     ) {
         log::warn!("Failed to store trigger prompt for task {}: {}", task.id, e);
     }
@@ -1258,17 +1263,253 @@ fn execute_spawn_cli(
         cli_args.push(m.clone());
     }
 
-    bridge::spawn_cli_trigger_task(
-        app.clone(),
-        task.id.clone(),
-        cli_type,
-        cli_args,
-        working_dir,
-        initial_prompt,
-        Some(env_vars),
-    );
+    if runtime_mode == "managed" {
+        spawn_managed_trigger_task(
+            conn,
+            app,
+            &updated_task,
+            &cli_type,
+            &working_dir,
+            &initial_prompt,
+            resolved_model,
+        )?;
+    } else {
+        bridge::spawn_cli_trigger_task(
+            app.clone(),
+            task.id.clone(),
+            cli_type,
+            cli_args,
+            working_dir,
+            initial_prompt,
+            Some(env_vars),
+        );
+    }
 
     Ok(updated_task)
+}
+
+fn normalize_agent_runtime_mode(runtime_mode: Option<&str>) -> &'static str {
+    match runtime_mode {
+        Some("managed") => "managed",
+        _ => "terminal",
+    }
+}
+
+fn spawn_managed_trigger_task(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    cli_type: &str,
+    working_dir: &str,
+    initial_prompt: &str,
+    resolved_model: Option<String>,
+) -> Result<(), AppError> {
+    let agent_type = if cli_type.contains("codex") {
+        "codex"
+    } else if cli_type.contains("claude") {
+        "claude"
+    } else {
+        "generic"
+    };
+    let session = db::insert_agent_session(conn, &task.id, agent_type, Some(working_dir))?;
+    let adapter_kind = db::adapter_kind_for_agent_type(agent_type).to_string();
+    let _ = db::update_agent_session_runtime(
+        conn,
+        &session.id,
+        Some(&adapter_kind),
+        Some("managed"),
+        None,
+        None,
+    )?;
+    let _ = db::update_agent_session(
+        conn,
+        &session.id,
+        None,
+        Some("running"),
+        None,
+        None,
+        None,
+        Some(true),
+    )?;
+    let ts = db::now();
+    let _ = conn.execute(
+        "UPDATE tasks SET agent_session_id = ?1, agent_status = 'running', updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![session.id, ts, task.id],
+    );
+
+    let adapter = match adapter_kind.as_str() {
+        "codex_cli" => crate::chat::AgentAdapterKind::CodexCli,
+        "generic_cli" => crate::chat::AgentAdapterKind::GenericCli,
+        _ => crate::chat::AgentAdapterKind::ClaudeCli,
+    };
+    let model = resolved_model
+        .as_deref()
+        .filter(|model| !model.trim().is_empty())
+        .unwrap_or("sonnet");
+    let metadata = serde_json::json!({
+        "cli": cli_type,
+        "workdir": working_dir,
+        "adapter": adapter,
+        "runtimeMode": "managed",
+        "model": resolved_model,
+    })
+    .to_string();
+    let _ = crate::events::persist_and_emit_agent_transcript_event(
+        app,
+        &task.id,
+        Some(&session.id),
+        db::EVENT_SESSION_STARTED,
+        None,
+        Some(&metadata),
+    );
+    let _ = crate::events::persist_and_emit_agent_transcript_event(
+        app,
+        &task.id,
+        Some(&session.id),
+        db::EVENT_AGENT_STARTED,
+        None,
+        Some(&metadata),
+    );
+
+    start_managed_trigger_turn(
+        app,
+        task.id.clone(),
+        task.workspace_id.clone(),
+        session.id,
+        adapter,
+        cli_type.to_string(),
+        working_dir.to_string(),
+        model.to_string(),
+        initial_prompt.to_string(),
+        None,
+    );
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn start_managed_trigger_turn(
+    app: &AppHandle,
+    task_id: String,
+    workspace_id: String,
+    session_id: String,
+    adapter: crate::chat::AgentAdapterKind,
+    cli_type: String,
+    working_dir: String,
+    model: String,
+    prompt: String,
+    resume_id: Option<String>,
+) {
+    if let Ok(conn) = rusqlite::Connection::open(db::db_path()) {
+        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+        let _ = db::update_agent_session(
+            &conn,
+            &session_id,
+            None,
+            Some("running"),
+            None,
+            None,
+            None,
+            Some(true),
+        );
+        let _ = db::update_task_agent_status(&conn, &task_id, Some("running"), None);
+    }
+    super::emit_tasks_changed(app, &workspace_id, "managed_trigger_running");
+
+    let args = managed_trigger_turn_args(adapter, &model, resume_id.as_deref(), &prompt);
+    let command_id = format!("managed-trigger-{}", Uuid::new_v4());
+    let _ = crate::events::persist_and_emit_agent_runtime_event(
+        app,
+        &task_id,
+        Some(&session_id),
+        crate::chat::AgentRuntimeEvent::CommandStarted {
+            id: command_id,
+            command: cli_type.clone(),
+        },
+    );
+
+    let app_for_turn = app.clone();
+    let config = crate::chat::ManagedRuntimeTurnConfig {
+        adapter,
+        command: cli_type.clone(),
+        args,
+        working_dir: Some(working_dir.clone()),
+    };
+    tokio::spawn(async move {
+        let result = crate::chat::run_and_persist_managed_runtime_turn(
+            &app_for_turn,
+            &task_id,
+            Some(&session_id),
+            config,
+        )
+        .await;
+        let should_replay_queue = matches!(result, Ok(ref turn) if turn.exit_code == Some(0));
+        if let Ok(conn) = rusqlite::Connection::open(db::db_path()) {
+            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+            let (session_status, task_status, exit_code) = match result {
+                Ok(turn) if turn.exit_code == Some(0) => ("completed", "completed", Some(0_i64)),
+                Ok(turn) => ("failed", "failed", turn.exit_code.map(i64::from)),
+                Err(_) => ("failed", "failed", Some(1_i64)),
+            };
+            let _ = db::update_agent_session(
+                &conn,
+                &session_id,
+                None,
+                Some(session_status),
+                Some(exit_code),
+                None,
+                None,
+                Some(true),
+            );
+            let _ = db::update_task_agent_status(&conn, &task_id, Some(task_status), None);
+        }
+        if should_replay_queue {
+            if let Some((next_prompt, next_resume_id)) =
+                drain_queued_managed_trigger_input(&task_id, &session_id)
+            {
+                start_managed_trigger_turn(
+                    &app_for_turn,
+                    task_id.clone(),
+                    workspace_id.clone(),
+                    session_id.clone(),
+                    adapter,
+                    cli_type.clone(),
+                    working_dir.clone(),
+                    model.clone(),
+                    next_prompt,
+                    next_resume_id,
+                );
+            }
+        }
+        super::emit_tasks_changed(&app_for_turn, &workspace_id, "managed_trigger_complete");
+    });
+}
+
+fn managed_trigger_turn_args(
+    adapter: crate::chat::AgentAdapterKind,
+    model: &str,
+    resume_id: Option<&str>,
+    prompt: &str,
+) -> Vec<String> {
+    match adapter {
+        crate::chat::AgentAdapterKind::CodexCli => {
+            crate::chat::CodexCliAdapter::managed_turn_args(model, resume_id, prompt)
+        }
+        _ => crate::chat::ClaudeCliAdapter::managed_turn_args(model, "", None, resume_id, prompt),
+    }
+}
+
+fn drain_queued_managed_trigger_input(
+    task_id: &str,
+    session_id: &str,
+) -> Option<(String, Option<String>)> {
+    let conn = rusqlite::Connection::open(db::db_path()).ok()?;
+    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+    let (prompt, _) = crate::chat::drain_pending_runtime_inputs_for_turn(&conn, task_id).ok()??;
+    let session = db::get_agent_session(&conn, session_id).ok()?;
+    Some((
+        prompt,
+        session.provider_session_id.or(session.cli_session_id),
+    ))
 }
 
 fn execute_move_column(
@@ -1905,8 +2146,7 @@ fn execute_auto_merge(
     // Pipeline v3: only move the task itself to Done (never sweep the whole batch).
     // Each task ships independently via its own PR — batch_id is just a UI grouping label.
     let moved = db::append_task_to_column(conn, &updated_task.id, &done_col.id)?;
-    let cleaned =
-        super::cleanup_task_worktree_if_terminal(conn, &moved, &done_col, "auto_merge")?;
+    let cleaned = super::cleanup_task_worktree_if_terminal(conn, &moved, &done_col, "auto_merge")?;
     let _ = super::dependencies::check_dependents(conn, app, &cleaned);
 
     emit_pipeline(
@@ -2411,7 +2651,9 @@ fn execute_run_script(
                 if let Err(e) = db::update_task_script_exit_code(&conn, &task_id, Some(exit_code)) {
                     log::warn!(
                         "[script:{}] failed to update last_script_exit_code={}: {}",
-                        task_id, exit_code, e
+                        task_id,
+                        exit_code,
+                        e
                     );
                 }
                 if let Err(e) = super::mark_complete(&conn, &app_handle, &task_id, success) {
@@ -2550,6 +2792,7 @@ mod tests {
                 prompt: None,
                 flags: None,
                 use_queue: None,
+                runtime_mode: None,
                 model: None,
             }),
             on_exit: None,
@@ -2612,6 +2855,7 @@ mod tests {
                 prompt: None,
                 flags: None,
                 use_queue: None,
+                runtime_mode: None,
                 model: None,
             }),
             on_exit: None,
@@ -2646,6 +2890,7 @@ mod tests {
                 prompt: None,
                 flags: None,
                 use_queue: None,
+                runtime_mode: None,
                 model: Some("haiku".to_string()),
             }),
             on_exit: None,
@@ -2679,6 +2924,7 @@ mod tests {
                 prompt: None,
                 flags: None,
                 use_queue: None,
+                runtime_mode: None,
                 model: None,
             }),
             on_exit: Some(TriggerActionV2::MoveColumn {
@@ -2815,7 +3061,7 @@ mod tests {
     fn test_trigger_action_serde_roundtrip_all_variants() {
         let variants = vec![
             r#"{"type":"auto_setup"}"#,
-            r#"{"type":"spawn_cli","cli":"claude","command":"/start-task"}"#,
+            r#"{"type":"spawn_cli","cli":"claude","command":"/start-task","runtime_mode":"managed"}"#,
             r#"{"type":"move_column","target":"next"}"#,
             r#"{"type":"trigger_task","target_task":"task-123","action":"unblock"}"#,
             r#"{"type":"run_script","script_id":"test-1"}"#,
@@ -2833,6 +3079,22 @@ mod tests {
                 std::mem::discriminant(&reparsed),
             );
         }
+    }
+
+    #[test]
+    fn test_spawn_cli_runtime_mode_deserializes() {
+        let parsed: TriggerActionV2 =
+            serde_json::from_str(r#"{"type":"spawn_cli","cli":"claude","runtime_mode":"managed"}"#)
+                .unwrap();
+        match parsed {
+            TriggerActionV2::SpawnCli { runtime_mode, .. } => {
+                assert_eq!(runtime_mode.as_deref(), Some("managed"));
+            }
+            _ => panic!("Expected SpawnCli"),
+        }
+        assert_eq!(normalize_agent_runtime_mode(Some("managed")), "managed");
+        assert_eq!(normalize_agent_runtime_mode(Some("terminal")), "terminal");
+        assert_eq!(normalize_agent_runtime_mode(Some("bogus")), "terminal");
     }
 
     #[test]
@@ -3094,9 +3356,8 @@ mod tests {
         let transient = AppError::CommandError("git index.lock exists".into());
         assert!(is_transient_setup_error(&transient));
 
-        let already_exists = AppError::CommandError(
-            "fatal: A branch named 'foo' already exists.".into(),
-        );
+        let already_exists =
+            AppError::CommandError("fatal: A branch named 'foo' already exists.".into());
         assert!(is_transient_setup_error(&already_exists));
 
         let cannot_lock = AppError::CommandError("cannot lock ref 'refs/heads/foo'".into());
@@ -3174,8 +3435,7 @@ mod tests {
 
     #[test]
     fn test_validate_setup_base_branch_rejects_blank() {
-        let err = validate_setup_base_branch("", "task-1")
-            .expect_err("empty must be rejected");
+        let err = validate_setup_base_branch("", "task-1").expect_err("empty must be rejected");
         match err {
             AppError::InvalidInput(msg) => assert!(msg.contains("base_branch")),
             other => panic!("unexpected error: {:?}", other),

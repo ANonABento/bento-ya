@@ -98,13 +98,8 @@ pub async fn signal_pty_interrupt(task_id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Get PTY scrollback is no longer supported via the legacy PtyManager.
-/// Terminal view now uses the xterm.js scrollback buffer directly.
+/// Capture tmux scrollback for a task.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn get_pty_scrollback(
-    _task_id: String,
-) -> Result<String, String> {
-    // Scrollback is now handled client-side by xterm.js (10k lines buffer).
-    // This command is kept for backward compatibility but returns empty.
-    Ok(String::new())
+pub async fn get_pty_scrollback(task_id: String) -> Result<String, String> {
+    Ok(tmux_transport::capture_scrollback(&task_id))
 }

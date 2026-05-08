@@ -1,5 +1,6 @@
 import { invoke, listen, type EventCallback, type UnlistenFn } from './invoke'
 import type { Task, AgentMessage } from '@/types'
+import type { AgentTranscriptEvent } from '@/types/events'
 
 // ─── Agent commands ───────────────────────────────────────────────────────
 
@@ -54,8 +55,32 @@ export async function getAgentMessages(taskId: string): Promise<AgentMessage[]> 
   return invoke<AgentMessage[]>('get_agent_messages', { taskId })
 }
 
+export async function getAgentTranscriptEvents(taskId: string): Promise<AgentTranscriptEvent[]> {
+  return invoke<AgentTranscriptEvent[]>('get_agent_transcript_events', { taskId })
+}
+
 export async function clearAgentMessages(taskId: string): Promise<void> {
   return invoke('clear_agent_messages', { taskId })
+}
+
+export async function sendTaskInput(
+  taskId: string,
+  text: string,
+  workingDir: string,
+  cliPath: string,
+  model?: string,
+  effortLevel?: string,
+  source: 'chat' | 'voice' | 'command' = 'chat',
+): Promise<void> {
+  return invoke('send_task_input', {
+    taskId,
+    text,
+    source,
+    workingDir,
+    cliPath,
+    model,
+    effortLevel,
+  })
 }
 
 export async function streamAgentChat(
@@ -66,18 +91,19 @@ export async function streamAgentChat(
   model?: string,
   effortLevel?: string,
 ): Promise<void> {
-  return invoke('stream_agent_chat', {
-    taskId,
-    message,
-    workingDir,
-    cliPath,
-    model,
-    effortLevel,
-  })
+  return sendTaskInput(taskId, message, workingDir, cliPath, model, effortLevel, 'chat')
+}
+
+export async function holdTask(taskId: string, held: boolean): Promise<Task> {
+  return invoke<Task>('hold_task', { taskId, held })
 }
 
 export async function cancelAgentChat(taskId: string): Promise<void> {
   return invoke('cancel_agent_chat', { taskId })
+}
+
+export async function killTaskSession(taskId: string): Promise<void> {
+  return invoke('kill_task_session', { taskId })
 }
 
 // ─── Queue Management ──────────────────────────────────────────────────────
@@ -151,6 +177,11 @@ export const onAgentToolCall = (
 export const onAgentComplete = (
   cb: EventCallback<AgentCompleteEvent>
 ): Promise<UnlistenFn> => listen<AgentCompleteEvent>('agent:complete', cb)
+
+export const onAgentTranscriptEvent = (
+  taskId: string,
+  cb: EventCallback<AgentTranscriptEvent>
+): Promise<UnlistenFn> => listen<AgentTranscriptEvent>(`agent:${taskId}:transcript_event`, cb)
 
 // ─── Queue Events ──────────────────────────────────────────────────────────
 
