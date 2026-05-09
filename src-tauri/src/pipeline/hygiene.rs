@@ -8,8 +8,10 @@
 
 use rusqlite::{params, Connection};
 use serde_json::Value;
+use tauri::AppHandle;
 
 use crate::db;
+use crate::pipeline::dependencies;
 
 /// Default grace period before auto-archiving a Done task.
 pub const DEFAULT_AUTO_ARCHIVE_GRACE_MINUTES: i64 = 5;
@@ -132,10 +134,13 @@ pub fn reconcile_done_task_state(conn: &Connection) -> rusqlite::Result<(i64, i6
     Ok((tasks_reconciled, sessions_cleared))
 }
 
-/// Run a single hygiene cycle: auto-archive + reconciliation.
+/// Run a single hygiene cycle: auto-archive + reconciliation + dependency recheck.
 ///
 /// Logs counts at info level. Returns the totals so callers can emit events.
-pub fn run_hygiene_cycle(conn: &Connection) -> rusqlite::Result<HygieneCycleResult> {
+pub fn run_hygiene_cycle(
+    conn: &Connection,
+    app: Option<&AppHandle>,
+) -> rusqlite::Result<HygieneCycleResult> {
     let archived = auto_archive_done_tasks(conn).unwrap_or_else(|e| {
         log::warn!("[hygiene] auto-archive failed: {}", e);
         0
@@ -146,10 +151,19 @@ pub fn run_hygiene_cycle(conn: &Connection) -> rusqlite::Result<HygieneCycleResu
             (0, 0)
         });
 
+    let blocked_cleared = match app {
+        Some(app) => dependencies::recheck_blocked_tasks(conn, app).unwrap_or_else(|e| {
+            log::warn!("[hygiene] recheck_blocked_tasks failed: {}", e);
+            0
+        }),
+        None => 0,
+    };
+
     Ok(HygieneCycleResult {
         archived,
         tasks_reconciled,
         sessions_cleared,
+        blocked_cleared,
     })
 }
 
@@ -159,11 +173,15 @@ pub struct HygieneCycleResult {
     pub archived: i64,
     pub tasks_reconciled: i64,
     pub sessions_cleared: i64,
+    pub blocked_cleared: i64,
 }
 
 impl HygieneCycleResult {
     pub fn is_empty(&self) -> bool {
-        self.archived == 0 && self.tasks_reconciled == 0 && self.sessions_cleared == 0
+        self.archived == 0
+            && self.tasks_reconciled == 0
+            && self.sessions_cleared == 0
+            && self.blocked_cleared == 0
     }
 }
 
@@ -393,12 +411,13 @@ mod tests {
         db::update_task_pipeline_state(&conn, &reconcile_target.id, "idle", None, Some("stale"))
             .unwrap();
 
-        let result = run_hygiene_cycle(&conn).unwrap();
+        let result = run_hygiene_cycle(&conn, None).unwrap();
         // Reconcile happens after archive, so the reconcile target was untouched
         // by archiving (still updated_at = now()), and the archive target was
         // archived AND its pipeline_error was already null — so only one of each.
         assert_eq!(result.archived, 1);
         assert_eq!(result.tasks_reconciled, 1);
+        assert_eq!(result.blocked_cleared, 0);
         assert!(!result.is_empty());
     }
 }

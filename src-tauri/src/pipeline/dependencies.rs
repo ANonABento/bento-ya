@@ -11,7 +11,14 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 use super::triggers::{self, TriggerActionV2};
-use super::{emit_pipeline, fire_trigger, PipelineState, EVT_DEP_MOVED, EVT_UNBLOCKED};
+use super::{
+    emit_pipeline, emit_tasks_changed, fire_trigger, PipelineState, EVT_DEP_CLEARED, EVT_DEP_MOVED,
+    EVT_UNBLOCKED,
+};
+
+fn default_on_met() -> TriggerActionV2 {
+    TriggerActionV2::None
+}
 
 /// A dependency from one task to another.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,6 +27,7 @@ pub struct TaskDependency {
     pub condition: String, // "completed", "moved_to_column", "at_or_past_column", "in_review", "agent_complete"
     #[serde(default)]
     pub target_column: Option<String>,
+    #[serde(default = "default_on_met")]
     pub on_met: TriggerActionV2,
 }
 
@@ -66,10 +74,32 @@ pub fn check_condition(
 ) -> Result<bool, AppError> {
     match dep.condition.as_str() {
         "completed" => {
-            // Task is "completed" if it's in the last column (no next column)
+            // Strict semantics: source must be in the terminal Done column AND have a
+            // completed agent run. Falls back to "terminal column is enough" when no
+            // agent ever attached (manual completion path), so dragging a checklist
+            // task to Done still satisfies dependents.
             let col = db::get_column(conn, &source_task.column_id)?;
-            let has_next = db::get_next_column(conn, &source_task.workspace_id, col.position)?;
-            Ok(has_next.is_none())
+            let in_terminal =
+                db::get_next_column(conn, &source_task.workspace_id, col.position)?.is_none();
+            if !in_terminal {
+                return Ok(false);
+            }
+
+            // Has an agent session — defer to its status
+            if let Some(ref session_id) = source_task.agent_session_id {
+                return match db::get_agent_session(conn, session_id) {
+                    Ok(session) => Ok(session.status == "completed"),
+                    Err(_) => Ok(false),
+                };
+            }
+
+            // No session, but agent_status is set — must be "completed"
+            if let Some(status) = source_task.agent_status.as_deref() {
+                return Ok(status == "completed");
+            }
+
+            // Manual task that never ran an agent — terminal column is sufficient
+            Ok(true)
         }
         "moved_to_column" => {
             // Check if source task is in the specified target column
@@ -122,6 +152,7 @@ pub fn check_dependents(
 
     for (dependent_task, deps) in dependents {
         let mut all_met = true;
+        let mut moved_by_on_met = false;
 
         for dep in &deps {
             if dep.task_id == source_task.id {
@@ -129,6 +160,9 @@ pub fn check_dependents(
                 let met = check_condition(dep, source_task, conn)?;
                 if met {
                     // Execute the on_met action
+                    if matches!(dep.on_met, TriggerActionV2::MoveColumn { .. }) {
+                        moved_by_on_met = true;
+                    }
                     execute_on_met(conn, app, &dependent_task, &dep.on_met, source_task)?;
                 } else {
                     all_met = false;
@@ -163,8 +197,195 @@ pub fn check_dependents(
                     source_task.title
                 )),
             );
+
+            emit_pipeline(
+                app,
+                EVT_DEP_CLEARED,
+                &dependent_task.id,
+                &dependent_task.column_id,
+                PipelineState::Idle,
+                Some(format!("Cleared by {}", source_task.title)),
+            );
+
+            emit_tasks_changed(app, &dependent_task.workspace_id, "dependency_cleared");
+
+            if !moved_by_on_met {
+                let _ = auto_promote_if_eligible(conn, app, &dependent_task);
+            }
         }
     }
+
+    Ok(())
+}
+
+/// Re-evaluate every blocked task in the system and clear `blocked` for any whose
+/// dependencies are all satisfied. Safety net for the case where the live call sites
+/// (auto-advance / manual move / agent-complete) missed firing `check_dependents`.
+///
+/// Returns the number of tasks unblocked.
+pub fn recheck_blocked_tasks(conn: &Connection, app: &AppHandle) -> Result<i64, AppError> {
+    let task_ids: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT id FROM tasks WHERE blocked = 1 AND archived_at IS NULL")
+            .map_err(AppError::from)?;
+        let ids: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(AppError::from)?
+            .filter_map(|r| r.ok())
+            .collect();
+        ids
+    };
+
+    let mut cleared = 0i64;
+    let mut workspaces_to_notify = std::collections::HashSet::new();
+
+    for task_id in task_ids {
+        let task = match db::get_task(conn, &task_id) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+
+        let Some(ref deps_json) = task.dependencies else {
+            continue;
+        };
+
+        let deps: Vec<TaskDependency> = match serde_json::from_str(deps_json) {
+            Ok(d) => d,
+            Err(e) => {
+                log::warn!(
+                    "[deps-hygiene] Failed to parse dependencies for task {}: {}",
+                    task_id,
+                    e
+                );
+                continue;
+            }
+        };
+
+        if deps.is_empty() {
+            continue;
+        }
+
+        let mut all_met = true;
+        for dep in &deps {
+            let source = match db::get_task(conn, &dep.task_id) {
+                Ok(s) => s,
+                Err(_) => {
+                    all_met = false;
+                    break;
+                }
+            };
+            if !check_condition(dep, &source, conn).unwrap_or(false) {
+                all_met = false;
+                break;
+            }
+        }
+
+        if all_met {
+            update_blocked(conn, &task.id, false)?;
+            cleared += 1;
+            workspaces_to_notify.insert(task.workspace_id.clone());
+            emit_pipeline(
+                app,
+                EVT_DEP_CLEARED,
+                &task.id,
+                &task.column_id,
+                PipelineState::Idle,
+                Some("Cleared by hygiene recheck".to_string()),
+            );
+            let _ = auto_promote_if_eligible(conn, app, &task);
+        }
+    }
+
+    for workspace_id in workspaces_to_notify {
+        emit_tasks_changed(app, &workspace_id, "dependency_recheck");
+    }
+
+    Ok(cleared)
+}
+
+/// Auto-promote an unblocked task out of Icebox/Backlog into Setup if the workspace
+/// has `dependencies.autoPromote` enabled (default true). Skips if the task is held
+/// by the user, already past Icebox/Backlog, or no Setup-style column exists.
+fn auto_promote_if_eligible(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+) -> Result<(), AppError> {
+    if task.held_by_user {
+        log::info!(
+            "[deps] auto-promote skipped for {}: held_by_user",
+            task.id
+        );
+        return Ok(());
+    }
+
+    let workspace = db::get_workspace(conn, &task.workspace_id)?;
+    let auto_promote = serde_json::from_str::<serde_json::Value>(&workspace.config)
+        .ok()
+        .and_then(|v| v.get("dependencies").and_then(|d| d.get("autoPromote")).cloned())
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    if !auto_promote {
+        return Ok(());
+    }
+
+    let current_col = db::get_column(conn, &task.column_id)?;
+    let current_name = current_col.name.to_lowercase();
+    let is_inert = matches!(current_name.as_str(), "icebox" | "backlog");
+    if !is_inert {
+        return Ok(());
+    }
+
+    let cols = db::list_columns(conn, &task.workspace_id)?;
+    let target = cols
+        .iter()
+        .find(|c| c.name.eq_ignore_ascii_case("setup"))
+        .or_else(|| {
+            cols.iter().find(|c| {
+                let n = c.name.to_lowercase();
+                n != "icebox" && n != "backlog"
+            })
+        })
+        .cloned();
+
+    let Some(target_col) = target else {
+        log::warn!(
+            "[deps] auto-promote: no eligible target column in workspace {}",
+            task.workspace_id
+        );
+        return Ok(());
+    };
+
+    if target_col.id == current_col.id {
+        return Ok(());
+    }
+
+    let ts = db::now();
+    let max_pos: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
+            rusqlite::params![target_col.id],
+            |row| row.get(0),
+        )
+        .unwrap_or(-1);
+    conn.execute(
+        "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, updated_at = ?3 WHERE id = ?4",
+        rusqlite::params![target_col.id, max_pos + 1, ts, task.id],
+    )
+    .map_err(AppError::from)?;
+
+    emit_pipeline(
+        app,
+        EVT_DEP_MOVED,
+        &task.id,
+        &target_col.id,
+        PipelineState::Idle,
+        Some(format!("Auto-promoted to {} after dependency cleared", target_col.name)),
+    );
+    emit_tasks_changed(app, &task.workspace_id, "dependency_auto_promoted");
+
+    let promoted = db::get_task(conn, &task.id)?;
+    let _ = fire_trigger(conn, app, &promoted, &target_col);
 
     Ok(())
 }
@@ -205,6 +426,7 @@ fn execute_on_met(
                     PipelineState::Idle,
                     Some(format!("Moved to {} by dependency", col.name)),
                 );
+                emit_tasks_changed(app, &dependent_task.workspace_id, "dependency_moved");
 
                 // Fire on_entry trigger for the new column
                 let updated_task = db::get_task(conn, &dependent_task.id)?;
@@ -774,5 +996,132 @@ mod tests {
         update_blocked(&conn, &task.id, false).unwrap();
         let task = db::get_task(&conn, &task.id).unwrap();
         assert!(!task.blocked);
+    }
+
+    /// Bug A regression: deps written by the MCP server omit `on_met`. Before the
+    /// `#[serde(default)]` fix, `serde_json::from_str::<Vec<TaskDependency>>` would
+    /// fail and the entire dependency set was silently dropped by `find_dependents`,
+    /// preventing `check_dependents` from ever seeing them.
+    #[test]
+    fn test_dep_deserializes_without_on_met() {
+        let mcp_shape = r#"[{"task_id":"abc","condition":"completed"}]"#;
+        let deps: Vec<TaskDependency> = serde_json::from_str(mcp_shape)
+            .expect("MCP-shaped dep without on_met must deserialize");
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].task_id, "abc");
+        assert_eq!(deps[0].condition, "completed");
+        assert!(matches!(deps[0].on_met, TriggerActionV2::None));
+    }
+
+    /// Bug A regression: a single MCP-shaped dep mixed with frontend-shaped deps
+    /// must not poison the whole task. Before the fix, find_dependents wouldn't
+    /// return this task at all because the parse failed.
+    #[test]
+    fn test_find_dependents_returns_mcp_shaped_deps() {
+        let conn = setup_test_db();
+        let ws = db::insert_workspace(&conn, "Test", "/tmp").unwrap();
+        let col = db::insert_column(&conn, &ws.id, "Backlog", 0).unwrap();
+        let task_a = db::insert_task(&conn, &ws.id, &col.id, "A", None).unwrap();
+        let task_b = db::insert_task(&conn, &ws.id, &col.id, "B", None).unwrap();
+
+        // MCP-shaped dep: no on_met field, no target_column.
+        let mcp_deps = format!(
+            r#"[{{"task_id":"{}","condition":"completed"}}]"#,
+            task_a.id
+        );
+        conn.execute(
+            "UPDATE tasks SET dependencies = ?1, blocked = 1 WHERE id = ?2",
+            rusqlite::params![mcp_deps, task_b.id],
+        )
+        .unwrap();
+
+        let dependents = find_dependents(&conn, &task_a.id).unwrap();
+        assert_eq!(dependents.len(), 1);
+        assert_eq!(dependents[0].0.id, task_b.id);
+        assert_eq!(dependents[0].1.len(), 1);
+        assert_eq!(dependents[0].1[0].condition, "completed");
+        assert!(matches!(dependents[0].1[0].on_met, TriggerActionV2::None));
+    }
+
+    /// Bug E: `completed` should require both terminal column AND a completed agent
+    /// run. A task in Done with `agent_status='running'` does not satisfy the dep.
+    #[test]
+    fn test_check_condition_completed_strict_when_agent_running() {
+        let conn = setup_test_db();
+        let ws = db::insert_workspace(&conn, "Test", "/tmp").unwrap();
+        let _col1 = db::insert_column(&conn, &ws.id, "Working", 0).unwrap();
+        let col2 = db::insert_column(&conn, &ws.id, "Done", 1).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col2.id, "Task", None).unwrap();
+        db::update_task_agent_status(&conn, &task.id, Some("running"), None).unwrap();
+        let task = db::get_task(&conn, &task.id).unwrap();
+
+        let dep = TaskDependency {
+            task_id: task.id.clone(),
+            condition: "completed".to_string(),
+            target_column: None,
+            on_met: TriggerActionV2::None,
+        };
+        assert!(!check_condition(&dep, &task, &conn).unwrap());
+
+        // Once agent_status flips to completed, the dep is satisfied.
+        db::update_task_agent_status(&conn, &task.id, Some("completed"), None).unwrap();
+        let task = db::get_task(&conn, &task.id).unwrap();
+        assert!(check_condition(&dep, &task, &conn).unwrap());
+    }
+
+    /// Bug E fallback: a manually-completed task (no agent ever attached) in the
+    /// terminal column still satisfies the `completed` condition. We must not
+    /// require agent_status when there's no agent in the picture.
+    #[test]
+    fn test_check_condition_completed_manual_no_agent() {
+        let conn = setup_test_db();
+        let ws = db::insert_workspace(&conn, "Test", "/tmp").unwrap();
+        let _col1 = db::insert_column(&conn, &ws.id, "Working", 0).unwrap();
+        let col2 = db::insert_column(&conn, &ws.id, "Done", 1).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col2.id, "Task", None).unwrap();
+        // No agent_session_id, no agent_status set.
+        assert!(task.agent_session_id.is_none());
+        assert!(task.agent_status.is_none());
+
+        let dep = TaskDependency {
+            task_id: task.id.clone(),
+            condition: "completed".to_string(),
+            target_column: None,
+            on_met: TriggerActionV2::None,
+        };
+        assert!(check_condition(&dep, &task, &conn).unwrap());
+    }
+
+    /// Bug E: terminal column with a session whose status is not "completed"
+    /// must not satisfy the dep. The session is the source of truth when set.
+    #[test]
+    fn test_check_condition_completed_with_failed_session() {
+        let conn = setup_test_db();
+        let ws = db::insert_workspace(&conn, "Test", "/tmp").unwrap();
+        let _col1 = db::insert_column(&conn, &ws.id, "Working", 0).unwrap();
+        let col2 = db::insert_column(&conn, &ws.id, "Done", 1).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col2.id, "Task", None).unwrap();
+        let session = db::insert_agent_session(&conn, &task.id, "claude", None).unwrap();
+        db::update_task_agent_session(&conn, &task.id, Some(&session.id)).unwrap();
+        db::update_agent_session(
+            &conn,
+            &session.id,
+            None,
+            Some("failed"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let task = db::get_task(&conn, &task.id).unwrap();
+
+        let dep = TaskDependency {
+            task_id: task.id.clone(),
+            condition: "completed".to_string(),
+            target_column: None,
+            on_met: TriggerActionV2::None,
+        };
+        assert!(!check_condition(&dep, &task, &conn).unwrap());
     }
 }
