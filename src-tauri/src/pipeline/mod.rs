@@ -130,7 +130,18 @@ pub fn emit_tasks_changed(app: &AppHandle, workspace_id: &str, reason: &str) {
     );
 }
 
-fn column_is_terminal(conn: &Connection, column: &Column) -> Result<bool, AppError> {
+/// True if `column` is the terminal stage of the workspace's pipeline.
+///
+/// "Terminal" means: case-insensitive name "Done" OR no column with a higher
+/// `position` exists. Used by:
+/// - `cleanup_task_worktree_if_terminal` — to remove per-task worktrees once
+///   they're no longer needed.
+/// - `pipeline::triggers::execute_spawn_cli` — to force a fresh tmux pane
+///   when firing a trigger on a terminal column. The persistent per-task
+///   tmux session is rooted at the worktree, which `cleanup_task_worktree_if_terminal`
+///   has already deleted by the time the terminal trigger fires; reusing
+///   that pane causes zsh's `getcwd()` to fail and the script never runs.
+pub fn column_is_terminal(conn: &Connection, column: &Column) -> Result<bool, AppError> {
     if column.name.eq_ignore_ascii_case("done") {
         return Ok(true);
     }
@@ -172,6 +183,86 @@ pub fn cleanup_task_worktree_if_terminal(
             Ok(task.clone())
         }
     }
+}
+
+/// Move a task back to the first (Setup/Backlog) column with a
+/// `pipeline_error` set. Used by the empty-branch gate when a task tries
+/// to advance into a Merge/Done column without any feature commits — that
+/// usually means the implementation agent silently failed, and quietly
+/// marking the task Done would lose the failure.
+///
+/// If the task is already in the first column, no move occurs but the
+/// error message is still recorded so the user sees why we refused to
+/// advance.
+pub fn requeue_to_first_column(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    current_column: &Column,
+    error_msg: &str,
+) -> Result<Task, AppError> {
+    let columns = db::list_columns(conn, &task.workspace_id)?;
+    let first = columns
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::NotFound("workspace has no columns".to_string()))?;
+
+    if first.id == current_column.id {
+        // Already at first column — record the error, keep position.
+        let updated = db::update_task_pipeline_state(
+            conn,
+            &task.id,
+            PipelineState::Idle.as_str(),
+            None,
+            Some(error_msg),
+        )?;
+        emit_pipeline(
+            app,
+            "pipeline:error",
+            &task.id,
+            &current_column.id,
+            PipelineState::Idle,
+            Some(error_msg.to_string()),
+        );
+        emit_tasks_changed(app, &task.workspace_id, "branch_gate_already_at_first");
+        return Ok(updated);
+    }
+
+    let max_pos: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
+            rusqlite::params![first.id],
+            |row| row.get(0),
+        )
+        .unwrap_or(-1);
+
+    let ts = db::now();
+    conn.execute(
+        "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', \
+         pipeline_triggered_at = NULL, pipeline_error = ?3, updated_at = ?4 WHERE id = ?5",
+        rusqlite::params![first.id, max_pos + 1, error_msg, ts, task.id],
+    )
+    .map_err(AppError::from)?;
+
+    log::warn!(
+        "[branch-gate] Requeued task {} from column '{}' to '{}': {}",
+        task.id,
+        current_column.name,
+        first.name,
+        error_msg
+    );
+
+    emit_pipeline(
+        app,
+        "pipeline:requeued",
+        &task.id,
+        &first.id,
+        PipelineState::Idle,
+        Some(error_msg.to_string()),
+    );
+    emit_tasks_changed(app, &task.workspace_id, "branch_gate_requeued");
+
+    Ok(db::get_task(conn, &task.id)?)
 }
 
 /// Payload sent to webhook URLs
@@ -1365,5 +1456,53 @@ mod tests {
     fn test_pipeline_state_unknown_defaults_idle() {
         assert_eq!(PipelineState::from_db_str("garbage"), PipelineState::Idle);
         assert_eq!(PipelineState::from_db_str(""), PipelineState::Idle);
+    }
+
+    // ─── column_is_terminal ───────────────────────────────────────────────
+
+    #[test]
+    fn test_column_is_terminal_done_by_name() {
+        // Even with a higher-positioned column following, a column named
+        // "Done" (case-insensitive) is still considered terminal — that's
+        // the canonical Done stage convention.
+        let conn = db::init_test().expect("init test db");
+        let workspace = db::insert_workspace(&conn, "ws", "/tmp/repo").expect("ws");
+        let done = db::insert_column(&conn, &workspace.id, "Done", 0).expect("done col");
+        let _post = db::insert_column(&conn, &workspace.id, "PostDone", 1).expect("post col");
+
+        assert!(column_is_terminal(&conn, &done).expect("terminal check"));
+    }
+
+    #[test]
+    fn test_column_is_terminal_done_case_insensitive() {
+        let conn = db::init_test().expect("init test db");
+        let workspace = db::insert_workspace(&conn, "ws", "/tmp/repo").expect("ws");
+        let done = db::insert_column(&conn, &workspace.id, "DONE", 0).expect("done col");
+
+        assert!(column_is_terminal(&conn, &done).expect("terminal check"));
+    }
+
+    #[test]
+    fn test_column_is_terminal_last_position_when_no_done_name() {
+        // Workspaces that don't use "Done" as the literal name still get
+        // terminal status on the highest-positioned column.
+        let conn = db::init_test().expect("init test db");
+        let workspace = db::insert_workspace(&conn, "ws", "/tmp/repo").expect("ws");
+        let _first = db::insert_column(&conn, &workspace.id, "Backlog", 0).expect("first");
+        let last =
+            db::insert_column(&conn, &workspace.id, "Shipped", 1).expect("last col");
+
+        assert!(column_is_terminal(&conn, &last).expect("terminal check"));
+    }
+
+    #[test]
+    fn test_column_is_terminal_false_for_non_last_named_column() {
+        let conn = db::init_test().expect("init test db");
+        let workspace = db::insert_workspace(&conn, "ws", "/tmp/repo").expect("ws");
+        let middle =
+            db::insert_column(&conn, &workspace.id, "Working", 1).expect("middle col");
+        let _later = db::insert_column(&conn, &workspace.id, "Review", 2).expect("later col");
+
+        assert!(!column_is_terminal(&conn, &middle).expect("terminal check"));
     }
 }

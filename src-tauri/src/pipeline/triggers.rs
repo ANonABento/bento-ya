@@ -566,14 +566,7 @@ fn execute_batch_wait(
 }
 
 /// Resolve working directory for a task: worktree_path (if set and exists) > workspace.repo_path.
-fn resolve_working_dir(task: &Task, workspace_repo_path: &str, column: &Column) -> String {
-    // Terminal Done columns run notification-only triggers post-merge; the worktree
-    // has typically been cleaned up by `cleanup_task_worktree_if_terminal` during
-    // auto_advance, and any stale tmux pane's cwd may already be invalid. Always
-    // route them to the repo root so the spawned shell starts in a known-good cwd.
-    if column.name.eq_ignore_ascii_case("done") {
-        return workspace_repo_path.to_string();
-    }
+fn resolve_working_dir(task: &Task, workspace_repo_path: &str) -> String {
     if let Some(ref wt) = task.worktree_path {
         if !wt.is_empty() && std::path::Path::new(wt).exists() {
             return wt.clone();
@@ -1102,14 +1095,19 @@ fn execute_spawn_cli(
         return Ok(task.clone());
     }
 
-    // Terminal Done columns are post-merge notification stages — they don't
-    // need a worktree, and the previous one was cleaned up on auto_advance.
-    let is_terminal_done = column.name.eq_ignore_ascii_case("done");
+    // Terminal columns (e.g. Done) are one-shot: by the time their trigger
+    // fires, `cleanup_task_worktree_if_terminal` has already removed the
+    // per-task worktree, and any reused tmux pane points at a deleted cwd.
+    // For those triggers we skip worktree (re)creation and run in the
+    // workspace's repo_path, then later force a fresh tmux pane.
+    let is_terminal_column = super::column_is_terminal(conn, column)?;
 
-    // Auto-create worktree for trigger-spawned agents to sandbox them.
+    // Auto-create worktree for trigger-spawned agents to sandbox them —
+    // but NOT on terminal columns, where the worktree was just removed
+    // intentionally and there's no follow-up stage that would use it.
     // Check both: DB field is unset OR the path no longer exists on disk
     // (can happen after retry cleanup deletes the worktree directory).
-    let needs_worktree = !is_terminal_done
+    let needs_worktree = !is_terminal_column
         && task
             .worktree_path
             .as_ref()
@@ -1138,19 +1136,34 @@ fn execute_spawn_cli(
         task.clone()
     };
 
-    let working_dir = resolve_working_dir(&task, &workspace.repo_path, column);
+    let mut working_dir = resolve_working_dir(&task, &workspace.repo_path);
 
+    // Belt-and-braces: if the resolved dir is gone (terminal-column case
+    // where worktree was just removed, or any other race), fall back to the
+    // workspace's repo_path so tmux can still set a valid cwd. Without this
+    // fallback, `tmux new-session -c <missing>` silently drops `-c` and the
+    // pane inherits the app process's cwd — usually wrong.
     if !working_dir.is_empty() && !std::path::Path::new(&working_dir).exists() {
-        log::warn!(
-            "Working dir '{}' does not exist, agent may fail",
-            working_dir
-        );
+        if !workspace.repo_path.is_empty()
+            && std::path::Path::new(&workspace.repo_path).exists()
+        {
+            log::warn!(
+                "[triggers] Working dir '{}' missing for task {} — falling back to repo_path '{}'",
+                working_dir,
+                task.id,
+                workspace.repo_path
+            );
+            working_dir = workspace.repo_path.clone();
+        } else {
+            log::warn!(
+                "Working dir '{}' does not exist, agent may fail",
+                working_dir
+            );
+        }
     }
 
-    // Write .task.md to worktree — agent reads this instead of getting full spec in prompt.
-    // Skip for terminal Done columns: working_dir is the repo root there, so writing
-    // .task.md would pollute the main checkout.
-    if !working_dir.is_empty() && !is_terminal_done {
+    // Write .task.md to worktree — agent reads this instead of getting full spec in prompt
+    if !working_dir.is_empty() {
         let task_md_path = std::path::Path::new(&working_dir).join(".task.md");
         let checklist_section = task
             .checklist
@@ -1288,6 +1301,11 @@ fn execute_spawn_cli(
             resolved_model,
         )?;
     } else {
+        // Force a fresh tmux pane for terminal columns: the persistent
+        // per-task session was rooted at the now-deleted worktree, and
+        // reusing it breaks zsh with `getcwd: cannot access parent
+        // directories`. See `pipeline::column_is_terminal` for the
+        // definition of "terminal".
         bridge::spawn_cli_trigger_task(
             app.clone(),
             task.id.clone(),
@@ -1296,6 +1314,7 @@ fn execute_spawn_cli(
             working_dir,
             initial_prompt,
             Some(env_vars),
+            is_terminal_column,
         );
     }
 
@@ -2091,6 +2110,40 @@ fn execute_auto_merge(
 ) -> Result<Task, AppError> {
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
     let base_branch = base_branch.unwrap_or("main");
+
+    // Empty-branch gate: refuse to merge a branch that has zero feature
+    // commits ahead of base. The agent must have silently failed; merging
+    // a no-op branch silently marks the task Done with a ghost PR. Caller
+    // gets requeued to Setup with a pipelineError so the user can see it.
+    if let Some(branch_name) = task.branch_name.as_deref() {
+        if !branch_name.is_empty() {
+            match crate::git::branch_manager::branch_feature_commit_count(
+                &workspace.repo_path,
+                base_branch,
+                branch_name,
+            ) {
+                Ok(0) => {
+                    let msg = format!(
+                        "Empty-branch gate: '{}' has 0 commits ahead of '{}'. \
+                         The agent likely failed without committing. Requeued to Setup.",
+                        branch_name, base_branch
+                    );
+                    return super::requeue_to_first_column(conn, app, task, column, &msg);
+                }
+                Ok(_) => {} // has commits, proceed
+                Err(e) => {
+                    // Don't fail the merge just because we couldn't count;
+                    // the merge itself will surface a real failure.
+                    log::warn!(
+                        "[branch-gate] Could not count commits on {}: {} (proceeding)",
+                        branch_name,
+                        e
+                    );
+                }
+            }
+        }
+    }
+
     // Pipeline v3: always merge the task's OWN PR (never the umbrella staging PR).
     // Eliminates the orphan-staging failure mode where umbrellas die from CI/conflicts
     // and feature PRs get stuck "MERGED into staging but not in main."
@@ -2192,7 +2245,7 @@ fn execute_create_pr(
         .unwrap_or_else(db::generate_batch_id);
     let final_base = base_branch.unwrap_or("main").to_string();
     let staging_branch = staging_branch_for_batch(&batch_id);
-    let repo_path = resolve_working_dir(&task, &workspace.repo_path, column);
+    let repo_path = resolve_working_dir(&task, &workspace.repo_path);
 
     let branch_name = match &task.branch_name {
         Some(b) if !b.is_empty() => b.clone(),
@@ -2411,7 +2464,7 @@ fn execute_run_script(
         .map_err(|_| AppError::NotFound(format!("Script '{}' not found", script_id)))?;
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
     let pipeline_settings = config::effective_pipeline_settings(&workspace.config);
-    let working_dir = resolve_working_dir(task, &workspace.repo_path, column);
+    let working_dir = resolve_working_dir(task, &workspace.repo_path);
 
     // Validate working dir exists
     if !working_dir.is_empty() && !std::path::Path::new(&working_dir).exists() {
@@ -2531,6 +2584,7 @@ fn execute_run_script(
     let workspace_path = working_dir.clone();
     let default_agent_cli = pipeline_settings.default_agent_cli.clone();
     let default_model = pipeline_settings.default_model.clone();
+    let is_terminal_column = super::column_is_terminal(conn, column)?;
 
     // Execute steps in a background task (all data is owned)
     tokio::spawn(async move {
@@ -2647,6 +2701,7 @@ fn execute_run_script(
                         workspace_path.clone(),
                         initial_prompt,
                         Option::None,
+                        is_terminal_column,
                     );
 
                     // Agent step hands off to PTY exit handler
