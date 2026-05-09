@@ -422,6 +422,61 @@ fn get_tools() -> Vec<Value> {
                 "required": ["script", "column"]
             }),
         ),
+        tool(
+            "list_pipeline_templates",
+            "List saved pipeline templates (column structure + triggers, globally scoped)",
+            json!({ "type": "object", "properties": {} }),
+        ),
+        tool(
+            "get_pipeline_template",
+            "Get full details of a pipeline template including its columns",
+            json!({
+                "type": "object",
+                "properties": {
+                    "template": { "type": "string", "description": "Template name or ID" }
+                },
+                "required": ["template"]
+            }),
+        ),
+        tool(
+            "save_pipeline_template",
+            "Save the current column structure (and triggers) of a workspace as a reusable pipeline template",
+            json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Template name (must be unique)" },
+                    "description": { "type": "string", "description": "Short description (optional)" },
+                    "workspace": { "type": "string", "description": "Source workspace name or ID" }
+                },
+                "required": ["name", "workspace"]
+            }),
+        ),
+        tool(
+            "apply_pipeline_template",
+            "Apply a saved pipeline template to a target workspace. Refuses 'replace_all' if any task is non-idle. Use placeholders to substitute workspace-specific values like {{DISCORD_CHANNEL_ID}}.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "template": { "type": "string", "description": "Template name or ID" },
+                    "workspace": { "type": "string", "description": "Target workspace name or ID" },
+                    "collision_policy": { "type": "string", "enum": ["replace_all", "append"], "description": "How to combine with existing columns. 'prompt' is not yet supported." },
+                    "placeholders": { "type": "object", "description": "Map of {{NAME}} → value for substitution in trigger JSONs (e.g. {\"DISCORD_CHANNEL_ID\":\"12345\"})" },
+                    "task_mapping": { "type": "object", "description": "Optional map of old column name → new column name (overrides default name-match remap when collision_policy = replace_all)" }
+                },
+                "required": ["template", "workspace", "collision_policy"]
+            }),
+        ),
+        tool(
+            "delete_pipeline_template",
+            "Delete a custom pipeline template (built-in templates cannot be deleted)",
+            json!({
+                "type": "object",
+                "properties": {
+                    "template": { "type": "string", "description": "Template name or ID" }
+                },
+                "required": ["template"]
+            }),
+        ),
     ]
 }
 
@@ -629,6 +684,11 @@ fn handle_tool_call(conn: &Connection, name: &str, args: &Value) -> Value {
         "list_scripts" => handle_list_scripts(conn),
         "create_script" => handle_create_script(conn, args),
         "run_script" => handle_run_script(conn, args),
+        "list_pipeline_templates" => handle_list_pipeline_templates(conn),
+        "get_pipeline_template" => handle_get_pipeline_template(conn, args),
+        "save_pipeline_template" => handle_save_pipeline_template(conn, args),
+        "apply_pipeline_template" => handle_apply_pipeline_template(conn, args),
+        "delete_pipeline_template" => handle_delete_pipeline_template(conn, args),
         _ => json!({ "error": format!("Unknown tool: {}", name) }),
     }
 }
@@ -1640,6 +1700,287 @@ fn handle_run_script(conn: &Connection, args: &Value) -> Value {
         }),
         Err(e) => json!({ "error": e.to_string() }),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline template handlers
+// ---------------------------------------------------------------------------
+
+fn find_pipeline_template(conn: &Connection, query: &str) -> Result<(String, String), String> {
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM pipeline_templates WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+    if let Ok(row) = stmt.query_row(params![query], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }) {
+        return Ok(row);
+    }
+
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM pipeline_templates WHERE LOWER(name) = LOWER(?1)")
+        .map_err(|e| e.to_string())?;
+    if let Ok(row) = stmt.query_row(params![query], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }) {
+        return Ok(row);
+    }
+
+    let pattern = format!("%{}%", query);
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM pipeline_templates WHERE LOWER(name) LIKE LOWER(?1)")
+        .map_err(|e| e.to_string())?;
+    if let Ok(row) = stmt.query_row(params![pattern], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }) {
+        return Ok(row);
+    }
+
+    Err(format!("Pipeline template '{}' not found", query))
+}
+
+fn handle_list_pipeline_templates(conn: &Connection) -> Value {
+    let mut stmt = match conn.prepare(
+        "SELECT id, name, description, columns_json, source_workspace_id, is_built_in, created_at, updated_at \
+         FROM pipeline_templates ORDER BY is_built_in DESC, name",
+    ) {
+        Ok(s) => s,
+        Err(e) => return json!({ "error": e.to_string() }),
+    };
+
+    let rows: Vec<Value> = stmt
+        .query_map([], |r| {
+            let columns_str = r.get::<_, String>(3)?;
+            let columns_parsed: Value =
+                serde_json::from_str(&columns_str).unwrap_or(Value::Array(vec![]));
+            let column_count = columns_parsed.as_array().map_or(0, |a| a.len());
+            Ok(json!({
+                "id": r.get::<_, String>(0)?,
+                "name": r.get::<_, String>(1)?,
+                "description": r.get::<_, Option<String>>(2)?,
+                "source_workspace_id": r.get::<_, Option<String>>(4)?,
+                "is_built_in": r.get::<_, i64>(5)? != 0,
+                "column_count": column_count,
+                "created_at": r.get::<_, String>(6)?,
+                "updated_at": r.get::<_, String>(7)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect();
+
+    json!({ "templates": rows, "count": rows.len() })
+}
+
+fn handle_get_pipeline_template(conn: &Connection, args: &Value) -> Value {
+    let q = match args.get("template").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return json!({ "error": "template is required" }),
+    };
+    let (id, _name) = match find_pipeline_template(conn, q) {
+        Ok(v) => v,
+        Err(e) => return json!({ "error": e }),
+    };
+    let row = conn.query_row(
+        "SELECT id, name, description, columns_json, source_workspace_id, is_built_in, created_at, updated_at \
+         FROM pipeline_templates WHERE id = ?1",
+        params![id],
+        |r| {
+            let columns_str = r.get::<_, String>(3)?;
+            let columns_parsed: Value =
+                serde_json::from_str(&columns_str).unwrap_or(Value::Array(vec![]));
+            Ok(json!({
+                "id": r.get::<_, String>(0)?,
+                "name": r.get::<_, String>(1)?,
+                "description": r.get::<_, Option<String>>(2)?,
+                "columns": columns_parsed,
+                "source_workspace_id": r.get::<_, Option<String>>(4)?,
+                "is_built_in": r.get::<_, i64>(5)? != 0,
+                "created_at": r.get::<_, String>(6)?,
+                "updated_at": r.get::<_, String>(7)?,
+            }))
+        },
+    );
+    match row {
+        Ok(v) => v,
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_save_pipeline_template(conn: &Connection, args: &Value) -> Value {
+    if let Err(e) = require_app() {
+        return e;
+    }
+    let name = match args.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n,
+        None => return json!({ "error": "name is required" }),
+    };
+    let description = args.get("description").and_then(|v| v.as_str()).unwrap_or("");
+    let workspace_q = match args.get("workspace").and_then(|v| v.as_str()) {
+        Some(w) => w,
+        None => return json!({ "error": "workspace is required" }),
+    };
+
+    let (workspace_id, workspace_name) = match find_workspace(conn, workspace_q) {
+        Ok(v) => v,
+        Err(e) => return json!({ "error": e }),
+    };
+
+    // Route through the app HTTP API so the app's DB connection sees the new template.
+    if let Some(resp) = api_call(
+        "/api/save_pipeline_template",
+        &json!({
+            "name": name,
+            "description": description,
+            "source_workspace_id": workspace_id,
+        }),
+    ) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "message": format!("Saved pipeline template '{}' from workspace '{}'", name, workspace_name),
+                "template": resp.get("data"),
+            });
+        }
+        if let Some(err) = resp.get("error").and_then(|v| v.as_str()) {
+            return json!({ "error": err });
+        }
+    }
+
+    if !allow_db_fallback() {
+        return json!({
+            "error": "Could not save pipeline template through the app API. Make sure Bento-ya is running.",
+        });
+    }
+
+    // Test-only direct DB fallback.
+    let columns: Vec<Value> = conn
+        .prepare(
+            "SELECT name, icon, color, triggers FROM columns WHERE workspace_id = ?1 ORDER BY position",
+        )
+        .ok()
+        .and_then(|mut s| {
+            s.query_map(params![workspace_id], |r| {
+                let triggers: Option<String> = r.get(3)?;
+                Ok(json!({
+                    "name": r.get::<_, String>(0)?,
+                    "icon": r.get::<_, String>(1)?,
+                    "color": r.get::<_, Option<String>>(2)?,
+                    "triggers": triggers.unwrap_or_else(|| "{}".to_string()),
+                }))
+            })
+            .ok()
+            .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        })
+        .unwrap_or_default();
+    if columns.is_empty() {
+        return json!({ "error": "Source workspace has no columns" });
+    }
+    let columns_json = serde_json::to_string(&columns).unwrap_or_else(|_| "[]".to_string());
+    let id = new_id();
+    let ts = now();
+    match conn.execute(
+        "INSERT INTO pipeline_templates (id, name, description, columns_json, source_workspace_id, is_built_in, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)",
+        params![id, name, description, columns_json, workspace_id, ts, ts],
+    ) {
+        Ok(_) => {
+            checkpoint_wal(conn);
+            json!({
+                "message": format!("Saved pipeline template '{}'", name),
+                "id": id,
+            })
+        }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+fn handle_apply_pipeline_template(conn: &Connection, args: &Value) -> Value {
+    if let Err(e) = require_app() {
+        return e;
+    }
+    let template_q = match args.get("template").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return json!({ "error": "template is required" }),
+    };
+    let workspace_q = match args.get("workspace").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return json!({ "error": "workspace is required" }),
+    };
+    let collision_policy = match args.get("collision_policy").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return json!({ "error": "collision_policy is required (replace_all | append)" }),
+    };
+
+    let (template_id, template_name) = match find_pipeline_template(conn, template_q) {
+        Ok(v) => v,
+        Err(e) => return json!({ "error": e }),
+    };
+    let (workspace_id, workspace_name) = match find_workspace(conn, workspace_q) {
+        Ok(v) => v,
+        Err(e) => return json!({ "error": e }),
+    };
+
+    let placeholders = args.get("placeholders").cloned().unwrap_or(json!({}));
+    let task_mapping = args.get("task_mapping").cloned().unwrap_or(json!({}));
+
+    if let Some(resp) = api_call(
+        "/api/apply_pipeline_template",
+        &json!({
+            "template_id": template_id,
+            "target_workspace_id": workspace_id,
+            "collision_policy": collision_policy,
+            "placeholders": placeholders,
+            "task_mapping": task_mapping,
+        }),
+    ) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "message": format!(
+                    "Applied template '{}' to workspace '{}' ({})",
+                    template_name, workspace_name, collision_policy
+                ),
+                "outcome": resp.get("data"),
+            });
+        }
+        if let Some(err) = resp.get("error").and_then(|v| v.as_str()) {
+            return json!({ "error": err });
+        }
+    }
+
+    json!({
+        "error": "Could not apply pipeline template through the app API. Make sure Bento-ya is running.",
+    })
+}
+
+fn handle_delete_pipeline_template(conn: &Connection, args: &Value) -> Value {
+    if let Err(e) = require_app() {
+        return e;
+    }
+    let template_q = match args.get("template").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return json!({ "error": "template is required" }),
+    };
+    let (template_id, template_name) = match find_pipeline_template(conn, template_q) {
+        Ok(v) => v,
+        Err(e) => return json!({ "error": e }),
+    };
+
+    if let Some(resp) = api_call(
+        "/api/delete_pipeline_template",
+        &json!({ "id": template_id }),
+    ) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "message": format!("Deleted pipeline template '{}'", template_name),
+                "id": template_id,
+            });
+        }
+        if let Some(err) = resp.get("error").and_then(|v| v.as_str()) {
+            return json!({ "error": err });
+        }
+    }
+
+    json!({
+        "error": "Could not delete pipeline template through the app API. Make sure Bento-ya is running.",
+    })
 }
 
 // ---------------------------------------------------------------------------
