@@ -145,6 +145,10 @@ pub struct AgentSession {
     pub tmux_session_name: Option<String>,
     pub model: Option<String>,
     pub effort_level: Option<String>,
+    /// JSON object: `{ "<adapter_kind>": "<cli_session_id>" }`. Per-CLI
+    /// bucket so mixed-CLI pipelines don't clobber each other's resume id.
+    /// Legacy `cli_session_id` is dual-written for back-compat.
+    pub cli_sessions: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

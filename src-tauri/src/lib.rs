@@ -46,6 +46,24 @@ pub fn run() {
         );
     }
 
+    // Same for agent_sessions: tmux panes from a previous app instance are
+    // gone, and the underlying claude/codex local conversations may have been
+    // purged. Without this clear, the next pipeline run for an old task
+    // would inject `--resume <dead-id>` and fail with "No conversation
+    // found". Resets the per-CLI bucket and the legacy single columns.
+    let agent_reset: i64 = conn
+        .execute(
+            "UPDATE agent_sessions SET cli_session_id = NULL, provider_session_id = NULL, cli_sessions = NULL WHERE cli_session_id IS NOT NULL OR provider_session_id IS NOT NULL OR cli_sessions IS NOT NULL",
+            [],
+        )
+        .unwrap_or(0) as i64;
+    if agent_reset > 0 {
+        eprintln!(
+            "[startup] Cleared {} stale agent CLI session reference(s)",
+            agent_reset
+        );
+    }
+
     // Seed built-in scripts (idempotent — skips if already present)
     if let Err(e) = db::seed_built_in_scripts(&conn) {
         eprintln!("[startup] Failed to seed built-in scripts: {}", e);

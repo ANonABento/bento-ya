@@ -909,6 +909,55 @@ fn extract_claude_session_id(output: &str) -> Option<String> {
     })
 }
 
+/// Heuristic: did the trailing scrollback contain claude's "session not found"
+/// error? Used to clear the stale id so the next stage doesn't keep retrying
+/// the same dead resume target.
+pub(crate) fn is_stale_claude_resume_output(scrollback: &str) -> bool {
+    // Match any of:
+    //   "No conversation found with session ID: <id>"
+    //   "No conversation found with session id: <id>"
+    //   "session not found"
+    let lower = scrollback.to_ascii_lowercase();
+    lower.contains("no conversation found with session id")
+        || lower.contains("session not found")
+}
+
+/// Map a working directory to the encoded path claude uses for its session
+/// file directory. Claude rewrites `/` → `-`. Example:
+///   `/Users/bentomac/foo` → `-Users-bentomac-foo`
+fn encode_claude_project_dir(working_dir: &str) -> String {
+    working_dir.replace('/', "-")
+}
+
+/// Locate `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl` for a given
+/// working directory + session id. Returns `None` if `$HOME` is unresolvable.
+fn claude_session_file_path(working_dir: &str, session_id: &str) -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from)?;
+    let encoded = encode_claude_project_dir(working_dir);
+    Some(
+        home.join(".claude")
+            .join("projects")
+            .join(encoded)
+            .join(format!("{}.jsonl", session_id)),
+    )
+}
+
+/// Defense-in-depth check before we inject `claude --resume <id>`.
+///
+/// Returns `true` if the local session file exists. Returns `false` if the
+/// id is empty, claude has purged the session locally, or the path can't be
+/// resolved (no `$HOME`). The caller drops `--resume` on `false` and runs a
+/// fresh conversation instead — much better UX than a hard ERROR.
+pub(crate) fn validate_claude_resume_id(working_dir: &str, session_id: &str) -> bool {
+    if session_id.trim().is_empty() {
+        return false;
+    }
+    match claude_session_file_path(working_dir, session_id) {
+        Some(path) => path.exists(),
+        None => false,
+    }
+}
+
 /// Create a fresh tmux session for a pipeline trigger. Fails if a session
 /// with the same name already exists — callers should kill stale sessions
 /// first if they want a clean slate.
@@ -1080,10 +1129,37 @@ pub fn spawn_cli_trigger_task(
                         rusqlite::params![session.id, ts, task_id],
                     );
                     pipeline::emit_tasks_changed(&app, "", "agent_session_created");
-                    let resume_id = if persistent_lifecycle {
-                        session.cli_session_id.clone()
+                    let adapter = db::adapter_kind_for_agent_type(&cli_command);
+                    let candidate_resume_id = if persistent_lifecycle {
+                        db::resolve_cli_session_id(&session, adapter)
                     } else {
                         None
+                    };
+                    // For claude, drop the resume id if the local session
+                    // jsonl is gone (purged by claude itself, or stale across
+                    // an app restart). Codex doesn't take --resume so we
+                    // pass the candidate through unchanged for it.
+                    let resume_id = match candidate_resume_id {
+                        Some(id) if adapter == "claude_cli" => {
+                            if validate_claude_resume_id(&working_dir, &id) {
+                                Some(id)
+                            } else {
+                                eprintln!(
+                                    "[bridge] dropping stale --resume id for task {} ({}): no local session file",
+                                    task_id, id
+                                );
+                                let _ = db::update_agent_session_cli_for_adapter(
+                                    &conn,
+                                    &session.id,
+                                    adapter,
+                                    None,
+                                    None,
+                                    None,
+                                );
+                                None
+                            }
+                        }
+                        other => other,
                     };
                     let metadata = serde_json::json!({
                         "cli": cli_command,
@@ -1512,7 +1588,14 @@ async fn run_trigger_in_tmux(
     // log file (preserved across runs) but fall back to live pane capture if
     // the file is empty (e.g. pipe-pane never opened in time).
     let log_contents = std::fs::read_to_string(log_path).unwrap_or_default();
-    let captured_cli_session_id = extract_claude_session_id(&log_contents);
+    // Only claude wraps its stream-json output through the jq filter that
+    // emits BENTOYA_CLAUDE_SESSION_ID. Gating on the CLI prevents a future
+    // (or hostile) non-claude stream from polluting the per-task slot.
+    let captured_cli_session_id = if cli_command == "claude" {
+        extract_claude_session_id(&log_contents)
+    } else {
+        None
+    };
     let scrollback_full = if !log_contents.is_empty() {
         log_contents
     } else {
@@ -1621,8 +1704,30 @@ async fn run_trigger_in_tmux(
 
         // Persist final scrollback + a fresh last_output regardless of success.
         if let Some(sid) = session_id {
+            let adapter = db::adapter_kind_for_agent_type(cli_command);
             if let Some(ref cli_session_id) = captured_cli_session_id {
-                let _ = db::update_agent_session_cli(&conn, sid, Some(cli_session_id), None, None);
+                let _ = db::update_agent_session_cli_for_adapter(
+                    &conn,
+                    sid,
+                    adapter,
+                    Some(cli_session_id),
+                    None,
+                    None,
+                );
+            } else if !success
+                && adapter == "claude_cli"
+                && is_stale_claude_resume_output(&scrollback)
+            {
+                // The claude CLI rejected the resume id we passed in. Clear
+                // the slot so the next stage starts a fresh conversation
+                // instead of looping on the same dead id.
+                eprintln!(
+                    "[bridge] clearing stale claude resume id for task {} after 'No conversation found'",
+                    task_id
+                );
+                let _ = db::update_agent_session_cli_for_adapter(
+                    &conn, sid, adapter, None, None, None,
+                );
             }
             let _ = db::update_agent_session_output(
                 &conn,
@@ -2198,6 +2303,54 @@ mod tests {
             extract_claude_session_id(output).as_deref(),
             Some("abc-123")
         );
+    }
+
+    #[test]
+    fn test_validate_claude_resume_id_rejects_empty() {
+        assert!(!validate_claude_resume_id("/tmp/x", ""));
+        assert!(!validate_claude_resume_id("/tmp/x", "   "));
+    }
+
+    #[test]
+    fn test_validate_claude_resume_id_rejects_missing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Override $HOME so the validator looks under our temp dir.
+        std::env::set_var("HOME", tmp.path());
+        // No session file exists yet — must return false.
+        assert!(!validate_claude_resume_id(
+            "/Users/test/some/repo",
+            "deadbeef-0000-0000-0000-000000000000"
+        ));
+    }
+
+    #[test]
+    fn test_validate_claude_resume_id_accepts_present_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("HOME", tmp.path());
+        let working_dir = "/Users/test/some/repo";
+        let encoded = "-Users-test-some-repo";
+        let session_id = "11111111-2222-3333-4444-555555555555";
+        let proj = tmp.path().join(".claude").join("projects").join(encoded);
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(proj.join(format!("{}.jsonl", session_id)), b"{}\n").unwrap();
+        assert!(validate_claude_resume_id(working_dir, session_id));
+    }
+
+    #[test]
+    fn test_is_stale_claude_resume_output_matches_canonical_error() {
+        let log = "...\nresult: error\nNo conversation found with session ID: abc-123\nERROR\n";
+        assert!(is_stale_claude_resume_output(log));
+    }
+
+    #[test]
+    fn test_is_stale_claude_resume_output_case_insensitive() {
+        let log = "no conversation found with session id: lower";
+        assert!(is_stale_claude_resume_output(log));
+    }
+
+    #[test]
+    fn test_is_stale_claude_resume_output_negative() {
+        assert!(!is_stale_claude_resume_output("everything went fine"));
     }
 
     // ─── Rate-limit detection ─────────────────────────────────────────────
