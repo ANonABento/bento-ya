@@ -523,6 +523,12 @@ pub async fn move_task(
         // Notify frontend to refresh task store
         pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_moved");
 
+        // Re-check dependents with the post-move task state. The pre-move call inside
+        // fire_on_exit only sees the old column, so any dep waiting on this task to
+        // reach a specific column (`completed`, `moved_to_column`, `at_or_past_column`)
+        // needs this second pass.
+        let _ = pipeline::dependencies::check_dependents(&conn, &app, &task);
+
         let task = pipeline::fire_trigger(&conn, &app, &task, &target_column)?;
         return Ok(task);
     }

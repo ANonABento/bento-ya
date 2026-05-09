@@ -75,6 +75,7 @@ pub const EVT_RUNNING: &str = "pipeline:running";
 pub const EVT_ADVANCED: &str = "pipeline:advanced";
 pub const EVT_UNBLOCKED: &str = "pipeline:unblocked";
 pub const EVT_DEP_MOVED: &str = "pipeline:dependency_moved";
+pub const EVT_DEP_CLEARED: &str = "pipeline:dependency_cleared";
 
 // ─── Pipeline Events ────────────────────────────────────────────────────────
 
@@ -632,6 +633,11 @@ pub fn try_auto_advance(
 
             // Notify frontend that tasks changed
             emit_tasks_changed(app, &task.workspace_id, "pipeline_advanced");
+
+            // Re-check dependents now that the source has settled into its new column.
+            // The pre-advance call inside mark_complete cannot see this column, so the
+            // `completed` / `at_or_past_column` conditions need this second pass.
+            let _ = dependencies::check_dependents(conn, app, &updated_task);
 
             // Fire trigger on the new column
             let _ = fire_trigger(conn, app, &updated_task, &next_col)?;

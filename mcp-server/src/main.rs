@@ -1083,7 +1083,8 @@ fn handle_add_dependency(conn: &Connection, args: &Value) -> Value {
 
     deps.push(json!({
         "task_id": dep_id,
-        "condition": condition
+        "condition": condition,
+        "on_met": { "type": "none" }
     }));
 
     let deps_json = serde_json::to_string(&deps).unwrap();

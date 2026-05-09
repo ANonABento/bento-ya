@@ -499,7 +499,7 @@ fn run_hygiene_once(app: &tauri::AppHandle) {
             }
         };
 
-        let result = match pipeline::hygiene::run_hygiene_cycle(&conn) {
+        let result = match pipeline::hygiene::run_hygiene_cycle(&conn, Some(app)) {
             Ok(r) => r,
             Err(e) => {
                 log::warn!("[hygiene] cycle failed: {}", e);
@@ -512,10 +512,11 @@ fn run_hygiene_once(app: &tauri::AppHandle) {
         }
 
         log::info!(
-            "[hygiene] archived={} reconciled={} sessions_cleared={}",
+            "[hygiene] archived={} reconciled={} sessions_cleared={} blocked_cleared={}",
             result.archived,
             result.tasks_reconciled,
             result.sessions_cleared,
+            result.blocked_cleared,
         );
 
         match db::list_workspaces(&conn) {
