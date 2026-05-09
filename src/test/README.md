@@ -82,6 +82,23 @@ npx playwright show-report
 | File system ops | Mocked | Not real filesystem |
 | Shell commands | Mocked | Not real shell |
 
+## Native E2E Tests (WebDriverIO + Tauri)
+
+WebDriver tests run against the actual Tauri binary, so they exercise the real Rust backend, native IPC, tmux sessions, filesystem access, and WebView behavior.
+
+```bash
+# Build a debug binary with WebDriver support
+npm run build:webdriver
+
+# In another shell, start the WebDriver server
+tauri-driver --port 4444
+
+# Run the WebDriverIO suite
+npm run test:webdriver
+```
+
+These tests are different from Playwright tests: Playwright runs the React app in a regular browser with mocked Tauri APIs, while WebDriverIO drives the native desktop app. If `tauri-driver` is unsupported on the local machine, keep using Playwright for frontend coverage and verify native behavior manually with `pnpm tauri dev`.
+
 ### Adding E2E Tests
 
 ```typescript

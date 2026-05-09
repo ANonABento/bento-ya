@@ -1,10 +1,10 @@
 /**
- * WebDriverIO config for Bento-ya E2E testing via tauri-webdriver.
+ * WebDriverIO config for Bento-ya E2E testing via tauri-driver.
  *
  * Prerequisites:
  *   1. Build with webdriver feature: cd src-tauri && cargo build --features webdriver
  *   2. Start Vite dev server: npm run dev
- *   3. Start WebDriver server: tauri-wd --port 4444
+ *   3. Start WebDriver server: tauri-driver --port 4444
  *   4. Run tests: npx wdio run wdio.conf.mjs
  */
 export const config = {

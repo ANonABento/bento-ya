@@ -30,6 +30,20 @@ pnpm tauri build
 pnpm tauri dev
 ```
 
+### Testing modes
+
+Bento-ya has two useful local test surfaces:
+
+| Surface | Command | Backend | Use it for |
+|---------|---------|---------|------------|
+| Browser/Vite | `npm run dev`, then `npm run test:e2e` | Mocked Tauri IPC | Fast React UI/layout/interaction checks |
+| Native Tauri | `pnpm tauri dev` | Real Rust backend, tmux, filesystem, WebView | Manual end-to-end agent and terminal testing |
+| Native WebDriver | `npm run build:webdriver`, `tauri-driver --port 4444`, then `npm run test:webdriver` | Real Tauri app under automation | Native IPC/WebView regression tests when `tauri-driver` is supported locally |
+
+Opening `http://localhost:1420` by itself only shows the Vite frontend. It is useful for frontend work, but it is not the full app runtime: native Tauri APIs are mocked outside the desktop shell. Agent execution, tmux sessions, shell behavior, filesystem access, and other Rust-backed features need `pnpm tauri dev` or a WebDriver-backed Tauri run.
+
+If `tauri-driver` is unavailable or reports that the platform is unsupported, use Playwright for browser-only checks and `pnpm tauri dev` for manual native verification.
+
 ### Troubleshooting
 
 #### White screen on launch
