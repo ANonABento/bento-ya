@@ -439,6 +439,161 @@ async fn update_settings(Json(updates): Json<serde_json::Value>) -> impl IntoRes
     }
 }
 
+// ─── Pipeline template endpoints (used by bento-mcp) ───────────────────────
+
+#[derive(Deserialize)]
+struct SavePipelineTemplateReq {
+    name: String,
+    #[serde(default)]
+    description: String,
+    source_workspace_id: String,
+}
+
+async fn save_pipeline_template_api(
+    AxumState(api): AxumState<Arc<ApiState>>,
+    Json(req): Json<SavePipelineTemplateReq>,
+) -> impl IntoResponse {
+    if req.name.trim().is_empty() {
+        return err_response(StatusCode::BAD_REQUEST, "Name cannot be empty".into())
+            .into_response();
+    }
+    let conn = get_db!(api);
+
+    if let Ok(Some(existing)) = db::find_pipeline_template_by_name(&conn, req.name.trim()) {
+        return err_response(
+            StatusCode::CONFLICT,
+            format!("Template '{}' already exists (id {})", existing.name, existing.id),
+        )
+        .into_response();
+    }
+
+    let column_data = match pipeline::templates::extract_template_from_workspace(
+        &conn,
+        &req.source_workspace_id,
+    ) {
+        Ok(d) => d,
+        Err(e) => {
+            return err_response(StatusCode::BAD_REQUEST, e.to_string()).into_response();
+        }
+    };
+    if column_data.is_empty() {
+        return err_response(StatusCode::BAD_REQUEST, "Source workspace has no columns".into())
+            .into_response();
+    }
+    let columns_json = match serde_json::to_string(&column_data) {
+        Ok(s) => s,
+        Err(e) => {
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    };
+    let id = db::new_id();
+    match db::insert_pipeline_template(
+        &conn,
+        &id,
+        req.name.trim(),
+        req.description.trim(),
+        &columns_json,
+        Some(&req.source_workspace_id),
+        false,
+    ) {
+        Ok(t) => ok_response(serde_json::to_value(&t).unwrap_or_default()).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ApplyPipelineTemplateReq {
+    template_id: String,
+    target_workspace_id: String,
+    collision_policy: String,
+    #[serde(default)]
+    placeholders: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    task_mapping: std::collections::HashMap<String, String>,
+}
+
+async fn apply_pipeline_template_api(
+    AxumState(api): AxumState<Arc<ApiState>>,
+    Json(req): Json<ApplyPipelineTemplateReq>,
+) -> impl IntoResponse {
+    let conn = get_db!(api);
+    let policy = match pipeline::templates::CollisionPolicy::from_str(&req.collision_policy) {
+        Ok(p) => p,
+        Err(e) => return err_response(StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+    let template = match db::get_pipeline_template(&conn, &req.template_id) {
+        Ok(t) => t,
+        Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
+    };
+    if let Err(e) = db::get_workspace(&conn, &req.target_workspace_id) {
+        return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response();
+    }
+    let outcome = match policy {
+        pipeline::templates::CollisionPolicy::ReplaceAll => {
+            pipeline::templates::apply_template_replace_all(
+                &conn,
+                &template,
+                &req.target_workspace_id,
+                &req.placeholders,
+                &req.task_mapping,
+            )
+        }
+        pipeline::templates::CollisionPolicy::Append => {
+            pipeline::templates::apply_template_append(
+                &conn,
+                &template,
+                &req.target_workspace_id,
+                &req.placeholders,
+            )
+        }
+        pipeline::templates::CollisionPolicy::Prompt => {
+            return err_response(
+                StatusCode::BAD_REQUEST,
+                "collision_policy 'prompt' is not yet supported in v1".into(),
+            )
+            .into_response();
+        }
+    };
+    match outcome {
+        Ok(o) => {
+            pipeline::emit_tasks_changed(
+                &api.app,
+                &req.target_workspace_id,
+                "pipeline_template_applied",
+            );
+            ok_response(serde_json::to_value(&o).unwrap_or_default()).into_response()
+        }
+        Err(e) => err_response(StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct DeletePipelineTemplateReq {
+    id: String,
+}
+
+async fn delete_pipeline_template_api(
+    AxumState(api): AxumState<Arc<ApiState>>,
+    Json(req): Json<DeletePipelineTemplateReq>,
+) -> impl IntoResponse {
+    let conn = get_db!(api);
+    let existing = match db::get_pipeline_template(&conn, &req.id) {
+        Ok(t) => t,
+        Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
+    };
+    if existing.is_built_in {
+        return err_response(
+            StatusCode::BAD_REQUEST,
+            "Cannot delete built-in pipeline templates".into(),
+        )
+        .into_response();
+    }
+    match db::delete_pipeline_template(&conn, &req.id) {
+        Ok(_) => ok_response(serde_json::json!({ "deleted": req.id })).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
 // ─── Server lifecycle ───────────────────────────────────────────────────────
 
 fn port_file_path() -> std::path::PathBuf {
@@ -474,6 +629,9 @@ pub fn start(app: AppHandle) {
             .route("/api/retry_from_start", post(retry_from_start))
             .route("/api/settings", get(get_settings))
             .route("/api/settings", post(update_settings))
+            .route("/api/save_pipeline_template", post(save_pipeline_template_api))
+            .route("/api/apply_pipeline_template", post(apply_pipeline_template_api))
+            .route("/api/delete_pipeline_template", post(delete_pipeline_template_api))
             .with_state(api_state);
 
         // Bind to random available port
