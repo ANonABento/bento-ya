@@ -2110,6 +2110,40 @@ fn execute_auto_merge(
 ) -> Result<Task, AppError> {
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
     let base_branch = base_branch.unwrap_or("main");
+
+    // Empty-branch gate: refuse to merge a branch that has zero feature
+    // commits ahead of base. The agent must have silently failed; merging
+    // a no-op branch silently marks the task Done with a ghost PR. Caller
+    // gets requeued to Setup with a pipelineError so the user can see it.
+    if let Some(branch_name) = task.branch_name.as_deref() {
+        if !branch_name.is_empty() {
+            match crate::git::branch_manager::branch_feature_commit_count(
+                &workspace.repo_path,
+                base_branch,
+                branch_name,
+            ) {
+                Ok(0) => {
+                    let msg = format!(
+                        "Empty-branch gate: '{}' has 0 commits ahead of '{}'. \
+                         The agent likely failed without committing. Requeued to Setup.",
+                        branch_name, base_branch
+                    );
+                    return super::requeue_to_first_column(conn, app, task, column, &msg);
+                }
+                Ok(_) => {} // has commits, proceed
+                Err(e) => {
+                    // Don't fail the merge just because we couldn't count;
+                    // the merge itself will surface a real failure.
+                    log::warn!(
+                        "[branch-gate] Could not count commits on {}: {} (proceeding)",
+                        branch_name,
+                        e
+                    );
+                }
+            }
+        }
+    }
+
     // Pipeline v3: always merge the task's OWN PR (never the umbrella staging PR).
     // Eliminates the orphan-staging failure mode where umbrellas die from CI/conflicts
     // and feature PRs get stuck "MERGED into staging but not in main."

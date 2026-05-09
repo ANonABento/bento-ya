@@ -512,6 +512,111 @@ pub fn clean_worktree(worktree_path: &str) -> Result<String, String> {
     Ok(summary.join("; "))
 }
 
+// ─── Branch / Worktree State Helpers (used by pipeline gates) ─────────────
+
+/// Count the feature commits in `branch` that are not on `base`.
+///
+/// Uses `git rev-list --no-merges --count <base>..<branch>`. Returns 0 if
+/// the branch has no commits ahead of base or the comparison can't resolve
+/// (which we treat as "no work" — caller decides whether that's a fail).
+///
+/// Used by the empty-branch gate on Merge / Done columns: if the agent
+/// silently failed to commit its work, the branch will report 0 here and
+/// the pipeline can refuse to advance instead of marking the task Done
+/// with a ghost branch.
+pub fn branch_feature_commit_count(
+    repo_path: &str,
+    base: &str,
+    branch: &str,
+) -> Result<u64, String> {
+    let range = format!("{}..{}", base, branch);
+    let output = std::process::Command::new("git")
+        .args(["rev-list", "--no-merges", "--count", &range])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("git rev-list spawn failed: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git rev-list {} failed: {}",
+            range,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<u64>()
+        .map_err(|e| format!("parse rev-list count: {}", e))
+}
+
+/// True if the worktree has uncommitted changes (tracked or untracked).
+///
+/// Implementation: `git status --porcelain` — non-empty output means dirty.
+pub fn worktree_is_dirty(worktree_path: &str) -> Result<bool, String> {
+    let output = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(worktree_path)
+        .output()
+        .map_err(|e| format!("git status spawn failed: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git status failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(!output.stdout.is_empty())
+}
+
+/// If the worktree is dirty, stage everything and create a single commit
+/// with the supplied message. Returns `Ok(true)` if a commit was made,
+/// `Ok(false)` if there was nothing to commit.
+///
+/// Used as the "auto-commit safety net" after a Working-stage agent exits
+/// successfully but forgot to commit its own output. We disable gpg signing
+/// (`-c commit.gpgsign=false`) since this is an automated commit and the
+/// host's signing config may prompt interactively.
+pub fn auto_commit_dirty_worktree(
+    worktree_path: &str,
+    message: &str,
+) -> Result<bool, String> {
+    if !worktree_is_dirty(worktree_path)? {
+        return Ok(false);
+    }
+    let add = std::process::Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(worktree_path)
+        .output()
+        .map_err(|e| format!("git add spawn failed: {}", e))?;
+    if !add.status.success() {
+        return Err(format!(
+            "git add -A failed: {}",
+            String::from_utf8_lossy(&add.stderr).trim()
+        ));
+    }
+    let commit = std::process::Command::new("git")
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--no-verify",
+            "-m",
+            message,
+        ])
+        .current_dir(worktree_path)
+        .output()
+        .map_err(|e| format!("git commit spawn failed: {}", e))?;
+    if !commit.status.success() {
+        let stderr = String::from_utf8_lossy(&commit.stderr);
+        // `git commit` returns non-zero if there's nothing staged after
+        // `add -A` (e.g. only untracked-and-ignored files). Treat that
+        // exact case as "no commit made" rather than an error.
+        if stderr.contains("nothing to commit") || stderr.contains("nothing added to commit") {
+            return Ok(false);
+        }
+        return Err(format!("git commit failed: {}", stderr.trim()));
+    }
+    Ok(true)
+}
+
 /// List all bentoya worktrees in a repo.
 pub fn list_worktrees(repo_path: &str) -> Result<Vec<String>, String> {
     let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
@@ -923,6 +1028,212 @@ mod tests {
 
         // Repo still works
         assert!(branch_exists(tmp.to_str().unwrap(), "main").unwrap());
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ─── branch_feature_commit_count ──────────────────────────────────────
+
+    fn make_commit(path: &std::path::Path, file: &str, contents: &str, message: &str) {
+        std::fs::write(path.join(file), contents).unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-q", "--no-verify", "-m", message])
+            .current_dir(path)
+            .output()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_branch_feature_commit_count_zero_when_branch_equals_base() {
+        let tmp =
+            std::env::temp_dir().join(format!("bentoya-branchcount-zero-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        init_test_repo(&tmp);
+
+        // Create a branch from main with no extra commits
+        std::process::Command::new("git")
+            .args(["checkout", "-q", "-b", "feature/empty"])
+            .current_dir(&tmp)
+            .output()
+            .unwrap();
+
+        let count = branch_feature_commit_count(tmp.to_str().unwrap(), "main", "feature/empty")
+            .expect("count");
+        assert_eq!(count, 0);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_branch_feature_commit_count_counts_real_commits() {
+        let tmp =
+            std::env::temp_dir().join(format!("bentoya-branchcount-real-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        init_test_repo(&tmp);
+
+        std::process::Command::new("git")
+            .args(["checkout", "-q", "-b", "feature/work"])
+            .current_dir(&tmp)
+            .output()
+            .unwrap();
+        make_commit(&tmp, "a.txt", "a", "feat: a");
+        make_commit(&tmp, "b.txt", "b", "feat: b");
+
+        let count = branch_feature_commit_count(tmp.to_str().unwrap(), "main", "feature/work")
+            .expect("count");
+        assert_eq!(count, 2);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_branch_feature_commit_count_excludes_merge_commits() {
+        let tmp =
+            std::env::temp_dir().join(format!("bentoya-branchcount-merge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        init_test_repo(&tmp);
+
+        // side branch
+        std::process::Command::new("git")
+            .args(["checkout", "-q", "-b", "side"])
+            .current_dir(&tmp)
+            .output()
+            .unwrap();
+        make_commit(&tmp, "side.txt", "s", "feat: side");
+
+        // back to main, branch off, merge side
+        std::process::Command::new("git")
+            .args(["checkout", "-q", "main"])
+            .current_dir(&tmp)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["checkout", "-q", "-b", "feature/merge-only"])
+            .current_dir(&tmp)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["merge", "--no-ff", "-q", "-m", "merge: side", "side"])
+            .current_dir(&tmp)
+            .output()
+            .unwrap();
+
+        // The branch's only new commit is the merge commit; --no-merges
+        // should report 1 (the side commit).
+        let count = branch_feature_commit_count(
+            tmp.to_str().unwrap(),
+            "main",
+            "feature/merge-only",
+        )
+        .expect("count");
+        assert_eq!(
+            count, 1,
+            "side commit counts; merge commit excluded by --no-merges"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ─── worktree_is_dirty / auto_commit_dirty_worktree ───────────────────
+
+    #[test]
+    fn test_worktree_is_dirty_clean_repo() {
+        let tmp =
+            std::env::temp_dir().join(format!("bentoya-dirty-clean-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        init_test_repo(&tmp);
+
+        assert!(!worktree_is_dirty(tmp.to_str().unwrap()).unwrap());
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_worktree_is_dirty_modified_file() {
+        let tmp =
+            std::env::temp_dir().join(format!("bentoya-dirty-mod-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        init_test_repo(&tmp);
+
+        std::fs::write(tmp.join("README.md"), "modified\n").unwrap();
+        assert!(worktree_is_dirty(tmp.to_str().unwrap()).unwrap());
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_worktree_is_dirty_untracked_file() {
+        let tmp =
+            std::env::temp_dir().join(format!("bentoya-dirty-untracked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        init_test_repo(&tmp);
+
+        std::fs::write(tmp.join("new.txt"), "new\n").unwrap();
+        assert!(worktree_is_dirty(tmp.to_str().unwrap()).unwrap());
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_auto_commit_dirty_worktree_no_op_when_clean() {
+        let tmp =
+            std::env::temp_dir().join(format!("bentoya-autocommit-noop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        init_test_repo(&tmp);
+
+        let committed =
+            auto_commit_dirty_worktree(tmp.to_str().unwrap(), "auto").expect("auto-commit");
+        assert!(!committed);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_auto_commit_dirty_worktree_commits_modified_and_new() {
+        let tmp =
+            std::env::temp_dir().join(format!("bentoya-autocommit-dirty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        init_test_repo(&tmp);
+
+        // Make the worktree dirty: modify a tracked file and add a new one.
+        std::fs::write(tmp.join("README.md"), "modified\n").unwrap();
+        std::fs::write(tmp.join("new.txt"), "new\n").unwrap();
+
+        let committed = auto_commit_dirty_worktree(
+            tmp.to_str().unwrap(),
+            "auto: rescued agent output",
+        )
+        .expect("auto-commit");
+        assert!(committed, "expected a commit when worktree is dirty");
+
+        // Worktree must now be clean.
+        assert!(!worktree_is_dirty(tmp.to_str().unwrap()).unwrap());
+
+        // The new commit should appear in `git log -1`.
+        let log = std::process::Command::new("git")
+            .args(["log", "-1", "--pretty=%s"])
+            .current_dir(&tmp)
+            .output()
+            .unwrap();
+        let subject = String::from_utf8_lossy(&log.stdout).trim().to_string();
+        assert_eq!(subject, "auto: rescued agent output");
+
+        // The branch (main) now has 2 commits ahead of the empty
+        // initial-state ref, but for the empty-branch gate scenario we
+        // care about main..feature paths — covered in other tests.
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
