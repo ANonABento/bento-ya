@@ -145,6 +145,7 @@ let mockTasks: Task[] = [
 
 let mockLabels: Label[] = []
 let mockTranscriptEvents: AgentTranscriptEvent[] = sampleTranscriptEvents('task-1')
+const mockEventListeners = new Map<string, Set<(payload: unknown) => void>>()
 
 let idCounter = 100
 
@@ -170,6 +171,19 @@ function transcriptEvent(
     createdAt: new Date(Date.now() + sequence * 1000).toISOString(),
     ...overrides,
   }
+}
+
+function emitMockEvent(event: string, payload: unknown) {
+  const listeners = mockEventListeners.get(event)
+  if (!listeners) return
+  for (const listener of [...listeners]) {
+    queueMicrotask(() => { listener(payload) })
+  }
+}
+
+function appendMockTranscriptEvent(event: AgentTranscriptEvent) {
+  mockTranscriptEvents.push(event)
+  emitMockEvent(`agent:${event.taskId}:transcript_event`, event)
 }
 
 function sampleTranscriptEvents(taskId: string): AgentTranscriptEvent[] {
@@ -582,12 +596,47 @@ const mockCommands: Record<string, CommandHandler> = {
   send_task_input: (args) => {
     const taskId = args?.taskId as string
     const nextSequence = mockTranscriptEvents.filter((event) => event.taskId === taskId).length + 1
-    mockTranscriptEvents.push(
+    appendMockTranscriptEvent(
       transcriptEvent(taskId, 'user_input', nextSequence, {
         content: (args?.text as string) ?? '',
         metadataJson: JSON.stringify({ source: args?.source ?? 'chat', delivery: 'new_turn' }),
       }),
     )
+    const task = mockTasks.find((item) => item.id === taskId)
+    if (task) {
+      task.agentStatus = 'running'
+      task.updatedAt = new Date().toISOString()
+    }
+
+    const runSequence = nextSequence + 1
+    globalThis.setTimeout(() => {
+      appendMockTranscriptEvent(
+        transcriptEvent(taskId, 'session_started', runSequence, {
+          metadataJson: JSON.stringify({
+            cli: args?.cliPath ?? 'claude',
+            model: args?.model ?? 'sonnet',
+            workdir: args?.workingDir ?? '/tmp/demo-repo',
+            resumeAvailable: true,
+            runtimeMode: 'managed',
+          }),
+        }),
+      )
+      appendMockTranscriptEvent(
+        transcriptEvent(taskId, 'agent_text_delta', runSequence + 1, {
+          content: `Received: ${(args?.text as string) ?? ''}`,
+        }),
+      )
+      appendMockTranscriptEvent(
+        transcriptEvent(taskId, 'agent_completed', runSequence + 2, {
+          metadataJson: JSON.stringify({ exitCode: 0 }),
+        }),
+      )
+      if (task) {
+        task.agentStatus = 'completed'
+        task.updatedAt = new Date().toISOString()
+      }
+      emitMockEvent('agent:complete', { taskId, success: true })
+    }, 150)
   },
   cancel_agent_chat: () => undefined,
   clear_agent_messages: () => undefined,
@@ -898,11 +947,16 @@ export async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>)
 
 type UnlistenFn = () => void
 
-/* eslint-disable @typescript-eslint/no-unnecessary-type-parameters, @typescript-eslint/no-unused-vars -- Mock function signature matches real listen for type compatibility */
-export function mockListen<T>(_event: string, _handler: (payload: T) => void): Promise<UnlistenFn> {
-  /* eslint-enable @typescript-eslint/no-unnecessary-type-parameters, @typescript-eslint/no-unused-vars */
-  // In browser mode, events are not supported
-  return Promise.resolve(() => {})
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- Mock signature mirrors typed Tauri listen.
+export function mockListen<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
+  const listeners = mockEventListeners.get(event) ?? new Set<(payload: unknown) => void>()
+  const wrapped = (payload: unknown) => { handler(payload as T) }
+  listeners.add(wrapped)
+  mockEventListeners.set(event, listeners)
+  return Promise.resolve(() => {
+    listeners.delete(wrapped)
+    if (listeners.size === 0) mockEventListeners.delete(event)
+  })
 }
 
 // ─── Reset mock data (for testing) ──────────────────────────────────────────

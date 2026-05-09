@@ -63,6 +63,18 @@ test.describe('AgentPanel — visual audit', () => {
     await expect(stopButton).toBeDisabled({ timeout: 5000 })
   })
 
+  test('chat composer appends live semantic transcript events in browser mode', async ({ page }) => {
+    await openTaskPanel(page, 'Sample Task')
+
+    const input = page.getByPlaceholder('Steer the agent... /commands, @files, !shell')
+    await input.fill('Can you summarize the work?')
+    await input.press('Enter')
+
+    await expect(page.getByText('Can you summarize the work?')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText('Received: Can you summarize the work?')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByRole('button', { name: /run.*resume.*sonnet/i })).toBeVisible({ timeout: 5000 })
+  })
+
   test('captures a full-board screenshot for visual review', async ({ page }) => {
     await page.goto('/')
     await page.waitForTimeout(1000)

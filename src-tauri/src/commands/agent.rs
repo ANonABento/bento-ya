@@ -1,12 +1,17 @@
 use serde::Serialize;
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc,
+};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::chat::registry::SharedSessionRegistry;
 use crate::chat::runtime::{
     decide_input_delivery, drain_pending_runtime_inputs_for_turn, run_managed_runtime_turn,
-    AgentAdapterKind, AgentInputSource, AgentRuntimeError, AgentRuntimeEvent, ClaudeCliAdapter,
-    CodexCliAdapter, ManagedRuntimeTurnConfig, ManagedRuntimeTurnResult,
+    runtime_events_from_provider_json_line, AgentAdapterKind, AgentInputSource, AgentRuntimeError,
+    AgentRuntimeEvent, ClaudeCliAdapter, CodexCliAdapter, ManagedRuntimeTurnConfig,
+    ManagedRuntimeTurnResult,
 };
 use crate::chat::session::{SessionConfig, SessionState, TransportType};
 use crate::db::{self, AgentMessage, AppState};
@@ -44,6 +49,8 @@ struct TaskInputLine {
 struct TaskInputCompletion {
     wait_channel: String,
     exit_path: String,
+    semantic_log_path: Option<String>,
+    adapter_kind: AgentAdapterKind,
 }
 
 const TASK_INPUT_COMPLETION_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 2);
@@ -532,8 +539,7 @@ pub async fn send_task_input(
             app.clone(),
             task_id.clone(),
             session_id,
-            completion.wait_channel,
-            completion.exit_path,
+            completion,
             pre_command_scrollback.unwrap_or_default(),
         );
     }
@@ -840,11 +846,26 @@ fn build_task_input_line(
         args.push(model.to_string());
     }
 
-    let command = crate::chat::bridge::build_trigger_command(cli_path, &args, text, resume_id);
+    let adapter_kind = agent_adapter_kind_from_db(agent_type_from_cli_path(cli_path));
+    let mut command = crate::chat::bridge::build_trigger_command(cli_path, &args, text, resume_id);
     let nonce = uuid::Uuid::new_v4().to_string().replace('-', "");
     let wait_channel = format!("bentoya_chat_done_{}", nonce);
     let dir = crate::chat::log_retention::trigger_logs_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create log dir: {}", e))?;
+    let semantic_log_path = if adapter_kind == AgentAdapterKind::ClaudeCli {
+        let path = dir
+            .join(format!("chat_semantic_{}.jsonl", nonce))
+            .display()
+            .to_string();
+        command = format!(
+            "BENTOYA_CLAUDE_JSON_LOG={} {}",
+            shell_quote_arg(&path),
+            command
+        );
+        Some(path)
+    } else {
+        None
+    };
     let exit_path = dir
         .join(format!("chat_exit_{}.code", nonce))
         .display()
@@ -861,6 +882,8 @@ fn build_task_input_line(
         completion: Some(TaskInputCompletion {
             wait_channel,
             exit_path,
+            semantic_log_path,
+            adapter_kind,
         }),
     })
 }
@@ -869,11 +892,44 @@ fn spawn_task_input_completion_watcher(
     app: AppHandle,
     task_id: String,
     session_id: String,
-    wait_channel: String,
-    exit_path: String,
+    completion: TaskInputCompletion,
     pre_command_scrollback: String,
 ) {
     tokio::spawn(async move {
+        let wait_channel = completion.wait_channel;
+        let exit_path = completion.exit_path;
+        let semantic_log_path = completion.semantic_log_path.clone();
+        let semantic_offset = Arc::new(AtomicUsize::new(0));
+        let semantic_output_emitted = Arc::new(AtomicBool::new(false));
+        let semantic_stop = Arc::new(AtomicBool::new(false));
+        let semantic_flusher = semantic_log_path.as_ref().map(|path| {
+            let app = app.clone();
+            let task_id = task_id.clone();
+            let session_id = session_id.clone();
+            let path = path.clone();
+            let offset = Arc::clone(&semantic_offset);
+            let emitted = Arc::clone(&semantic_output_emitted);
+            let stop = Arc::clone(&semantic_stop);
+            let adapter_kind = completion.adapter_kind;
+            tokio::spawn(async move {
+                while !stop.load(Ordering::Relaxed) {
+                    tokio::time::sleep(Duration::from_millis(350)).await;
+                    if stop.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    if emit_terminal_chat_semantic_log_delta(
+                        &app,
+                        &task_id,
+                        &session_id,
+                        adapter_kind,
+                        &path,
+                        &offset,
+                    ) {
+                        emitted.store(true, Ordering::Relaxed);
+                    }
+                }
+            })
+        });
         let wait_channel_for_wait = wait_channel.clone();
         let wait_handle = tokio::task::spawn_blocking(move || -> Result<(), String> {
             let status = std::process::Command::new("tmux")
@@ -890,6 +946,10 @@ fn spawn_task_input_completion_watcher(
         let timed_out = tokio::time::timeout(TASK_INPUT_COMPLETION_TIMEOUT, wait_handle)
             .await
             .is_err();
+        semantic_stop.store(true, Ordering::Relaxed);
+        if let Some(handle) = semantic_flusher {
+            handle.abort();
+        }
         let exit_code = if timed_out {
             124
         } else {
@@ -900,6 +960,25 @@ fn spawn_task_input_completion_watcher(
         };
         let _ = std::fs::remove_file(&exit_path);
         let success = exit_code == 0;
+        let final_semantic_emitted = completion
+            .semantic_log_path
+            .as_deref()
+            .map(|path| {
+                emit_terminal_chat_semantic_log_delta(
+                    &app,
+                    &task_id,
+                    &session_id,
+                    completion.adapter_kind,
+                    path,
+                    &semantic_offset,
+                )
+            })
+            .unwrap_or(false);
+        if let Some(path) = completion.semantic_log_path.as_deref() {
+            let _ = std::fs::remove_file(path);
+        }
+        let semantic_output_emitted =
+            semantic_output_emitted.load(Ordering::Relaxed) || final_semantic_emitted;
         let post_command_scrollback =
             crate::chat::tmux_transport::capture_scrollback_text(&task_id);
         let output_delta = if !pre_command_scrollback.is_empty()
@@ -909,7 +988,7 @@ fn spawn_task_input_completion_watcher(
         } else {
             post_command_scrollback
         };
-        if !output_delta.trim().is_empty() {
+        if !semantic_output_emitted && !output_delta.trim().is_empty() {
             let _ = crate::events::persist_and_emit_agent_transcript_event(
                 &app,
                 &task_id,
@@ -978,6 +1057,79 @@ fn spawn_task_input_completion_watcher(
             },
         );
     });
+}
+
+fn emit_terminal_chat_semantic_log_delta(
+    app: &AppHandle,
+    task_id: &str,
+    session_id: &str,
+    adapter_kind: AgentAdapterKind,
+    path: &str,
+    offset: &AtomicUsize,
+) -> bool {
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let start = offset.load(Ordering::Relaxed).min(contents.len());
+    let Some((delta, end)) = complete_line_delta(&contents, start) else {
+        return false;
+    };
+    offset.store(end, Ordering::Relaxed);
+    emit_terminal_chat_semantic_log(app, task_id, session_id, adapter_kind, delta)
+}
+
+fn complete_line_delta(contents: &str, start: usize) -> Option<(&str, usize)> {
+    let start = start.min(contents.len());
+    let tail = contents.get(start..)?;
+    let end_offset = tail.rfind('\n')? + 1;
+    Some((&tail[..end_offset], start + end_offset))
+}
+
+fn emit_terminal_chat_semantic_log(
+    app: &AppHandle,
+    task_id: &str,
+    session_id: &str,
+    adapter_kind: AgentAdapterKind,
+    contents: &str,
+) -> bool {
+    let mut emitted = false;
+    for line in contents.lines().filter(|line| !line.trim().is_empty()) {
+        for event in runtime_events_from_provider_json_line(adapter_kind, line) {
+            if let AgentRuntimeEvent::SessionStarted {
+                provider_session_id: Some(provider_session_id),
+                ..
+            } = &event
+            {
+                if let Ok(conn) = rusqlite::Connection::open(db::db_path()) {
+                    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                    let _ = db::update_agent_session_runtime(
+                        &conn,
+                        session_id,
+                        None,
+                        Some("terminal"),
+                        Some(Some(provider_session_id)),
+                        None,
+                    );
+                }
+            }
+            if matches!(
+                event,
+                AgentRuntimeEvent::AgentCompleted { .. }
+                    | AgentRuntimeEvent::AgentFailed { .. }
+                    | AgentRuntimeEvent::AgentCancelled { .. }
+            ) {
+                continue;
+            }
+            emitted = true;
+            let _ = crate::events::persist_and_emit_agent_runtime_event(
+                app,
+                task_id,
+                Some(session_id),
+                event,
+            );
+        }
+    }
+    emitted
 }
 
 fn shell_quote_arg(s: &str) -> String {
@@ -1400,6 +1552,7 @@ mod tests {
         assert!(input.completion.is_some());
         assert!(command.starts_with("bash "));
         let script = std::fs::read_to_string(script_path_from_launcher(&command)).unwrap();
+        assert!(script.contains("BENTOYA_CLAUDE_JSON_LOG="));
         assert!(script.contains("claude"));
         assert!(script.contains("--model"));
         assert!(script.contains("claude-sonnet-4-6"));
@@ -1408,6 +1561,13 @@ mod tests {
         assert!(script.contains("-p"));
         assert!(script.contains("hello agent"));
         assert!(script.contains("tmux wait-for -S bentoya_chat_done_"));
+        let completion = input.completion.expect("completion");
+        assert!(completion
+            .semantic_log_path
+            .as_deref()
+            .expect("semantic log")
+            .contains("chat_semantic_"));
+        assert_eq!(completion.adapter_kind, AgentAdapterKind::ClaudeCli);
     }
 
     #[test]
@@ -1418,11 +1578,15 @@ mod tests {
         assert!(input.completion.is_some());
         assert!(command.starts_with("bash "));
         let script = std::fs::read_to_string(script_path_from_launcher(&command)).unwrap();
+        assert!(!script.contains("BENTOYA_CLAUDE_JSON_LOG="));
         assert!(script.contains("codex exec"));
         assert!(script.contains("--full-auto"));
         assert!(script.contains("--model"));
         assert!(script.contains("gpt-5.4"));
         assert!(script.contains("plan this"));
+        let completion = input.completion.expect("completion");
+        assert!(completion.semantic_log_path.is_none());
+        assert_eq!(completion.adapter_kind, AgentAdapterKind::CodexCli);
     }
 
     #[test]
