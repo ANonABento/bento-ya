@@ -1095,14 +1095,24 @@ fn execute_spawn_cli(
         return Ok(task.clone());
     }
 
-    // Auto-create worktree for trigger-spawned agents to sandbox them.
+    // Terminal columns (e.g. Done) are one-shot: by the time their trigger
+    // fires, `cleanup_task_worktree_if_terminal` has already removed the
+    // per-task worktree, and any reused tmux pane points at a deleted cwd.
+    // For those triggers we skip worktree (re)creation and run in the
+    // workspace's repo_path, then later force a fresh tmux pane.
+    let is_terminal_column = super::column_is_terminal(conn, column)?;
+
+    // Auto-create worktree for trigger-spawned agents to sandbox them —
+    // but NOT on terminal columns, where the worktree was just removed
+    // intentionally and there's no follow-up stage that would use it.
     // Check both: DB field is unset OR the path no longer exists on disk
     // (can happen after retry cleanup deletes the worktree directory).
-    let needs_worktree = task
-        .worktree_path
-        .as_ref()
-        .map(|p| p.is_empty() || !std::path::Path::new(p).exists())
-        .unwrap_or(true);
+    let needs_worktree = !is_terminal_column
+        && task
+            .worktree_path
+            .as_ref()
+            .map(|p| p.is_empty() || !std::path::Path::new(p).exists())
+            .unwrap_or(true);
 
     let task = if needs_worktree && !workspace.repo_path.is_empty() {
         // Clear stale worktree_path so ensure_task_worktree creates a fresh one
@@ -1126,13 +1136,30 @@ fn execute_spawn_cli(
         task.clone()
     };
 
-    let working_dir = resolve_working_dir(&task, &workspace.repo_path);
+    let mut working_dir = resolve_working_dir(&task, &workspace.repo_path);
 
+    // Belt-and-braces: if the resolved dir is gone (terminal-column case
+    // where worktree was just removed, or any other race), fall back to the
+    // workspace's repo_path so tmux can still set a valid cwd. Without this
+    // fallback, `tmux new-session -c <missing>` silently drops `-c` and the
+    // pane inherits the app process's cwd — usually wrong.
     if !working_dir.is_empty() && !std::path::Path::new(&working_dir).exists() {
-        log::warn!(
-            "Working dir '{}' does not exist, agent may fail",
-            working_dir
-        );
+        if !workspace.repo_path.is_empty()
+            && std::path::Path::new(&workspace.repo_path).exists()
+        {
+            log::warn!(
+                "[triggers] Working dir '{}' missing for task {} — falling back to repo_path '{}'",
+                working_dir,
+                task.id,
+                workspace.repo_path
+            );
+            working_dir = workspace.repo_path.clone();
+        } else {
+            log::warn!(
+                "Working dir '{}' does not exist, agent may fail",
+                working_dir
+            );
+        }
     }
 
     // Write .task.md to worktree — agent reads this instead of getting full spec in prompt
@@ -1274,6 +1301,11 @@ fn execute_spawn_cli(
             resolved_model,
         )?;
     } else {
+        // Force a fresh tmux pane for terminal columns: the persistent
+        // per-task session was rooted at the now-deleted worktree, and
+        // reusing it breaks zsh with `getcwd: cannot access parent
+        // directories`. See `pipeline::column_is_terminal` for the
+        // definition of "terminal".
         bridge::spawn_cli_trigger_task(
             app.clone(),
             task.id.clone(),
@@ -1282,6 +1314,7 @@ fn execute_spawn_cli(
             working_dir,
             initial_prompt,
             Some(env_vars),
+            is_terminal_column,
         );
     }
 
@@ -2517,6 +2550,7 @@ fn execute_run_script(
     let workspace_path = working_dir.clone();
     let default_agent_cli = pipeline_settings.default_agent_cli.clone();
     let default_model = pipeline_settings.default_model.clone();
+    let is_terminal_column = super::column_is_terminal(conn, column)?;
 
     // Execute steps in a background task (all data is owned)
     tokio::spawn(async move {
@@ -2633,6 +2667,7 @@ fn execute_run_script(
                         workspace_path.clone(),
                         initial_prompt,
                         Option::None,
+                        is_terminal_column,
                     );
 
                     // Agent step hands off to PTY exit handler

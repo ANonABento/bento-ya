@@ -760,7 +760,22 @@ enum TriggerSessionPlan {
     KillAndCreate,
 }
 
-fn trigger_session_plan(session_exists: bool, persistent_lifecycle: bool) -> TriggerSessionPlan {
+fn trigger_session_plan(
+    session_exists: bool,
+    persistent_lifecycle: bool,
+    force_fresh: bool,
+) -> TriggerSessionPlan {
+    // `force_fresh` overrides persistence — used when the caller knows the
+    // existing pane's cwd is invalid (e.g. terminal column whose worktree
+    // was just removed by `cleanup_task_worktree_if_terminal`). Reusing the
+    // pane in that state breaks zsh's prompt with `getcwd: ENOENT`.
+    if force_fresh {
+        return if session_exists {
+            TriggerSessionPlan::KillAndCreate
+        } else {
+            TriggerSessionPlan::Create
+        };
+    }
     match (session_exists, persistent_lifecycle) {
         (true, true) => TriggerSessionPlan::ReuseExisting,
         (true, false) => TriggerSessionPlan::KillAndCreate,
@@ -945,6 +960,7 @@ fn ensure_trigger_session(
     rows: u16,
     env_vars: &HashMap<String, String>,
     persistent_lifecycle: bool,
+    force_fresh: bool,
 ) -> Result<TriggerSessionPlan, String> {
     static ENSURE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     let _guard = ENSURE_LOCK
@@ -952,14 +968,23 @@ fn ensure_trigger_session(
         .lock()
         .map_err(|e| format!("ensure session lock poisoned: {}", e))?;
 
-    let plan = trigger_session_plan(tmux_transport::has_session(task_id), persistent_lifecycle);
+    let plan = trigger_session_plan(
+        tmux_transport::has_session(task_id),
+        persistent_lifecycle,
+        force_fresh,
+    );
     match plan {
         TriggerSessionPlan::ReuseExisting => Ok(plan),
         TriggerSessionPlan::KillAndCreate => {
             let session = tmux_session_name(task_id);
+            let reason = if force_fresh {
+                "force_fresh=true (terminal column or stale cwd)"
+            } else {
+                "non-persistent lifecycle"
+            };
             eprintln!(
-                "[bridge] Killing stale tmux session before trigger: {}",
-                session
+                "[bridge] Killing stale tmux session before trigger: {} ({})",
+                session, reason
             );
             let _ = tmux_transport::kill_session(task_id);
             create_trigger_session(task_id, working_dir, cols, rows, env_vars)?;
@@ -987,6 +1012,7 @@ fn ensure_trigger_session(
 /// The frontend's `TerminalView` can attach (or be attached) at any time
 /// during the trigger via `ensure_pty_session`, which finds the existing
 /// tmux session and starts streaming live to xterm.js.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_cli_trigger_task(
     app: AppHandle,
     task_id: String,
@@ -995,6 +1021,7 @@ pub fn spawn_cli_trigger_task(
     working_dir: String,
     initial_prompt: String,
     env_vars: Option<HashMap<String, String>>,
+    force_fresh_session: bool,
 ) {
     // Create agent session record so the UI can track this agent
     let (session_id, resume_id, persistent_lifecycle) = {
@@ -1129,6 +1156,7 @@ pub fn spawn_cli_trigger_task(
             start_time,
             &env_vars,
             persistent_lifecycle,
+            force_fresh_session,
         )
         .await;
 
@@ -1199,6 +1227,7 @@ async fn run_trigger_in_tmux(
     start_time: std::time::Instant,
     env_vars: &HashMap<String, String>,
     persistent_lifecycle: bool,
+    force_fresh_session: bool,
 ) -> Result<(), String> {
     eprintln!("[bridge] Starting tmux-backed trigger for task {}", task_id);
     eprintln!("[bridge] CLI command: {}", full_cmd);
@@ -1231,9 +1260,15 @@ async fn run_trigger_in_tmux(
         DEFAULT_TRIGGER_ROWS,
         env_vars,
         persistent_lifecycle,
+        force_fresh_session,
     )?;
     if session_plan == TriggerSessionPlan::ReuseExisting {
         eprintln!("[bridge] Reusing persistent tmux session: {}", session);
+    } else if force_fresh_session {
+        eprintln!(
+            "[bridge] Created fresh tmux session for terminal column trigger: {} (cwd={})",
+            session, working_dir
+        );
     }
 
     // Mirror pane output to a log file. We use `pipe-pane -O` (Open) to log
@@ -2048,7 +2083,7 @@ mod tests {
     #[test]
     fn test_trigger_session_plan_reuses_existing_when_persistent() {
         assert_eq!(
-            trigger_session_plan(true, true),
+            trigger_session_plan(true, true, false),
             TriggerSessionPlan::ReuseExisting
         );
     }
@@ -2056,11 +2091,40 @@ mod tests {
     #[test]
     fn test_trigger_session_plan_replaces_existing_when_legacy() {
         assert_eq!(
-            trigger_session_plan(true, false),
+            trigger_session_plan(true, false, false),
             TriggerSessionPlan::KillAndCreate
         );
         assert_eq!(
-            trigger_session_plan(false, false),
+            trigger_session_plan(false, false, false),
+            TriggerSessionPlan::Create
+        );
+    }
+
+    #[test]
+    fn test_trigger_session_plan_force_fresh_overrides_persistent_reuse() {
+        // Terminal columns set force_fresh=true so the persistent pane (now
+        // rooted at a deleted worktree) is killed and recreated with a
+        // valid cwd.
+        assert_eq!(
+            trigger_session_plan(true, true, true),
+            TriggerSessionPlan::KillAndCreate
+        );
+        assert_eq!(
+            trigger_session_plan(false, true, true),
+            TriggerSessionPlan::Create
+        );
+    }
+
+    #[test]
+    fn test_trigger_session_plan_force_fresh_compatible_with_legacy() {
+        // Even on legacy non-persistent workspaces, force_fresh keeps the
+        // KillAndCreate / Create choice consistent with the existing path.
+        assert_eq!(
+            trigger_session_plan(true, false, true),
+            TriggerSessionPlan::KillAndCreate
+        );
+        assert_eq!(
+            trigger_session_plan(false, false, true),
             TriggerSessionPlan::Create
         );
     }
@@ -2320,8 +2384,9 @@ mod tests {
         let _ = tmux_transport::kill_session(&task_id);
         tmux_transport::ensure_tmux_server().expect("tmux server");
 
-        let first_plan = ensure_trigger_session(&task_id, "/tmp", 80, 24, &env_vars, true)
-            .expect("create persistent session");
+        let first_plan =
+            ensure_trigger_session(&task_id, "/tmp", 80, 24, &env_vars, true, false)
+                .expect("create persistent session");
         assert_eq!(first_plan, TriggerSessionPlan::Create);
         run_tmux(&[
             "send-keys",
@@ -2334,8 +2399,9 @@ mod tests {
         run_tmux(&["send-keys", "-t", &session, "Enter"]).expect("enter first marker");
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        let second_plan = ensure_trigger_session(&task_id, "/tmp", 80, 24, &env_vars, true)
-            .expect("reuse persistent session");
+        let second_plan =
+            ensure_trigger_session(&task_id, "/tmp", 80, 24, &env_vars, true, false)
+                .expect("reuse persistent session");
         assert_eq!(second_plan, TriggerSessionPlan::ReuseExisting);
         run_tmux(&[
             "send-keys",
@@ -2364,6 +2430,95 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tmux_force_fresh_kills_persistent_session_for_terminal_column() {
+        // Regression: when a terminal column (Done) trigger fires, the
+        // per-task worktree has already been removed by
+        // `cleanup_task_worktree_if_terminal`. The persistent tmux pane is
+        // still rooted at that deleted dir, so reusing it breaks zsh with
+        // `getcwd: cannot access parent directories`. The fix: callers in
+        // `pipeline::triggers::execute_spawn_cli` pass `force_fresh=true`
+        // for terminal columns, which routes ensure_trigger_session to
+        // KillAndCreate and lands a brand-new pane in repo_path.
+        if !tmux_available() {
+            eprintln!("tmux not available, skipping");
+            return;
+        }
+        let _tmux_guard = tmux_transport::tmux_test_lock_async().await;
+
+        let task_id = format!("test-force-fresh-{}", uuid::Uuid::new_v4());
+        let session = tmux_session_name(&task_id);
+        let env_vars = HashMap::new();
+        let _ = tmux_transport::kill_session(&task_id);
+        tmux_transport::ensure_tmux_server().expect("tmux server");
+
+        // Stage 1: create the persistent session in a temp dir, leave a
+        // marker in scrollback. This simulates Plan/Working/Merge main.
+        let stale_dir = std::env::temp_dir().join(format!("bentoya_stale_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&stale_dir).expect("create stale dir");
+        let stale_dir_str = stale_dir.display().to_string();
+
+        let first_plan =
+            ensure_trigger_session(&task_id, &stale_dir_str, 80, 24, &env_vars, true, false)
+                .expect("create persistent session");
+        assert_eq!(first_plan, TriggerSessionPlan::Create);
+        run_tmux(&["send-keys", "-t", &session, "-l", "echo PRE_TERMINAL_MARKER"])
+            .expect("send marker");
+        run_tmux(&["send-keys", "-t", &session, "Enter"]).expect("enter marker");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // Stage 2: simulate `cleanup_task_worktree_if_terminal` removing
+        // the worktree out from under the pane.
+        let _ = std::fs::remove_dir_all(&stale_dir);
+        assert!(!stale_dir.exists(), "stale dir should be removed");
+
+        // Stage 3: terminal column trigger fires with a fresh, valid cwd
+        // (workspace.repo_path) and force_fresh=true.
+        let fresh_dir = std::env::temp_dir().join(format!("bentoya_fresh_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&fresh_dir).expect("create fresh dir");
+        let fresh_dir_str = fresh_dir.display().to_string();
+
+        let second_plan =
+            ensure_trigger_session(&task_id, &fresh_dir_str, 80, 24, &env_vars, true, true)
+                .expect("force-fresh kill+create");
+        assert_eq!(
+            second_plan,
+            TriggerSessionPlan::KillAndCreate,
+            "force_fresh on a live session must kill+create"
+        );
+        assert!(
+            tmux_transport::has_session(&task_id),
+            "new session must exist after kill+create"
+        );
+
+        // Pane scrollback must NOT carry the pre-terminal marker — it's a
+        // brand-new pane.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let scrollback = capture_pane_scrollback(&session);
+        assert!(
+            !scrollback.contains("PRE_TERMINAL_MARKER"),
+            "scrollback unexpectedly carried over from killed session: {}",
+            scrollback
+        );
+
+        // The new pane's cwd must be the supplied fresh_dir (canonical
+        // path comparison handles macOS /private/var symlink games).
+        let cwd_output =
+            run_tmux(&["display", "-p", "-t", &session, "#{pane_current_path}"])
+                .expect("display pane_current_path");
+        let pane_cwd = cwd_output.trim();
+        let canon_pane =
+            std::fs::canonicalize(pane_cwd).unwrap_or_else(|_| std::path::PathBuf::from(pane_cwd));
+        let canon_fresh = std::fs::canonicalize(&fresh_dir).unwrap_or(fresh_dir.clone());
+        assert_eq!(
+            canon_pane, canon_fresh,
+            "new pane's cwd must match the supplied working_dir"
+        );
+
+        let _ = tmux_transport::kill_session(&task_id);
+        let _ = std::fs::remove_dir_all(&fresh_dir);
+    }
+
+    #[tokio::test]
     async fn concurrent_ensure_trigger_session_coalesces_to_one_tmux_session() {
         if !tmux_available() {
             eprintln!("tmux not available, skipping");
@@ -2380,7 +2535,7 @@ mod tests {
             let task_id = task_id.clone();
             handles.push(std::thread::spawn(move || {
                 let env_vars = HashMap::new();
-                ensure_trigger_session(&task_id, "/tmp", 80, 24, &env_vars, true)
+                ensure_trigger_session(&task_id, "/tmp", 80, 24, &env_vars, true, false)
             }));
         }
 

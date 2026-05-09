@@ -128,7 +128,18 @@ pub fn emit_tasks_changed(app: &AppHandle, workspace_id: &str, reason: &str) {
     );
 }
 
-fn column_is_terminal(conn: &Connection, column: &Column) -> Result<bool, AppError> {
+/// True if `column` is the terminal stage of the workspace's pipeline.
+///
+/// "Terminal" means: case-insensitive name "Done" OR no column with a higher
+/// `position` exists. Used by:
+/// - `cleanup_task_worktree_if_terminal` — to remove per-task worktrees once
+///   they're no longer needed.
+/// - `pipeline::triggers::execute_spawn_cli` — to force a fresh tmux pane
+///   when firing a trigger on a terminal column. The persistent per-task
+///   tmux session is rooted at the worktree, which `cleanup_task_worktree_if_terminal`
+///   has already deleted by the time the terminal trigger fires; reusing
+///   that pane causes zsh's `getcwd()` to fail and the script never runs.
+pub fn column_is_terminal(conn: &Connection, column: &Column) -> Result<bool, AppError> {
     if column.name.eq_ignore_ascii_case("done") {
         return Ok(true);
     }
@@ -1358,5 +1369,53 @@ mod tests {
     fn test_pipeline_state_unknown_defaults_idle() {
         assert_eq!(PipelineState::from_db_str("garbage"), PipelineState::Idle);
         assert_eq!(PipelineState::from_db_str(""), PipelineState::Idle);
+    }
+
+    // ─── column_is_terminal ───────────────────────────────────────────────
+
+    #[test]
+    fn test_column_is_terminal_done_by_name() {
+        // Even with a higher-positioned column following, a column named
+        // "Done" (case-insensitive) is still considered terminal — that's
+        // the canonical Done stage convention.
+        let conn = db::init_test().expect("init test db");
+        let workspace = db::insert_workspace(&conn, "ws", "/tmp/repo").expect("ws");
+        let done = db::insert_column(&conn, &workspace.id, "Done", 0).expect("done col");
+        let _post = db::insert_column(&conn, &workspace.id, "PostDone", 1).expect("post col");
+
+        assert!(column_is_terminal(&conn, &done).expect("terminal check"));
+    }
+
+    #[test]
+    fn test_column_is_terminal_done_case_insensitive() {
+        let conn = db::init_test().expect("init test db");
+        let workspace = db::insert_workspace(&conn, "ws", "/tmp/repo").expect("ws");
+        let done = db::insert_column(&conn, &workspace.id, "DONE", 0).expect("done col");
+
+        assert!(column_is_terminal(&conn, &done).expect("terminal check"));
+    }
+
+    #[test]
+    fn test_column_is_terminal_last_position_when_no_done_name() {
+        // Workspaces that don't use "Done" as the literal name still get
+        // terminal status on the highest-positioned column.
+        let conn = db::init_test().expect("init test db");
+        let workspace = db::insert_workspace(&conn, "ws", "/tmp/repo").expect("ws");
+        let _first = db::insert_column(&conn, &workspace.id, "Backlog", 0).expect("first");
+        let last =
+            db::insert_column(&conn, &workspace.id, "Shipped", 1).expect("last col");
+
+        assert!(column_is_terminal(&conn, &last).expect("terminal check"));
+    }
+
+    #[test]
+    fn test_column_is_terminal_false_for_non_last_named_column() {
+        let conn = db::init_test().expect("init test db");
+        let workspace = db::insert_workspace(&conn, "ws", "/tmp/repo").expect("ws");
+        let middle =
+            db::insert_column(&conn, &workspace.id, "Working", 1).expect("middle col");
+        let _later = db::insert_column(&conn, &workspace.id, "Review", 2).expect("later col");
+
+        assert!(!column_is_terminal(&conn, &middle).expect("terminal check"));
     }
 }
