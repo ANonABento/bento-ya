@@ -337,10 +337,6 @@ function RunGroup({ group, isLatest }: { group: Extract<TranscriptGroup, { kind:
     `agent-transcript:run:${group.id}`,
     isLatest || status === 'running',
   )
-  const endItem = useMemo(
-    () => [...group.items].reverse().find((item): item is Extract<RenderItem, { kind: 'end' }> => item.kind === 'end'),
-    [group.items],
-  )
   const visibleItems = useMemo(
     () => coalesceRunItems(group.items.filter((item) => item.kind !== 'end')),
     [group.items],
@@ -386,7 +382,6 @@ function RunGroup({ group, isLatest }: { group: Extract<TranscriptGroup, { kind:
                   Only lifecycle events captured. Open Terminal for the raw session.
                 </div>
               )}
-              {endItem && <TranscriptItem item={endItem} isLatest={isLatest && visibleItems.length === 0} />}
             </div>
           </motion.div>
         )}

@@ -6,6 +6,7 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-condition -- Mock data uses ?? for defensive safety with unknown runtime args */
 
 import type { Workspace, Column, Task, Label, AgentMode, AgentStatus, PipelineState } from '@/types'
+import type { AgentTranscriptEvent, AgentTranscriptEventType } from '@/types/events'
 import { DEFAULT_TRIGGERS } from '@/types/column'
 
 // Check if we're running in Tauri or in a test environment
@@ -133,8 +134,8 @@ let mockTasks: Task[] = [
     blocked: false,
     worktreePath: null,
     archivedAt: null,
-      lastUserInputAt: null,
-      heldByUser: false,
+    lastUserInputAt: null,
+    heldByUser: false,
     queuedAt: null,
     position: 0,
     createdAt: new Date().toISOString(),
@@ -143,6 +144,7 @@ let mockTasks: Task[] = [
 ]
 
 let mockLabels: Label[] = []
+let mockTranscriptEvents: AgentTranscriptEvent[] = sampleTranscriptEvents('task-1')
 
 let idCounter = 100
 
@@ -150,6 +152,60 @@ const generateId = (prefix: string) => `${prefix}-${String(++idCounter)}`
 
 const sortMockLabels = (a: Label, b: Label) =>
   a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+
+function transcriptEvent(
+  taskId: string,
+  eventType: AgentTranscriptEventType,
+  sequence: number,
+  overrides: Partial<AgentTranscriptEvent> = {},
+): AgentTranscriptEvent {
+  return {
+    id: `${taskId}-${String(sequence)}-${eventType}`,
+    taskId,
+    sessionId: `${taskId}-session`,
+    eventType,
+    content: null,
+    metadataJson: null,
+    sequence,
+    createdAt: new Date(Date.now() + sequence * 1000).toISOString(),
+    ...overrides,
+  }
+}
+
+function sampleTranscriptEvents(taskId: string): AgentTranscriptEvent[] {
+  return [
+    transcriptEvent(taskId, 'session_started', 1, {
+      metadataJson: JSON.stringify({ cli: 'claude', workdir: '/tmp/demo-repo', columnName: 'Working' }),
+    }),
+    transcriptEvent(taskId, 'agent_thinking_delta', 2, { content: 'Checking the task context.' }),
+    transcriptEvent(taskId, 'tool_started', 3, {
+      metadataJson: JSON.stringify({ toolId: 'read-1', toolName: 'Read' }),
+    }),
+    transcriptEvent(taskId, 'tool_output', 4, {
+      content: '# Sample Task\n\nThis is a demo task for testing.',
+      metadataJson: JSON.stringify({ toolId: 'read-1', toolName: 'Read' }),
+    }),
+    transcriptEvent(taskId, 'tool_completed', 5, {
+      metadataJson: JSON.stringify({ toolId: 'read-1', toolName: 'Read' }),
+    }),
+    transcriptEvent(taskId, 'agent_text_delta', 6, {
+      content: 'I found the sample task and would start by confirming the expected output before editing.',
+    }),
+    transcriptEvent(taskId, 'command_started', 7, {
+      metadataJson: JSON.stringify({ commandId: 'bash-1', command: 'bash' }),
+    }),
+    transcriptEvent(taskId, 'command_output', 8, {
+      content: 'git status --short\n# clean',
+      metadataJson: JSON.stringify({ commandId: 'bash-1', command: 'bash' }),
+    }),
+    transcriptEvent(taskId, 'command_completed', 9, {
+      metadataJson: JSON.stringify({ commandId: 'bash-1', command: 'bash', exitCode: 0 }),
+    }),
+    transcriptEvent(taskId, 'agent_completed', 10, {
+      metadataJson: JSON.stringify({ exitCode: 0 }),
+    }),
+  ]
+}
 
 const getLastColumnId = (workspaceId: string) => {
   const columns = mockColumns
@@ -521,7 +577,40 @@ const mockCommands: Record<string, CommandHandler> = {
     createdAt: new Date().toISOString(),
   }),
   get_agent_messages: () => [],
+  get_agent_transcript_events: (args) =>
+    mockTranscriptEvents.filter((event) => event.taskId === args?.taskId),
+  send_task_input: (args) => {
+    const taskId = args?.taskId as string
+    const nextSequence = mockTranscriptEvents.filter((event) => event.taskId === taskId).length + 1
+    mockTranscriptEvents.push(
+      transcriptEvent(taskId, 'user_input', nextSequence, {
+        content: (args?.text as string) ?? '',
+        metadataJson: JSON.stringify({ source: args?.source ?? 'chat', delivery: 'new_turn' }),
+      }),
+    )
+  },
+  cancel_agent_chat: () => undefined,
   clear_agent_messages: () => undefined,
+  hold_task: (args) => {
+    const task = mockTasks.find((t) => t.id === args?.taskId)
+    if (!task) throw new Error('Task not found')
+    task.heldByUser = Boolean(args?.held)
+    task.updatedAt = new Date().toISOString()
+    return task
+  },
+  kill_task_session: () => undefined,
+
+  // Terminal PTY commands (stubs)
+  ensure_pty_session: (args) => ({
+    taskId: args?.taskId,
+    pid: 123,
+    status: 'idle',
+    scrollback: btoa('mock-terminal$ echo ready\r\nready\r\nmock-terminal$ '),
+  }),
+  write_to_pty: () => undefined,
+  resize_pty: () => undefined,
+  get_pty_scrollback: () => '',
+  signal_pty_interrupt: () => undefined,
 
   // Pipeline commands (stubs)
   mark_pipeline_complete: (args) => mockTasks.find((t) => t.id === args?.taskId),
@@ -733,13 +822,19 @@ const mockCommands: Record<string, CommandHandler> = {
   link_checklist_item_to_task: () => undefined,
 
   // CLI detection / capabilities (stubs)
-  detect_clis: () => [],
+  detect_clis: () => [{
+    id: 'claude',
+    name: 'Claude Code',
+    path: '/usr/local/bin/claude',
+    version: 'mock',
+    isAvailable: true,
+  }],
   detect_single_cli: () => ({
     id: 'claude',
     name: 'Claude Code',
-    path: '',
-    version: null,
-    isAvailable: false,
+    path: '/usr/local/bin/claude',
+    version: 'mock',
+    isAvailable: true,
   }),
   verify_cli_path: () => ({
     id: 'custom',
@@ -750,8 +845,8 @@ const mockCommands: Record<string, CommandHandler> = {
   }),
   get_cli_capabilities: () => ({
     cliId: 'claude',
-    cliVersion: null,
-    detected: false,
+    cliVersion: 'mock',
+    detected: true,
     models: [
       {
         id: 'opus',
@@ -1035,5 +1130,6 @@ export function resetMockData() {
   ]
 
   mockLabels = []
+  mockTranscriptEvents = sampleTranscriptEvents('task-1')
   idCounter = 100
 }
