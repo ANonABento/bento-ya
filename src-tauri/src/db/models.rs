@@ -298,6 +298,24 @@ pub struct Script {
     pub updated_at: String,
 }
 
+// ─── Pipeline Template Entities ─────────────────────────────────────────────
+
+/// A saved pipeline template — captures column structure + triggers for
+/// reuse across workspaces. Globally scoped (no workspace FK).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PipelineTemplate {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    /// JSON array of `{ name, icon, color, triggers }` in template position order.
+    pub columns_json: String,
+    pub source_workspace_id: Option<String>,
+    pub is_built_in: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 // ─── Pipeline Timing Entities ───────────────────────────────────────────────
 
 /// Tracks how long a task spends in each column for bottleneck analysis.

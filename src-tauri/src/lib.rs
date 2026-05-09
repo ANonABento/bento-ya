@@ -51,6 +51,11 @@ pub fn run() {
         eprintln!("[startup] Failed to seed built-in scripts: {}", e);
     }
 
+    // Seed built-in pipeline templates (idempotent — skips if already present)
+    if let Err(e) = db::seed_built_in_pipeline_templates(&conn) {
+        eprintln!("[startup] Failed to seed built-in pipeline templates: {}", e);
+    }
+
     let state = AppState {
         db: Mutex::new(conn),
     };
@@ -287,6 +292,12 @@ pub fn run() {
             commands::script::create_script,
             commands::script::update_script,
             commands::script::delete_script,
+            // Pipeline template commands
+            commands::pipeline_template::list_pipeline_templates,
+            commands::pipeline_template::get_pipeline_template,
+            commands::pipeline_template::save_pipeline_template,
+            commands::pipeline_template::delete_pipeline_template,
+            commands::pipeline_template::apply_pipeline_template,
             // GitHub PR status + issues sync commands
             commands::github::fetch_pr_status,
             commands::github::fetch_pr_status_batch,

@@ -20,6 +20,7 @@ pub mod github_sync;
 pub mod history;
 pub mod label;
 pub mod orchestrator_session;
+pub mod pipeline_template;
 pub mod pipeline_timing;
 pub mod script;
 pub mod task;
@@ -43,6 +44,7 @@ pub use github_sync::*;
 pub use history::*;
 pub use label::*;
 pub use orchestrator_session::*;
+pub use pipeline_template::*;
 pub use pipeline_timing::*;
 pub use script::*;
 pub use task::*;
@@ -283,6 +285,10 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
             "041_agent_runtime_input_queue",
             include_str!("migrations/041_agent_runtime_input_queue.sql"),
         ),
+        (
+            "042_pipeline_templates",
+            include_str!("migrations/042_pipeline_templates.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {
@@ -351,7 +357,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
         // Includes split 019 and 030 migration files.
-        assert_eq!(count, 43);
+        assert_eq!(count, 44);
     }
 
     #[test]

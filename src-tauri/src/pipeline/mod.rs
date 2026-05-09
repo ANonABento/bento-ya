@@ -7,6 +7,7 @@
 pub mod dependencies;
 pub mod hygiene;
 pub mod template;
+pub mod templates;
 pub mod triggers;
 
 use crate::db::{self, Column, Task};

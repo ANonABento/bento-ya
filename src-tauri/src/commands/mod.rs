@@ -9,6 +9,7 @@ pub mod history;
 pub mod label;
 pub mod orchestrator;
 pub mod pipeline;
+pub mod pipeline_template;
 pub mod script;
 pub mod siege;
 pub mod task;
