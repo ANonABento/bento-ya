@@ -33,6 +33,7 @@ describe('AgentTranscript', () => {
     )
 
     expect(screen.getByText('> user')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-transcript').firstElementChild).toHaveClass('w-full', 'max-w-none')
     expect(screen.getByText('agent')).toBeInTheDocument()
     expect(screen.getByText('haiku')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Result' })).toBeInTheDocument()
@@ -139,7 +140,7 @@ describe('AgentTranscript', () => {
           event('command_output', {
             id: 'tail',
             sequence: 1,
-            content: "b3df860ee.sh'\nthinking...\nThe task is complete.",
+            content: "851a1.sh'\n2\nthinking...\nThe task is complete.",
             metadataJson: '{"source":"tmux_log_tail"}',
           }),
         ]}
@@ -147,7 +148,44 @@ describe('AgentTranscript', () => {
     )
 
     expect(screen.getByText(/thinking/)).toBeInTheDocument()
-    expect(screen.queryByText(/b3df860ee\.sh/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^2$/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/851a1\.sh/)).not.toBeInTheDocument()
+  })
+
+  it('coalesces Claude tool_result output into the original tool row', () => {
+    render(
+      <AgentTranscript
+        events={[
+          event('session_started', {
+            id: 'run',
+            sequence: 1,
+            metadataJson: '{"cli":"claude"}',
+          }),
+          event('tool_started', {
+            id: 'tool-start',
+            sequence: 2,
+            metadataJson: '{"toolId":"toolu_1","toolName":"Bash"}',
+          }),
+          event('tool_output', {
+            id: 'tool-output',
+            sequence: 3,
+            content: 'git status output',
+            metadataJson: '{"toolId":"toolu_1"}',
+          }),
+          event('tool_completed', {
+            id: 'tool-complete',
+            sequence: 4,
+            metadataJson: '{"toolId":"toolu_1"}',
+          }),
+        ]}
+      />,
+    )
+
+    const bash = screen.getByRole('button', { name: /Bash.*completed/ })
+    expect(bash).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /tool result|tool_result/ })).not.toBeInTheDocument()
+    fireEvent.click(bash)
+    expect(screen.getByText(/git status output/)).toBeInTheDocument()
   })
 
   it('renders Claude text tool result JSON as readable transcript text', () => {
@@ -269,16 +307,13 @@ describe('AgentTranscript', () => {
   it('does not show raw terminal fallback for corrupted scrollback-like content', () => {
     render(
       <AgentTranscript
-        events={[]}
-        messages={[
-          {
-            id: 'm1',
-            workspaceId: 'ws-1',
-            sessionId: 'task-1',
-            role: 'assistant',
+        events={[
+          event('command_output', {
+            id: 'polluted-tail',
+            sequence: 1,
             content: "BENTOYA_CLAUDE_FILTER='if .type then empty end'\nquote>\nbentomac %",
-            createdAt: '2026-05-07T06:00:00Z',
-          },
+            metadataJson: '{"source":"tmux_log_tail"}',
+          }),
         ]}
       />,
     )
@@ -298,9 +333,39 @@ describe('AgentTranscript', () => {
       />,
     )
 
-    expect(screen.getByText(/running/)).toBeInTheDocument()
-    expect(screen.getByText('waiting for semantic events...')).toBeInTheDocument()
+    expect(screen.getByText(/starting/)).toBeInTheDocument()
+    expect(screen.getByText('waiting for transcript events...')).toBeInTheDocument()
     expect(screen.getByText('queued')).toBeInTheDocument()
     expect(screen.getByText('next note')).toBeInTheDocument()
+  })
+
+  it('does not duplicate the running placeholder when a semantic run is active', () => {
+    render(
+      <AgentTranscript
+        events={[
+          event('session_started', { id: 's1', sequence: 1, metadataJson: '{"cli":"claude"}' }),
+          event('agent_started', { id: 'a1', sequence: 2, metadataJson: '{"cli":"claude"}' }),
+        ]}
+        processingStartTime={Date.now()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /run.*running/ })).toBeInTheDocument()
+    expect(screen.queryByText('waiting for transcript events...')).not.toBeInTheDocument()
+  })
+
+  it('labels lifecycle-only active runs as waiting for transcript events', () => {
+    render(
+      <AgentTranscript
+        events={[
+          event('session_started', { id: 's1', sequence: 1, metadataJson: '{"cli":"claude"}' }),
+          event('agent_started', { id: 'a1', sequence: 2, metadataJson: '{"cli":"claude"}' }),
+        ]}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /run.*running/ })).toBeInTheDocument()
+    expect(screen.getByText('Waiting for transcript events...')).toBeInTheDocument()
+    expect(screen.queryByText(/Only lifecycle events captured/)).not.toBeInTheDocument()
   })
 })

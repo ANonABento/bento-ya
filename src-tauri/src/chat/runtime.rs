@@ -852,11 +852,16 @@ pub fn runtime_events_from_chat_event(event: &ChatEvent) -> Vec<AgentRuntimeEven
             }],
             ToolStatus::Complete => {
                 let mut events = Vec::new();
+                let event_name = if name == "tool_result" {
+                    None
+                } else {
+                    Some(name.clone())
+                };
                 if name == "tool_result" {
                     if let Some(output) = input.as_ref().filter(|value| !value.trim().is_empty()) {
                         events.push(AgentRuntimeEvent::ToolOutput {
                             id: id.clone(),
-                            name: Some(name.clone()),
+                            name: event_name.clone(),
                             output: output.clone(),
                             is_error: false,
                         });
@@ -864,7 +869,7 @@ pub fn runtime_events_from_chat_event(event: &ChatEvent) -> Vec<AgentRuntimeEven
                 }
                 events.push(AgentRuntimeEvent::ToolCompleted {
                     id: id.clone(),
-                    name: Some(name.clone()),
+                    name: event_name,
                     is_error: false,
                 });
                 events
@@ -952,7 +957,7 @@ pub enum ProviderRuntimeLine {
 }
 
 #[derive(Debug, Clone)]
-struct ManagedRuntimeStreamParser {
+pub(crate) struct ManagedRuntimeStreamParser {
     adapter: AgentAdapterKind,
     claude_blocks: HashMap<i64, ClaudeContentBlock>,
 }
@@ -968,14 +973,14 @@ enum ClaudeContentBlock {
 }
 
 impl ManagedRuntimeStreamParser {
-    fn new(adapter: AgentAdapterKind) -> Self {
+    pub(crate) fn new(adapter: AgentAdapterKind) -> Self {
         Self {
             adapter,
             claude_blocks: HashMap::new(),
         }
     }
 
-    fn process_line(&mut self, line: &str) -> ProviderRuntimeLine {
+    pub(crate) fn process_line(&mut self, line: &str) -> ProviderRuntimeLine {
         if self.adapter != AgentAdapterKind::ClaudeCli {
             return provider_runtime_line_from_json(self.adapter, line);
         }
@@ -1140,6 +1145,7 @@ pub fn provider_runtime_line_from_json(
                 workdir: None,
             }])
         }
+        Some("assistant") if adapter == AgentAdapterKind::ClaudeCli => ProviderRuntimeLine::Ignored,
         Some("turn.started") => {
             ProviderRuntimeLine::Events(vec![AgentRuntimeEvent::AgentStarted {
                 adapter,
@@ -2103,8 +2109,25 @@ mod tests {
             input: Some("file contents".to_string()),
             status: ToolStatus::Complete,
         });
-        assert!(matches!(events[0], AgentRuntimeEvent::ToolOutput { .. }));
-        assert!(matches!(events[1], AgentRuntimeEvent::ToolCompleted { .. }));
+        assert!(matches!(
+            &events[0],
+            AgentRuntimeEvent::ToolOutput { name, output, .. }
+                if name.is_none() && output == "file contents"
+        ));
+        assert!(matches!(
+            &events[1],
+            AgentRuntimeEvent::ToolCompleted { name, .. } if name.is_none()
+        ));
+    }
+
+    #[test]
+    fn ignores_claude_aggregate_assistant_snapshots() {
+        let events = runtime_events_from_provider_json_line(
+            AgentAdapterKind::ClaudeCli,
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"already streamed"}]}}"#,
+        );
+
+        assert!(events.is_empty());
     }
 
     #[test]

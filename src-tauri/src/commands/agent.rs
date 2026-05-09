@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
@@ -9,9 +9,9 @@ use tauri::{AppHandle, Emitter, State};
 use crate::chat::registry::SharedSessionRegistry;
 use crate::chat::runtime::{
     decide_input_delivery, drain_pending_runtime_inputs_for_turn, run_managed_runtime_turn,
-    runtime_events_from_provider_json_line, AgentAdapterKind, AgentInputSource, AgentRuntimeError,
-    AgentRuntimeEvent, ClaudeCliAdapter, CodexCliAdapter, ManagedRuntimeTurnConfig,
-    ManagedRuntimeTurnResult,
+    AgentAdapterKind, AgentInputSource, AgentRuntimeError, AgentRuntimeEvent, ClaudeCliAdapter,
+    CodexCliAdapter, ManagedRuntimeStreamParser, ManagedRuntimeTurnConfig, ManagedRuntimeTurnResult,
+    ProviderRuntimeLine,
 };
 use crate::chat::session::{SessionConfig, SessionState, TransportType};
 use crate::db::{self, AgentMessage, AppState};
@@ -902,6 +902,9 @@ fn spawn_task_input_completion_watcher(
         let semantic_offset = Arc::new(AtomicUsize::new(0));
         let semantic_output_emitted = Arc::new(AtomicBool::new(false));
         let semantic_stop = Arc::new(AtomicBool::new(false));
+        let semantic_parser = Arc::new(Mutex::new(ManagedRuntimeStreamParser::new(
+            completion.adapter_kind,
+        )));
         let semantic_flusher = semantic_log_path.as_ref().map(|path| {
             let app = app.clone();
             let task_id = task_id.clone();
@@ -910,7 +913,7 @@ fn spawn_task_input_completion_watcher(
             let offset = Arc::clone(&semantic_offset);
             let emitted = Arc::clone(&semantic_output_emitted);
             let stop = Arc::clone(&semantic_stop);
-            let adapter_kind = completion.adapter_kind;
+            let parser = Arc::clone(&semantic_parser);
             tokio::spawn(async move {
                 while !stop.load(Ordering::Relaxed) {
                     tokio::time::sleep(Duration::from_millis(350)).await;
@@ -921,9 +924,9 @@ fn spawn_task_input_completion_watcher(
                         &app,
                         &task_id,
                         &session_id,
-                        adapter_kind,
                         &path,
                         &offset,
+                        &parser,
                     ) {
                         emitted.store(true, Ordering::Relaxed);
                     }
@@ -968,9 +971,9 @@ fn spawn_task_input_completion_watcher(
                     &app,
                     &task_id,
                     &session_id,
-                    completion.adapter_kind,
                     path,
                     &semantic_offset,
+                    &semantic_parser,
                 )
             })
             .unwrap_or(false);
@@ -1063,9 +1066,9 @@ fn emit_terminal_chat_semantic_log_delta(
     app: &AppHandle,
     task_id: &str,
     session_id: &str,
-    adapter_kind: AgentAdapterKind,
     path: &str,
     offset: &AtomicUsize,
+    parser: &Mutex<ManagedRuntimeStreamParser>,
 ) -> bool {
     let Ok(contents) = std::fs::read_to_string(path) else {
         return false;
@@ -1075,7 +1078,7 @@ fn emit_terminal_chat_semantic_log_delta(
         return false;
     };
     offset.store(end, Ordering::Relaxed);
-    emit_terminal_chat_semantic_log(app, task_id, session_id, adapter_kind, delta)
+    emit_terminal_chat_semantic_log(app, task_id, session_id, delta, parser)
 }
 
 fn complete_line_delta(contents: &str, start: usize) -> Option<(&str, usize)> {
@@ -1089,12 +1092,25 @@ fn emit_terminal_chat_semantic_log(
     app: &AppHandle,
     task_id: &str,
     session_id: &str,
-    adapter_kind: AgentAdapterKind,
     contents: &str,
+    parser: &Mutex<ManagedRuntimeStreamParser>,
 ) -> bool {
     let mut emitted = false;
     for line in contents.lines().filter(|line| !line.trim().is_empty()) {
-        for event in runtime_events_from_provider_json_line(adapter_kind, line) {
+        let events = {
+            let mut parser = parser.lock().unwrap();
+            match parser.process_line(line) {
+                ProviderRuntimeLine::Events(events) => events,
+                ProviderRuntimeLine::Completed { exit_code, usage } => {
+                    vec![AgentRuntimeEvent::AgentCompleted { exit_code, usage }]
+                }
+                ProviderRuntimeLine::Failed { exit_code, error } => {
+                    vec![AgentRuntimeEvent::AgentFailed { exit_code, error }]
+                }
+                ProviderRuntimeLine::Ignored => Vec::new(),
+            }
+        };
+        for event in events {
             if let AgentRuntimeEvent::SessionStarted {
                 provider_session_id: Some(provider_session_id),
                 ..

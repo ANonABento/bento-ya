@@ -45,14 +45,14 @@ export function SelectorDropdown({
   return (
     <div
       ref={ref}
-      className={`absolute bottom-full left-0 mb-1 ${width} rounded-lg border border-border-default bg-surface shadow-lg z-50 overflow-hidden`}
+      className={`absolute bottom-full left-0 z-50 mb-1 ${width} overflow-hidden rounded-md border border-border-default bg-surface shadow-lg`}
     >
       {header && (
-        <div className="px-3 py-1.5 border-b border-border-default bg-bg/50 text-[10px] text-text-muted">
+        <div className="border-b border-border-default bg-bg/50 px-3 py-1.5 text-[10px] text-text-muted">
           {header}
         </div>
       )}
-      <div className="py-1">
+      <div className="max-h-72 overflow-y-auto py-1">
         {children}
       </div>
     </div>
@@ -124,7 +124,8 @@ export function SelectorButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-1 rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors ${className}`}
+      className={`flex h-6 items-center gap-1 rounded border border-transparent px-2 text-[11px] text-text-secondary transition-colors hover:border-border-default/70 hover:bg-surface-hover hover:text-text-primary ${className}`}
+      style={{ cursor: 'pointer' }}
     >
       {children}
       <svg

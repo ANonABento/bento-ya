@@ -566,7 +566,14 @@ fn execute_batch_wait(
 }
 
 /// Resolve working directory for a task: worktree_path (if set and exists) > workspace.repo_path.
-fn resolve_working_dir(task: &Task, workspace_repo_path: &str) -> String {
+fn resolve_working_dir(task: &Task, workspace_repo_path: &str, column: &Column) -> String {
+    // Terminal Done columns run notification-only triggers post-merge; the worktree
+    // has typically been cleaned up by `cleanup_task_worktree_if_terminal` during
+    // auto_advance, and any stale tmux pane's cwd may already be invalid. Always
+    // route them to the repo root so the spawned shell starts in a known-good cwd.
+    if column.name.eq_ignore_ascii_case("done") {
+        return workspace_repo_path.to_string();
+    }
     if let Some(ref wt) = task.worktree_path {
         if !wt.is_empty() && std::path::Path::new(wt).exists() {
             return wt.clone();
@@ -1095,14 +1102,19 @@ fn execute_spawn_cli(
         return Ok(task.clone());
     }
 
+    // Terminal Done columns are post-merge notification stages — they don't
+    // need a worktree, and the previous one was cleaned up on auto_advance.
+    let is_terminal_done = column.name.eq_ignore_ascii_case("done");
+
     // Auto-create worktree for trigger-spawned agents to sandbox them.
     // Check both: DB field is unset OR the path no longer exists on disk
     // (can happen after retry cleanup deletes the worktree directory).
-    let needs_worktree = task
-        .worktree_path
-        .as_ref()
-        .map(|p| p.is_empty() || !std::path::Path::new(p).exists())
-        .unwrap_or(true);
+    let needs_worktree = !is_terminal_done
+        && task
+            .worktree_path
+            .as_ref()
+            .map(|p| p.is_empty() || !std::path::Path::new(p).exists())
+            .unwrap_or(true);
 
     let task = if needs_worktree && !workspace.repo_path.is_empty() {
         // Clear stale worktree_path so ensure_task_worktree creates a fresh one
@@ -1126,7 +1138,7 @@ fn execute_spawn_cli(
         task.clone()
     };
 
-    let working_dir = resolve_working_dir(&task, &workspace.repo_path);
+    let working_dir = resolve_working_dir(&task, &workspace.repo_path, column);
 
     if !working_dir.is_empty() && !std::path::Path::new(&working_dir).exists() {
         log::warn!(
@@ -1135,8 +1147,10 @@ fn execute_spawn_cli(
         );
     }
 
-    // Write .task.md to worktree — agent reads this instead of getting full spec in prompt
-    if !working_dir.is_empty() {
+    // Write .task.md to worktree — agent reads this instead of getting full spec in prompt.
+    // Skip for terminal Done columns: working_dir is the repo root there, so writing
+    // .task.md would pollute the main checkout.
+    if !working_dir.is_empty() && !is_terminal_done {
         let task_md_path = std::path::Path::new(&working_dir).join(".task.md");
         let checklist_section = task
             .checklist
@@ -2178,7 +2192,7 @@ fn execute_create_pr(
         .unwrap_or_else(db::generate_batch_id);
     let final_base = base_branch.unwrap_or("main").to_string();
     let staging_branch = staging_branch_for_batch(&batch_id);
-    let repo_path = resolve_working_dir(&task, &workspace.repo_path);
+    let repo_path = resolve_working_dir(&task, &workspace.repo_path, column);
 
     let branch_name = match &task.branch_name {
         Some(b) if !b.is_empty() => b.clone(),
@@ -2397,7 +2411,7 @@ fn execute_run_script(
         .map_err(|_| AppError::NotFound(format!("Script '{}' not found", script_id)))?;
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
     let pipeline_settings = config::effective_pipeline_settings(&workspace.config);
-    let working_dir = resolve_working_dir(task, &workspace.repo_path);
+    let working_dir = resolve_working_dir(task, &workspace.repo_path, column);
 
     // Validate working dir exists
     if !working_dir.is_empty() && !std::path::Path::new(&working_dir).exists() {

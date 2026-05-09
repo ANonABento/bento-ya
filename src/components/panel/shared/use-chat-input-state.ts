@@ -16,7 +16,6 @@ type UseChatInputStateArgs = {
   onInputChange?: () => void
   onAttachmentError?: (error: { file: string; message: string }) => void
   disabled: boolean
-  messageCount: number
 }
 
 export function useChatInputState({
@@ -25,7 +24,6 @@ export function useChatInputState({
   onInputChange,
   onAttachmentError,
   disabled,
-  messageCount,
 }: UseChatInputStateArgs) {
   const [message, setMessage] = useState('')
   const [model, setModel] = useState<ModelId>('sonnet')
@@ -33,12 +31,9 @@ export function useChatInputState({
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('medium')
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('plan')
   const [isDragOver, setIsDragOver] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(true)
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const userToggledRef = useRef(false)
-  const hasAutoCollapsed = useRef(false)
 
   const { models, getCapabilities } = useModelCapabilities()
   const caps = getCapabilities(model)
@@ -82,11 +77,6 @@ export function useChatInputState({
     setExtendedContext((prev) => !prev)
   }, [supportsExtendedContext])
 
-  const handleSettingsToggle = useCallback(() => {
-    userToggledRef.current = true
-    setSettingsOpen((prev) => !prev)
-  }, [])
-
   const handleSubmit = useCallback(() => {
     const trimmed = message.trim()
     const hasAttachments = attachments.attachments.length > 0
@@ -114,10 +104,6 @@ export function useChatInputState({
     if (inputRef.current) {
       inputRef.current.style.height = 'auto'
     }
-
-    if (!userToggledRef.current && settingsOpen) {
-      setSettingsOpen(false)
-    }
   }, [
     attachments,
     config,
@@ -129,7 +115,6 @@ export function useChatInputState({
     model,
     onSend,
     permissionMode,
-    settingsOpen,
     supportsExtendedContext,
     thinkingLevel,
   ])
@@ -195,13 +180,6 @@ export function useChatInputState({
     }
   }, [voice.liveText, voice.state])
 
-  useEffect(() => {
-    if (messageCount > 0 && !userToggledRef.current && !hasAutoCollapsed.current) {
-      hasAutoCollapsed.current = true
-      setSettingsOpen(false)
-    }
-  }, [messageCount])
-
   return {
     message,
     model,
@@ -209,7 +187,6 @@ export function useChatInputState({
     thinkingLevel,
     permissionMode,
     isDragOver,
-    settingsOpen,
     inputRef,
     containerRef,
     models,
@@ -221,11 +198,11 @@ export function useChatInputState({
     hasSelectors: config.showModelSelector || config.showThinkingSelector || config.showPermissionSelector || config.showContextToggle,
     canSend: message.trim().length > 0 || attachments.attachments.length > 0,
     currentModelName: caps.name,
+    currentContextWindow: caps.contextWindow,
     setThinkingLevel,
     setPermissionMode,
     handleModelChange,
     handleContextToggle,
-    handleSettingsToggle,
     handleSubmit,
     handleKeyDown,
     handleChange,

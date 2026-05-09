@@ -1,9 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import ReactMarkdown from 'react-markdown'
-import type { ChatMessage } from '@/lib/ipc'
 import type { AgentTranscriptEvent } from '@/types/events'
-import type { ChatToolCall } from './shared/chat-helpers'
 
 type QueuedMessage = {
   id: string
@@ -12,12 +10,8 @@ type QueuedMessage = {
 
 type AgentTranscriptProps = {
   events?: AgentTranscriptEvent[]
-  messages?: ChatMessage[]
   isLoading?: boolean
-  streamingContent?: string
   processingStartTime?: number | null
-  thinkingContent?: string
-  toolCalls?: ChatToolCall[]
   queuedMessages?: QueuedMessage[]
   onCancel?: () => void
 }
@@ -27,7 +21,7 @@ type RenderItem =
   | { kind: 'user'; id: string; content: string; timestamp: string; detail?: string }
   | { kind: 'assistant'; id: string; content: string; timestamp: string; source?: 'agent_output' }
   | { kind: 'thinking'; id: string; content: string; timestamp: string }
-  | { kind: 'tool'; id: string; status: 'started' | 'completed' | 'output'; name: string; detail?: string; timestamp: string }
+  | { kind: 'tool'; id: string; toolId?: string; status: 'started' | 'completed' | 'output'; name: string; detail?: string; timestamp: string }
   | { kind: 'command'; id: string; status: 'started' | 'output' | 'completed'; name: string; content?: string; detail?: string; timestamp: string }
   | { kind: 'end'; id: string; status: 'completed' | 'failed' | 'cancelled'; detail?: string; timestamp: string }
 
@@ -49,13 +43,24 @@ export function AgentTranscript({
   onCancel,
 }: AgentTranscriptProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const shouldStickToBottomRef = useRef(true)
   const items = useMemo(() => buildRenderItems(events), [events])
   const groups = useMemo(() => groupTranscriptItems(items), [items])
+  const hasRunningRun = useMemo(() => groups.some(isRunningRunGroup), [groups])
+  const shouldShowPendingRun = processingStartTime !== null && !hasRunningRun
 
   useEffect(() => {
     if (!scrollRef.current) return
+    if (!shouldStickToBottomRef.current) return
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [groups, queuedMessages, processingStartTime])
+
+  const handleScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    shouldStickToBottomRef.current = distanceFromBottom < 24
+  }
 
   if (isLoading) {
     return (
@@ -70,6 +75,7 @@ export function AgentTranscript({
   return (
     <div
       ref={scrollRef}
+      onScroll={handleScroll}
       className="flex-1 overflow-y-auto bg-bg px-4 py-3 font-mono"
       data-testid="agent-transcript"
     >
@@ -85,13 +91,13 @@ export function AgentTranscript({
           </div>
         </div>
       ) : (
-        <div className="mx-auto max-w-4xl space-y-4">
+        <div className="w-full max-w-none space-y-4">
           {groups.map((group, index) => (
             <TranscriptGroupView key={group.kind === 'run' ? group.id : group.item.id} group={group} isLatest={index === groups.length - 1} />
           ))}
 
-          {processingStartTime !== null && (
-            <RunningEntry startTime={processingStartTime} queueCount={queuedMessages.length} onCancel={onCancel} />
+          {shouldShowPendingRun && (
+            <PendingSemanticRunEntry startTime={processingStartTime} queueCount={queuedMessages.length} onCancel={onCancel} />
           )}
 
           {queuedMessages.map((message) => (
@@ -101,6 +107,10 @@ export function AgentTranscript({
       )}
     </div>
   )
+}
+
+function isRunningRunGroup(group: TranscriptGroup): boolean {
+  return group.kind === 'run' && runStatus(group.items) === 'running'
 }
 
 function groupTranscriptItems(items: RenderItem[]): TranscriptGroup[] {
@@ -224,8 +234,9 @@ function buildRenderItems(events: AgentTranscriptEvent[]): RenderItem[] {
         items.push({
           kind: 'tool',
           id: event.id,
+          toolId: stringMeta(metadata, 'toolId') ?? undefined,
           status: event.eventType === 'tool_started' ? 'started' : event.eventType === 'tool_completed' ? 'completed' : 'output',
-          name: stringMeta(metadata, 'toolName') ?? stringMeta(metadata, 'name') ?? 'tool',
+          name: stringMeta(metadata, 'toolName') ?? stringMeta(metadata, 'name') ?? 'tool result',
           detail: event.content ?? stringMeta(metadata, 'toolInput') ?? undefined,
           timestamp: event.createdAt,
         })
@@ -307,7 +318,10 @@ function buildRenderItems(events: AgentTranscriptEvent[]): RenderItem[] {
 }
 
 function appendAgentOutput(items: RenderItem[], event: AgentTranscriptEvent) {
-  const content = event.content ?? ''
+  const metadata = parseMetadata(event.metadataJson)
+  const content = isTmuxTranscriptSource(metadata)
+    ? cleanTmuxTailForTranscript(event.content ?? '')
+    : (event.content ?? '')
   if (!content.trim()) return
   const previous = items.at(-1)
   if (previous?.kind === 'assistant' && previous.source === 'agent_output') {
@@ -379,7 +393,9 @@ function RunGroup({ group, isLatest }: { group: Extract<TranscriptGroup, { kind:
                 ))
               ) : (
                 <div className="text-sm text-text-secondary">
-                  Only lifecycle events captured. Open Terminal for the raw session.
+                  {status === 'running'
+                    ? 'Waiting for transcript events...'
+                    : 'Only lifecycle events captured. Open Terminal for the raw session.'}
                 </div>
               )}
             </div>
@@ -405,9 +421,12 @@ function coalesceRunItems(items: RenderItem[]): RenderItem[] {
       previous.timestamp = item.timestamp
       continue
     }
-    if (item.kind === 'tool' && previous?.kind === 'tool' && previous.name === item.name) {
+    if (item.kind === 'tool' && previous?.kind === 'tool' && sameToolIdentity(previous, item)) {
       previous.status = item.status === 'completed' ? 'completed' : previous.status
       previous.detail = joinDetails(previous.detail, item.detail)
+      if (isGenericToolName(previous.name) && !isGenericToolName(item.name)) {
+        previous.name = item.name
+      }
       previous.timestamp = item.timestamp
       continue
     }
@@ -428,6 +447,19 @@ function joinDetails(existing?: string, next?: string): string | undefined {
   if (!existing) return next
   if (!next || existing.includes(next)) return existing
   return `${existing}\n\n${next}`
+}
+
+function sameToolIdentity(
+  previous: Extract<RenderItem, { kind: 'tool' }>,
+  item: Extract<RenderItem, { kind: 'tool' }>,
+): boolean {
+  if (previous.toolId && item.toolId) return previous.toolId === item.toolId
+  if (previous.toolId || item.toolId) return false
+  return previous.name === item.name
+}
+
+function isGenericToolName(name: string): boolean {
+  return name === 'tool' || name === 'tool result' || name === 'tool_result'
 }
 
 function RunStatusBadge({ status, detail }: { status: RunStatus; detail?: string }) {
@@ -711,7 +743,7 @@ function ActionDisclosure({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden break-words border-t border-border-default/70 px-3 py-2"
+            className="max-h-[40vh] overflow-auto break-words border-t border-border-default/70 px-3 py-2"
           >
             <MarkdownBlock content={detail ?? ''} muted />
           </motion.div>
@@ -775,7 +807,7 @@ function parseAgentOutputSections(content: string): AgentOutputSection[] {
   return sections
 }
 
-function RunningEntry({
+function PendingSemanticRunEntry({
   startTime,
   queueCount,
   onCancel,
@@ -797,7 +829,7 @@ function RunningEntry({
   return (
     <EntryShell isLatest border="border-running/50">
       <div className="flex items-center justify-between gap-3">
-        <EntryMeta label="agent" tone="running" detail={`running${elapsed > 0 ? ` · ${String(elapsed)}s` : ''}${queueCount > 0 ? ` · ${String(queueCount)} queued` : ''}`} />
+        <EntryMeta label="agent" tone="running" detail={`starting${elapsed > 0 ? ` · ${String(elapsed)}s` : ''}${queueCount > 0 ? ` · ${String(queueCount)} queued` : ''}`} />
         {onCancel && (
           <button
             type="button"
@@ -809,7 +841,7 @@ function RunningEntry({
           </button>
         )}
       </div>
-      <div className="text-sm text-text-secondary">waiting for semantic events...</div>
+      <div className="text-sm text-text-secondary">waiting for transcript events...</div>
     </EntryShell>
   )
 }
@@ -1056,6 +1088,7 @@ function readableToolResultLine(line: string): string {
 function isLikelyTruncatedTailFragment(line: string): boolean {
   const trimmed = line.trim()
   if (!trimmed) return true
+  if (/^\d{1,2}$/.test(trimmed)) return true
   if (/^-\s+Wo$/.test(trimmed)) return true
   if (/^(cont|conte|contex|context)$/i.test(trimmed)) return true
   if (/^[a-z]$/i.test(trimmed)) return true
@@ -1069,10 +1102,11 @@ function isTerminalScaffoldLine(line: string): boolean {
   if (trimmed === '%' || trimmed === 'm') return true
   if (trimmed.includes('BENTOYA_CLAUDE_SESSION_ID:')) return true
   if (trimmed.includes('/.bentoya/trigger_logs/run_')) return true
-  if (/^[a-f0-9]{6,}\.sh'?$/i.test(trimmed)) return true
+  if (/^[a-f0-9]{4,}\.sh'?$/i.test(trimmed)) return true
   if (/^b?bash\s+'?\/Users\/bento/i.test(trimmed)) return true
   if (/\bbash ['"].*run_[a-z0-9]+\.sh['"]?/i.test(trimmed)) return true
   if (/\w+@[\w.-]+\s+\S+\s+%/.test(trimmed)) return true
+  if (/^[\w.-]+\s+%$/.test(trimmed)) return true
   if (/^\[[^\]]+:zsh\*?\]/.test(trimmed)) return true
   if (/^\[[0-9]+,[0-9]+\]/.test(trimmed)) return true
   if (/^\[claude\b.*\]$/i.test(trimmed)) return true

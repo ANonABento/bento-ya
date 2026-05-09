@@ -38,7 +38,6 @@ export type ChatInputProps = {
   isProcessing?: boolean
   disabled?: boolean
   queueCount?: number
-  messageCount?: number
 }
 
 export const DEFAULT_CHAT_INPUT_CONFIG: ChatInputConfig = {

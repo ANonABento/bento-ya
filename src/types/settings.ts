@@ -99,6 +99,7 @@ export type CardDisplayConfig = {
 
 export type TerminalConfig = {
   maxInputRows: number
+  fontSize: number
   lineHeight: number
   scrollbackLines: number
 }
@@ -241,7 +242,8 @@ export const DEFAULT_SETTINGS: Settings = {
   ],
   terminal: {
     maxInputRows: 4,
-    lineHeight: 20,
+    fontSize: 12,
+    lineHeight: 15,
     scrollbackLines: 5000,
   },
   panel: {

@@ -33,13 +33,27 @@ export function AdvancedTab() {
           </div>
           <div className="flex items-center justify-between">
             <div>
+              <p className="text-sm text-text-primary">Font size</p>
+              <p className="text-xs text-text-secondary">Terminal text size in pixels</p>
+            </div>
+            <input
+              type="number"
+              min={10}
+              max={24}
+              value={terminal.fontSize}
+              onChange={(e) => { updateSettings('terminal', { ...terminal, fontSize: Number(e.target.value) }); }}
+              className="w-20 rounded border border-border-default bg-surface px-2 py-1 text-sm text-text-primary"
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
               <p className="text-sm text-text-primary">Line height</p>
-              <p className="text-xs text-text-secondary">Pixels per line</p>
+              <p className="text-xs text-text-secondary">Terminal line height in pixels</p>
             </div>
             <input
               type="number"
               min={12}
-              max={40}
+              max={32}
               value={terminal.lineHeight}
               onChange={(e) => { updateSettings('terminal', { ...terminal, lineHeight: Number(e.target.value) }); }}
               className="w-20 rounded border border-border-default bg-surface px-2 py-1 text-sm text-text-primary"

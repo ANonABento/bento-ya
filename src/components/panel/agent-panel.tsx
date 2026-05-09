@@ -222,12 +222,8 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
           <div className="flex h-full flex-col">
             <AgentTranscript
               events={transcriptState.events}
-              messages={session.chatMessages}
               isLoading={session.chat.isLoading || transcriptState.isLoading}
-              streamingContent={session.chat.streaming.content}
               processingStartTime={session.chat.streaming.startTime}
-              thinkingContent={session.chat.streaming.thinkingContent}
-              toolCalls={session.toolCalls}
               queuedMessages={session.chat.queue}
               onCancel={() => { void session.chat.cancel() }}
             />
@@ -238,7 +234,7 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
                 showThinkingSelector: true,
                 showVoiceInput: true,
                 showAttachments: true,
-                rows: 2,
+                rows: 1,
               }}
               onSend={(message) => { void session.handleSendMessage(message) }}
               onCancel={() => { void session.chat.cancel() }}
@@ -249,7 +245,6 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
               isProcessing={session.chat.streaming.isStreaming || isAgentRunning}
               disabled={!session.chat.canSend || session.cliDetecting}
               queueCount={session.chat.queue.length}
-              messageCount={session.chat.messages.length}
             />
           </div>
         ) : (

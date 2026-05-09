@@ -514,7 +514,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   isProcessing={isProcessing}
                   disabled={!chat.canSend || cliDetecting}
                   queueCount={chat.queue.length}
-                  messageCount={chat.messages.length}
                 />
               </div>
             </ChatErrorBoundary>

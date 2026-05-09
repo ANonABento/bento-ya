@@ -311,7 +311,7 @@ fn persist_runtime_events_from_chat(app: &AppHandle, task_id: &str, event: &Tran
 
 /// jq filter that turns a claude `--output-format stream-json` event stream
 /// into a human-readable progress log for the tmux pane. Designed to be
-/// dropped into a `jq -r --unbuffered` invocation.
+/// dropped into a `jq -rj --unbuffered` invocation.
 ///
 /// Surfaces:
 ///   - A header line on `system/init` with version + model
@@ -340,7 +340,7 @@ const CLAUDE_STREAM_PRETTY_JQ: &str = r#"
       if .event.delta.type == "text_delta" then
         (.event.delta.text // "")
       elif .event.delta.type == "thinking_delta" then
-        "[90m" + (.event.delta.thinking // "") + "[0m"
+        empty
       else empty end
     elif .event.type == "message_stop" then
       "\n"
@@ -456,7 +456,7 @@ pub(crate) fn materialize_shell_launcher(
 ///     if command -v jq >/dev/null 2>&1; then
 ///       claude --dangerously-skip-permissions --output-format stream-json \
 ///              --verbose --include-partial-messages [user-args] -p '<prompt>' \
-///         | jq -r --unbuffered '<filter>'
+///         | jq -rj --unbuffered '<filter>'
 ///     else
 ///       claude --dangerously-skip-permissions [user-args] -p '<prompt>'
 ///     fi
@@ -501,7 +501,7 @@ fn build_claude_streaming_command(
     // the helper `bash_double_quote_for_outer_squote` escapes single quotes
     // for that outer layer.
     let stream_cmd = format!(
-        "{cli} --dangerously-skip-permissions --output-format stream-json --verbose --include-partial-messages{resume}{args}{prompt} | tee -a \"${{BENTOYA_CLAUDE_JSON_LOG:-/dev/null}}\" | jq -r --unbuffered \"$BENTOYA_CLAUDE_FILTER\"",
+        "{cli} --dangerously-skip-permissions --output-format stream-json --verbose --include-partial-messages{resume}{args}{prompt} | tee -a \"${{BENTOYA_CLAUDE_JSON_LOG:-/dev/null}}\" | jq -rj --unbuffered \"$BENTOYA_CLAUDE_FILTER\"",
         cli = cli_quoted,
         resume = resume_segment,
         args = user_args_segment,
@@ -1275,7 +1275,7 @@ async fn run_trigger_in_tmux(
 
     let wrapped = format!(
         "{}{}; rc=$?; printf '%s' \"$rc\" > {}; tmux wait-for -S {}",
-        if persistent_lifecycle { "" } else { "clear; " },
+        "tmux clear-history -t \"$TMUX_PANE\" 2>/dev/null; clear; ",
         command_with_semantic_log,
         shell_quote_arg(&exit_path),
         wait_channel
@@ -1874,6 +1874,16 @@ mod tests {
             cmd
         );
         assert!(
+            cmd.contains("jq -rj --unbuffered"),
+            "jq must join raw text deltas instead of adding a newline after every event: {}",
+            cmd
+        );
+        assert!(
+            !cmd.contains("jq -r --unbuffered"),
+            "jq -r inserts event newlines and breaks terminal formatting: {}",
+            cmd
+        );
+        assert!(
             cmd.contains("BENTOYA_CLAUDE_JSON_LOG"),
             "semantic JSON log env var should be supported: {}",
             cmd
@@ -1891,6 +1901,22 @@ mod tests {
         assert!(cmd.contains("-p"));
         assert!(cmd.contains("do the thing"));
         assert!(cmd.contains("--dangerously-skip-permissions"));
+    }
+
+    #[test]
+    fn test_claude_pretty_filter_keeps_terminal_output_compact() {
+        assert!(
+            CLAUDE_STREAM_PRETTY_JQ.contains(r#""\n[36m▶ "#),
+            "tool rows need an explicit separator when jq runs in joined mode"
+        );
+        assert!(
+            CLAUDE_STREAM_PRETTY_JQ.contains(r#""\n[33m── done"#),
+            "done rows need an explicit separator when jq runs in joined mode"
+        );
+        assert!(
+            !CLAUDE_STREAM_PRETTY_JQ.contains(".event.delta.thinking"),
+            "raw terminal should not stream thinking text/newlines; transcript owns semantic thinking"
+        );
     }
 
     #[test]

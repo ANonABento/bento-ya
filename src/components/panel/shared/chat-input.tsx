@@ -1,8 +1,10 @@
 import { useMemo } from 'react'
 import { Tooltip } from '@/components/shared/tooltip'
+import { ModelSelector } from '@/components/shared/model-selector'
+import { ThinkingSelector } from '@/components/shared/thinking-selector'
+import { PermissionSelector } from '@/components/shared/permission-selector'
 import { AttachmentButton } from './attachment-button'
 import { AttachmentPreview } from './attachment-preview'
-import { ChatInputSettingsRow } from './chat-input-settings-row'
 import {
   DEFAULT_CHAT_INPUT_CONFIG,
   type ChatInputConfig,
@@ -26,7 +28,6 @@ export function ChatInput({
   isProcessing = false,
   disabled = false,
   queueCount = 0,
-  messageCount = 0,
 }: ChatInputProps) {
   const config = useMemo(() => ({ ...DEFAULT_CHAT_INPUT_CONFIG, ...userConfig }), [userConfig])
   const state = useChatInputState({
@@ -35,7 +36,6 @@ export function ChatInput({
     onInputChange,
     onAttachmentError,
     disabled,
-    messageCount,
   })
   const hasSubmitContent = state.canSend
   const showInlineStop = Boolean(isProcessing && onCancel && !hasSubmitContent)
@@ -58,68 +58,70 @@ export function ChatInput({
         />
       )}
 
-      <div className="px-3 py-1.5">
-        {deliveryHint && (
-          <div className="mb-1 flex items-center justify-between gap-2 text-[10px] text-text-secondary">
-            <span className="min-w-0 truncate">{deliveryHint}</span>
+      <div className="px-3 py-2">
+        {(deliveryHint || state.hasSelectors) && (
+          <div className="mb-1.5 flex min-h-6 items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              {config.showModelSelector && (
+                <ModelSelector
+                  value={state.model}
+                  models={state.models}
+                  onChange={state.handleModelChange}
+                />
+              )}
+              {config.showModelSelector && (
+                <span className="h-6 rounded border border-border-default/70 px-1.5 py-1 text-[10px] leading-none text-text-secondary/70">
+                  {state.currentContextWindow}
+                </span>
+              )}
+              {config.showThinkingSelector && (
+                <ThinkingSelector
+                  value={state.thinkingLevel}
+                  maxLevel={state.maxEffort}
+                  onChange={state.setThinkingLevel}
+                />
+              )}
+              {config.showContextToggle && state.supportsExtendedContext && (
+                <Tooltip
+                  content={state.extendedContext ? 'Extended context enabled' : 'Use extended context for this message'}
+                  side="top"
+                  delay={300}
+                >
+                  <button
+                    type="button"
+                    onClick={state.handleContextToggle}
+                    className={`h-6 rounded border px-2 text-[11px] transition-colors ${
+                      state.extendedContext
+                        ? 'border-accent/30 bg-accent/10 text-accent'
+                        : 'border-border-default/70 text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                    }`}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    1M
+                  </button>
+                </Tooltip>
+              )}
+              {config.showPermissionSelector && (
+                <PermissionSelector
+                  value={state.permissionMode}
+                  onChange={state.setPermissionMode}
+                />
+              )}
+              {deliveryHint && (
+                <span className="min-w-0 truncate text-[11px] text-text-secondary">
+                  {deliveryHint}
+                </span>
+              )}
+            </div>
             {queueCount > 0 && (
-              <span className="shrink-0 rounded border border-accent/20 px-1.5 py-0.5 text-accent/75">
+              <span className="shrink-0 rounded border border-accent/20 px-1.5 py-0.5 text-[10px] text-accent/75">
                 {queueCount} queued
               </span>
             )}
           </div>
         )}
 
-        {state.hasSelectors && state.settingsOpen && (
-          <ChatInputSettingsRow
-            config={config}
-            model={state.model}
-            models={state.models}
-            extendedContext={state.extendedContext}
-            supportsExtendedContext={state.supportsExtendedContext}
-            thinkingLevel={state.thinkingLevel}
-            maxEffort={state.maxEffort}
-            permissionMode={state.permissionMode}
-            onModelChange={state.handleModelChange}
-            onContextToggle={state.handleContextToggle}
-            onThinkingChange={state.setThinkingLevel}
-            onPermissionChange={state.setPermissionMode}
-          />
-        )}
-
-        <div className="flex items-end gap-1.5">
-          {state.hasSelectors && (
-            <Tooltip
-              content={state.settingsOpen ? 'Hide settings' : 'Show settings'}
-              side="top"
-              delay={300}
-            >
-              <button
-                type="button"
-                onClick={state.handleSettingsToggle}
-                className={`flex h-8 shrink-0 items-center gap-1 rounded border px-1.5 text-xs transition-colors ${
-                  state.settingsOpen
-                    ? 'border-accent/30 bg-accent/5 text-accent'
-                    : 'border-border-default bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-                }`}
-                style={{ cursor: 'pointer' }}
-              >
-                <svg
-                  width="10"
-                  height="10"
-                  viewBox="0 0 10 10"
-                  fill="none"
-                  className={`transition-transform ${state.settingsOpen ? 'rotate-180' : ''}`}
-                >
-                  <path d="M2.5 6L5 3.5L7.5 6" stroke="currentColor" strokeWidth="1.2" />
-                </svg>
-                {!state.settingsOpen && (
-                  <span className="max-w-24 truncate text-[10px] font-medium">{state.currentModelName}</span>
-                )}
-              </button>
-            </Tooltip>
-          )}
-
+        <div className="flex items-end gap-1.5 rounded border border-border-default bg-surface p-1.5 transition-colors focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/20">
           {config.showAttachments && (
             <AttachmentButton
               onClick={() => { void state.attachments.addFromDialog() }}
@@ -147,10 +149,10 @@ export function ChatInput({
             rows={config.rows}
             readOnly={state.voice.state === 'recording'}
             disabled={disabled || state.voice.state === 'processing'}
-            className={`flex-1 resize-none rounded border border-border-default bg-surface px-2.5 py-1.5 font-mono text-sm leading-relaxed text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20 disabled:opacity-50 ${
+            className={`min-h-8 flex-1 resize-none border-0 bg-transparent px-1.5 py-1 font-mono text-sm leading-relaxed text-text-primary placeholder:text-text-secondary/45 focus:outline-none disabled:opacity-50 ${
               state.voice.state === 'recording' ? 'italic text-text-secondary' : ''
-            } ${state.isDragOver ? 'border-accent' : ''}`}
-            style={{ minHeight: '36px', maxHeight: '120px' }}
+            }`}
+            style={{ maxHeight: '120px' }}
           />
 
           {state.showVoice && (
@@ -181,7 +183,7 @@ export function ChatInput({
                   }
                 }}
                 disabled={disabled || isProcessing || state.voice.state === 'processing'}
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded border transition-colors ${
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded border transition-colors ${
                   state.voice.state === 'recording'
                     ? 'border-accent bg-accent/10 text-accent animate-pulse'
                     : state.voice.state === 'processing'
@@ -235,7 +237,7 @@ export function ChatInput({
               type="button"
               onClick={showInlineStop ? onCancel : state.handleSubmit}
               disabled={showInlineStop ? disabled : !hasSubmitContent || disabled}
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded transition-colors disabled:opacity-50 ${
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded transition-colors disabled:opacity-50 ${
                 showInlineStop
                   ? 'border border-red-500/40 bg-red-500/12 text-red-400 hover:bg-red-500/20'
                   : 'bg-accent text-bg hover:bg-accent/90'

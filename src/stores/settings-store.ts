@@ -137,6 +137,11 @@ export const useSettingsStore = create<SettingsState>()(
             git: { ...global.git, ...overrides.git },
             appearance: { ...global.appearance, ...overrides.appearance },
             cards: { ...global.cards, ...overrides.cards },
+            terminal: { ...global.terminal, ...overrides.terminal },
+            panel: { ...global.panel, ...overrides.panel },
+            gestures: { ...global.gestures, ...overrides.gestures },
+            advanced: { ...global.advanced, ...overrides.advanced },
+            workspaceDefaults: { ...global.workspaceDefaults, ...overrides.workspaceDefaults },
           } as Settings
         },
 

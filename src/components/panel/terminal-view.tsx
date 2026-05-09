@@ -19,6 +19,7 @@ import { EventChannels, type PtyExitPayload } from '@/types/events'
 import { getXtermTheme } from '@/lib/xterm-theme'
 import { getTheme } from '@/lib/theme'
 import { EmptyState } from '@/components/shared/empty-state'
+import { useSettingsStore } from '@/stores/settings-store'
 
 type TerminalViewProps = {
   taskId: string
@@ -26,9 +27,15 @@ type TerminalViewProps = {
 }
 
 export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
   const terminalHostRef = useRef<HTMLDivElement>(null)
+  const termRef = useRef<Terminal | null>(null)
+  const fitAddonRef = useRef<FitAddon | null>(null)
+  const shouldStickToBottomRef = useRef(true)
   const [hasOutput, setHasOutput] = useState(false)
+  const terminalSettings = useSettingsStore((s) => s.global.terminal)
+  const fontSize = sanitizeNumber(terminalSettings.fontSize, 12, 10, 24)
+  const lineHeight = lineHeightRatio(terminalSettings.lineHeight, fontSize)
+  const scrollback = sanitizeNumber(terminalSettings.scrollbackLines, 5000, 1000, 50000)
 
   useEffect(() => {
     const container = terminalHostRef.current
@@ -43,11 +50,11 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
     const term = new Terminal({
       theme: getXtermTheme(getTheme()),
       fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", Menlo, monospace',
-      fontSize: 12,
-      lineHeight: 1.25,
+      fontSize,
+      lineHeight,
       cursorBlink: true,
       cursorStyle: 'bar',
-      scrollback: 10000,
+      scrollback,
       convertEol: false,
       allowProposedApi: true,
       macOptionIsMeta: true,
@@ -64,9 +71,30 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
     term.loadAddon(searchAddon)
     term.loadAddon(unicode11)
     term.unicode.activeVersion = '11'
+    termRef.current = term
+    fitAddonRef.current = fitAddon
 
     // Open terminal into DOM
     term.open(container)
+    shouldStickToBottomRef.current = true
+    const viewport = container.querySelector<HTMLElement>('.xterm-viewport')
+    const syncStickToBottom = () => {
+      if (!viewport) {
+        shouldStickToBottomRef.current = isAtTerminalBottom(term)
+        return
+      }
+      const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+      shouldStickToBottomRef.current = distanceFromBottom < 4
+    }
+    const handleViewportWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) {
+        shouldStickToBottomRef.current = false
+        return
+      }
+      requestAnimationFrame(syncStickToBottom)
+    }
+    viewport?.addEventListener('scroll', syncStickToBottom, { passive: true })
+    viewport?.addEventListener('wheel', handleViewportWheel, { passive: true })
 
     const fitAndResize = () => {
       if (disposed) return
@@ -109,6 +137,10 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
       scheduleFit(750),
       scheduleFit(1500),
     ].filter((timer): timer is number => typeof timer === 'number')
+    const fonts = Reflect.get(document, 'fonts') as { ready?: Promise<unknown> } | undefined
+    if (fonts?.ready) {
+      void fonts.ready.then(() => { scheduleFit() })
+    }
 
     // User input → PTY
     const dataDisposable = term.onData((data) => {
@@ -134,10 +166,10 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
           for (let i = 0; i < binary.length; i++) {
             bytes[i] = binary.charCodeAt(i)
           }
-          term.write(bytes)
+          writePreservingScroll(term, bytes, shouldStickToBottomRef.current)
         } catch {
           // Fallback: write as plain text if not valid base64
-          term.write(data)
+          writePreservingScroll(term, data, shouldStickToBottomRef.current)
         }
       }),
     )
@@ -187,7 +219,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
                   for (let i = 0; i < binary.length; i++) {
                     bytes[i] = binary.charCodeAt(i)
                   }
-                  term.write(bytes)
+                  writePreservingScroll(term, bytes, shouldStickToBottomRef.current)
                   if (bytes.length > 0) setHasOutput(true)
                   scheduleFit()
                   scheduleFit(150)
@@ -228,18 +260,22 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
       fitTimers.forEach((timer) => { window.clearTimeout(timer) })
       dataDisposable.dispose()
       binaryDisposable.dispose()
+      viewport?.removeEventListener('scroll', syncStickToBottom)
+      viewport?.removeEventListener('wheel', handleViewportWheel)
       resizeObserver.disconnect()
       themeObserver.disconnect()
       void Promise.all(listenerPromises).then((unlisteners) => {
         for (const unlisten of unlisteners) unlisten()
       })
       term.dispose()
+      if (termRef.current === term) termRef.current = null
+      if (fitAddonRef.current === fitAddon) fitAddonRef.current = null
     }
-  }, [taskId, workingDir])
+  }, [fontSize, lineHeight, scrollback, taskId, workingDir])
 
   return (
     <div data-testid="agent-terminal-view" className="relative flex h-full min-h-0 flex-col overflow-hidden bg-bg">
-      <div ref={containerRef} className="min-h-0 flex-1 overflow-hidden" style={{ padding: '4px 8px' }}>
+      <div className="min-h-0 flex-1 overflow-hidden" style={{ padding: '4px 8px' }}>
         <div ref={terminalHostRef} data-testid="agent-terminal-host" className="agent-terminal-host h-full min-h-0 w-full overflow-hidden" />
       </div>
       {!hasOutput && (
@@ -260,4 +296,30 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
       )}
     </div>
   )
+}
+
+function sanitizeNumber(value: number | undefined, fallback: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return fallback
+  return Math.min(max, Math.max(min, value ?? fallback))
+}
+
+function lineHeightRatio(lineHeightPx: number | undefined, fontSize: number): number {
+  const fallback = Math.round(fontSize * 1.25)
+  const maxComfortableLineHeight = Math.round(fontSize * 1.35)
+  const lineHeight = sanitizeNumber(lineHeightPx, fallback, fontSize, maxComfortableLineHeight)
+  return Math.max(1, Math.min(1.35, lineHeight / fontSize))
+}
+
+function isAtTerminalBottom(term: Terminal): boolean {
+  const buffer = term.buffer.active
+  return buffer.viewportY >= buffer.baseY
+}
+
+function writePreservingScroll(term: Terminal, data: string | Uint8Array, shouldStickToBottom: boolean) {
+  const shouldScroll = shouldStickToBottom && isAtTerminalBottom(term)
+  term.write(data, () => {
+    if (shouldScroll) {
+      term.scrollToBottom()
+    }
+  })
 }

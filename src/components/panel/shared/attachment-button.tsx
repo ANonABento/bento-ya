@@ -27,11 +27,12 @@ export function AttachmentButton({
         type="button"
         onClick={onClick}
         disabled={disabled || isLoading}
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md border transition-colors ${
+        className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded border transition-colors ${
           count > 0
             ? 'border-accent bg-accent/10 text-accent'
             : 'border-border-default bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-        } disabled:opacity-50 disabled:cursor-not-allowed`}
+        } disabled:opacity-50`}
+        style={{ cursor: disabled || isLoading ? 'not-allowed' : 'pointer' }}
       >
         {isLoading ? (
           <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -42,6 +43,11 @@ export function AttachmentButton({
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M8 3v10M3 8h10" strokeLinecap="round" />
           </svg>
+        )}
+        {count > 0 && (
+          <span className="absolute -right-1 -top-1 min-w-3 rounded-full bg-accent px-0.5 text-[8px] leading-3 text-bg">
+            {count}
+          </span>
         )}
       </button>
     </Tooltip>
