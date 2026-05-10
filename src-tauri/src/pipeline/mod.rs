@@ -668,6 +668,53 @@ pub fn try_auto_advance(
         return Ok(None);
     }
 
+    // Post-merge verification gate: when leaving a "Merge main" / "Merge"
+    // column the agent claims success by exiting 0, but the actual git merge
+    // can silently fail (race against another in-flight merge, dirty working
+    // tree, agent declined to act on a foreign mid-merge state). Without this
+    // check, the task advances to Done even though main never received the
+    // branch's commits — a "ghost merge". Verify the branch is reachable from
+    // main before advancing.
+    let is_merge_column = current_column.name.eq_ignore_ascii_case("Merge main")
+        || current_column.name.eq_ignore_ascii_case("Merge");
+    if is_merge_column {
+        if let Some(branch) = task.branch_name.as_deref() {
+            if !branch.is_empty() {
+                if let Ok(workspace) = db::get_workspace(conn, &task.workspace_id) {
+                    match crate::git::branch_manager::branch_feature_commit_count(
+                        &workspace.repo_path,
+                        "main",
+                        branch,
+                    ) {
+                        Ok(0) => { /* fully merged — proceed */ }
+                        Ok(n) => {
+                            let msg = format!(
+                                "Post-merge verification failed: branch '{}' still has {} \
+                                 commit(s) not on 'main'. The merge step claimed success but \
+                                 main did not advance. Requeued to first column for human review.",
+                                branch, n
+                            );
+                            log::warn!(
+                                "[post-merge-verify] task={} branch={} ahead-of-main={} — refusing to advance",
+                                task.id, branch, n
+                            );
+                            return Ok(Some(requeue_to_first_column(
+                                conn, app, task, current_column, &msg,
+                            )?));
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "[post-merge-verify] task={} branch={}: count failed: {} — \
+                                 proceeding with advance (cannot verify)",
+                                task.id, branch, e
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Find next column
     let next_column = db::get_next_column(conn, &task.workspace_id, current_column.position)?;
 
@@ -1489,8 +1536,7 @@ mod tests {
         let conn = db::init_test().expect("init test db");
         let workspace = db::insert_workspace(&conn, "ws", "/tmp/repo").expect("ws");
         let _first = db::insert_column(&conn, &workspace.id, "Backlog", 0).expect("first");
-        let last =
-            db::insert_column(&conn, &workspace.id, "Shipped", 1).expect("last col");
+        let last = db::insert_column(&conn, &workspace.id, "Shipped", 1).expect("last col");
 
         assert!(column_is_terminal(&conn, &last).expect("terminal check"));
     }
@@ -1499,8 +1545,7 @@ mod tests {
     fn test_column_is_terminal_false_for_non_last_named_column() {
         let conn = db::init_test().expect("init test db");
         let workspace = db::insert_workspace(&conn, "ws", "/tmp/repo").expect("ws");
-        let middle =
-            db::insert_column(&conn, &workspace.id, "Working", 1).expect("middle col");
+        let middle = db::insert_column(&conn, &workspace.id, "Working", 1).expect("middle col");
         let _later = db::insert_column(&conn, &workspace.id, "Review", 2).expect("later col");
 
         assert!(!column_is_terminal(&conn, &middle).expect("terminal check"));
