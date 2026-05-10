@@ -289,6 +289,10 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
             "042_pipeline_templates",
             include_str!("migrations/042_pipeline_templates.sql"),
         ),
+        (
+            "043_agent_session_per_cli",
+            include_str!("migrations/043_agent_session_per_cli.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {
@@ -357,7 +361,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
         // Includes split 019 and 030 migration files.
-        assert_eq!(count, 44);
+        assert_eq!(count, 45);
     }
 
     #[test]
@@ -561,6 +565,145 @@ mod tests {
         delete_agent_session(&conn, &session.id).unwrap();
         let sessions = list_agent_sessions(&conn, &task.id).unwrap();
         assert_eq!(sessions.len(), 0);
+    }
+
+    #[test]
+    fn test_per_cli_session_isolated_buckets() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Working", 0).unwrap();
+        let task = insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+        let session = insert_agent_session(&conn, &task.id, "claude", Some("/tmp")).unwrap();
+
+        // Stage 1 — claude captures id A.
+        update_agent_session_cli_for_adapter(
+            &conn,
+            &session.id,
+            "claude_cli",
+            Some("claude-id-A"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Stage 2 — codex captures id C; must NOT clobber claude's slot.
+        update_agent_session_cli_for_adapter(
+            &conn,
+            &session.id,
+            "codex_cli",
+            Some("codex-id-C"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let session = get_agent_session(&conn, &session.id).unwrap();
+        assert_eq!(
+            resolve_cli_session_id(&session, "claude_cli").as_deref(),
+            Some("claude-id-A"),
+            "claude bucket survives codex write"
+        );
+        assert_eq!(
+            resolve_cli_session_id(&session, "codex_cli").as_deref(),
+            Some("codex-id-C"),
+            "codex bucket reads its own id"
+        );
+        assert_eq!(
+            resolve_cli_session_id(&session, "api"),
+            None,
+            "unmapped adapter returns None"
+        );
+        // Legacy column reflects the most recent capture (codex's).
+        assert_eq!(session.cli_session_id.as_deref(), Some("codex-id-C"));
+    }
+
+    #[test]
+    fn test_per_cli_session_clear_one_slot() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Working", 0).unwrap();
+        let task = insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+        let session = insert_agent_session(&conn, &task.id, "claude", None).unwrap();
+
+        update_agent_session_cli_for_adapter(
+            &conn,
+            &session.id,
+            "claude_cli",
+            Some("stale"),
+            None,
+            None,
+        )
+        .unwrap();
+        update_agent_session_cli_for_adapter(&conn, &session.id, "claude_cli", None, None, None)
+            .unwrap();
+
+        let session = get_agent_session(&conn, &session.id).unwrap();
+        assert_eq!(resolve_cli_session_id(&session, "claude_cli"), None);
+    }
+
+    #[test]
+    fn test_resolve_cli_session_id_legacy_fallback_only_for_matching_adapter() {
+        // Simulate a row that was written by older code: cli_session_id is
+        // populated, but cli_sessions JSON map is null. The fallback should
+        // ONLY apply when the requested adapter matches the row's own
+        // adapter_kind — otherwise we'd hand a claude id to a codex stage
+        // (the exact bug we're fixing).
+        let session = AgentSession {
+            id: "s1".into(),
+            task_id: "t1".into(),
+            pid: None,
+            status: "idle".into(),
+            pty_cols: 80,
+            pty_rows: 24,
+            last_output: None,
+            exit_code: None,
+            agent_type: "claude".into(),
+            working_dir: None,
+            scrollback: None,
+            resumable: false,
+            cli_session_id: Some("legacy-claude-id".into()),
+            adapter_kind: Some("claude_cli".into()),
+            runtime_mode: "terminal".into(),
+            provider_session_id: Some("legacy-claude-id".into()),
+            tmux_session_name: None,
+            model: None,
+            effort_level: None,
+            cli_sessions: None,
+            created_at: "0".into(),
+            updated_at: "0".into(),
+        };
+
+        assert_eq!(
+            resolve_cli_session_id(&session, "claude_cli").as_deref(),
+            Some("legacy-claude-id"),
+        );
+        assert_eq!(
+            resolve_cli_session_id(&session, "codex_cli"),
+            None,
+            "must NOT bleed claude id into codex"
+        );
+    }
+
+    #[test]
+    fn test_update_agent_session_cli_routes_to_row_adapter() {
+        // Backwards-compat: callers using the old `update_agent_session_cli`
+        // entry point should get bucketing for free, derived from the row's
+        // adapter_kind.
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Working", 0).unwrap();
+        let task = insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+        let session = insert_agent_session(&conn, &task.id, "codex", None).unwrap();
+        assert_eq!(session.adapter_kind.as_deref(), Some("codex_cli"));
+
+        update_agent_session_cli(&conn, &session.id, Some("codex-thread-1"), None, None).unwrap();
+
+        let session = get_agent_session(&conn, &session.id).unwrap();
+        assert_eq!(
+            resolve_cli_session_id(&session, "codex_cli").as_deref(),
+            Some("codex-thread-1"),
+        );
+        assert_eq!(resolve_cli_session_id(&session, "claude_cli"), None);
     }
 
     #[test]

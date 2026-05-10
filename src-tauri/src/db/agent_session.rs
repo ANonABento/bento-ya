@@ -1,4 +1,5 @@
 use rusqlite::{params, Connection, Result as SqlResult};
+use serde_json::{Map, Value};
 
 use super::models::AgentSession;
 use super::{new_id, now};
@@ -27,10 +28,11 @@ fn map_agent_session_row(row: &rusqlite::Row) -> rusqlite::Result<AgentSession> 
         effort_level: row.get(18)?,
         created_at: row.get(19)?,
         updated_at: row.get(20)?,
+        cli_sessions: row.get(21)?,
     })
 }
 
-const AGENT_SESSION_COLUMNS: &str = "id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, cli_session_id, adapter_kind, runtime_mode, provider_session_id, tmux_session_name, model, effort_level, created_at, updated_at";
+const AGENT_SESSION_COLUMNS: &str = "id, task_id, pid, status, pty_cols, pty_rows, last_output, exit_code, agent_type, working_dir, scrollback, resumable, cli_session_id, adapter_kind, runtime_mode, provider_session_id, tmux_session_name, model, effort_level, created_at, updated_at, cli_sessions";
 
 pub fn insert_agent_session(
     conn: &Connection,
@@ -163,7 +165,14 @@ pub fn update_agent_session_output(
     Ok(())
 }
 
-/// Update CLI session fields for an agent session
+/// Update CLI session fields for an agent session.
+///
+/// Routes through `update_agent_session_cli_for_adapter` so that the per-CLI
+/// JSON map (`cli_sessions`) stays in sync with the legacy single-column
+/// fields (`cli_session_id`, `provider_session_id`). The adapter slot used
+/// for the JSON write is read from the row's existing `adapter_kind` (or
+/// `claude_cli` if missing) — callers that know the adapter explicitly
+/// should prefer the `_for_adapter` variant.
 pub fn update_agent_session_cli(
     conn: &Connection,
     id: &str,
@@ -171,12 +180,98 @@ pub fn update_agent_session_cli(
     model: Option<&str>,
     effort_level: Option<&str>,
 ) -> SqlResult<AgentSession> {
+    let current = get_agent_session(conn, id)?;
+    let adapter = current
+        .adapter_kind
+        .clone()
+        .unwrap_or_else(|| "claude_cli".to_string());
+    update_agent_session_cli_for_adapter(conn, id, &adapter, cli_session_id, model, effort_level)
+}
+
+/// Update CLI session fields scoped to a specific adapter (`claude_cli`,
+/// `codex_cli`, etc.).
+///
+/// Writes are dual-pathed:
+/// 1. `cli_sessions` JSON map gets the slot for `adapter` set/cleared.
+/// 2. Legacy `cli_session_id` + `provider_session_id` are overwritten with
+///    the same value so older readers (chat/runtime managed-turn path) keep
+///    seeing the most recent capture without further migration churn.
+pub fn update_agent_session_cli_for_adapter(
+    conn: &Connection,
+    id: &str,
+    adapter: &str,
+    cli_session_id: Option<&str>,
+    model: Option<&str>,
+    effort_level: Option<&str>,
+) -> SqlResult<AgentSession> {
     let ts = now();
+    let current = get_agent_session(conn, id)?;
+    let new_map = upsert_cli_session_slot(current.cli_sessions.as_deref(), adapter, cli_session_id);
+    let new_map_serialized = serde_json::to_string(&Value::Object(new_map))
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
     conn.execute(
-        "UPDATE agent_sessions SET cli_session_id = ?1, provider_session_id = ?1, model = ?2, effort_level = ?3, updated_at = ?4 WHERE id = ?5",
-        params![cli_session_id, model, effort_level, ts, id],
+        "UPDATE agent_sessions SET cli_session_id = ?1, provider_session_id = ?1, model = ?2, effort_level = ?3, cli_sessions = ?4, updated_at = ?5 WHERE id = ?6",
+        params![cli_session_id, model, effort_level, new_map_serialized, ts, id],
     )?;
     get_agent_session(conn, id)
+}
+
+/// Resolve the resume id for a given adapter on an agent session.
+///
+/// Lookup order:
+/// 1. `cli_sessions[adapter]` (per-CLI bucket — the source of truth post-043).
+/// 2. Legacy `cli_session_id` ONLY if the row has no JSON map yet AND the
+///    requested adapter matches the row's `adapter_kind`. This keeps the
+///    fallback safe for newly-created rows that haven't been written through
+///    the adapter-aware setter yet, while still preventing cross-CLI bleed
+///    for older rows that the migration didn't backfill.
+///
+/// Returns `None` when no slot exists for the adapter — callers should treat
+/// that as "start a fresh session" (i.e. omit `--resume`).
+pub fn resolve_cli_session_id(session: &AgentSession, adapter: &str) -> Option<String> {
+    if let Some(raw) = session.cli_sessions.as_deref() {
+        if let Ok(Value::Object(map)) = serde_json::from_str::<Value>(raw) {
+            if let Some(Value::String(id)) = map.get(adapter) {
+                if !id.is_empty() {
+                    return Some(id.clone());
+                }
+            }
+            return None;
+        }
+    }
+    let row_adapter = session.adapter_kind.as_deref().unwrap_or("claude_cli");
+    if row_adapter == adapter {
+        session
+            .cli_session_id
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .cloned()
+    } else {
+        None
+    }
+}
+
+fn upsert_cli_session_slot(
+    existing: Option<&str>,
+    adapter: &str,
+    value: Option<&str>,
+) -> Map<String, Value> {
+    let mut map = match existing {
+        Some(raw) => match serde_json::from_str::<Value>(raw) {
+            Ok(Value::Object(m)) => m,
+            _ => Map::new(),
+        },
+        None => Map::new(),
+    };
+    match value {
+        Some(v) if !v.is_empty() => {
+            map.insert(adapter.to_string(), Value::String(v.to_string()));
+        }
+        _ => {
+            map.remove(adapter);
+        }
+    }
+    map
 }
 
 /// Update explicit runtime metadata without disturbing legacy CLI fields.

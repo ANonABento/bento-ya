@@ -1539,10 +1539,10 @@ fn drain_queued_managed_trigger_input(
     let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
     let (prompt, _) = crate::chat::drain_pending_runtime_inputs_for_turn(&conn, task_id).ok()??;
     let session = db::get_agent_session(&conn, session_id).ok()?;
-    Some((
-        prompt,
-        session.provider_session_id.or(session.cli_session_id),
-    ))
+    let adapter = session.adapter_kind.as_deref().unwrap_or("claude_cli");
+    let resume_id = db::resolve_cli_session_id(&session, adapter)
+        .or_else(|| session.provider_session_id.clone());
+    Some((prompt, resume_id))
 }
 
 fn execute_move_column(
