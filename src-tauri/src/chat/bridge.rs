@@ -378,7 +378,7 @@ const CLAUDE_STREAM_PRETTY_JQ: &str = r#"
 ///     time. If `jq` isn't on PATH, falls back to raw stream-json (still
 ///     visible, just ugly).
 ///   - `codex`: `exec` already streams human-readable progress to stdout, so
-///     we leave it alone (just add `--full-auto` and friends).
+///     we leave it alone (just set the sandbox/approval policy explicitly).
 ///   - Other / unknown: passed through as-is.
 pub(crate) fn build_trigger_command(
     cli_command: &str,
@@ -395,17 +395,34 @@ pub(crate) fn build_trigger_command(
     let mut cmd_parts = vec![cli_command.to_string()];
     if cli_name == "codex" {
         // codex needs `exec` subcommand for non-interactive mode.
-        // `--full-auto` is the supported convenience alias for low-friction
-        // sandboxed automatic execution. Older codex builds rejected
-        // `--dangerously-bypass-approvals-and-sandbox` outright (the source
-        // of thousands of historical 58-byte stub failures), so we use the
-        // longer-lived `--full-auto` form which is portable across versions.
+        //
+        // We explicitly set `sandbox_mode=danger-full-access` and
+        // `approval_policy=never` via the cross-version `-c key=value`
+        // override. This is the same behavior `--full-auto` used to provide,
+        // EXCEPT `--full-auto`'s sandbox is `workspace-write`, which blocks
+        // writes to `.git` (including the gitdir resolved from a git worktree's
+        // `.git` *file*). That makes `git commit` fail silently inside any
+        // bento-ya worktree (codex exits 0 with files staged-but-uncommitted —
+        // the canonical ghost-task failure mode). See openai/codex#7071, #5034,
+        // #5846, and the docs at developers.openai.com/codex/concepts/sandboxing
+        // ("`.git` is protected as read-only ... if `<writable_root>/.git` is
+        // a pointer file, the resolved Git directory path is also protected").
+        //
+        // The earlier comment here noted that `--dangerously-bypass-approvals-
+        // and-sandbox` was rejected by older codex builds; using `-c` overrides
+        // sidesteps that — the `-c` syntax is stable and lets us name each
+        // policy independently. The pipeline's auto-commit safety net stays as
+        // defense-in-depth for non-sandbox failures (rate limits, half-staged
+        // work, agent forgets to commit).
         //
         // codex exec already streams human-readable progress lines to stdout
         // (tool calls, results, the assistant's response), so no filter
         // wrapper is needed — the tmux pane shows live output by default.
         cmd_parts.push("exec".to_string());
-        cmd_parts.push("--full-auto".to_string());
+        cmd_parts.push("-c".to_string());
+        cmd_parts.push("sandbox_mode=\"danger-full-access\"".to_string());
+        cmd_parts.push("-c".to_string());
+        cmd_parts.push("approval_policy=\"never\"".to_string());
         cmd_parts.push("--skip-git-repo-check".to_string());
     }
 
@@ -2090,8 +2107,13 @@ mod tests {
     fn test_build_trigger_command_codex() {
         let cmd = build_trigger_command("codex", &[], "do the thing", None);
         assert!(cmd.starts_with("codex exec"));
-        assert!(cmd.contains("--full-auto"));
-        assert!(!cmd.contains("--dangerously-bypass"));
+        // Sandbox + approval set explicitly via -c overrides. workspace-write
+        // (the --full-auto default) blocks writes to .git in worktrees, so we
+        // pin sandbox_mode to danger-full-access for code-producing stages.
+        assert!(cmd.contains("sandbox_mode=\"danger-full-access\""));
+        assert!(cmd.contains("approval_policy=\"never\""));
+        assert!(!cmd.contains("--full-auto"));
+        assert!(cmd.contains("--skip-git-repo-check"));
         assert!(cmd.contains("do the thing"));
         assert!(!cmd.contains(" -p "));
     }
@@ -2286,7 +2308,7 @@ mod tests {
         );
         assert_eq!(
             cmd,
-            "codex exec --full-auto --skip-git-repo-check --model gpt-5 'hello'"
+            "codex exec -c sandbox_mode=\"danger-full-access\" -c approval_policy=\"never\" --skip-git-repo-check --model gpt-5 'hello'"
         );
     }
 
