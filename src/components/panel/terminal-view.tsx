@@ -8,7 +8,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { WebglAddon } from '@xterm/addon-webgl'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
@@ -119,15 +118,6 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
         return undefined
       }
       return window.setTimeout(run, delay)
-    }
-
-    // Try WebGL renderer (falls back to canvas if unavailable)
-    try {
-      const webgl = new WebglAddon()
-      webgl.onContextLoss(() => { webgl.dispose() })
-      term.loadAddon(webgl)
-    } catch {
-      // WebGL not available, canvas renderer is fine
     }
 
     fitAndResize()
