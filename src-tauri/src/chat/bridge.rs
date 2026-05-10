@@ -60,6 +60,14 @@ const TRIGGER_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 2);
 /// blocking. We use a separate task for the wait-for so the timeout still
 /// applies.
 const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(250);
+/// How often the dead-agent watchdog polls `tmux has-session` to detect an
+/// agent that died without signaling its wait-for channel (panic, OOM,
+/// `tmux kill-pane`, etc). Cheap shell-out, so 5s is plenty.
+const DEAD_AGENT_POLL_INTERVAL: Duration = Duration::from_secs(5);
+/// Startup grace period before the dead-agent watchdog starts polling. Gives
+/// the launcher time to land + the tmux session to register. Without this we
+/// could race against `ensure_trigger_session` creation and false-positive.
+const DEAD_AGENT_GRACE_PERIOD: Duration = Duration::from_secs(10);
 /// Default window dimensions when the trigger runs headless (no UI attached).
 const DEFAULT_TRIGGER_COLS: u16 = 120;
 const DEFAULT_TRIGGER_ROWS: u16 = 50;
@@ -1289,6 +1297,14 @@ pub fn spawn_cli_trigger_task(
     });
 }
 
+/// Result of the dead-agent / hard-timeout race. Lets us distinguish
+/// "agent vanished" (recoverable, user can retry) from "ran past the 2h
+/// backstop" (probably stuck for real).
+enum DeadOrTimeout {
+    DeadAgent,
+    TimedOut,
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_trigger_in_tmux(
     app: &AppHandle,
@@ -1527,26 +1543,66 @@ async fn run_trigger_in_tmux(
         }
     });
 
-    let timed_out = match tokio::time::timeout(TRIGGER_TIMEOUT, wait_handle).await {
-        Ok(Ok(Ok(()))) => false,
-        Ok(Ok(Err(e))) => {
-            // wait-for exited non-zero — usually because the session was killed.
-            log::warn!(
-                "[bridge] wait-for returned error for task {}: {}",
-                task_id,
-                e
-            );
-            false
+    // Dead-agent watchdog: if the agent panics, OOMs, or has its pane killed
+    // without writing the sentinel + signaling the wait-for channel, the
+    // wait-for above blocks indefinitely (channel is server-global, won't
+    // self-fire on session death). We poll `tmux has-session` after a grace
+    // period; absence of the session = agent gone, so we stop waiting.
+    let dead_agent_watchdog = async {
+        tokio::time::sleep(DEAD_AGENT_GRACE_PERIOD).await;
+        loop {
+            tokio::time::sleep(DEAD_AGENT_POLL_INTERVAL).await;
+            if !tmux_transport::has_session(task_id) {
+                return;
+            }
         }
-        Ok(Err(join_err)) => {
-            log::warn!(
-                "[bridge] wait-for join error for task {}: {}",
-                task_id,
-                join_err
-            );
-            false
+    };
+
+    // Three-way race: clean signal, dead-agent watchdog, hard timeout backstop.
+    // We wrap the watchdog + backstop together so the success path stays
+    // structurally identical to before.
+    let dead_agent_or_timeout = async {
+        tokio::select! {
+            _ = dead_agent_watchdog => DeadOrTimeout::DeadAgent,
+            _ = tokio::time::sleep(TRIGGER_TIMEOUT) => DeadOrTimeout::TimedOut,
         }
-        Err(_) => true,
+    };
+
+    let (timed_out, agent_died) = tokio::select! {
+        wait_result = wait_handle => {
+            match wait_result {
+                Ok(Ok(())) => (false, false),
+                Ok(Err(e)) => {
+                    // wait-for exited non-zero — usually because the session
+                    // was killed (channel destroyed). Sentinel-file logic
+                    // below decides success vs failure.
+                    log::warn!(
+                        "[bridge] wait-for returned error for task {}: {}",
+                        task_id,
+                        e
+                    );
+                    (false, false)
+                }
+                Err(join_err) => {
+                    log::warn!(
+                        "[bridge] wait-for join error for task {}: {}",
+                        task_id,
+                        join_err
+                    );
+                    (false, false)
+                }
+            }
+        }
+        outcome = dead_agent_or_timeout => match outcome {
+            DeadOrTimeout::DeadAgent => {
+                log::warn!(
+                    "[bridge] dead-agent watchdog fired for task {}: tmux session gone, no wait-for signal",
+                    task_id
+                );
+                (false, true)
+            }
+            DeadOrTimeout::TimedOut => (true, false),
+        }
     };
 
     // Stop the flusher.
@@ -1572,6 +1628,15 @@ async fn run_trigger_in_tmux(
         // Give it a moment to settle, then kill the session.
         tokio::time::sleep(WAIT_POLL_INTERVAL).await;
         let _ = tmux_transport::kill_session(task_id);
+    } else if agent_died {
+        eprintln!(
+            "[bridge] Agent for task {} died without signaling; cleaning up wait-for",
+            task_id
+        );
+        // Session is already gone (that's how we got here), but the orphaned
+        // wait-for process is still parked on its (now-undeliverable) channel.
+        // SIGTERM it so we don't leak a PID per dead agent.
+        kill_wait_for_pid(wait_pid);
     }
 
     // ─── Result handling ────────────────────────────────────────────────
@@ -1640,12 +1705,16 @@ async fn run_trigger_in_tmux(
 
     // Resolve effective exit code:
     //   - timed out: synthetic 124 (mimics `timeout` utility)
+    //   - agent died without signaling: synthetic 137 (SIGKILL-shaped) — picks
+    //     up the sentinel if it somehow landed late, otherwise marks failure
     //   - missing sentinel but session vanished: synthetic 1 (failure)
     //   - otherwise the parsed value
-    let effective_exit = match (timed_out, exit_code) {
-        (true, _) => 124,
-        (false, Some(code)) => code,
-        (false, None) => 1,
+    let effective_exit = match (timed_out, agent_died, exit_code) {
+        (true, _, _) => 124,
+        (_, true, Some(code)) => code,
+        (_, true, None) => 137,
+        (false, false, Some(code)) => code,
+        (false, false, None) => 1,
     };
     let success = effective_exit == 0;
 
