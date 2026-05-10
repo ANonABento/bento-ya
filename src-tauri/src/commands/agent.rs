@@ -10,8 +10,8 @@ use crate::chat::registry::SharedSessionRegistry;
 use crate::chat::runtime::{
     decide_input_delivery, drain_pending_runtime_inputs_for_turn, run_managed_runtime_turn,
     AgentAdapterKind, AgentInputSource, AgentRuntimeError, AgentRuntimeEvent, ClaudeCliAdapter,
-    CodexCliAdapter, ManagedRuntimeStreamParser, ManagedRuntimeTurnConfig, ManagedRuntimeTurnResult,
-    ProviderRuntimeLine,
+    CodexCliAdapter, ManagedRuntimeStreamParser, ManagedRuntimeTurnConfig,
+    ManagedRuntimeTurnResult, ProviderRuntimeLine,
 };
 use crate::chat::session::{SessionConfig, SessionState, TransportType};
 use crate::db::{self, AgentMessage, AppState};
@@ -440,7 +440,9 @@ pub async fn send_task_input(
     }
 
     let pre_command_scrollback = if should_launch_prompt_command {
-        Some(crate::chat::tmux_transport::capture_scrollback_text(&task_id))
+        Some(crate::chat::tmux_transport::capture_scrollback_text(
+            &task_id,
+        ))
     } else {
         None
     };
@@ -852,19 +854,21 @@ fn build_task_input_line(
     let wait_channel = format!("bentoya_chat_done_{}", nonce);
     let dir = crate::chat::log_retention::trigger_logs_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create log dir: {}", e))?;
-    let semantic_log_path = if adapter_kind == AgentAdapterKind::ClaudeCli {
-        let path = dir
-            .join(format!("chat_semantic_{}.jsonl", nonce))
-            .display()
-            .to_string();
-        command = format!(
-            "BENTOYA_CLAUDE_JSON_LOG={} {}",
-            shell_quote_arg(&path),
-            command
-        );
-        Some(path)
-    } else {
-        None
+    let semantic_log_path = match adapter_kind {
+        AgentAdapterKind::ClaudeCli | AgentAdapterKind::CodexCli => {
+            let path = dir
+                .join(format!("chat_semantic_{}.jsonl", nonce))
+                .display()
+                .to_string();
+            let env_name = if adapter_kind == AgentAdapterKind::CodexCli {
+                "BENTOYA_CODEX_JSON_LOG"
+            } else {
+                "BENTOYA_CLAUDE_JSON_LOG"
+            };
+            command = format!("{}={} {}", env_name, shell_quote_arg(&path), command);
+            Some(path)
+        }
+        _ => None,
     };
     let exit_path = dir
         .join(format!("chat_exit_{}.code", nonce))
@@ -1595,13 +1599,21 @@ mod tests {
         assert!(command.starts_with("bash "));
         let script = std::fs::read_to_string(script_path_from_launcher(&command)).unwrap();
         assert!(!script.contains("BENTOYA_CLAUDE_JSON_LOG="));
-        assert!(script.contains("codex exec"));
-        assert!(script.contains("--full-auto"));
+        assert!(script.contains("BENTOYA_CODEX_JSON_LOG="));
+        assert!(script.contains("codex"));
+        assert!(script.contains(" exec"));
+        assert!(script.contains("--json"));
+        assert!(script.contains("sandbox_mode=\"danger-full-access\""));
+        assert!(script.contains("approval_policy=\"never\""));
         assert!(script.contains("--model"));
         assert!(script.contains("gpt-5.4"));
         assert!(script.contains("plan this"));
         let completion = input.completion.expect("completion");
-        assert!(completion.semantic_log_path.is_none());
+        assert!(completion
+            .semantic_log_path
+            .as_deref()
+            .expect("semantic log")
+            .contains("chat_semantic_"));
         assert_eq!(completion.adapter_kind, AgentAdapterKind::CodexCli);
     }
 

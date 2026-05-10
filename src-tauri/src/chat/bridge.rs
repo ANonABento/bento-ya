@@ -333,6 +333,7 @@ fn persist_runtime_events_from_chat(app: &AppHandle, task_id: &str, event: &Tran
 /// dump. Failures inside jq fall through to a `cat` fallback in the wrapper,
 /// so the user always sees *something* (even if it's raw JSON).
 const CLAUDE_STREAM_PRETTY_JQ: &str = r#"
+  (
   if .type == "system" and .subtype == "init" then
     (if (.session_id // .conversation_id // "") != "" then
       "[8mBENTOYA_CLAUDE_SESSION_ID:" + (.session_id // .conversation_id) + "[0m\n"
@@ -365,6 +366,46 @@ const CLAUDE_STREAM_PRETTY_JQ: &str = r#"
       + (if .is_error then " · ERROR" else "" end)
       + " ──[0m\n"
   else empty end
+  ) | gsub("\n"; "\r\n")
+"#;
+
+/// jq filter that turns `codex exec --json` into the same compact terminal
+/// shape as Claude: readable progress in the pane, raw JSONL preserved for
+/// semantic transcript parsing.
+const CODEX_STREAM_PRETTY_JQ: &str = r#"
+  def item_text:
+    (.item.text // .item.message // .item.summary //
+      (if (.item.content | type) == "array" then
+        (.item.content | map(if type == "string" then . else (.text // "") end) | join(""))
+      else (.item.content // "") end) // "");
+
+  (
+  if .type == "thread.started" then
+    "[codex " + (.thread_id // "session") + "]\n"
+  elif .type == "turn.started" then
+    "\n"
+  elif .type == "item.started" and .item.type == "command_execution" then
+    "\n[36m▶ Bash[0m\n"
+  elif .type == "item.completed" and .item.type == "command_execution" then
+    (if ((.item.aggregated_output // .item.output // "") | tostring | length) > 0 then
+      "[32m✓[0m " + ((.item.aggregated_output // .item.output) | tostring | gsub("\n"; " ") | .[0:240]) + "\n"
+    else empty end)
+  elif .type == "item.started" and (.item.type == "tool_call" or .item.type == "function_call" or .item.type == "mcp_tool_call") then
+    "\n[36m▶ " + (.item.name // .item.tool_name // .item.function.name // "tool") + "[0m\n"
+  elif .type == "item.completed" and (.item.type == "tool_call" or .item.type == "function_call" or .item.type == "mcp_tool_call") then
+    (if ((.item.output // .item.result // .item.content // "") | tostring | length) > 0 then
+      "[32m✓[0m " + ((.item.output // .item.result // .item.content) | tostring | gsub("\n"; " ") | .[0:240]) + "\n"
+    else empty end)
+  elif .type == "item.completed" and .item.type == "reasoning" then
+    (if (item_text | length) > 0 then "[90m◆ thinking…[0m\n" else empty end)
+  elif .type == "item.completed" and .item.type == "agent_message" then
+    (if (item_text | length) > 0 then "\n" + item_text + "\n" else empty end)
+  elif .type == "turn.completed" then
+    "\n[33m── done[0m\n"
+  elif .type == "turn.failed" then
+    "\n[31m── failed[0m\n"
+  else empty end
+  ) | gsub("\n"; "\r\n")
 "#;
 
 /// Build the CLI command string for a trigger, handling CLI-specific prompt
@@ -377,8 +418,9 @@ const CLAUDE_STREAM_PRETTY_JQ: &str = r#"
 ///     piped through a `jq` filter that converts them to plain text in real
 ///     time. If `jq` isn't on PATH, falls back to raw stream-json (still
 ///     visible, just ugly).
-///   - `codex`: `exec` already streams human-readable progress to stdout, so
-///     we leave it alone (just set the sandbox/approval policy explicitly).
+///   - `codex`: emits JSONL events, tees them into the semantic log, and
+///     pretty-prints a compact terminal view via jq. If jq is unavailable,
+///     it falls back to Codex's normal human-readable exec output.
 ///   - Other / unknown: passed through as-is.
 pub(crate) fn build_trigger_command(
     cli_command: &str,
@@ -392,39 +434,11 @@ pub(crate) fn build_trigger_command(
         return build_claude_streaming_command(cli_command, args, initial_prompt, resume_id);
     }
 
-    let mut cmd_parts = vec![cli_command.to_string()];
     if cli_name == "codex" {
-        // codex needs `exec` subcommand for non-interactive mode.
-        //
-        // We explicitly set `sandbox_mode=danger-full-access` and
-        // `approval_policy=never` via the cross-version `-c key=value`
-        // override. This is the same behavior `--full-auto` used to provide,
-        // EXCEPT `--full-auto`'s sandbox is `workspace-write`, which blocks
-        // writes to `.git` (including the gitdir resolved from a git worktree's
-        // `.git` *file*). That makes `git commit` fail silently inside any
-        // bento-ya worktree (codex exits 0 with files staged-but-uncommitted —
-        // the canonical ghost-task failure mode). See openai/codex#7071, #5034,
-        // #5846, and the docs at developers.openai.com/codex/concepts/sandboxing
-        // ("`.git` is protected as read-only ... if `<writable_root>/.git` is
-        // a pointer file, the resolved Git directory path is also protected").
-        //
-        // The earlier comment here noted that `--dangerously-bypass-approvals-
-        // and-sandbox` was rejected by older codex builds; using `-c` overrides
-        // sidesteps that — the `-c` syntax is stable and lets us name each
-        // policy independently. The pipeline's auto-commit safety net stays as
-        // defense-in-depth for non-sandbox failures (rate limits, half-staged
-        // work, agent forgets to commit).
-        //
-        // codex exec already streams human-readable progress lines to stdout
-        // (tool calls, results, the assistant's response), so no filter
-        // wrapper is needed — the tmux pane shows live output by default.
-        cmd_parts.push("exec".to_string());
-        cmd_parts.push("-c".to_string());
-        cmd_parts.push("sandbox_mode=\"danger-full-access\"".to_string());
-        cmd_parts.push("-c".to_string());
-        cmd_parts.push("approval_policy=\"never\"".to_string());
-        cmd_parts.push("--skip-git-repo-check".to_string());
+        return build_codex_streaming_command(cli_command, args, initial_prompt, resume_id);
     }
+
+    let mut cmd_parts = vec![cli_command.to_string()];
 
     cmd_parts.extend(args.iter().cloned());
     if !initial_prompt.is_empty() {
@@ -561,6 +575,71 @@ fn build_claude_streaming_command(
         filter = filter_outer_escaped,
         body = bash_body_outer_escaped,
     )
+}
+
+fn build_codex_streaming_command(
+    cli_command: &str,
+    args: &[String],
+    initial_prompt: &str,
+    resume_id: Option<&str>,
+) -> String {
+    // Codex needs `exec` for non-interactive mode. We pin sandbox/approval via
+    // stable `-c key=value` overrides: `--full-auto` uses workspace-write,
+    // which blocks `.git` writes inside worktrees and can leave ghost tasks.
+    let cli_quoted = format!("'{}'", cli_command.replace('\'', "'\\''"));
+    let prompt_quoted = if initial_prompt.is_empty() {
+        String::new()
+    } else {
+        format!(" '{}'", initial_prompt.replace('\'', "'\\''"))
+    };
+    let user_args = args
+        .iter()
+        .map(|a| format!("'{}'", a.replace('\'', "'\\''")))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let user_args_segment = if user_args.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", user_args)
+    };
+    let resume_segment = resume_id
+        .filter(|id| !id.trim().is_empty())
+        .map(|id| format!(" resume '{}'", id.replace('\'', "'\\''")))
+        .unwrap_or_default();
+
+    let common = format!(
+        "{cli} exec{resume} -c sandbox_mode=\"danger-full-access\" -c approval_policy=\"never\" --skip-git-repo-check{args}",
+        cli = cli_quoted,
+        resume = resume_segment,
+        args = user_args_segment,
+    );
+    let stream_cmd = format!(
+        "{common} --json{prompt} | tee -a \"${{BENTOYA_CODEX_JSON_LOG:-/dev/null}}\" | jq -rj --unbuffered \"$BENTOYA_CODEX_FILTER\"",
+        common = common,
+        prompt = prompt_quoted,
+    );
+    let fallback_cmd = format!("{common}{prompt}", common = common, prompt = prompt_quoted);
+    let bash_body = format!(
+        "if command -v jq >/dev/null 2>&1; then {stream}; else {fallback}; fi",
+        stream = stream_cmd,
+        fallback = fallback_cmd,
+    );
+    let bash_body_outer_escaped = bash_body.replace('\'', "'\\''");
+    let filter_outer_escaped = CODEX_STREAM_PRETTY_JQ.replace('\'', "'\\''");
+
+    format!(
+        "BENTOYA_CODEX_FILTER='{filter}' bash -o pipefail -c '{body}'",
+        filter = filter_outer_escaped,
+        body = bash_body_outer_escaped,
+    )
+}
+
+fn semantic_adapter_for_cli(cli_command: &str) -> Option<AgentAdapterKind> {
+    match cli_command.rsplit('/').next().unwrap_or(cli_command) {
+        "claude" => Some(AgentAdapterKind::ClaudeCli),
+        "codex" => Some(AgentAdapterKind::CodexCli),
+        _ => None,
+    }
 }
 
 // ─── Rate-limit detection ─────────────────────────────────────────────────
@@ -879,6 +958,7 @@ fn emit_semantic_events_from_provider_json_delta(
     session_id: Option<&str>,
     adapter: AgentAdapterKind,
     delta: &str,
+    suppress_lifecycle: bool,
 ) -> bool {
     let mut emitted = false;
     for line in delta.lines().filter(|line| !line.trim().is_empty()) {
@@ -891,9 +971,19 @@ fn emit_semantic_events_from_provider_json_delta(
             ) {
                 continue;
             }
+            if suppress_lifecycle
+                && matches!(
+                    event,
+                    AgentRuntimeEvent::SessionStarted { .. }
+                        | AgentRuntimeEvent::AgentStarted { .. }
+                )
+            {
+                continue;
+            }
             emitted = true;
-            let _ =
-                crate::events::persist_and_emit_agent_runtime_event(app, task_id, session_id, event);
+            let _ = crate::events::persist_and_emit_agent_runtime_event(
+                app, task_id, session_id, event,
+            );
         }
     }
     emitted
@@ -944,8 +1034,7 @@ pub(crate) fn is_stale_claude_resume_output(scrollback: &str) -> bool {
     //   "No conversation found with session id: <id>"
     //   "session not found"
     let lower = scrollback.to_ascii_lowercase();
-    lower.contains("no conversation found with session id")
-        || lower.contains("session not found")
+    lower.contains("no conversation found with session id") || lower.contains("session not found")
 }
 
 /// Map a working directory to the encoded path claude uses for its session
@@ -1408,14 +1497,19 @@ async fn run_trigger_in_tmux(
     // Note: full_cmd already contains shell quoting for the prompt; we just
     // append our completion-signaling tail. We also `clear` first so the
     // user sees a clean pane when they attach.
-    let command_with_semantic_log = if cli_command.rsplit('/').next().unwrap_or(cli_command) == "claude" {
-        format!(
+    let semantic_adapter = semantic_adapter_for_cli(cli_command);
+    let command_with_semantic_log = match semantic_adapter {
+        Some(AgentAdapterKind::ClaudeCli) => format!(
             "BENTOYA_CLAUDE_JSON_LOG={} {}",
             shell_quote_arg(&semantic_log_path),
             full_cmd
-        )
-    } else {
-        full_cmd.to_string()
+        ),
+        Some(AgentAdapterKind::CodexCli) => format!(
+            "BENTOYA_CODEX_JSON_LOG={} {}",
+            shell_quote_arg(&semantic_log_path),
+            full_cmd
+        ),
+        _ => full_cmd.to_string(),
     };
 
     let wrapped = format!(
@@ -1480,36 +1574,36 @@ async fn run_trigger_in_tmux(
                         .min(semantic_contents.len());
                     if let Some((delta, end)) = complete_line_delta(&semantic_contents, start) {
                         semantic_offset.store(end, Ordering::Relaxed);
-                        if emit_semantic_events_from_provider_json_delta(
-                            &app,
-                            &task_id,
-                            Some(&sid),
-                            AgentAdapterKind::ClaudeCli,
-                            delta,
-                        ) {
-                            semantic_emitted.store(true, Ordering::Relaxed);
+                        if let Some(adapter) = semantic_adapter {
+                            if emit_semantic_events_from_provider_json_delta(
+                                &app,
+                                &task_id,
+                                Some(&sid),
+                                adapter,
+                                delta,
+                                true,
+                            ) {
+                                semantic_emitted.store(true, Ordering::Relaxed);
+                            }
                         }
                     }
                 }
                 if let Ok(log_contents) = std::fs::read_to_string(&log_path) {
                     let start = offset.load(Ordering::Relaxed).min(log_contents.len());
                     if let Some(delta) = log_contents.get(start..) {
-                        if !delta.trim().is_empty() {
+                        if semantic_adapter.is_none() && !delta.trim().is_empty() {
                             offset.store(log_contents.len(), Ordering::Relaxed);
-                            if !semantic_emitted.load(Ordering::Relaxed) {
-                                emitted.store(true, Ordering::Relaxed);
-                                let _ = crate::events::persist_and_emit_agent_transcript_event(
-                                    &app,
-                                    &task_id,
-                                    Some(&sid),
-                                    db::EVENT_COMMAND_OUTPUT,
-                                    Some(delta),
-                                    Some(
-                                        &serde_json::json!({ "source": "tmux_live_tail" })
-                                            .to_string(),
-                                    ),
-                                );
-                            }
+                            emitted.store(true, Ordering::Relaxed);
+                            let _ = crate::events::persist_and_emit_agent_transcript_event(
+                                &app,
+                                &task_id,
+                                Some(&sid),
+                                db::EVENT_COMMAND_OUTPUT,
+                                Some(delta),
+                                Some(
+                                    &serde_json::json!({ "source": "tmux_live_tail" }).to_string(),
+                                ),
+                            );
                         }
                     }
                 }
@@ -1690,14 +1784,12 @@ async fn run_trigger_in_tmux(
         .min(semantic_log_contents.len());
     if let Some((delta, end)) = complete_line_delta(&semantic_log_contents, semantic_start) {
         semantic_output_offset.store(end, Ordering::Relaxed);
-        if emit_semantic_events_from_provider_json_delta(
-            app,
-            task_id,
-            session_id,
-            AgentAdapterKind::ClaudeCli,
-            delta,
-        ) {
-            semantic_output_emitted.store(true, Ordering::Relaxed);
+        if let Some(adapter) = semantic_adapter {
+            if emit_semantic_events_from_provider_json_delta(
+                app, task_id, session_id, adapter, delta, true,
+            ) {
+                semantic_output_emitted.store(true, Ordering::Relaxed);
+            }
         }
     }
     let scrollback = truncate_for_scrollback(&scrollback_full);
@@ -1707,7 +1799,7 @@ async fn run_trigger_in_tmux(
         .load(Ordering::Relaxed)
         .min(scrollback_full.len());
     if let Some(delta) = scrollback_full.get(final_live_start..) {
-        if !semantic_output_emitted.load(Ordering::Relaxed) && !delta.trim().is_empty() {
+        if semantic_adapter.is_none() && !delta.trim().is_empty() {
             live_output_offset.store(scrollback_full.len(), Ordering::Relaxed);
             live_output_emitted.store(true, Ordering::Relaxed);
             let _ = crate::events::persist_and_emit_agent_transcript_event(
@@ -1795,6 +1887,7 @@ async fn run_trigger_in_tmux(
     if !semantic_output_emitted.load(Ordering::Relaxed)
         && !live_output_emitted.load(Ordering::Relaxed)
         && !last_output_tail.trim().is_empty()
+        && semantic_adapter.is_none()
     {
         let _ = crate::events::persist_and_emit_agent_transcript_event(
             app,
@@ -1863,9 +1956,8 @@ async fn run_trigger_in_tmux(
                     "[bridge] clearing stale claude resume id for task {} after 'No conversation found'",
                     task_id
                 );
-                let _ = db::update_agent_session_cli_for_adapter(
-                    &conn, sid, adapter, None, None, None,
-                );
+                let _ =
+                    db::update_agent_session_cli_for_adapter(&conn, sid, adapter, None, None, None);
             }
             let _ = db::update_agent_session_output(
                 &conn,
@@ -2106,7 +2198,8 @@ mod tests {
     #[test]
     fn test_build_trigger_command_codex() {
         let cmd = build_trigger_command("codex", &[], "do the thing", None);
-        assert!(cmd.starts_with("codex exec"));
+        assert!(cmd.contains("codex"));
+        assert!(cmd.contains(" exec "));
         // Sandbox + approval set explicitly via -c overrides. workspace-write
         // (the --full-auto default) blocks writes to .git in worktrees, so we
         // pin sandbox_mode to danger-full-access for code-producing stages.
@@ -2114,6 +2207,10 @@ mod tests {
         assert!(cmd.contains("approval_policy=\"never\""));
         assert!(!cmd.contains("--full-auto"));
         assert!(cmd.contains("--skip-git-repo-check"));
+        assert!(cmd.contains("--json"));
+        assert!(cmd.contains("tee -a"));
+        assert!(cmd.contains("BENTOYA_CODEX_JSON_LOG"));
+        assert!(cmd.contains("jq -rj --unbuffered"));
         assert!(cmd.contains("do the thing"));
         assert!(!cmd.contains(" -p "));
     }
@@ -2199,6 +2296,24 @@ mod tests {
         assert!(
             !CLAUDE_STREAM_PRETTY_JQ.contains(".event.delta.thinking"),
             "raw terminal should not stream thinking text/newlines; transcript owns semantic thinking"
+        );
+    }
+
+    #[test]
+    fn test_codex_pretty_filter_keeps_terminal_output_compact() {
+        assert!(
+            CODEX_STREAM_PRETTY_JQ
+                .contains(r#".type == "item.started" and .item.type == "command_execution""#),
+            "codex command execution should render as a compact Bash row"
+        );
+        assert!(
+            CODEX_STREAM_PRETTY_JQ
+                .contains(r#".type == "item.completed" and .item.type == "agent_message""#),
+            "codex agent messages should render as readable text"
+        );
+        assert!(
+            CODEX_STREAM_PRETTY_JQ.contains(r#".type == "turn.completed""#),
+            "codex turns need an explicit done marker"
         );
     }
 
@@ -2306,10 +2421,10 @@ mod tests {
             "hello",
             None,
         );
-        assert_eq!(
-            cmd,
-            "codex exec -c sandbox_mode=\"danger-full-access\" -c approval_policy=\"never\" --skip-git-repo-check --model gpt-5 'hello'"
-        );
+        assert!(cmd.contains("--model"));
+        assert!(cmd.contains("gpt-5"));
+        assert!(cmd.contains("--json"));
+        assert!(cmd.contains("'hello'"));
     }
 
     #[test]
@@ -2706,9 +2821,8 @@ mod tests {
         let _ = tmux_transport::kill_session(&task_id);
         tmux_transport::ensure_tmux_server().expect("tmux server");
 
-        let first_plan =
-            ensure_trigger_session(&task_id, "/tmp", 80, 24, &env_vars, true, false)
-                .expect("create persistent session");
+        let first_plan = ensure_trigger_session(&task_id, "/tmp", 80, 24, &env_vars, true, false)
+            .expect("create persistent session");
         assert_eq!(first_plan, TriggerSessionPlan::Create);
         run_tmux(&[
             "send-keys",
@@ -2721,9 +2835,8 @@ mod tests {
         run_tmux(&["send-keys", "-t", &session, "Enter"]).expect("enter first marker");
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        let second_plan =
-            ensure_trigger_session(&task_id, "/tmp", 80, 24, &env_vars, true, false)
-                .expect("reuse persistent session");
+        let second_plan = ensure_trigger_session(&task_id, "/tmp", 80, 24, &env_vars, true, false)
+            .expect("reuse persistent session");
         assert_eq!(second_plan, TriggerSessionPlan::ReuseExisting);
         run_tmux(&[
             "send-keys",
@@ -2775,7 +2888,8 @@ mod tests {
 
         // Stage 1: create the persistent session in a temp dir, leave a
         // marker in scrollback. This simulates Plan/Working/Merge main.
-        let stale_dir = std::env::temp_dir().join(format!("bentoya_stale_{}", uuid::Uuid::new_v4()));
+        let stale_dir =
+            std::env::temp_dir().join(format!("bentoya_stale_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&stale_dir).expect("create stale dir");
         let stale_dir_str = stale_dir.display().to_string();
 
@@ -2783,8 +2897,14 @@ mod tests {
             ensure_trigger_session(&task_id, &stale_dir_str, 80, 24, &env_vars, true, false)
                 .expect("create persistent session");
         assert_eq!(first_plan, TriggerSessionPlan::Create);
-        run_tmux(&["send-keys", "-t", &session, "-l", "echo PRE_TERMINAL_MARKER"])
-            .expect("send marker");
+        run_tmux(&[
+            "send-keys",
+            "-t",
+            &session,
+            "-l",
+            "echo PRE_TERMINAL_MARKER",
+        ])
+        .expect("send marker");
         run_tmux(&["send-keys", "-t", &session, "Enter"]).expect("enter marker");
         tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -2795,7 +2915,8 @@ mod tests {
 
         // Stage 3: terminal column trigger fires with a fresh, valid cwd
         // (workspace.repo_path) and force_fresh=true.
-        let fresh_dir = std::env::temp_dir().join(format!("bentoya_fresh_{}", uuid::Uuid::new_v4()));
+        let fresh_dir =
+            std::env::temp_dir().join(format!("bentoya_fresh_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&fresh_dir).expect("create fresh dir");
         let fresh_dir_str = fresh_dir.display().to_string();
 
@@ -2824,9 +2945,8 @@ mod tests {
 
         // The new pane's cwd must be the supplied fresh_dir (canonical
         // path comparison handles macOS /private/var symlink games).
-        let cwd_output =
-            run_tmux(&["display", "-p", "-t", &session, "#{pane_current_path}"])
-                .expect("display pane_current_path");
+        let cwd_output = run_tmux(&["display", "-p", "-t", &session, "#{pane_current_path}"])
+            .expect("display pane_current_path");
         let pane_cwd = cwd_output.trim();
         let canon_pane =
             std::fs::canonicalize(pane_cwd).unwrap_or_else(|_| std::path::PathBuf::from(pane_cwd));
