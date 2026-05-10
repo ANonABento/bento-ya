@@ -40,6 +40,7 @@ use super::runtime::{
 use super::tmux_transport;
 use super::transport::TransportEvent;
 use crate::db;
+use crate::git::branch_manager;
 use crate::pipeline;
 
 // ─── Tunables ─────────────────────────────────────────────────────────────
@@ -1716,7 +1717,58 @@ async fn run_trigger_in_tmux(
         (false, false, Some(code)) => code,
         (false, false, None) => 1,
     };
-    let success = effective_exit == 0;
+    let mut success = effective_exit == 0;
+
+    // Auto-commit safety net: an agent can exit 0 yet leave its work
+    // uncommitted in the worktree — typically because its sandbox blocks
+    // writes to git metadata (codex's seatbelt sandbox vs. the worktree's
+    // `.git` file pointer is the canonical case). The pipeline would then
+    // advance to Merge main against an empty branch and ship a ghost task.
+    //
+    // Recovery: if exit was clean but the worktree is dirty, stage and
+    // commit the work ourselves. Plan-stage agents write a gitignored
+    // .task-handoff.md so they leave a clean worktree and aren't affected.
+    if success {
+        if let Ok(conn) = Connection::open(db::db_path()) {
+            if let Ok(task) = db::get_task(&conn, task_id) {
+                if let Some(ref worktree_path) = task.worktree_path {
+                    match branch_manager::worktree_is_dirty(worktree_path) {
+                        Ok(true) => {
+                            let msg = format!(
+                                "auto-commit: bento-ya rescued uncommitted work for task {} (agent exited 0 without committing)",
+                                task_id
+                            );
+                            match branch_manager::auto_commit_dirty_worktree(worktree_path, &msg) {
+                                Ok(true) => {
+                                    eprintln!(
+                                        "[bridge] auto-committed dirty worktree for task {} (agent exit 0 but didn't commit)",
+                                        task_id
+                                    );
+                                }
+                                Ok(false) => {
+                                    // Dirty was all gitignored — fine, no rescue needed.
+                                }
+                                Err(e) => {
+                                    eprintln!(
+                                        "[bridge] auto-commit FAILED for task {}: {} — overriding success=false",
+                                        task_id, e
+                                    );
+                                    success = false;
+                                }
+                            }
+                        }
+                        Ok(false) => {}
+                        Err(e) => {
+                            eprintln!(
+                                "[bridge] worktree dirty-check failed for task {}: {} — proceeding with reported exit code",
+                                task_id, e
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     eprintln!(
         "[bridge] Trigger completed for task {}: exit_code={}, success={} log={}",
