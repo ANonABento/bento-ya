@@ -44,7 +44,38 @@ Opening `http://localhost:1420` by itself only shows the Vite frontend. It is us
 
 If `tauri-driver` is unavailable or reports that the platform is unsupported, use Playwright for browser-only checks and `pnpm tauri dev` for manual native verification.
 
+### Database setup and migrations
+
+Bento-ya stores its local SQLite database at `~/.bentoya/data.db`. The app runs pending migrations automatically on startup, but you can apply them explicitly after pulling schema changes:
+
+```bash
+pnpm db:migrate
+```
+
+The command uses the same Rust database initializer as the app, creates `~/.bentoya/` if needed, enables WAL mode, and records applied migrations in the `_migrations` table.
+
+### Linux setup notes
+
+On Linux, the app uses the same local data path as other platforms: `~/.bentoya/data.db`. If the app starts with database errors after a branch switch or update, run:
+
+```bash
+pnpm db:migrate
+```
+
+If migration still fails, close all Bento-ya windows and any `bento-mcp` process before retrying. SQLite lock errors usually mean another process still has `~/.bentoya/data.db`, `~/.bentoya/data.db-wal`, or `~/.bentoya/data.db-shm` open. Permission errors usually mean `~/.bentoya/` or the database files are owned by another user; fix ownership rather than deleting the database.
+
 ### Troubleshooting
+
+#### Database migration errors
+
+**Symptom:** The app launches but database-backed features fail, or startup logs mention missing columns, missing tables, `_migrations`, `database is locked`, or `readonly database`.
+
+**Fix:**
+```bash
+pnpm db:migrate
+```
+
+If the command reports `database is locked`, quit Bento-ya and stop `bento-mcp`, then rerun it. If it reports a readonly or permission error, check ownership and permissions on `~/.bentoya/` and `~/.bentoya/data.db`.
 
 #### White screen on launch
 
