@@ -10,10 +10,53 @@ import type {
 import { arrayMove } from '@dnd-kit/sortable'
 import { useColumnStore } from '@/stores/column-store'
 import { useTaskStore } from '@/stores/task-store'
+import type { Column, Task } from '@/types'
 
 type ActiveItem =
   | { type: 'column'; id: string }
   | { type: 'task'; id: string }
+
+type DragData = {
+  type?: string
+  columnId?: string
+}
+
+const COLUMN_DROP_PREFIX = 'column-drop-'
+
+function stripColumnDropPrefix(id: string) {
+  return id.startsWith(COLUMN_DROP_PREFIX) ? id.slice(COLUMN_DROP_PREFIX.length) : id
+}
+
+export function resolveOverColumnId(
+  overId: UniqueIdentifier,
+  overData: DragData | undefined,
+  tasks: Pick<Task, 'id' | 'columnId'>[],
+  columns: Pick<Column, 'id'>[],
+) {
+  if (overData?.columnId) return overData.columnId
+
+  const id = String(overId)
+  const normalizedColumnId = stripColumnDropPrefix(id)
+
+  if (overData?.type === 'column') return normalizedColumnId
+  if (columns.some((column) => column.id === normalizedColumnId)) return normalizedColumnId
+
+  return tasks.find((task) => task.id === id)?.columnId
+}
+
+export function getTaskDropPosition(
+  overId: UniqueIdentifier,
+  targetColumnId: string,
+  tasks: Pick<Task, 'id' | 'columnId' | 'position'>[],
+) {
+  const overIdString = String(overId)
+  const targetTasks = tasks
+    .filter((task) => task.columnId === targetColumnId)
+    .sort((a, b) => a.position - b.position)
+
+  const overIndex = targetTasks.findIndex((task) => task.id === overIdString)
+  return overIndex >= 0 ? overIndex : targetTasks.length
+}
 
 export function useDnd() {
   const [activeItem, setActiveItem] = useState<ActiveItem | null>(null)
@@ -50,34 +93,18 @@ export function useDnd() {
       if (activeData?.type === 'column') return
 
       const activeTaskId = String(active.id)
-      const overId = String(over.id)
-      const overData = over.data.current as { type: string; columnId?: string } | undefined
+      const overData = over.data.current as DragData | undefined
 
       const activeColumn = findColumnOfTask(activeTaskId)
-
-      // Handle dropping on column droppable area (empty columns)
-      let overColumn: string | undefined
-      if (overData?.type === 'column' && overData.columnId) {
-        overColumn = overData.columnId
-      } else if (overData?.type === 'column') {
-        overColumn = overId
-      } else {
-        overColumn = findColumnOfTask(overId)
-      }
+      const overColumn = resolveOverColumnId(over.id, overData, tasks, columns)
 
       if (!activeColumn || !overColumn || activeColumn === overColumn) return
 
-      // Moving task to a different column
-      const overColumnTasks = tasks
-        .filter((t) => t.columnId === overColumn)
-        .sort((a, b) => a.position - b.position)
-
-      const overIndex = overColumnTasks.findIndex((t) => t.id === overId)
-      const newPosition = overIndex >= 0 ? overIndex : overColumnTasks.length
+      const newPosition = getTaskDropPosition(over.id, overColumn, tasks)
 
       void moveTask(activeTaskId, overColumn, newPosition)
     },
-    [findColumnOfTask, tasks, moveTask],
+    [columns, findColumnOfTask, tasks, moveTask],
   )
 
   const onDragEnd = useCallback(
@@ -103,23 +130,33 @@ export function useDnd() {
           }
         }
       } else {
-        // Reorder tasks within same column
-        const columnId = findColumnOfTask(String(active.id))
-        if (!columnId) return
+        const activeTaskId = String(active.id)
+        const activeColumnId = findColumnOfTask(activeTaskId)
+        if (!activeColumnId) return
+
+        const overData = over.data.current as DragData | undefined
+        const overColumnId = resolveOverColumnId(over.id, overData, tasks, columns)
+        if (!overColumnId) return
+
+        if (overColumnId !== activeColumnId) {
+          const newPosition = getTaskDropPosition(over.id, overColumnId, tasks)
+          void moveTask(activeTaskId, overColumnId, newPosition)
+          return
+        }
 
         const columnTasks = tasks
-          .filter((t) => t.columnId === columnId)
+          .filter((t) => t.columnId === activeColumnId)
           .sort((a, b) => a.position - b.position)
         const taskIds = columnTasks.map((t) => t.id)
-        const oldIndex = taskIds.indexOf(String(active.id))
+        const oldIndex = taskIds.indexOf(activeTaskId)
         const newIndex = taskIds.indexOf(String(over.id))
 
         if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
-          void reorderTasks(columnId, arrayMove(taskIds, oldIndex, newIndex))
+          void reorderTasks(activeColumnId, arrayMove(taskIds, oldIndex, newIndex))
         }
       }
     },
-    [columns, tasks, findColumnOfTask, reorderColumns, reorderTasks],
+    [columns, tasks, findColumnOfTask, reorderColumns, reorderTasks, moveTask],
   )
 
   return { activeItem, onDragStart, onDragOver, onDragEnd }

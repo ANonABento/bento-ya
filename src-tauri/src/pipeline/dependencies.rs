@@ -93,8 +93,13 @@ pub fn check_condition(
                 };
             }
 
-            // No session, but agent_status is set — must be "completed"
+            // No session, but agent_status is set — must be "completed".
+            // The schema defaults new/manual tasks to "idle", which still
+            // represents "no agent in the picture" for dependency purposes.
             if let Some(status) = source_task.agent_status.as_deref() {
+                if status == "idle" {
+                    return Ok(true);
+                }
                 return Ok(status == "completed");
             }
 
@@ -1079,9 +1084,9 @@ mod tests {
         let _col1 = db::insert_column(&conn, &ws.id, "Working", 0).unwrap();
         let col2 = db::insert_column(&conn, &ws.id, "Done", 1).unwrap();
         let task = db::insert_task(&conn, &ws.id, &col2.id, "Task", None).unwrap();
-        // No agent_session_id, no agent_status set.
+        // No agent_session_id; the schema defaults agent_status to idle.
         assert!(task.agent_session_id.is_none());
-        assert!(task.agent_status.is_none());
+        assert_eq!(task.agent_status.as_deref(), Some("idle"));
 
         let dep = TaskDependency {
             task_id: task.id.clone(),

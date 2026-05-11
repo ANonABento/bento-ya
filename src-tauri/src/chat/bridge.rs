@@ -2187,6 +2187,13 @@ fn shell_quote(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard};
+
+    static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_home_env() -> MutexGuard<'static, ()> {
+        HOME_ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner())
+    }
 
     #[test]
     fn test_gen_nonce() {
@@ -2571,6 +2578,7 @@ mod tests {
 
     #[test]
     fn test_validate_claude_resume_id_rejects_missing_file() {
+        let _home_guard = lock_home_env();
         let tmp = tempfile::tempdir().unwrap();
         // Override $HOME so the validator looks under our temp dir.
         std::env::set_var("HOME", tmp.path());
@@ -2583,6 +2591,7 @@ mod tests {
 
     #[test]
     fn test_validate_claude_resume_id_accepts_present_file() {
+        let _home_guard = lock_home_env();
         let tmp = tempfile::tempdir().unwrap();
         std::env::set_var("HOME", tmp.path());
         let working_dir = "/Users/test/some/repo";
