@@ -52,7 +52,7 @@ Bento-ya stores its local SQLite database at `~/.bentoya/data.db`. The app runs 
 pnpm db:migrate
 ```
 
-The command uses the same Rust database initializer as the app, creates `~/.bentoya/` if needed, enables WAL mode, and records applied migrations in the `_migrations` table.
+Run the command from the repository root. It uses the same Rust database initializer as the app, creates `~/.bentoya/` if needed, enables WAL mode, and records applied migrations in the `_migrations` table. It is safe to rerun; already-applied migrations are skipped.
 
 ### Linux setup notes
 

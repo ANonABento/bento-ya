@@ -1,8 +1,6 @@
 #![deny(clippy::all)]
 
-#[allow(dead_code, unused_imports)]
-#[path = "../db/mod.rs"]
-mod db;
+use bento_ya_lib::db;
 
 fn main() {
     let db_path = db::db_path();

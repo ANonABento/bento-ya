@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "prepare": "husky",
     "precommit": "lint-staged",
-    "db:migrate": "cargo run --manifest-path src-tauri/Cargo.toml --bin db-migrate",
+    "db:migrate": "cargo run --quiet --manifest-path src-tauri/Cargo.toml --bin db-migrate",
     "sync:updater-endpoint": "node scripts/sync-updater-endpoint.js",
     "tauri": "node scripts/sync-updater-endpoint.js && tauri",
     "type-check": "tsc --noEmit",
