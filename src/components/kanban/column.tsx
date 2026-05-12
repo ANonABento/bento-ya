@@ -11,6 +11,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useScriptStore } from '@/stores/script-store'
 import { useColumnMetricsStore } from '@/stores/column-metrics-store'
 import { queueBacklog, cancelBacklogQueue } from '@/lib/ipc/pipeline'
+import { useQueueStatus } from '@/hooks/use-queue-status'
 import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
@@ -71,6 +72,23 @@ export const Column = memo(function Column({
       : entryIsScript ? 'entry' as const : 'exit' as const
     return { scriptName, event }
   }, [column, getScriptName])
+
+  // Show concurrency badge on columns that spawn agents (spawn_cli triggers)
+  const hasAgentTrigger = useMemo(() => {
+    const triggers = getColumnTriggers(column)
+    return triggers.on_entry?.type === 'spawn_cli' || triggers.on_exit?.type === 'spawn_cli'
+  }, [column])
+
+  const queueStatus = useQueueStatus(activeWorkspaceId)
+
+  const agentConcurrency = useMemo(() => {
+    if (!hasAgentTrigger) return undefined
+    return {
+      running: queueStatus.runningCount,
+      max: queueStatus.maxConcurrent,
+      queued: queueStatus.queuedCount,
+    }
+  }, [hasAgentTrigger, queueStatus.runningCount, queueStatus.maxConcurrent, queueStatus.queuedCount])
 
   const [showConfigDialog, setShowConfigDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -224,6 +242,7 @@ export const Column = memo(function Column({
             scriptTrigger={scriptTrigger}
             isBacklog={column.position === 0}
             batchQueue={batchQueueState.isQueuing ? { total: batchQueueState.total, completed: batchQueueState.completed } : undefined}
+            agentConcurrency={agentConcurrency}
             metrics={columnMetrics}
             onConfigure={handleConfigure}
             onAddTask={handleAddTask}

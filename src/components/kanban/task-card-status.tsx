@@ -5,6 +5,7 @@ import { ATTENTION_LABELS } from '@/stores/attention-store'
 import { REVIEW_STATUS_LABELS } from '@/constants/status'
 import { Tooltip } from '@/components/shared/tooltip'
 import { parsePipelineError } from '@/lib/pipeline-error-utils'
+import type { WorkspaceQueueStatus } from '@/hooks/use-queue-status'
 
 /** Attention/needs-attention banner */
 export function AttentionBanner({ attention }: { attention: AttentionItem }) {
@@ -15,6 +16,41 @@ export function AttentionBanner({ attention }: { attention: AttentionItem }) {
       </svg>
       <span className="truncate">{ATTENTION_LABELS[attention.reason]}</span>
     </div>
+  )
+}
+
+/** Queued by concurrency limit banner — shown when a slot isn't yet available */
+export function QueuedBanner({
+  taskId,
+  queueStatus,
+}: {
+  taskId: string
+  queueStatus: WorkspaceQueueStatus
+}) {
+  const { runningCount, maxConcurrent, queuedCount } = queueStatus
+  const position = queueStatus.positionOf(taskId)
+  const atLimit = runningCount >= maxConcurrent
+
+  const slotText = `${String(runningCount)}/${String(maxConcurrent)} agents running`
+  const posText =
+    queuedCount > 1 && position > 0
+      ? ` · #${String(position)} of ${String(queuedCount)} waiting`
+      : ''
+  const tooltipText = atLimit
+    ? `Concurrency limit reached (${slotText}). This task will start when a slot opens.${posText}`
+    : `Starting soon (${slotText}).`
+
+  return (
+    <Tooltip content={tooltipText} side="top" wrap delay={200}>
+      <div className="flex items-center gap-1.5 rounded bg-warning/10 px-2 py-1 text-[11px] text-warning cursor-default">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
+          <path fillRule="evenodd" d="M1 8a7 7 0 1 1 14 0A7 7 0 0 1 1 8Zm7.75-4.25a.75.75 0 0 0-1.5 0V8c0 .414.336.75.75.75h3.25a.75.75 0 0 0 0-1.5h-2.5V3.75Z" clipRule="evenodd" />
+        </svg>
+        <span className="truncate">
+          Queued · {slotText}{posText}
+        </span>
+      </div>
+    </Tooltip>
   )
 }
 

@@ -14,6 +14,15 @@ type BatchQueueState = {
   completed: number
 }
 
+type AgentConcurrency = {
+  /** Number of agents currently running workspace-wide */
+  running: number
+  /** Maximum concurrent agents for this workspace */
+  max: number
+  /** Number of tasks waiting in queue workspace-wide */
+  queued: number
+}
+
 type ColumnHeaderProps = {
   name: string
   icon: string
@@ -22,6 +31,8 @@ type ColumnHeaderProps = {
   scriptTrigger?: ScriptTriggerInfo
   isBacklog?: boolean
   batchQueue?: BatchQueueState
+  /** Concurrency status for columns that spawn agents — shows N/M running */
+  agentConcurrency?: AgentConcurrency
   metrics?: ColumnMetrics
   onConfigure: () => void
   onAddTask: () => void
@@ -120,6 +131,7 @@ export const ColumnHeader = memo(function ColumnHeader({
   scriptTrigger,
   isBacklog,
   batchQueue,
+  agentConcurrency,
   metrics,
   onConfigure,
   onAddTask,
@@ -265,6 +277,33 @@ export const ColumnHeader = memo(function ColumnHeader({
           <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">
             Queued: {batchQueue.completed}/{batchQueue.total}
           </span>
+        )}
+
+        {/* Agent concurrency indicator — shown on columns that spawn agents */}
+        {agentConcurrency && agentConcurrency.max > 0 && (
+          <Tooltip
+            content={[
+              `${String(agentConcurrency.running)}/${String(agentConcurrency.max)} agents running`,
+              agentConcurrency.queued > 0 ? `${String(agentConcurrency.queued)} waiting in queue` : '',
+            ].filter(Boolean).join(' · ')}
+            side="bottom"
+            wrap
+          >
+            <span
+              className={`rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${
+                agentConcurrency.running >= agentConcurrency.max
+                  ? 'bg-warning/10 text-warning'
+                  : agentConcurrency.running > 0
+                    ? 'bg-running/10 text-running'
+                    : 'bg-surface-hover text-text-secondary/60'
+              }`}
+            >
+              {agentConcurrency.running}/{agentConcurrency.max}
+              {agentConcurrency.queued > 0 && (
+                <span className="ml-0.5 opacity-70">+{agentConcurrency.queued}</span>
+              )}
+            </span>
+          </Tooltip>
         )}
 
         <div className="ml-auto flex items-center gap-0.5">

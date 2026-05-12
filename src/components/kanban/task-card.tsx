@@ -23,8 +23,9 @@ import { parseDeps } from '@/lib/dependency-utils'
 import { PIPELINE_LABELS, PIPELINE_COLORS, formatRelativeTime } from './task-card-utils'
 import { PrStatusIndicator, SiegeBadge } from './task-card-badges'
 import { useTaskCardActions } from './use-task-card-actions'
-import { AttentionBanner, BlockedBanner, QualityGateBanner, PipelineErrorBanner } from './task-card-status'
+import { AttentionBanner, BlockedBanner, QueuedBanner, QualityGateBanner, PipelineErrorBanner } from './task-card-status'
 import { AgentActivityPreview } from './task-card-activity'
+import { useQueueStatus } from '@/hooks/use-queue-status'
 
 type TaskCardProps = {
   task: Task
@@ -73,6 +74,9 @@ export const TaskCard = memo(function TaskCard({
 
   // Live agent streaming data
   const agentStream = useAgentStreamingStore((s) => s.streams.get(task.id))
+
+  // Queue/concurrency status — only subscribed when this task is queued
+  const queueStatus = useQueueStatus(task.agentStatus === 'queued' ? task.workspaceId : null)
 
   // All action handlers
   const actions = useTaskCardActions(task)
@@ -471,11 +475,14 @@ export const TaskCard = memo(function TaskCard({
         {/* Status banners */}
         {needsAttention && attention && <AttentionBanner attention={attention} />}
         {task.blocked && <BlockedBanner blockerInfo={blockerInfo} />}
+        {task.agentStatus === 'queued' && !hasPipelineError && (
+          <QueuedBanner taskId={task.id} queueStatus={queueStatus} />
+        )}
         {isQualityGate && !hasPipelineError && <QualityGateBanner reviewStatus={reviewStatus} />}
         {hasPipelineError && <PipelineErrorBanner task={task} onRetry={() => { void actions.handleRetryPipeline() }} />}
 
-        {/* Agent activity preview — hidden when expanded */}
-        {!isExpanded && !needsAttention && !hasPipelineError && (
+        {/* Agent activity preview — hidden when expanded or queued (queued has its own banner) */}
+        {!isExpanded && !needsAttention && !hasPipelineError && task.agentStatus !== 'queued' && (
           <AgentActivityPreview task={task} agentStream={agentStream} />
         )}
 
