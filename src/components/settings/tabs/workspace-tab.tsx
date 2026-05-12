@@ -247,6 +247,7 @@ export function WorkspaceTab() {
                 checked={config.autoAdvance ?? true}
                 onChange={(v) => { void updateConfig({ autoAdvance: v }) }}
                 size="md"
+                aria-label="Auto-Advance"
               />
             </SettingRow>
 
@@ -258,6 +259,7 @@ export function WorkspaceTab() {
                 checked={config.autoArchiveDone ?? true}
                 onChange={(v) => { void updateConfig({ autoArchiveDone: v }) }}
                 size="md"
+                aria-label="Auto-Archive Done"
               />
             </SettingRow>
 

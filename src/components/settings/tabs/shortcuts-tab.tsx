@@ -32,6 +32,7 @@ export function ShortcutsTab() {
               <Toggle
                 checked={shortcut.enabled}
                 onChange={(checked) => { updateShortcut(shortcut.id, { enabled: checked }); }}
+                aria-label={`Enable ${shortcut.action}`}
               />
               <span className="text-sm text-text-primary">{shortcut.action}</span>
             </div>

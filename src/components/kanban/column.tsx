@@ -11,6 +11,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useScriptStore } from '@/stores/script-store'
 import { useColumnMetricsStore } from '@/stores/column-metrics-store'
 import { queueBacklog, cancelBacklogQueue } from '@/lib/ipc/pipeline'
+import { useQueueStatus } from '@/hooks/use-queue-status'
 import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
@@ -71,6 +72,23 @@ export const Column = memo(function Column({
       : entryIsScript ? 'entry' as const : 'exit' as const
     return { scriptName, event }
   }, [column, getScriptName])
+
+  // Show concurrency badge on columns that spawn agents (spawn_cli triggers)
+  const hasAgentTrigger = useMemo(() => {
+    const triggers = getColumnTriggers(column)
+    return triggers.on_entry?.type === 'spawn_cli' || triggers.on_exit?.type === 'spawn_cli'
+  }, [column])
+
+  const queueStatus = useQueueStatus(activeWorkspaceId)
+
+  const agentConcurrency = useMemo(() => {
+    if (!hasAgentTrigger) return undefined
+    return {
+      running: queueStatus.runningCount,
+      max: queueStatus.maxConcurrent,
+      queued: queueStatus.queuedCount,
+    }
+  }, [hasAgentTrigger, queueStatus.runningCount, queueStatus.maxConcurrent, queueStatus.queuedCount])
 
   const [showConfigDialog, setShowConfigDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -224,6 +242,7 @@ export const Column = memo(function Column({
             scriptTrigger={scriptTrigger}
             isBacklog={column.position === 0}
             batchQueue={batchQueueState.isQueuing ? { total: batchQueueState.total, completed: batchQueueState.completed } : undefined}
+            agentConcurrency={agentConcurrency}
             metrics={columnMetrics}
             onConfigure={handleConfigure}
             onAddTask={handleAddTask}
@@ -256,6 +275,7 @@ export const Column = memo(function Column({
                       value={newTaskTitle}
                       onChange={(e: ChangeEvent<HTMLInputElement>) => { setNewTaskTitle(e.target.value); }}
                       data-testid="add-task-input"
+                      aria-label="New task title"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') void handleSubmitTask()
                         if (e.key === 'Escape') handleCancelAddTask()
@@ -284,8 +304,8 @@ export const Column = memo(function Column({
             </AnimatePresence>
 
             {tasks.length === 0 && !showAddTask ? (
-              <div className="flex flex-1 items-center justify-center min-h-[100px]">
-                <p className={`text-xs transition-colors ${isOver ? 'text-accent' : 'text-text-secondary/50'}`}>
+              <div className="flex flex-1 items-center justify-center min-h-[100px]" role="status" aria-label={`${column.name} column is empty`}>
+                <p className={`text-xs transition-colors ${isOver ? 'text-accent' : 'text-text-secondary/50'}`} aria-live="polite">
                   {isOver ? 'Drop here' : 'No tasks yet'}
                 </p>
               </div>
@@ -315,8 +335,12 @@ export const Column = memo(function Column({
       {/* Delete confirmation dialog */}
       {showDeleteConfirm && (
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-column-title"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
           onClick={() => { setShowDeleteConfirm(false); }}
+          onKeyDown={(e) => { if (e.key === 'Escape') setShowDeleteConfirm(false) }}
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -324,7 +348,7 @@ export const Column = memo(function Column({
             onClick={(e) => { e.stopPropagation(); }}
             className="w-full max-w-sm rounded border border-border-default bg-surface p-6 shadow-xl"
           >
-            <h3 className="mb-2 text-lg font-semibold text-text-primary">
+            <h3 id="delete-column-title" className="mb-2 text-lg font-semibold text-text-primary">
               Delete Column?
             </h3>
             <p className="mb-4 text-sm text-text-secondary">

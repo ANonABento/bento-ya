@@ -65,6 +65,8 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map())
+  const listboxId = 'command-palette-listbox'
+  const getOptionId = (index: number) => `command-palette-option-${String(index)}`
 
   // Store data
   const tasks = useTaskStore((s) => s.tasks)
@@ -273,12 +275,18 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
       >
         {/* Search input */}
         <div className="flex items-center gap-3 border-b border-border-default px-4 py-3">
-          <div className="text-text-secondary">
+          <div className="text-text-secondary" aria-hidden="true">
             <SearchIcon />
           </div>
           <input
             ref={inputRef}
             type="text"
+            role="combobox"
+            aria-label="Search commands"
+            aria-autocomplete="list"
+            aria-expanded={flatList.length > 0}
+            aria-controls={listboxId}
+            aria-activedescendant={flatList.length > 0 ? getOptionId(selectedIndex) : undefined}
             value={search}
             onChange={(e) => { setSearch(e.target.value) }}
             onKeyDown={handleKeyDown}
@@ -286,21 +294,27 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
             autoFocus
             className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-secondary focus:outline-none"
           />
-          <kbd className="rounded bg-bg px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
+          <kbd className="rounded bg-bg px-1.5 py-0.5 font-mono text-[10px] text-text-secondary" aria-label="Escape to close">
             Esc
           </kbd>
         </div>
 
         {/* Command list */}
-        <div ref={listRef} className="flex-1 overflow-y-auto p-2">
+        <div
+          ref={listRef}
+          id={listboxId}
+          role="listbox"
+          aria-label="Commands"
+          className="flex-1 overflow-y-auto p-2"
+        >
           {flatList.length === 0 ? (
-            <div className="px-3 py-8 text-center text-sm text-text-secondary">
+            <div role="status" className="px-3 py-8 text-center text-sm text-text-secondary">
               No commands found
             </div>
           ) : (
             grouped.map((group) => (
-              <div key={group.category} className="mb-1">
-                <div className="px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-text-secondary">
+              <div key={group.category} role="group" aria-label={group.category} className="mb-1">
+                <div className="px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-text-secondary" aria-hidden="true">
                   {group.category}
                 </div>
                 {group.commands.map((cmd) => {
@@ -310,6 +324,9 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
                   return (
                     <div
                       key={cmd.id}
+                      id={getOptionId(idx)}
+                      role="option"
+                      aria-selected={isSelected}
                       ref={(el) => {
                         if (el) itemRefs.current.set(idx, el)
                         else itemRefs.current.delete(idx)
@@ -319,12 +336,12 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
                         isSelected ? 'bg-surface-hover text-text-primary' : 'text-text-primary hover:bg-surface-hover'
                       }`}
                     >
-                      <span className="text-text-secondary">
+                      <span className="text-text-secondary" aria-hidden="true">
                         {cmd.icon ?? CATEGORY_ICONS[cmd.category]}
                       </span>
                       <span className="flex-1 truncate">{cmd.label}</span>
                       {cmd.shortcut && (
-                        <div className="flex items-center gap-0.5">
+                        <div className="flex items-center gap-0.5" aria-hidden="true">
                           {cmd.shortcut.map((key, j) => (
                             <span key={j}>
                               <kbd className="rounded bg-bg px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
