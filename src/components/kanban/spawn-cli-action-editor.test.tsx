@@ -84,7 +84,8 @@ describe('SpawnCliActionEditor', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /auto/i }))
 
-    const call = setAction.mock.calls[0][0] as SpawnCliAction
+    expect(setAction).toHaveBeenCalled()
+    const call = setAction.mock.calls[0]?.[0] as SpawnCliAction
     expect(call.model).toBeUndefined()
   })
 
