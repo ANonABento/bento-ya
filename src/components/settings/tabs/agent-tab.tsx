@@ -84,6 +84,10 @@ export function AgentTab() {
     .filter((m) => enabledProviderIds.has(m.provider) && !disabledModelIds.has(m.id))
     .sort((a, b) => a.displayName.localeCompare(b.displayName))
 
+  const enabledProviderCount = model.providers.filter((p) => p.enabled).length
+  const totalEnabledModels = availableModels.length
+  const budgetCount = Object.keys(model.dailyBudgetsUsd).length
+
   const updateDailyBudget = (budgetKey: string, value: string) => {
     const parsed = Number.parseFloat(value)
     const nextBudgets = { ...model.dailyBudgetsUsd }
@@ -158,68 +162,87 @@ export function AgentTab() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Providers */}
-      <SettingSection title="Providers">
-        <div className="mb-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-text-secondary">
-              {allModels.length} models ·{' '}
-              {modelSource === 'api'
-                ? `From API${lastFetched ? ` · ${new Date(lastFetched).toLocaleDateString()}` : ''}`
-                : modelSource === 'cli'
-                  ? 'From CLI'
-                  : 'Built-in list'}
-            </span>
-            <button
-              onClick={() => {
-                setRefreshing(true)
-                setRefreshStatus(null)
-                void refreshModels().then((result) => {
-                  if (result.success) {
-                    const msg = result.newModels.length > 0
-                      ? `Found ${String(result.newModels.length)} new: ${result.newModels.join(', ')}`
-                      : `${String(result.modelCount)} models up to date`
-                    setRefreshStatus({ message: msg, type: 'success' })
-                  } else {
-                    setRefreshStatus({
-                      message: result.error ?? 'Set API keys to discover new models automatically',
-                      type: 'error',
-                    })
-                  }
-                  setRefreshing(false)
-                  // Auto-dismiss after 5s
-                  setTimeout(() => { setRefreshStatus(null) }, 5000)
-                })
-              }}
-              disabled={refreshing}
-              className="flex items-center gap-1.5 rounded-md border border-border-default px-2 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-text-primary disabled:opacity-50"
-            >
-              {refreshing ? (
-                <>
-                  <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Checking...
-                </>
-              ) : (
-                'Check for new models'
-              )}
-            </button>
-          </div>
-          {refreshStatus && (
-            <div
-              className={`rounded-md px-3 py-1.5 text-xs transition-all ${
-                refreshStatus.type === 'success'
-                  ? 'bg-green-500/10 text-green-400'
-                  : 'bg-yellow-500/10 text-yellow-400'
-              }`}
-            >
-              {refreshStatus.message}
-            </div>
-          )}
+    <div className="space-y-8">
+      {/* Quick status header — at-a-glance state */}
+      <div className="grid grid-cols-3 gap-3">
+        <StatusTile
+          label="Active providers"
+          value={`${String(enabledProviderCount)} / ${String(model.providers.length)}`}
+          tone={enabledProviderCount > 0 ? 'ok' : 'warn'}
+        />
+        <StatusTile
+          label="Models available"
+          value={String(totalEnabledModels)}
+          tone={totalEnabledModels > 0 ? 'ok' : 'warn'}
+        />
+        <StatusTile
+          label="Permission mode"
+          value={agent.defaultPermissionMode === 'full' ? 'Full (risky)' : 'Plan (safe)'}
+          tone={agent.defaultPermissionMode === 'full' ? 'danger' : 'ok'}
+        />
+      </div>
+
+      {/* ── 1. PROVIDERS ─────────────────────────────────────── */}
+      <SettingSection
+        title="Providers"
+        description="Connect AI providers via their CLI (recommended for auth) or direct API key."
+      >
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <span className="text-xs text-text-secondary">
+            {allModels.length} models ·{' '}
+            {modelSource === 'api'
+              ? `From API${lastFetched ? ` · ${new Date(lastFetched).toLocaleDateString()}` : ''}`
+              : modelSource === 'cli'
+                ? 'From CLI'
+                : 'Built-in list'}
+          </span>
+          <button
+            onClick={() => {
+              setRefreshing(true)
+              setRefreshStatus(null)
+              void refreshModels().then((result) => {
+                if (result.success) {
+                  const msg = result.newModels.length > 0
+                    ? `Found ${String(result.newModels.length)} new: ${result.newModels.join(', ')}`
+                    : `${String(result.modelCount)} models up to date`
+                  setRefreshStatus({ message: msg, type: 'success' })
+                } else {
+                  setRefreshStatus({
+                    message: result.error ?? 'Set API keys to discover new models automatically',
+                    type: 'error',
+                  })
+                }
+                setRefreshing(false)
+                setTimeout(() => { setRefreshStatus(null) }, 5000)
+              })
+            }}
+            disabled={refreshing}
+            className="flex items-center gap-1.5 rounded-md border border-border-default px-2 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-text-primary disabled:opacity-50"
+          >
+            {refreshing ? (
+              <>
+                <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Checking...
+              </>
+            ) : (
+              'Check for new models'
+            )}
+          </button>
         </div>
+        {refreshStatus && (
+          <div
+            className={`mb-3 rounded-md px-3 py-1.5 text-xs transition-all ${
+              refreshStatus.type === 'success'
+                ? 'bg-green-500/10 text-green-400'
+                : 'bg-yellow-500/10 text-yellow-400'
+            }`}
+          >
+            {refreshStatus.message}
+          </div>
+        )}
         <div className="space-y-3">
           {model.providers.map((provider) => {
             const info = PROVIDER_INFO[provider.id]
@@ -244,7 +267,6 @@ export function AgentTab() {
                   onClick={() => { handleToggleExpanded(provider.id) }}
                 >
                   <div className="flex items-center gap-3">
-                    {/* Chevron (only when enabled) */}
                     {provider.enabled && (
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
@@ -274,7 +296,6 @@ export function AgentTab() {
                     </div>
                   </div>
 
-                  {/* Toggle Switch */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
@@ -283,6 +304,7 @@ export function AgentTab() {
                     className={`relative h-6 w-11 rounded-full transition-colors ${
                       provider.enabled ? 'bg-accent' : 'bg-surface-hover'
                     }`}
+                    aria-label={`${provider.enabled ? 'Disable' : 'Enable'} ${info.name}`}
                   >
                     <span
                       className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all ${
@@ -297,7 +319,7 @@ export function AgentTab() {
                   <div className="border-t border-border-default p-3 space-y-4">
                     {/* Connection Mode */}
                     <div>
-                      <label className="mb-2 block text-xs font-medium text-text-secondary">
+                      <label className="mb-1.5 block text-xs font-medium text-text-secondary">
                         Connection Mode
                       </label>
                       <div className="flex gap-2">
@@ -333,12 +355,17 @@ export function AgentTab() {
                           API
                         </button>
                       </div>
+                      <p className="mt-1.5 text-[11px] text-text-secondary/80">
+                        {provider.connectionMode === 'cli'
+                          ? 'Uses the installed CLI (auth and billing handled by the CLI).'
+                          : 'Direct API key. Requests bill to your provider account.'}
+                      </p>
                     </div>
 
-                    {/* CLI Path (only for CLI mode) */}
+                    {/* CLI Path */}
                     {provider.connectionMode === 'cli' && (
                       <div>
-                        <label className="mb-2 flex items-center gap-2 text-xs font-medium text-text-secondary">
+                        <label className="mb-1.5 flex items-center gap-2 text-xs font-medium text-text-secondary">
                           CLI Path
                           {provider.cliPath && (
                             <span className="flex items-center gap-1 text-green-500">
@@ -357,11 +384,11 @@ export function AgentTab() {
                         />
                         {!provider.cliPath && (
                           <p className="mt-1 text-xs text-yellow-500">
-                            CLI not found. Install or enter path manually.
+                            CLI not found. Install it or enter the path manually.
                           </p>
                         )}
 
-                        {/* Version + Update — single row */}
+                        {/* Version + Update */}
                         {provider.cliPath && (() => {
                           const update = cliUpdates[provider.id]
                           const isChecking = checkingUpdate[provider.id]
@@ -393,15 +420,7 @@ export function AgentTab() {
                                           className="ml-0.5 rounded border border-yellow-500/30 px-1 py-0.5 text-[10px] text-yellow-400 transition-colors hover:bg-yellow-500/10"
                                           title={updateCommand}
                                         >
-                                          {copiedCmd === provider.id ? '✓ copied' : (
-                                            <span className="flex items-center gap-1">
-                                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5">
-                                                <path d="M5.5 3.5A1.5 1.5 0 0 1 7 2h2.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 1 .439 1.061V9.5A1.5 1.5 0 0 1 12 11V8.621a3 3 0 0 0-.879-2.121L9 4.379A3 3 0 0 0 6.879 3.5H5.5Z" />
-                                                <path d="M4 5a1.5 1.5 0 0 0-1.5 1.5v6A1.5 1.5 0 0 0 4 14h5a1.5 1.5 0 0 0 1.5-1.5V8.621a1.5 1.5 0 0 0-.44-1.06L7.94 5.439A1.5 1.5 0 0 0 6.878 5H4Z" />
-                                              </svg>
-                                              upgrade cmd
-                                            </span>
-                                          )}
+                                          {copiedCmd === provider.id ? '✓ copied' : 'copy upgrade cmd'}
                                         </button>
                                       )}
                                     </>
@@ -416,11 +435,11 @@ export function AgentTab() {
                       </div>
                     )}
 
-                    {/* API Key (only for API mode) */}
+                    {/* API Key */}
                     {provider.connectionMode === 'api' && (
                       <div>
-                        <label className="mb-2 block text-xs font-medium text-text-secondary">
-                          API Key (env var: {provider.apiKeyEnvVar})
+                        <label className="mb-1.5 block text-xs font-medium text-text-secondary">
+                          API Key <span className="text-text-secondary/60">(env var: {provider.apiKeyEnvVar})</span>
                         </label>
                         <SettingInput
                           value={agent.envVars[provider.apiKeyEnvVar] ?? ''}
@@ -435,7 +454,7 @@ export function AgentTab() {
                       </div>
                     )}
 
-                    {/* Available Models with toggles */}
+                    {/* Available Models */}
                     {providerModels.length > 0 && (() => {
                       const disabledSet = new Set(model.disabledModels)
                       const enabledCount = providerModels.filter((m) => !disabledSet.has(m.id)).length
@@ -452,17 +471,13 @@ export function AgentTab() {
                       }
 
                       const toggleAll = (enable: boolean) => {
+                        const current = new Set(model.disabledModels)
                         if (enable) {
-                          // Remove all this provider's models from disabled
-                          const current = new Set(model.disabledModels)
                           for (const m of providerModels) current.delete(m.id)
-                          updateGlobal('model', { ...model, disabledModels: [...current] })
                         } else {
-                          // Add all this provider's models to disabled
-                          const current = new Set(model.disabledModels)
                           for (const m of providerModels) current.add(m.id)
-                          updateGlobal('model', { ...model, disabledModels: [...current] })
                         }
+                        updateGlobal('model', { ...model, disabledModels: [...current] })
                       }
 
                       return (
@@ -489,12 +504,12 @@ export function AgentTab() {
                                   }`}
                                 >
                                   <div className="flex items-center gap-2">
-                                    {/* Toggle */}
                                     <button
                                       onClick={() => { toggleModel(m.id) }}
                                       className={`relative h-4 w-7 rounded-full transition-colors ${
                                         enabled ? 'bg-accent' : 'bg-surface-hover'
                                       }`}
+                                      aria-label={`${enabled ? 'Disable' : 'Enable'} ${m.displayName}`}
                                     >
                                       <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${
                                         enabled ? 'left-3.5' : 'left-0.5'
@@ -534,55 +549,51 @@ export function AgentTab() {
             )
           })}
         </div>
-      </SettingSection>
 
-      {/* Coming Soon */}
-      <SettingSection title="Coming Soon">
-        <button
-          onClick={() => { setComingSoonCollapsed(!comingSoonCollapsed) }}
-          className="flex w-full items-center justify-between mb-2 -mt-2"
-        >
-          <span className="text-xs text-text-secondary">
-            {comingSoonCollapsed ? 'Show upcoming providers' : 'Hide upcoming providers'}
-          </span>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            className={`h-4 w-4 text-text-secondary transition-transform ${
-              comingSoonCollapsed ? '' : 'rotate-180'
-            }`}
+        {/* Coming Soon — collapsed by default, less visual weight */}
+        <div className="mt-3 border-t border-border-default/50 pt-3">
+          <button
+            onClick={() => { setComingSoonCollapsed(!comingSoonCollapsed) }}
+            className="flex w-full items-center justify-between text-xs text-text-secondary transition-colors hover:text-text-primary"
           >
-            <path
-              fillRule="evenodd"
-              d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-              clipRule="evenodd"
-            />
-          </svg>
-        </button>
-        {!comingSoonCollapsed && (
-          <div className="space-y-2">
-            {COMING_SOON.map((item) => (
-              <div
-                key={item.name}
-                className="rounded-lg border border-border-default p-3 opacity-50"
-              >
-                <span className="text-sm font-medium text-text-secondary">{item.name}</span>
-                <p className="text-xs text-text-secondary">{item.description}</p>
-              </div>
-            ))}
-          </div>
-        )}
+            <span>{comingSoonCollapsed ? 'Show upcoming providers' : 'Hide upcoming providers'}</span>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className={`h-4 w-4 transition-transform ${comingSoonCollapsed ? '' : 'rotate-180'}`}
+            >
+              <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+            </svg>
+          </button>
+          {!comingSoonCollapsed && (
+            <div className="mt-2 space-y-2">
+              {COMING_SOON.map((item) => (
+                <div key={item.name} className="rounded-lg border border-border-default p-3 opacity-50">
+                  <span className="text-sm font-medium text-text-secondary">{item.name}</span>
+                  <p className="text-xs text-text-secondary">{item.description}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </SettingSection>
 
-      {/* Orchestrator Settings */}
-      <SettingSection title="Orchestrator" border>
-        <div className="space-y-4">
-          {/* Model Selection */}
-          <SettingRow label="Model Selection" description="Auto lets the orchestrator choose the best model per task" vertical>
+      {/* ── 2. ORCHESTRATOR & CONCURRENCY ────────────────────── */}
+      <SettingSection
+        title="Orchestrator & Concurrency"
+        description="How the orchestrator picks models, and how many agents can run at once."
+        border
+      >
+        <div className="space-y-5">
+          <SettingRow
+            label="Default model"
+            description="Used when the orchestrator decides, or when triggers / tasks don't specify a model."
+            vertical
+          >
             <Dropdown
               options={[
-                { value: 'auto', label: 'Auto', description: 'Orchestrator chooses best model per task' },
+                { value: 'auto', label: 'Auto', description: 'Orchestrator picks per task' },
                 ...availableModels.map((m) => ({ value: m, label: m })),
               ]}
               value={agent.modelSelection}
@@ -590,8 +601,11 @@ export function AgentTab() {
             />
           </SettingRow>
 
-          {/* Max Concurrent Agents */}
-          <SettingRow label="Max Concurrent Agents" vertical>
+          <SettingRow
+            label="Max concurrent agents"
+            description="Cap on agents running simultaneously across all workspaces. Workspace-level limits apply on top of this."
+            vertical
+          >
             <SettingSlider
               value={agent.maxConcurrentAgents}
               onChange={(value) => { updateAgent({ maxConcurrentAgents: value }) }}
@@ -599,18 +613,61 @@ export function AgentTab() {
               max={50}
             />
           </SettingRow>
-
         </div>
       </SettingSection>
 
+      {/* ── 3. PERMISSIONS (formerly hidden — surfaces a dangerous mode) ──── */}
       <SettingSection
-        title="Daily Model Budgets"
-        description="Show a board warning when today's usage for a model reaches 80% of its budget."
+        title="Default permission mode"
+        description="Sets the starting permission for new agent chats. Each session can still be changed in the chat input."
+        border
+      >
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <PermissionCard
+            active={agent.defaultPermissionMode === 'plan'}
+            onClick={() => { updateAgent({ defaultPermissionMode: 'plan' }) }}
+            label="Plan"
+            tone="safe"
+            tag="Recommended"
+            description="Read-only. Agents can analyze code and suggest plans, but cannot execute commands or modify files."
+          />
+          <PermissionCard
+            active={agent.defaultPermissionMode === 'full'}
+            onClick={() => { updateAgent({ defaultPermissionMode: 'full' }) }}
+            label="Full"
+            tone="danger"
+            tag="Dangerous"
+            description="Bypasses all permission prompts. Agents can run any command and modify any file without confirmation. Use only in sandboxes or worktrees you trust."
+          />
+        </div>
+        {agent.defaultPermissionMode === 'full' && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-4 w-4 shrink-0 text-red-400">
+              <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 5Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+            </svg>
+            <div className="text-xs text-red-300">
+              <p className="font-medium">Full permissions are active by default.</p>
+              <p className="mt-0.5 text-red-300/80">
+                Agents will execute commands, write files, and run scripts without asking. Use per-task worktrees to limit blast radius.
+              </p>
+            </div>
+          </div>
+        )}
+      </SettingSection>
+
+      {/* ── 4. DAILY BUDGETS ─────────────────────────────────── */}
+      <SettingSection
+        title="Daily model budgets"
+        description={
+          budgetCount > 0
+            ? `Show a board warning at 80% of the daily cap. ${String(budgetCount)} budget${budgetCount === 1 ? '' : 's'} set.`
+            : 'Set a USD cap per model. The board warns when today\'s usage hits 80%.'
+        }
         border
       >
         {budgetModels.length === 0 ? (
-          <p className="rounded-lg border border-border-default px-3 py-4 text-sm text-text-secondary">
-            Enable a provider and model to set daily budgets.
+          <p className="rounded-lg border border-dashed border-border-default px-3 py-4 text-sm text-text-secondary">
+            Enable a provider and at least one model to set daily budgets.
           </p>
         ) : (
           <div className="space-y-2">
@@ -644,6 +701,7 @@ export function AgentTab() {
                       className="w-24 rounded-lg border border-border-default bg-surface px-2 py-1.5 text-right text-sm tabular-nums text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
                       aria-label={`${entry.displayName} daily budget`}
                     />
+                    <span className="text-[10px] text-text-secondary/60">/day</span>
                   </label>
                 </div>
               )
@@ -652,5 +710,66 @@ export function AgentTab() {
         )}
       </SettingSection>
     </div>
+  )
+}
+
+// ─── Small atoms ─────────────────────────────────────────────
+
+type Tone = 'ok' | 'warn' | 'danger'
+
+function StatusTile({ label, value, tone }: { label: string; value: string; tone: Tone }) {
+  const accent =
+    tone === 'danger'
+      ? 'border-red-500/30 bg-red-500/5 text-red-300'
+      : tone === 'warn'
+        ? 'border-yellow-500/30 bg-yellow-500/5 text-yellow-300'
+        : 'border-border-default bg-surface/50 text-text-primary'
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${accent}`}>
+      <div className="text-[10px] uppercase tracking-wider text-text-secondary/80">{label}</div>
+      <div className="mt-0.5 text-sm font-semibold tabular-nums">{value}</div>
+    </div>
+  )
+}
+
+function PermissionCard({
+  active,
+  onClick,
+  label,
+  description,
+  tone,
+  tag,
+}: {
+  active: boolean
+  onClick: () => void
+  label: string
+  description: string
+  tone: 'safe' | 'danger'
+  tag?: string
+}) {
+  const activeRing =
+    tone === 'danger' ? 'border-red-500 bg-red-500/10' : 'border-accent bg-accent/10'
+  const tagStyle =
+    tone === 'danger'
+      ? 'bg-red-500/20 text-red-300'
+      : 'bg-green-500/15 text-green-400'
+  return (
+    <button
+      onClick={onClick}
+      type="button"
+      className={`flex flex-col items-start rounded-lg border p-3 text-left transition-colors ${
+        active ? activeRing : 'border-border-default hover:border-accent/40'
+      }`}
+    >
+      <div className="flex w-full items-center justify-between">
+        <span className="text-sm font-semibold text-text-primary">{label}</span>
+        {tag && (
+          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${tagStyle}`}>
+            {tag}
+          </span>
+        )}
+      </div>
+      <p className="mt-1.5 text-xs leading-relaxed text-text-secondary">{description}</p>
+    </button>
   )
 }

@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useVoiceInput } from '@/hooks/use-voice-input'
 import { useAttachments } from '@/hooks/use-attachments'
 import { useModelCapabilities, type ModelId } from '@/hooks/use-model-capabilities'
+import { useSettingsStore } from '@/stores/settings-store'
 import type { ThinkingLevel } from '@/components/shared/thinking-utils'
 import type { PermissionMode } from '@/components/shared/permission-utils'
 import {
@@ -25,11 +26,13 @@ export function useChatInputState({
   onAttachmentError,
   disabled,
 }: UseChatInputStateArgs) {
+  const defaultPermissionMode = useSettingsStore((s) => s.global.agent.defaultPermissionMode)
+
   const [message, setMessage] = useState('')
   const [model, setModel] = useState<ModelId>('sonnet')
   const [extendedContext, setExtendedContext] = useState(false)
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('medium')
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>('plan')
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(defaultPermissionMode)
   const [isDragOver, setIsDragOver] = useState(false)
 
   const inputRef = useRef<HTMLTextAreaElement>(null)

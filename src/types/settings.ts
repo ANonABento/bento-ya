@@ -15,6 +15,8 @@ export type AgentConfig = {
   envVars: Record<string, string>
   instructionsFile: string
   modelSelection: string // 'auto' = orchestrator decides, or specific model ID
+  /** Default permission mode for new agent chats. 'plan' = read-only safe mode, 'full' = bypassPermissions (dangerous). */
+  defaultPermissionMode: 'plan' | 'full'
 }
 
 export type AgentMode = {
@@ -164,6 +166,7 @@ export const DEFAULT_SETTINGS: Settings = {
     envVars: {},
     instructionsFile: '',
     modelSelection: 'auto',
+    defaultPermissionMode: 'plan',
   },
   modes: [
     { id: 'code', name: 'Code', icon: 'code', prompt: 'Write clean, maintainable code', tools: ['read', 'write', 'bash'], isBuiltIn: true },
