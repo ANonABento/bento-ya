@@ -69,18 +69,73 @@ const icons: Record<string, React.ReactNode> = {
   ),
 }
 
-const TABS = [
-  { id: 'workspace', label: 'Workspace' },
-  { id: 'appearance', label: 'Appearance' },
-  { id: 'agent', label: 'Agent' },
-  { id: 'mcp', label: 'Connect' },
-  { id: 'board', label: 'Board' },
-  { id: 'voice', label: 'Voice' },
-  { id: 'github', label: 'GitHub' },
-  { id: 'batches', label: 'Batches' },
-  { id: 'updates', label: 'Updates' },
-  { id: 'advanced', label: 'Advanced' },
-] as const
+type TabId =
+  | 'workspace'
+  | 'appearance'
+  | 'agent'
+  | 'mcp'
+  | 'board'
+  | 'voice'
+  | 'github'
+  | 'batches'
+  | 'updates'
+  | 'advanced'
+
+type TabDef = {
+  id: TabId
+  label: string
+  hint: string
+}
+
+type TabGroup = {
+  id: string
+  label: string
+  tabs: TabDef[]
+}
+
+const TAB_GROUPS: TabGroup[] = [
+  {
+    id: 'general',
+    label: 'General',
+    tabs: [
+      { id: 'workspace', label: 'Workspace', hint: 'Active workspace, agent defaults, danger zone' },
+      { id: 'appearance', label: 'Appearance', hint: 'Theme, accent color, density' },
+      { id: 'board', label: 'Board', hint: 'Card display, scripts, templates' },
+    ],
+  },
+  {
+    id: 'agents',
+    label: 'Agents & Models',
+    tabs: [
+      { id: 'agent', label: 'Models & Limits', hint: 'Providers, concurrency, budgets, permissions' },
+      { id: 'voice', label: 'Voice', hint: 'Speech-to-text via Whisper' },
+    ],
+  },
+  {
+    id: 'integrations',
+    label: 'Integrations',
+    tabs: [
+      { id: 'github', label: 'GitHub', hint: 'Issue sync and column mapping' },
+      { id: 'mcp', label: 'MCP Server', hint: 'Connect external agents to the board' },
+      { id: 'batches', label: 'Batches', hint: 'Grouped task PR workflows' },
+    ],
+  },
+  {
+    id: 'system',
+    label: 'System',
+    tabs: [
+      { id: 'advanced', label: 'Advanced', hint: 'Terminal, panels, performance, git, shortcuts' },
+      { id: 'updates', label: 'Updates', hint: 'Check for app updates' },
+    ],
+  },
+]
+
+const ALL_TABS: TabDef[] = TAB_GROUPS.flatMap((g) => g.tabs)
+
+function tabHeading(id: string): { title: string; hint: string } {
+  const t = ALL_TABS.find((x) => x.id === id)
+  return t ? { title: t.label, hint: t.hint } : { title: 'Settings', hint: '' }
+}
 
 export function SettingsPanel() {
   const isOpen = useSettingsStore((s) => s.isOpen)
@@ -110,16 +165,24 @@ export function SettingsPanel() {
         return <UpdatesTab />
       case 'advanced':
         return (
-          <div className="space-y-8">
+          <div className="space-y-10">
             <AdvancedTab />
-            <div className="border-t border-border-default" />
             <section>
-              <h3 className="text-sm font-medium text-text-primary mb-4">Git</h3>
+              <header className="mb-4 border-t border-border-default pt-6">
+                <h3 className="text-sm font-semibold text-text-primary">Git</h3>
+                <p className="mt-0.5 text-xs text-text-secondary">
+                  Branch prefixes and merge strategy for auto-generated PRs.
+                </p>
+              </header>
               <GitTab />
             </section>
-            <div className="border-t border-border-default" />
             <section>
-              <h3 className="text-sm font-medium text-text-primary mb-4">Keyboard Shortcuts</h3>
+              <header className="mb-4 border-t border-border-default pt-6">
+                <h3 className="text-sm font-semibold text-text-primary">Keyboard Shortcuts</h3>
+                <p className="mt-0.5 text-xs text-text-secondary">
+                  Customize hotkeys for common actions.
+                </p>
+              </header>
               <ShortcutsTab />
             </section>
           </div>
@@ -128,6 +191,8 @@ export function SettingsPanel() {
         return <WorkspaceTab />
     }
   }
+
+  const heading = tabHeading(activeTab)
 
   return (
     <AnimatePresence>
@@ -142,13 +207,13 @@ export function SettingsPanel() {
             className="fixed inset-0 z-40 bg-black/50"
           />
 
-          {/* Panel */}
+          {/* Panel — responsive width: wider on large screens, full-width on mobile */}
           <motion.div
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className="fixed right-0 top-0 z-50 flex h-full w-full max-w-2xl flex-col border-l border-border-default bg-bg shadow-2xl"
+            className="fixed right-0 top-0 z-50 flex h-full w-full max-w-full flex-col border-l border-border-default bg-bg shadow-2xl sm:max-w-2xl lg:max-w-4xl xl:max-w-5xl"
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border-default px-6 py-4">
@@ -156,6 +221,7 @@ export function SettingsPanel() {
               <button
                 onClick={closeSettings}
                 className="rounded-lg p-2 text-text-secondary transition-colors hover:bg-surface hover:text-text-primary"
+                title="Close settings"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
                   <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
@@ -163,29 +229,65 @@ export function SettingsPanel() {
               </button>
             </div>
 
+            {/* Mobile section picker — only visible on narrow viewports */}
+            <div className="block border-b border-border-default px-4 py-2 sm:hidden">
+              <select
+                value={activeTab}
+                onChange={(e) => { setActiveTab(e.target.value) }}
+                className="w-full rounded-md border border-border-default bg-surface px-2 py-1.5 text-sm text-text-primary"
+                aria-label="Settings section"
+              >
+                {TAB_GROUPS.map((group) => (
+                  <optgroup key={group.id} label={group.label}>
+                    {group.tabs.map((tab) => (
+                      <option key={tab.id} value={tab.id}>{tab.label}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+
             {/* Content */}
             <div className="flex flex-1 overflow-hidden">
-              {/* Tab sidebar */}
-              <nav className="w-48 shrink-0 border-r border-border-default bg-surface/50 p-2">
-                {TABS.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => { setActiveTab(tab.id); }}
-                    className={`mb-1 flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm transition-colors ${
-                      activeTab === tab.id
-                        ? 'bg-accent/10 text-accent'
-                        : 'text-text-secondary hover:bg-surface hover:text-text-primary'
-                    }`}
-                  >
-                    {icons[tab.id]}
-                    <span>{tab.label}</span>
-                  </button>
+              {/* Tab sidebar with groups — hidden on mobile */}
+              <nav className="hidden w-56 shrink-0 overflow-y-auto border-r border-border-default bg-surface/40 p-3 sm:block">
+                {TAB_GROUPS.map((group) => (
+                  <div key={group.id} className="mb-4">
+                    <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-text-secondary/70">
+                      {group.label}
+                    </div>
+                    {group.tabs.map((tab) => (
+                      <button
+                        key={tab.id}
+                        onClick={() => { setActiveTab(tab.id) }}
+                        title={tab.hint}
+                        className={`mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
+                          activeTab === tab.id
+                            ? 'bg-accent/10 text-accent'
+                            : 'text-text-secondary hover:bg-surface hover:text-text-primary'
+                        }`}
+                      >
+                        {icons[tab.id]}
+                        <span className="truncate">{tab.label}</span>
+                      </button>
+                    ))}
+                  </div>
                 ))}
               </nav>
 
-              {/* Tab content */}
-              <div className="flex-1 overflow-y-auto p-6">
-                {renderTabContent()}
+              {/* Tab content with sticky tab heading */}
+              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                <header className="shrink-0 border-b border-border-default bg-bg/80 px-6 py-3 backdrop-blur">
+                  <h3 className="text-base font-semibold text-text-primary">{heading.title}</h3>
+                  {heading.hint && (
+                    <p className="mt-0.5 text-xs text-text-secondary">{heading.hint}</p>
+                  )}
+                </header>
+                <div className="flex-1 overflow-y-auto px-6 py-6">
+                  <div className="mx-auto max-w-3xl">
+                    {renderTabContent()}
+                  </div>
+                </div>
               </div>
             </div>
           </motion.div>
