@@ -62,7 +62,7 @@ Columns define `on_entry`/`on_exit` triggers. Tasks can override. See `.tickets/
 
 **Auto-retry:** When `max_retries` is set on exit criteria, failed triggers automatically re-fire up to N times. Retry count tracked per-task, resets on success.
 
-**Trigger execution:** `spawn_cli` triggers run CLI agents inside per-task **tmux sessions** via `chat::bridge::spawn_cli_trigger_task()`. The CLI command is injected via `tmux send-keys -l` into a fresh `bentoya_<task_id>` session, with output mirrored to a log file via `tmux pipe-pane` and an exit-code sentinel file written when the agent finishes. Completion is detected via `tmux wait-for`. The same tmux session is what the frontend Terminal panel attaches to — pipeline mode and interactive mode are now the same transport. Exit code determines success/failure. 2-hour timeout kills the session if it hangs. Concurrent limit: max 3 agents per workspace (see `DEFAULT_MAX_CONCURRENT_AGENTS` in triggers.rs).
+**Trigger execution:** `spawn_cli` triggers run CLI agents inside per-task **tmux sessions** via `chat::bridge::spawn_cli_trigger_task()`. The CLI command is injected via `tmux send-keys -l` into a fresh `bentoya_<task_id>` session, with output mirrored to a log file via `tmux pipe-pane` and an exit-code sentinel file written when the agent finishes. Completion is detected via `tmux wait-for`. The same tmux session is what the frontend Terminal panel attaches to — pipeline mode and interactive mode are now the same transport. Exit code determines success/failure. 2-hour timeout kills the session if it hangs. Concurrent limit: `DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS = 5` per workspace (see `src-tauri/src/config/mod.rs`; overridable via workspace config). Triggers fired while at the limit mark the task `queued` instead of spawning.
 
 **Worktree-aware cwd:** `resolve_working_dir()` in triggers.rs picks `task.worktree_path` (if set and exists) over `workspace.repo_path`. Used by `spawn_cli`, `run_script`, and `create_pr` actions. Template variable: `{task.worktree_path}`.
 
@@ -102,7 +102,7 @@ Pipeline triggers and the interactive Terminal panel now share a single transpor
 - Injects the CLI command via `tmux send-keys -l` + `Enter`
 - Detects completion via `tmux wait-for {channel}` against a wrapper that writes exit code to a sentinel file then signals the channel
 - 2-hour timeout kills the session if it hangs
-- Concurrent limit: max 3 per workspace (queued tasks auto-promote)
+- Concurrent limit: 5 per workspace by default (queued tasks auto-promote)
 - Used by: `spawn_cli` column triggers
 
 **Interactive mode (user opens terminal panel):**
@@ -196,14 +196,26 @@ Standalone Rust binary exposing the board as MCP tools over stdio. Any MCP clien
 ```
 mcp-server/
 ├── Cargo.toml
-└── src/main.rs    — 19 tools, ~800 lines
+└── src/main.rs    — 25 tools, ~2.4k lines (incl. test module)
 ```
 
-**Tools:** get_workspaces, get_board, get_task, create_task, update_task, move_task, delete_task, approve_task, reject_task, add_dependency, remove_dependency, mark_complete, retry_task, create_workspace, create_column, configure_triggers, list_scripts, create_script, run_script
+**Read-only tools:** get_workspaces, get_board, get_task, list_scripts, list_pipeline_templates, get_pipeline_template
 
-**Config:** `{ "command": "bento-mcp" }` — auto-detects DB at `~/.bentoya/data.db`
+**Task mutation tools:** create_task, update_task, move_task, delete_task, approve_task, reject_task, mark_complete, retry_task, retry_from_start, add_dependency, remove_dependency
 
-**App requirement:** All mutation tools (create, move, delete, approve, reject, retry, mark_complete, update) require the Bento-ya app to be running. Read-only tools (get_board, get_task, etc.) work without the app. Health check verifies response body to prevent false positives from stale port files.
+**Workspace/column/script tools:** create_workspace, create_column, configure_triggers, create_script, run_script
+
+**Pipeline template tools:** save_pipeline_template, apply_pipeline_template, delete_pipeline_template
+
+**Config:** `{ "command": "bento-mcp" }` — auto-detects DB at `~/.bentoya/data.db` with platform-specific Tauri data dir fallbacks.
+
+**App requirement:** Most mutation tools route through the Tauri app's HTTP API (port discovered via `~/.bentoya/api.port`) so triggers fire and `tasks:changed` events flow to the UI. If the app isn't running, those tools error out (production builds disable direct-DB fallback; only `cfg!(test)` allows it). Read-only tools work without the app.
+
+**Known gaps (see `.tickets/_docs/MCP_DOGFOOD_REPORT.md`):**
+- `create_task` accepts a `model` parameter but silently drops it — the `/api/create_task` payload doesn't include it.
+- `create_task` does not expose `trigger_prompt` even though the API accepts it.
+- `mark_complete`, `add_dependency`, `remove_dependency` bypass the API and write the DB directly — no `tasks:changed` event, so the UI doesn't refresh in real-time.
+- No recursion guard / source attribution on MCP-created tasks. See `.tickets/_docs/MCP_SELF_TASK_WORKFLOW.md` for a safe self-task pattern.
 
 ## Type System
 

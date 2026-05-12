@@ -3,11 +3,11 @@ import { useEffect, useRef, useState } from 'react'
 import type { Task } from '@/types'
 import { useTaskDetail } from '@/hooks/use-task-detail'
 import * as ipc from '@/lib/ipc'
-import { ChangesSection } from '@/components/task-detail/changes-section'
+import { DiffSection } from '@/components/task-detail/diff-section'
 import { CommitsSection } from '@/components/task-detail/commits-section'
 import { SiegeStatus } from '@/components/task-detail/siege-status'
 
-const EXPANDED_MAX_HEIGHT = 400
+const EXPANDED_MAX_HEIGHT = 560
 
 function formatHours(hours: number) {
   if (hours === 0) return '0h'
@@ -127,7 +127,16 @@ function TimeTrackingSection({
 }
 
 export function TaskCardExpanded({ task }: { task: Task }) {
-  const { updateTask, changes, commits, loading } = useTaskDetail(task)
+  const {
+    updateTask,
+    changes,
+    commits,
+    loading,
+    diffByFile,
+    diffLoading,
+    diffError,
+    loadDiff,
+  } = useTaskDetail(task)
 
   return (
     <motion.div
@@ -199,12 +208,20 @@ export function TaskCardExpanded({ task }: { task: Task }) {
           </div>
         )}
 
-        {/* Changes */}
+        {/* Changes + Diff viewer */}
         <div>
           <h4 className="text-[11px] font-medium uppercase tracking-wider text-text-secondary mb-1">
             Changes
           </h4>
-          <ChangesSection changes={changes} loading={loading} />
+          <DiffSection
+            branch={task.branch ?? null}
+            changes={changes}
+            loading={loading}
+            diffLoading={diffLoading}
+            diffError={diffError}
+            diffByFile={diffByFile}
+            loadDiff={loadDiff}
+          />
         </div>
 
         {/* Commits */}

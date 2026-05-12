@@ -216,6 +216,7 @@ export function VoiceTab() {
           <Toggle
             checked={voice.enabled}
             onChange={(checked) => { updateVoice({ enabled: checked }) }}
+            aria-label="Enable voice input"
           />
         </SettingRow>
         {voice.enabled && !hasDownloadedModel && (
@@ -280,6 +281,7 @@ export function VoiceTab() {
             checked={voice.pushToTalk}
             onChange={(checked) => { updateVoice({ pushToTalk: checked }); }}
             disabled={!voice.enabled}
+            aria-label="Push-to-talk"
           />
         </SettingRow>
       </SettingSection>

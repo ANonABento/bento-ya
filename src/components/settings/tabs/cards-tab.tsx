@@ -10,7 +10,7 @@ type ToggleProps = {
 
 function Toggle({ label, description, checked, onChange }: ToggleProps) {
   return (
-    <label className="flex items-start justify-between gap-4 py-2">
+    <div className="flex items-start justify-between gap-4 py-2">
       <div>
         <span className="text-sm text-text-primary">{label}</span>
         {description && (
@@ -21,8 +21,9 @@ function Toggle({ label, description, checked, onChange }: ToggleProps) {
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={label}
         onClick={() => { onChange(!checked); }}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent/50 ${
           checked ? 'bg-accent' : 'bg-surface-hover'
         }`}
       >
@@ -32,7 +33,7 @@ function Toggle({ label, description, checked, onChange }: ToggleProps) {
           }`}
         />
       </button>
-    </label>
+    </div>
   )
 }
 

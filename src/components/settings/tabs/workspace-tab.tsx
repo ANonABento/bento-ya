@@ -10,14 +10,14 @@ import type { WorkspaceConfig } from '@/types'
 import * as ipc from '@/lib/ipc'
 
 const MODEL_OPTIONS = [
-  { value: '', label: 'None (use trigger default)' },
+  { value: '', label: 'Inherit (use trigger / global default)' },
   { value: 'opus', label: 'Opus' },
   { value: 'sonnet', label: 'Sonnet' },
   { value: 'haiku', label: 'Haiku' },
 ] as const
 
 const CLI_OPTIONS = [
-  { value: '', label: 'None (use trigger default)' },
+  { value: '', label: 'Inherit (use trigger / global default)' },
   { value: 'claude', label: 'Claude' },
   { value: 'codex', label: 'Codex' },
 ] as const
@@ -43,12 +43,12 @@ export function WorkspaceTab() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSwitching, setIsSwitching] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [confirmName, setConfirmName] = useState('')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const updateConfig = useCallback(async (patch: Partial<WorkspaceConfig>) => {
     if (!workspace) return
     const merged = { ...config, ...patch }
-    // Remove keys set to empty/default values
     if (!merged.defaultModel) delete merged.defaultModel
     if (!merged.defaultAgentCli) delete merged.defaultAgentCli
     if (!merged.defaultBaseBranch || merged.defaultBaseBranch === DEFAULT_BASE_BRANCH) {
@@ -90,10 +90,8 @@ export function WorkspaceTab() {
 
   const handleSwitchWorkspace = async (workspaceId: string) => {
     if (workspaceId === activeWorkspaceId) return
-
     setIsSwitching(workspaceId)
     setMessage(null)
-
     try {
       setActive(workspaceId)
       await loadColumns(workspaceId)
@@ -108,15 +106,13 @@ export function WorkspaceTab() {
 
   const handleDeleteWorkspace = async () => {
     if (!workspace) return
-
     setIsDeleting(true)
     setMessage(null)
-
     try {
       await removeWorkspace(workspace.id)
       setMessage({ type: 'success', text: 'Workspace deleted' })
       setShowDeleteConfirm(false)
-      // Load the next workspace if available
+      setConfirmName('')
       const remaining = workspaces.filter((w) => w.id !== workspace.id)
       const nextWorkspace = remaining[0]
       if (nextWorkspace) {
@@ -132,35 +128,34 @@ export function WorkspaceTab() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Status Message - at top for visibility */}
+    <div className="space-y-8">
       {message && (
         <div
           className={`rounded-lg p-3 text-sm ${
             message.type === 'success'
-              ? 'bg-green-500/10 text-green-500 border border-green-500/20'
-              : 'bg-red-500/10 text-red-500 border border-red-500/20'
+              ? 'border border-green-500/20 bg-green-500/10 text-green-500'
+              : 'border border-red-500/20 bg-red-500/10 text-red-500'
           }`}
         >
           {message.text}
         </div>
       )}
 
-      {/* Current Workspace Info */}
-      <SettingSection title="Current Workspace">
+      {/* ── Current workspace ─────────────────────────────────── */}
+      <SettingSection title="Current workspace">
         {workspace ? (
-          <div className="rounded-lg border border-accent bg-accent/5 p-4 space-y-3">
-            <div className="flex items-start justify-between">
-              <div>
-                <label className="text-xs font-medium text-text-secondary">Name</label>
-                <p className="text-sm font-medium text-text-primary">{workspace.name}</p>
+          <div className="space-y-3 rounded-lg border border-accent/40 bg-accent/5 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase tracking-wider text-text-secondary/70">Name</div>
+                <p className="truncate text-sm font-semibold text-text-primary">{workspace.name}</p>
               </div>
-              <span className="rounded-full bg-accent/20 px-2 py-0.5 text-xs font-medium text-accent">
+              <span className="shrink-0 rounded-full bg-accent/20 px-2 py-0.5 text-xs font-medium text-accent">
                 Active
               </span>
             </div>
             <div>
-              <label className="text-xs font-medium text-text-secondary">Repository Path</label>
+              <div className="text-[10px] uppercase tracking-wider text-text-secondary/70">Repository path</div>
               <div className="mt-1">
                 <PathPicker
                   value={workspace.repoPath}
@@ -169,28 +164,35 @@ export function WorkspaceTab() {
                 />
               </div>
             </div>
-            <div className="flex gap-4 text-xs text-text-secondary">
-              <span>Created: {new Date(workspace.createdAt).toLocaleDateString()}</span>
-              <span>Updated: {new Date(workspace.updatedAt).toLocaleDateString()}</span>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-secondary/80">
+              <span>Created {new Date(workspace.createdAt).toLocaleDateString()}</span>
+              <span>Updated {new Date(workspace.updatedAt).toLocaleDateString()}</span>
             </div>
           </div>
         ) : (
           <div className="rounded-lg border border-dashed border-border-default p-6 text-center">
             <p className="text-sm text-text-secondary">No workspace selected</p>
-            <p className="mt-1 text-xs text-text-secondary/70">Create a new workspace from the tab bar</p>
+            <p className="mt-1 text-xs text-text-secondary/70">Create one from the tab bar at the top.</p>
           </div>
         )}
       </SettingSection>
 
-      {/* Pipeline Defaults */}
+      {/* ── Agent defaults ────────────────────────────────────── */}
       {workspace && (
-        <SettingSection title="Pipeline Defaults" description="Fallback settings when column triggers don't specify values">
-          <div className="space-y-4">
-            <SettingRow label="Default Model" description="AI model used when trigger and task don't specify one">
+        <SettingSection
+          title="Agent defaults"
+          description="Fallbacks for this workspace when a column trigger or task doesn't specify its own value. Per-trigger and per-task overrides take precedence."
+          border
+        >
+          <div className="space-y-5">
+            <SettingRow
+              label="Default model"
+              description="Used when a trigger or task doesn't pick a model."
+            >
               <select
                 value={config.defaultModel ?? ''}
                 onChange={(e) => { void updateConfig({ defaultModel: e.target.value }) }}
-                className="rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+                className="min-w-48 rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
               >
                 {MODEL_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -198,11 +200,14 @@ export function WorkspaceTab() {
               </select>
             </SettingRow>
 
-            <SettingRow label="Default Agent CLI" description="CLI tool used when trigger doesn't specify one">
+            <SettingRow
+              label="Default agent CLI"
+              description="The CLI tool that spawns agent sessions."
+            >
               <select
                 value={config.defaultAgentCli ?? ''}
                 onChange={(e) => { void updateConfig({ defaultAgentCli: e.target.value }) }}
-                className="rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+                className="min-w-48 rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
               >
                 {CLI_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -211,8 +216,8 @@ export function WorkspaceTab() {
             </SettingRow>
 
             <SettingRow
-              label="Default Base Branch"
-              description="Branch new task branches are created from (e.g. main, develop, trunk)"
+              label="Default base branch"
+              description="Branch new task branches are created from."
             >
               <input
                 type="text"
@@ -229,11 +234,26 @@ export function WorkspaceTab() {
                 }}
                 placeholder={DEFAULT_BASE_BRANCH}
                 spellCheck={false}
-                className="rounded-lg border border-border-default bg-surface px-3 py-2 text-sm font-mono text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+                className="min-w-40 rounded-lg border border-border-default bg-surface px-3 py-2 text-sm font-mono text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
               />
             </SettingRow>
+          </div>
+        </SettingSection>
+      )}
 
-            <SettingRow label="Max Concurrent Agents" description="Maximum number of agents running simultaneously">
+      {/* ── Concurrency & lifecycle ───────────────────────────── */}
+      {workspace && (
+        <SettingSection
+          title="Concurrency & lifecycle"
+          description="How many agents run in parallel in this workspace, and how their sessions are managed."
+          border
+        >
+          <div className="space-y-5">
+            <SettingRow
+              label="Max concurrent agents (this workspace)"
+              description="Cap for this workspace only. Lower than the global limit takes effect."
+              vertical
+            >
               <SettingSlider
                 value={config.maxConcurrentAgents ?? 5}
                 onChange={(v) => { void updateConfig({ maxConcurrentAgents: v }) }}
@@ -242,45 +262,74 @@ export function WorkspaceTab() {
               />
             </SettingRow>
 
-            <SettingRow label="Auto-Advance" description="Automatically move tasks to next column when exit criteria are met">
+            <SettingRow
+              label="Persistent agent sessions"
+              description="Keep per-task tmux sessions alive across triggers, panel reopens, and app restarts. Disable to spawn a fresh shell each time (uses less memory but loses session history)."
+            >
+              <Toggle
+                checked={config.persistentAgentLifecycle ?? true}
+                onChange={(v) => { void updateConfig({ persistentAgentLifecycle: v }) }}
+                size="md"
+              />
+            </SettingRow>
+          </div>
+        </SettingSection>
+      )}
+
+      {/* ── Pipeline behavior ─────────────────────────────────── */}
+      {workspace && (
+        <SettingSection
+          title="Pipeline behavior"
+          description="How tasks advance through columns and get cleaned up."
+          border
+        >
+          <div className="space-y-5">
+            <SettingRow
+              label="Auto-advance to next column"
+              description="Move tasks to the next column automatically when exit criteria are met (e.g. agent_complete, script_success)."
+            >
               <Toggle
                 checked={config.autoAdvance ?? true}
                 onChange={(v) => { void updateConfig({ autoAdvance: v }) }}
                 size="md"
+                aria-label="Auto-Advance"
               />
             </SettingRow>
 
             <SettingRow
-              label="Auto-Archive Done"
-              description="Automatically archive tasks that sit in Done past the grace period"
+              label="Auto-archive Done"
+              description="Tasks that sit in Done past the grace period are archived automatically."
             >
               <Toggle
                 checked={config.autoArchiveDone ?? true}
                 onChange={(v) => { void updateConfig({ autoArchiveDone: v }) }}
                 size="md"
+                aria-label="Auto-Archive Done"
               />
             </SettingRow>
 
-            {(config.autoArchiveDone ?? true) && (
-              <SettingRow
-                label="Archive Grace Period"
-                description="Minutes a Done task waits before auto-archiving"
-              >
+            <SettingRow
+              label="Archive grace period (minutes)"
+              description="How long a task waits in Done before auto-archive."
+              vertical
+            >
+              <div className={(config.autoArchiveDone ?? true) ? '' : 'pointer-events-none opacity-50'}>
                 <SettingSlider
                   value={config.autoArchiveGraceMinutes ?? 5}
                   onChange={(v) => { void updateConfig({ autoArchiveGraceMinutes: v }) }}
                   min={1}
                   max={60}
+                  formatValue={(v) => `${String(v)}m`}
                 />
-              </SettingRow>
-            )}
+              </div>
+            </SettingRow>
           </div>
         </SettingSection>
       )}
 
-      {/* Switch Workspace */}
+      {/* ── Switch workspace ──────────────────────────────────── */}
       {workspaces.length > 1 && (
-        <SettingSection title="Switch Workspace">
+        <SettingSection title="Switch workspace" border>
           <div className="space-y-2">
             {workspaces
               .filter((ws) => ws.id !== activeWorkspaceId)
@@ -289,13 +338,13 @@ export function WorkspaceTab() {
                   key={ws.id}
                   onClick={() => { void handleSwitchWorkspace(ws.id) }}
                   disabled={isSwitching === ws.id}
-                  className="flex w-full items-center justify-between rounded-lg border border-border-default p-3 text-left transition-colors hover:border-accent/50 hover:bg-accent/5 disabled:opacity-50"
+                  className="flex w-full items-center justify-between gap-3 rounded-lg border border-border-default p-3 text-left transition-colors hover:border-accent/50 hover:bg-accent/5 disabled:opacity-50"
                 >
-                  <div>
-                    <p className="text-sm font-medium text-text-primary">{ws.name}</p>
-                    <p className="text-xs text-text-secondary font-mono">{ws.repoPath}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-text-primary">{ws.name}</p>
+                    <p className="truncate font-mono text-xs text-text-secondary">{ws.repoPath}</p>
                   </div>
-                  <span className="flex items-center gap-1 text-xs text-accent">
+                  <span className="flex shrink-0 items-center gap-1 text-xs text-accent">
                     {isSwitching === ws.id ? (
                       <>
                         <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -320,34 +369,58 @@ export function WorkspaceTab() {
         </SettingSection>
       )}
 
-      {/* Delete Workspace */}
+      {/* ── Danger zone ───────────────────────────────────────── */}
       {workspace && (
-        <SettingSection title="Danger Zone" border>
+        <SettingSection title="Danger zone" border>
           {!showDeleteConfirm ? (
-            <button
-              onClick={() => { setShowDeleteConfirm(true) }}
-              className="rounded-lg border border-red-500/50 px-4 py-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-500/10"
-            >
-              Delete "{workspace.name}"
-            </button>
+            <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-text-primary">Delete this workspace</p>
+                  <p className="mt-0.5 text-xs text-text-secondary">
+                    Permanently removes all columns, tasks, agent sessions, and history for{' '}
+                    <span className="font-mono text-text-primary">{workspace.name}</span>.
+                  </p>
+                </div>
+                <button
+                  onClick={() => { setShowDeleteConfirm(true) }}
+                  className="shrink-0 rounded-lg border border-red-500/50 px-3 py-1.5 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/10"
+                >
+                  Delete…
+                </button>
+              </div>
+            </div>
           ) : (
-            <div className="rounded-lg border border-red-500/50 bg-red-500/5 p-4 space-y-3">
-              <p className="text-sm text-text-primary">
-                Are you sure you want to delete <strong>{workspace.name}</strong>?
-              </p>
-              <p className="text-xs text-text-secondary">
-                This will permanently delete all columns and tasks in this workspace.
-              </p>
+            <div className="space-y-3 rounded-lg border border-red-500/50 bg-red-500/10 p-4">
+              <div>
+                <p className="text-sm font-medium text-text-primary">
+                  This cannot be undone.
+                </p>
+                <p className="mt-1 text-xs text-text-secondary">
+                  Type the workspace name to confirm: <span className="font-mono text-text-primary">{workspace.name}</span>
+                </p>
+              </div>
+              <input
+                type="text"
+                value={confirmName}
+                onChange={(e) => { setConfirmName(e.target.value) }}
+                placeholder={workspace.name}
+                className="w-full rounded-lg border border-red-500/40 bg-bg px-3 py-2 text-sm font-mono text-text-primary focus:border-red-400 focus:outline-none"
+                autoFocus
+              />
               <div className="flex gap-2">
                 <button
                   onClick={() => { void handleDeleteWorkspace() }}
-                  disabled={isDeleting}
-                  className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-50"
+                  disabled={isDeleting || confirmName !== workspace.name}
+                  className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  {isDeleting ? 'Deleting...' : 'Yes, Delete'}
+                  {isDeleting ? 'Deleting...' : 'Delete permanently'}
                 </button>
                 <button
-                  onClick={() => { setShowDeleteConfirm(false) }}
+                  onClick={() => {
+                    setShowDeleteConfirm(false)
+                    setConfirmName('')
+                  }}
                   className="rounded-lg border border-border-default px-4 py-2 text-sm text-text-secondary transition-colors hover:bg-surface"
                 >
                   Cancel

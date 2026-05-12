@@ -23,8 +23,9 @@ import { parseDeps } from '@/lib/dependency-utils'
 import { PIPELINE_LABELS, PIPELINE_COLORS, formatRelativeTime } from './task-card-utils'
 import { PrStatusIndicator, SiegeBadge } from './task-card-badges'
 import { useTaskCardActions } from './use-task-card-actions'
-import { AttentionBanner, BlockedBanner, QualityGateBanner, PipelineErrorBanner } from './task-card-status'
+import { AttentionBanner, BlockedBanner, QueuedBanner, QualityGateBanner, PipelineErrorBanner } from './task-card-status'
 import { AgentActivityPreview } from './task-card-activity'
+import { useQueueStatus } from '@/hooks/use-queue-status'
 
 type TaskCardProps = {
   task: Task
@@ -73,6 +74,9 @@ export const TaskCard = memo(function TaskCard({
 
   // Live agent streaming data
   const agentStream = useAgentStreamingStore((s) => s.streams.get(task.id))
+
+  // Queue/concurrency status — only subscribed when this task is queued
+  const queueStatus = useQueueStatus(task.agentStatus === 'queued' ? task.workspaceId : null)
 
   // All action handlers
   const actions = useTaskCardActions(task)
@@ -326,6 +330,8 @@ export const TaskCard = memo(function TaskCard({
     <>
     <div
       ref={cardRef}
+      role="article"
+      aria-label={isSelected ? `${task.title} (selected)` : task.title}
       data-task-id={task.id}
       data-task-status={task.agentStatus ?? 'idle'}
       style={{
@@ -413,7 +419,7 @@ export const TaskCard = memo(function TaskCard({
       onMouseLeave={() => { if (!isDragging) setHoveredTaskId(null) }}
     >
       {isSelected && (
-        <div className="absolute left-2 top-2 z-20 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-bg shadow">
+        <div className="absolute left-2 top-2 z-20 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-bg shadow" aria-hidden="true">
           <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M16.704 5.29a1 1 0 0 1 .006 1.414l-7.25 7.31a1 1 0 0 1-1.42.002l-3.25-3.28a1 1 0 1 1 1.42-1.408l2.54 2.563 6.54-6.594a1 1 0 0 1 1.414-.006Z" clipRule="evenodd" />
           </svg>
@@ -471,11 +477,14 @@ export const TaskCard = memo(function TaskCard({
         {/* Status banners */}
         {needsAttention && attention && <AttentionBanner attention={attention} />}
         {task.blocked && <BlockedBanner blockerInfo={blockerInfo} />}
+        {task.agentStatus === 'queued' && !hasPipelineError && (
+          <QueuedBanner taskId={task.id} queueStatus={queueStatus} />
+        )}
         {isQualityGate && !hasPipelineError && <QualityGateBanner reviewStatus={reviewStatus} />}
         {hasPipelineError && <PipelineErrorBanner task={task} onRetry={() => { void actions.handleRetryPipeline() }} />}
 
-        {/* Agent activity preview — hidden when expanded */}
-        {!isExpanded && !needsAttention && !hasPipelineError && (
+        {/* Agent activity preview — hidden when expanded or queued (queued has its own banner) */}
+        {!isExpanded && !needsAttention && !hasPipelineError && task.agentStatus !== 'queued' && (
           <AgentActivityPreview task={task} agentStream={agentStream} />
         )}
 
