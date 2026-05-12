@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useRef, useEffect, useId } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
 
 type DropdownOption = {
   value: string
@@ -25,7 +25,10 @@ export function Dropdown({
   label,
 }: DropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1)
   const containerRef = useRef<HTMLDivElement>(null)
+  const listboxId = useId()
+  const labelId = useId()
 
   const selected = options.find((opt) => opt.value === value)
 
@@ -43,28 +46,79 @@ export function Dropdown({
     }
   }, [isOpen])
 
-  // Close on escape
+  // Reset focused index when closing
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsOpen(false)
+    if (!isOpen) setFocusedIndex(-1)
+    else {
+      // Default focus to current selected option
+      const idx = options.findIndex((o) => o.value === value)
+      setFocusedIndex(idx >= 0 ? idx : 0)
     }
+  }, [isOpen, options, value])
 
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown)
-      return () => { document.removeEventListener('keydown', handleKeyDown); }
+  function handleTriggerKeyDown(e: React.KeyboardEvent) {
+    switch (e.key) {
+      case 'Enter':
+      case ' ':
+      case 'ArrowDown':
+        e.preventDefault()
+        if (!disabled) setIsOpen(true)
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        if (!disabled) setIsOpen(true)
+        break
+      case 'Escape':
+        setIsOpen(false)
+        break
     }
-  }, [isOpen])
+  }
+
+  function handleListKeyDown(e: React.KeyboardEvent) {
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        setFocusedIndex((i) => Math.min(i + 1, options.length - 1))
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        setFocusedIndex((i) => Math.max(i - 1, 0))
+        break
+      case 'Enter':
+      case ' ': {
+        e.preventDefault()
+        const option = options[focusedIndex]
+        if (option) {
+          onChange(option.value)
+          setIsOpen(false)
+        }
+        break
+      }
+      case 'Escape':
+        e.preventDefault()
+        setIsOpen(false)
+        break
+      case 'Tab':
+        setIsOpen(false)
+        break
+    }
+  }
 
   return (
     <div ref={containerRef} className="relative">
       {label && (
-        <label className="mb-2 block text-xs font-medium text-text-secondary">{label}</label>
+        <label id={labelId} className="mb-2 block text-xs font-medium text-text-secondary">{label}</label>
       )}
 
       {/* Trigger */}
       <button
         type="button"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? listboxId : undefined}
+        aria-labelledby={label ? labelId : undefined}
         onClick={() => { if (!disabled) setIsOpen(!isOpen); }}
+        onKeyDown={handleTriggerKeyDown}
         disabled={disabled}
         className={`flex w-full items-center justify-between rounded-lg border bg-surface px-3 py-2 text-left text-sm transition-colors ${
           isOpen
@@ -79,6 +133,7 @@ export function Dropdown({
           xmlns="http://www.w3.org/2000/svg"
           viewBox="0 0 20 20"
           fill="currentColor"
+          aria-hidden="true"
           className={`h-4 w-4 text-text-secondary transition-transform ${isOpen ? 'rotate-180' : ''}`}
         >
           <path
@@ -99,23 +154,36 @@ export function Dropdown({
             transition={{ duration: 0.15 }}
             className="absolute z-50 mt-1 w-full overflow-hidden rounded-lg border border-border-default bg-surface shadow-lg"
           >
-            <div className="max-h-60 overflow-y-auto py-1">
-              {options.map((option) => (
+            <div
+              id={listboxId}
+              role="listbox"
+              aria-label={label ?? placeholder}
+              onKeyDown={handleListKeyDown}
+              tabIndex={-1}
+              className="max-h-60 overflow-y-auto py-1"
+            >
+              {options.map((option, index) => (
                 <button
                   key={option.value}
                   type="button"
+                  role="option"
+                  aria-selected={option.value === value}
+                  data-focused={index === focusedIndex}
                   onClick={() => {
                     onChange(option.value)
                     setIsOpen(false)
                   }}
+                  onMouseEnter={() => { setFocusedIndex(index) }}
                   className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors ${
                     option.value === value
                       ? 'bg-accent/10 text-text-primary'
-                      : 'text-text-primary hover:bg-surface-hover'
+                      : index === focusedIndex
+                        ? 'bg-surface-hover text-text-primary'
+                        : 'text-text-primary hover:bg-surface-hover'
                   }`}
                 >
                   {/* Check mark for selected */}
-                  <span className="w-4 shrink-0">
+                  <span className="w-4 shrink-0" aria-hidden="true">
                     {option.value === value && (
                       <svg
                         xmlns="http://www.w3.org/2000/svg"

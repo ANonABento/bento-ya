@@ -4,9 +4,6 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { parseWorkspaceConfig } from '@/types/workspace'
 
-// Mirrors DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS in src-tauri/src/config/mod.rs
-const BACKEND_DEFAULT_MAX = 5
-
 export type WorkspaceQueueStatus = {
   runningCount: number
   queuedCount: number
@@ -53,9 +50,7 @@ export function useQueueStatus(workspaceId: string | null): WorkspaceQueueStatus
       ? parseWorkspaceConfig(activeWorkspace.config)
       : {}
     const maxConcurrent =
-      workspaceConfig.maxConcurrentAgents ??
-      globalMaxConcurrent ??
-      BACKEND_DEFAULT_MAX
+      workspaceConfig.maxConcurrentAgents ?? globalMaxConcurrent
 
     const positionOf = (taskId: string): number => {
       const idx = queuedTaskIds.indexOf(taskId)

@@ -66,6 +66,7 @@ export function GitTab() {
               <Toggle
                 checked={git.autoPr}
                 onChange={(checked) => { updateGit({ autoPr: checked }); }}
+                aria-label="Auto-create PR"
               />
             </SettingRow>
           </div>

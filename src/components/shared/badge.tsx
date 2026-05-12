@@ -18,7 +18,7 @@ const dotColors: Record<BadgeVariant, string> = {
 export function Badge({ variant = 'default', label, className = '' }: BadgeProps) {
   return (
     <span className={`inline-flex items-center gap-1.5 ${className}`}>
-      <span className={`h-2 w-2 rounded-full ${dotColors[variant]}`} />
+      <span className={`h-2 w-2 rounded-full ${dotColors[variant]}`} aria-hidden="true" />
       {label && <span className="text-xs text-text-secondary">{label}</span>}
     </span>
   )

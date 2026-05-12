@@ -220,6 +220,7 @@ export const ColumnHeader = memo(function ColumnHeader({
             onKeyDown={handleRenameKeyDown}
             onMouseDown={stopInputPropagation}
             onClick={stopInputPropagation}
+            aria-label="Column name"
             className="min-w-0 flex-1 bg-transparent text-xs font-semibold uppercase tracking-wider text-text-primary outline-none border-b border-accent pb-px"
           />
         ) : (
@@ -364,8 +365,12 @@ export const ColumnHeader = memo(function ColumnHeader({
       {/* Run All confirmation dialog */}
       {showConfirm && (
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="run-all-dialog-title"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
           onClick={() => { setShowConfirm(false); }}
+          onKeyDown={(e) => { if (e.key === 'Escape') setShowConfirm(false) }}
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -373,7 +378,7 @@ export const ColumnHeader = memo(function ColumnHeader({
             onClick={(e) => { e.stopPropagation(); }}
             className="w-full max-w-sm rounded border border-border-default bg-surface p-6 shadow-xl"
           >
-            <h3 className="mb-2 text-lg font-semibold text-text-primary">
+            <h3 id="run-all-dialog-title" className="mb-2 text-lg font-semibold text-text-primary">
               Queue {taskCount} tasks?
             </h3>
             <p className="mb-4 text-sm text-text-secondary">

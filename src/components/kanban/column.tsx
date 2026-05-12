@@ -275,6 +275,7 @@ export const Column = memo(function Column({
                       value={newTaskTitle}
                       onChange={(e: ChangeEvent<HTMLInputElement>) => { setNewTaskTitle(e.target.value); }}
                       data-testid="add-task-input"
+                      aria-label="New task title"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') void handleSubmitTask()
                         if (e.key === 'Escape') handleCancelAddTask()
@@ -303,8 +304,8 @@ export const Column = memo(function Column({
             </AnimatePresence>
 
             {tasks.length === 0 && !showAddTask ? (
-              <div className="flex flex-1 items-center justify-center min-h-[100px]">
-                <p className={`text-xs transition-colors ${isOver ? 'text-accent' : 'text-text-secondary/50'}`}>
+              <div className="flex flex-1 items-center justify-center min-h-[100px]" role="status" aria-label={`${column.name} column is empty`}>
+                <p className={`text-xs transition-colors ${isOver ? 'text-accent' : 'text-text-secondary/50'}`} aria-live="polite">
                   {isOver ? 'Drop here' : 'No tasks yet'}
                 </p>
               </div>
@@ -334,8 +335,12 @@ export const Column = memo(function Column({
       {/* Delete confirmation dialog */}
       {showDeleteConfirm && (
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-column-title"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
           onClick={() => { setShowDeleteConfirm(false); }}
+          onKeyDown={(e) => { if (e.key === 'Escape') setShowDeleteConfirm(false) }}
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -343,7 +348,7 @@ export const Column = memo(function Column({
             onClick={(e) => { e.stopPropagation(); }}
             className="w-full max-w-sm rounded border border-border-default bg-surface p-6 shadow-xl"
           >
-            <h3 className="mb-2 text-lg font-semibold text-text-primary">
+            <h3 id="delete-column-title" className="mb-2 text-lg font-semibold text-text-primary">
               Delete Column?
             </h3>
             <p className="mb-4 text-sm text-text-secondary">

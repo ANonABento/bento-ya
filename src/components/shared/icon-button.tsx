@@ -41,6 +41,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         ref={ref}
         onClick={onClick}
         disabled={disabled}
+        aria-label={tooltip}
         className={`flex items-center justify-center rounded transition-colors ${sizeClasses[size]} ${variantClasses[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
       >
         {icon}

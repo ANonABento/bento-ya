@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, type ReactNode } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useId, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
 
@@ -21,6 +21,7 @@ export function Tooltip({ content, children, side = 'top', delay = 100, wrap = f
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const triggerRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
+  const tooltipId = useId()
 
   const showTooltip = () => {
     timeoutRef.current = setTimeout(() => {
@@ -104,6 +105,7 @@ export function Tooltip({ content, children, side = 'top', delay = 100, wrap = f
     <div
       ref={triggerRef}
       className="inline-flex"
+      aria-describedby={isVisible ? tooltipId : undefined}
       onMouseEnter={showTooltip}
       onMouseLeave={hideTooltip}
       onClick={hideTooltip}
@@ -116,6 +118,8 @@ export function Tooltip({ content, children, side = 'top', delay = 100, wrap = f
           {isVisible && (
             <motion.div
               ref={tooltipRef}
+              id={tooltipId}
+              role="tooltip"
               initial={animationOrigin[side].initial}
               animate={animationOrigin[side].animate}
               exit={{ opacity: 0 }}
