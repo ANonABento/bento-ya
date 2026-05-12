@@ -9,6 +9,9 @@ import { MoveColumnActionEditor } from './move-column-action-editor'
 import { RunScriptActionEditor } from './run-script-action-editor'
 import { SpawnCliActionEditor } from './spawn-cli-action-editor'
 
+// Actions that require extra user awareness (irreversible or affects shared state)
+const DANGEROUS_ACTIONS: ActionType[] = ['auto_merge', 'create_pr']
+
 type ActionEditorProps = {
   action: TriggerAction
   setAction: (value: TriggerAction) => void
@@ -42,22 +45,34 @@ export function ActionEditor({
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-2">
-        {actionTypes.map((t) => (
-          <button
-            key={t.value}
-            type="button"
-            onClick={() => { handleTypeChange(t.value) }}
-            className={`flex-1 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
-              action.type === t.value
-                ? 'border-accent bg-accent/10 text-text-primary'
-                : 'border-border-default text-text-secondary hover:border-text-secondary'
-            }`}
-          >
-            <div className="font-medium">{t.label}</div>
-            <div className="text-xs opacity-70">{t.description}</div>
-          </button>
-        ))}
+      {/* Action type selector — compact 3-column grid */}
+      <div className="grid grid-cols-3 gap-1.5">
+        {actionTypes.map((t) => {
+          const isDangerous = DANGEROUS_ACTIONS.includes(t.value)
+          const isSelected = action.type === t.value
+          return (
+            <button
+              key={t.value}
+              type="button"
+              onClick={() => { handleTypeChange(t.value) }}
+              className={`rounded-lg border px-2.5 py-2 text-left text-xs transition-colors ${
+                isSelected
+                  ? isDangerous
+                    ? 'border-amber-500/60 bg-amber-500/10 text-text-primary'
+                    : 'border-accent bg-accent/10 text-text-primary'
+                  : 'border-border-default text-text-secondary hover:border-text-secondary'
+              }`}
+            >
+              <div className="flex items-center gap-1">
+                <span className="font-medium leading-tight">{t.label}</span>
+                {isDangerous && (
+                  <span className="text-amber-400" title="Irreversible action">⚠</span>
+                )}
+              </div>
+              <div className="mt-0.5 text-[10px] opacity-60 leading-tight">{t.description}</div>
+            </button>
+          )
+        })}
       </div>
 
       {action.type === 'run_script' && (
@@ -86,6 +101,16 @@ export function ActionEditor({
           action={action}
           setAction={(nextAction) => { setAction(nextAction) }}
         />
+      )}
+
+      {action.type === 'auto_merge' && (
+        <div className="flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2">
+          <span className="mt-0.5 text-amber-400 text-xs">⚠</span>
+          <p className="text-xs text-amber-300">
+            Auto Merge will merge the pull request automatically. Ensure CI and any required reviews
+            are complete before this trigger fires.
+          </p>
+        </div>
       )}
     </div>
   )
