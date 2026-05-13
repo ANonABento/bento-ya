@@ -94,24 +94,44 @@ Transport abstraction + session layer with tmux-managed terminal sessions:
 
 ### Agent Execution — One Transport for Everything
 
-Pipeline triggers and the interactive Terminal panel now share a single transport: a per-task tmux session named `bentoya_<task_id>`. The Terminal panel is no longer a separate "raw shell" view — it attaches to whatever tmux session is associated with the task, including the one a pipeline trigger spawned. There is no separate Output panel.
+Pipeline triggers and the interactive Terminal panel share a single transport: a per-task tmux session named `bentoya_<task_id>`. The Terminal panel attaches to whatever tmux session the task owns, including one a pipeline trigger spawned. There is no separate Output panel.
 
-**Pipeline mode (automated triggers):**
+**Runtime modes** (see `.tickets/_docs/AGENT_PANEL_MODES.md` for the full design):
+
+| Runtime mode | CLI invocation | Render | Completion signal | Billing bucket (Claude) |
+|---|---|---|---|---|
+| `headless` (`terminal`) | `claude -p` / `codex exec` piped through jq | xterm.js raw pane | `tmux wait-for` + exit code | Agent SDK credit → API rates |
+| `headless` (`managed`/`bubbles`) | same `-p` shape, semantic event stream | chat bubbles in `agent-panel` | same | same |
+| `interactive` | `claude` / `codex` (no `-p`/`exec`); prompt via `tmux send-keys -l` | xterm.js TUI + control bar | `<<<BENTOYA_DONE:{task_id}>>>` sentinel scraped from pane | Subscription interactive limits |
+
+The legacy DB tokens `'terminal'` and `'managed'` are both headless variants (terminal-render vs bubbles-render). `'interactive'` is the new third value. Resolution hierarchy (narrowest wins): `trigger > task > column > workspace > global > default(headless·bubbles)` — implemented in `pipeline::triggers::resolve_runtime_mode_for_task`.
+
+**Pipeline (headless) mode:**
 - Spawns a fresh tmux session via `tmux new-session -d`
 - Mirrors output to a log file via `tmux pipe-pane`
 - Injects the CLI command via `tmux send-keys -l` + `Enter`
-- Detects completion via `tmux wait-for {channel}` against a wrapper that writes exit code to a sentinel file then signals the channel
+- Detects completion via `tmux wait-for {channel}` against a wrapper that writes exit code to a sentinel file
 - 2-hour timeout kills the session if it hangs
 - Concurrent limit: 5 per workspace by default (queued tasks auto-promote)
-- Used by: `spawn_cli` column triggers
+- Used by: `spawn_cli` column triggers when `runtime_mode` resolves to `terminal`/`managed`
 
-**Interactive mode (user opens terminal panel):**
-- Reuses the same `bentoya_<task_id>` session if it exists (e.g. attaches mid-trigger to a running agent)
-- Otherwise spawns a fresh shell via `TmuxTransport`
-- `ManagedBridge` forwards `pty:{taskId}:output` events to xterm.js
-- User keystrokes flow back via `write_to_pty` (registry path) or `tmux send-keys -l` fallback for bare pipeline sessions
+**Interactive mode** (gated by `BENTOYA_INTERACTIVE_MODE_ENABLED=1` until the dev flag is promoted):
+- Spawns the real CLI TUI (no `-p`/`exec`) inside the tmux session via `chat::bridge::spawn_interactive_cli` — argv-based dispatch on `InteractiveCli::Claude` vs `InteractiveCli::Codex`
+- Polls the captured pane for a CLI-specific ready indicator before injecting the initial prompt (Claude: `╭`/`╰` box-drawing chars; Codex: `codex` banner substring)
+- Optionally appends `--append-system-prompt` with the sentinel marker when the column's exit criteria is `agent_complete` or `manual_approval`
+- A 2s-cadence watcher (`watch_interactive_sentinel`) scans `tmux capture-pane` for `<<<BENTOYA_DONE:{task_id}>>>` (after ANSI strip, line-anchored) and runs `mark_complete` on hit
+- Same `bentoya_<task_id>` tmux session — the Terminal panel and the panel's interactive view both attach to it
+- 2h hard timeout fires `mark_complete_with_error` if the sentinel never lands
+- Completion paths emit telemetry rows to `agent_completion_events` (sentinel / exit_code / manual / timeout / kill) for the Phase 6 fallback decision
 
-This means clicking a task card mid-trigger drops you straight into the live agent's terminal, and you can interrupt with the Stop button (sends Ctrl+C via `tmux send-keys C-c`).
+**Per-task control surfaces (interactive mode)** — Tauri commands in `commands::agent_interactive`:
+- `agent_inject_message(task_id, message)` — `tmux send-keys -l <message>` + Enter; route the agent panel's input box to this when mode = interactive (otherwise the input would silently spawn a parallel `-p` call)
+- `agent_interrupt(task_id)` — `Ctrl+C` via `tmux send-keys C-c`. Works in any mode.
+- `agent_pause(task_id)` / `agent_resume(task_id)` — `Ctrl+Z` / `fg` for SIGTSTP-based pause. Tracked via `tasks.agent_paused_at`. GC skips paused sessions.
+- `agent_switch_model(task_id, model)` — sends `/model <name>` slash command to the live TUI
+- `agent_restart(task_id)` — kills the session and re-spawns with the same trigger config
+
+Clicking a task card mid-trigger still drops you straight into the live agent's tmux pane. The agent panel's view is selected by `useResolvedRuntimeMode`: interactive tasks get `InteractiveAgentView` (xterm + control bar); headless tasks get the existing transcript / terminal toggle. Mode changes force a full child remount via `key={...}`.
 
 ### Terminal View (tmux-backed)
 

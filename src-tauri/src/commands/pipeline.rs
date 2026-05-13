@@ -17,6 +17,37 @@ pub fn mark_pipeline_complete(
         .db
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    // Phase 4 telemetry — this command is the user-clicked path. Sample
+    // the task's resolved runtime mode + cli so the event captures what
+    // was running, not what it's about to become after auto-advance.
+    if let Ok(task) = db::get_task(&conn, &task_id) {
+        if let Ok(column) = db::get_column(&conn, &task.column_id) {
+            let resolved =
+                crate::pipeline::triggers::resolve_runtime_mode_for_task(&task, &column);
+            let cli = task
+                .agent_session_id
+                .as_deref()
+                .and_then(|sid| db::get_agent_session(&conn, sid).ok())
+                .map(|s| s.agent_type)
+                .unwrap_or_else(|| "unknown".to_string());
+            let started_at = task
+                .pipeline_triggered_at
+                .as_deref()
+                .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok());
+            let duration_ms = started_at
+                .map(|started| (chrono::Utc::now() - started.with_timezone(&chrono::Utc)).num_milliseconds().max(0))
+                .unwrap_or(0);
+            db::completion_events::record_async(
+                task_id.clone(),
+                task.workspace_id.clone(),
+                cli,
+                resolved.mode,
+                db::completion_events::CompletionSource::Manual,
+                duration_ms,
+                None,
+            );
+        }
+    }
     pipeline::mark_complete(&conn, &app, &task_id, success)
 }
 

@@ -673,25 +673,34 @@ pub fn try_auto_advance(
     // can silently fail (race against another in-flight merge, dirty working
     // tree, agent declined to act on a foreign mid-merge state). Without this
     // check, the task advances to Done even though main never received the
-    // branch's commits — a "ghost merge". Verify the branch is reachable from
-    // main before advancing.
+    // branch's commits -- a "ghost merge".
     let is_merge_column = current_column.name.eq_ignore_ascii_case("Merge main")
         || current_column.name.eq_ignore_ascii_case("Merge");
     if is_merge_column {
+        // Auto-advance is the normal path out of Merge main, so fire the
+        // column's on_exit action here before verification. For the default
+        // Slothing template this is the serialized `merge_to_main` push that
+        // fast-forwards origin/main to the task branch.
+        triggers::fire_on_exit(conn, app, task, current_column, None)?;
+
         if let Some(branch) = task.branch_name.as_deref() {
             if !branch.is_empty() {
                 if let Ok(workspace) = db::get_workspace(conn, &task.workspace_id) {
+                    let _ = std::process::Command::new("git")
+                        .args(["fetch", "origin", "main"])
+                        .current_dir(&workspace.repo_path)
+                        .output();
                     match crate::git::branch_manager::branch_feature_commit_count(
                         &workspace.repo_path,
-                        "main",
+                        "origin/main",
                         branch,
                     ) {
                         Ok(0) => { /* fully merged — proceed */ }
                         Ok(n) => {
                             let msg = format!(
                                 "Post-merge verification failed: branch '{}' still has {} \
-                                 commit(s) not on 'main'. The merge step claimed success but \
-                                 main did not advance. Requeued to first column for human review.",
+                                 commit(s) not on 'origin/main'. The merge step claimed success but \
+                                 origin/main did not advance. Requeued to first column for human review.",
                                 branch, n
                             );
                             log::warn!(
@@ -699,14 +708,20 @@ pub fn try_auto_advance(
                                 task.id, branch, n
                             );
                             return Ok(Some(requeue_to_first_column(
-                                conn, app, task, current_column, &msg,
+                                conn,
+                                app,
+                                task,
+                                current_column,
+                                &msg,
                             )?));
                         }
                         Err(e) => {
                             log::warn!(
                                 "[post-merge-verify] task={} branch={}: count failed: {} — \
                                  proceeding with advance (cannot verify)",
-                                task.id, branch, e
+                                task.id,
+                                branch,
+                                e
                             );
                         }
                     }
@@ -1057,8 +1072,20 @@ fn emit_completion_event(
     promote_queued_tasks(app, workspace_id);
 }
 
-/// Check if any tasks are queued (waiting for a concurrency slot) and promote
-/// the oldest one if there's capacity. Called after every task completion/failure.
+/// Walk queued tasks FIFO and promote every task whose workspace + column
+/// caps both have room. Called after every task completion/failure so freed
+/// slots drain promptly.
+///
+/// Three behaviors worth knowing:
+///   1. Uses the workspace-effective cap (honoring per-workspace overrides
+///      stored in `workspaces.config`), not the source default. Earlier
+///      revisions used `triggers::DEFAULT_MAX_CONCURRENT_AGENTS` here, which
+///      drifted from `execute_spawn_cli`'s actual gate.
+///   2. Promotes multiple tasks in one call. Earlier revisions only promoted
+///      one, so multiple simultaneously-freed slots took several events to
+///      drain.
+///   3. Honors per-column `triggers.max_concurrent` — if a queued task's
+///      column is at its column cap, skip it and try the next queued task.
 fn promote_queued_tasks(app: &AppHandle, workspace_id: &str) {
     let conn = match Connection::open(db::db_path()) {
         Ok(c) => c,
@@ -1069,41 +1096,93 @@ fn promote_queued_tasks(app: &AppHandle, workspace_id: &str) {
     };
     let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
 
-    let running = db::get_running_agent_count(&conn, workspace_id).unwrap_or(0);
-    let max = triggers::DEFAULT_MAX_CONCURRENT_AGENTS;
+    let workspace = match db::get_workspace(&conn, workspace_id) {
+        Ok(w) => w,
+        Err(e) => {
+            log::warn!(
+                "[pipeline] promote_queued_tasks: workspace read failed: {}",
+                e
+            );
+            return;
+        }
+    };
+    let max_workspace =
+        crate::config::effective_pipeline_settings(&workspace.config).max_concurrent_agents;
 
-    if running >= max {
-        return; // Still at capacity
+    let running = db::get_running_agent_count(&conn, workspace_id).unwrap_or(0);
+    if running >= max_workspace {
+        return;
     }
 
     let queued = match db::get_queued_tasks(&conn, workspace_id) {
         Ok(q) => q,
         Err(_) => return,
     };
+    if queued.is_empty() {
+        return;
+    }
 
-    if let Some(next) = queued.first() {
-        log::info!(
-            "[pipeline] Promoting queued task {} (slot opened: {}/{})",
-            next.id,
-            running,
-            max
-        );
-        // Clear queued status so the trigger can fire
-        let _ = db::update_task_agent_status(&conn, &next.id, Some("idle"), None);
-        // Re-fire the column's on_entry trigger
-        if let Ok(columns) = db::list_columns(&conn, workspace_id) {
-            if let Some(col) = columns.iter().find(|c| c.id == next.column_id) {
-                let parsed_triggers = triggers::parse_column_triggers(col.triggers.as_deref());
-                match triggers::fire_on_entry(&conn, app, next, col, &parsed_triggers, None) {
-                    Ok(_) => log::info!("[pipeline] Queued task {} promoted successfully", next.id),
-                    Err(e) => log::warn!(
-                        "[pipeline] Failed to promote queued task {}: {}",
-                        next.id,
-                        e
-                    ),
-                }
+    let columns = match db::list_columns(&conn, workspace_id) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let mut current_running = running;
+    let mut promoted = 0usize;
+
+    for next in &queued {
+        if current_running >= max_workspace {
+            break;
+        }
+        let col = match columns.iter().find(|c| c.id == next.column_id) {
+            Some(c) => c,
+            None => continue,
+        };
+        let col_triggers = triggers::parse_column_triggers(col.triggers.as_deref());
+
+        // Column-scoped cap (if set & positive). Re-read the count per
+        // iteration since we may have just promoted into the same column.
+        if let Some(col_cap) = triggers::effective_column_max_concurrent(&col_triggers) {
+            let col_running = db::get_active_execution_count_in_column_excluding(
+                &conn,
+                workspace_id,
+                &col.id,
+                &next.id,
+            )
+            .unwrap_or(0);
+            if col_running >= col_cap {
+                continue;
             }
         }
+
+        log::info!(
+            "[pipeline] Promoting queued task {} (workspace {}/{}; column '{}')",
+            next.id,
+            current_running,
+            max_workspace,
+            col.name,
+        );
+        let _ = db::update_task_agent_status(&conn, &next.id, Some("idle"), None);
+        match triggers::fire_on_entry(&conn, app, next, col, &col_triggers, None) {
+            Ok(_) => {
+                promoted += 1;
+                current_running += 1;
+            }
+            Err(e) => log::warn!(
+                "[pipeline] Failed to promote queued task {}: {}",
+                next.id,
+                e
+            ),
+        }
+    }
+
+    if promoted > 1 {
+        log::info!(
+            "[pipeline] Promoted {} queued tasks (running now: {}/{})",
+            promoted,
+            current_running,
+            max_workspace
+        );
     }
 }
 
@@ -1169,6 +1248,8 @@ mod tests {
             archived_at: None,
             last_user_input_at: None,
             held_by_user: false,
+            runtime_mode_override: None,
+            agent_paused_at: None,
             created_at: "2024-01-01T00:00:00Z".into(),
             updated_at: "2024-01-01T00:00:00Z".into(),
         }

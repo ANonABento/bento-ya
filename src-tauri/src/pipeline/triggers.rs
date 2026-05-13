@@ -140,6 +140,15 @@ pub enum TriggerActionV2 {
         #[serde(default)]
         base_branch: Option<String>,
     },
+    /// Bug-fix #6 sequel: directly merge the task branch INTO the base branch
+    /// (default `main`) and push, instead of opening a PR. Used as `on_exit`
+    /// on the Merge column when the workspace wants tasks to land directly
+    /// in main without an intermediate PR. Pushes are globally serialized via
+    /// an in-process mutex so 5 parallel Merge tasks don't race origin/main.
+    MergeToMain {
+        #[serde(default)]
+        base_branch: Option<String>,
+    },
     BatchWait,
     None,
 }
@@ -187,6 +196,20 @@ pub struct ColumnTriggersV2 {
     pub on_entry: Option<TriggerActionV2>,
     pub on_exit: Option<TriggerActionV2>,
     pub exit_criteria: Option<ExitCriteriaV2>,
+    /// Resource class for this column. Used as a default scheduling hint when
+    /// no explicit `max_concurrent` is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_profile: Option<ResourceProfile>,
+    /// Per-column concurrency cap. `None` = unlimited (workspace cap still
+    /// applies). Useful for serializing columns like `Merge main` whose
+    /// `merge_to_main` action must not race against other instances.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_concurrent: Option<i64>,
+    /// Column-level runtime mode default. Falls under any trigger's
+    /// explicit `runtime_mode`. Phase 2 reads this in the resolver but no
+    /// UI writes it yet — Phase 4 adds the column-config picker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_runtime_mode: Option<String>,
 }
 
 /// Exit criteria (V2 format).
@@ -217,6 +240,199 @@ pub fn parse_column_triggers(triggers_json: Option<&str>) -> ColumnTriggersV2 {
     triggers_json
         .and_then(|json| serde_json::from_str::<ColumnTriggersV2>(json).ok())
         .unwrap_or_default()
+}
+
+// ─── Runtime mode resolver (Phase 2) ──────────────────────────────────────
+
+/// Resolved runtime mode for a task. Phase 2 only consults the trigger and
+/// column tiers; Phase 4 will wire task/workspace/global tiers underneath
+/// this function without changing the shape.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedRuntimeMode {
+    /// `"headless"` or `"interactive"`. Headless is the default — both
+    /// existing `terminal` and `managed` legacy modes fold into it.
+    pub mode: String,
+    /// For headless mode: `"terminal"` (raw tmux pane) or `"bubbles"`
+    /// (managed semantic stream). `None` when `mode == "interactive"`.
+    pub render: Option<String>,
+    /// Where the resolution came from. Surfaces in the UI as
+    /// "Effective: X (from Y)".
+    pub source: String,
+    /// True when the resolved mode is `interactive` but the dev env var
+    /// isn't set — the UI uses this to grey out the picker option (and
+    /// the backend dispatcher will downgrade to headless at trigger fire).
+    pub interactive_dev_flag_required: bool,
+}
+
+impl ResolvedRuntimeMode {
+    fn default_headless_bubbles() -> Self {
+        Self {
+            mode: "headless".to_string(),
+            render: Some("bubbles".to_string()),
+            source: "default".to_string(),
+            interactive_dev_flag_required: false,
+        }
+    }
+
+    fn from_runtime_mode_token(value: &str, source: &str) -> Option<Self> {
+        match value {
+            "interactive" => Some(Self {
+                mode: "interactive".to_string(),
+                render: None,
+                source: source.to_string(),
+                interactive_dev_flag_required: !crate::config::interactive_mode_enabled(),
+            }),
+            "managed" => Some(Self {
+                mode: "headless".to_string(),
+                render: Some("bubbles".to_string()),
+                source: source.to_string(),
+                interactive_dev_flag_required: false,
+            }),
+            "terminal" => Some(Self {
+                mode: "headless".to_string(),
+                render: Some("terminal".to_string()),
+                source: source.to_string(),
+                interactive_dev_flag_required: false,
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// Resolve the runtime mode for a task by walking the configuration
+/// hierarchy. Phase 4 completes the full resolution order:
+///
+/// ```text
+/// trigger > task > column > workspace > global > default
+/// ```
+///
+/// The workspace tier reads `workspace_config.default_runtime_mode` from
+/// the supplied workspace JSON; the global tier reads
+/// `AppSettings.default_runtime_mode`. Both fall through if their values
+/// are absent or unrecognized.
+///
+/// Callers that don't have the workspace handy use the convenience
+/// `resolve_runtime_mode_for_task` wrapper, which opens a read-only DB
+/// connection to fetch it. Tests pass the JSON directly so they don't
+/// depend on the on-disk DB path.
+pub fn resolve_runtime_mode_with_workspace_config(
+    task: &Task,
+    column: &Column,
+    workspace_config_json: Option<&str>,
+) -> ResolvedRuntimeMode {
+    let column_triggers = parse_column_triggers(column.triggers.as_deref());
+
+    // Tier: trigger (on_entry action).
+    if let Some(action) = resolve_trigger(&column_triggers, task, "on_entry") {
+        if let TriggerActionV2::SpawnCli { runtime_mode, .. } = action {
+            if let Some(token) = runtime_mode.as_deref() {
+                if let Some(resolved) =
+                    ResolvedRuntimeMode::from_runtime_mode_token(token, "trigger")
+                {
+                    return resolved;
+                }
+            }
+        }
+    }
+
+    // Tier: task override.
+    if let Some(resolved) = task
+        .runtime_mode_override
+        .as_deref()
+        .and_then(|token| ResolvedRuntimeMode::from_runtime_mode_token(token, "task"))
+    {
+        return resolved;
+    }
+
+    // Tier: column default.
+    if let Some(default) = column_triggers
+        .default_runtime_mode
+        .as_deref()
+        .and_then(|token| ResolvedRuntimeMode::from_runtime_mode_token(token, "column"))
+    {
+        return default;
+    }
+
+    // Tier: workspace default (read from supplied JSON).
+    if let Some(token) =
+        workspace_config_json.and_then(extract_workspace_default_runtime_mode)
+    {
+        if let Some(resolved) =
+            ResolvedRuntimeMode::from_runtime_mode_token(&token, "workspace")
+        {
+            return resolved;
+        }
+    }
+
+    // Tier: global default (AppSettings on disk).
+    let settings = crate::config::AppSettings::load();
+    let global_token = settings.default_runtime_mode.trim();
+    if !global_token.is_empty() {
+        if let Some(resolved) = ResolvedRuntimeMode::from_runtime_mode_token(global_token, "global")
+        {
+            return resolved;
+        }
+    }
+
+    // Default tier.
+    ResolvedRuntimeMode::default_headless_bubbles()
+}
+
+/// Convenience wrapper that resolves the workspace from a fresh
+/// read-only DB connection. Use this from Tauri commands; production
+/// callers that already hold a Connection should call
+/// `resolve_runtime_mode_with_workspace_config` directly with the
+/// workspace JSON to avoid a second DB hop.
+pub fn resolve_runtime_mode_for_task(task: &Task, column: &Column) -> ResolvedRuntimeMode {
+    let workspace_config = rusqlite::Connection::open(crate::db::db_path())
+        .ok()
+        .and_then(|conn| {
+            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+            crate::db::get_workspace(&conn, &task.workspace_id)
+                .ok()
+                .map(|w| w.config)
+        });
+    resolve_runtime_mode_with_workspace_config(task, column, workspace_config.as_deref())
+}
+
+fn extract_workspace_default_runtime_mode(workspace_config_json: &str) -> Option<String> {
+    let config = serde_json::from_str::<serde_json::Value>(workspace_config_json).ok()?;
+    // Accept both flat and nested forms for parity with other
+    // workspace_config readers (`agent.defaultRuntimeMode`, etc.).
+    let value = config
+        .get("default_runtime_mode")
+        .or_else(|| config.get("defaultRuntimeMode"))
+        .or_else(|| config.get("agent").and_then(|a| a.get("default_runtime_mode")))
+        .or_else(|| config.get("agent").and_then(|a| a.get("defaultRuntimeMode")))?;
+    let token = value.as_str()?.trim();
+    if token.is_empty() {
+        None
+    } else {
+        Some(token.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceProfile {
+    Light,
+    Standard,
+    Heavy,
+    Exclusive,
+}
+
+/// Effective column cap. An explicit `max_concurrent` always wins; otherwise
+/// heavy/exclusive columns serialize by default.
+pub fn effective_column_max_concurrent(triggers: &ColumnTriggersV2) -> Option<i64> {
+    if let Some(cap) = triggers.max_concurrent.filter(|cap| *cap > 0) {
+        return Some(cap);
+    }
+
+    match triggers.resource_profile {
+        Some(ResourceProfile::Heavy | ResourceProfile::Exclusive) => Some(1),
+        Some(ResourceProfile::Light | ResourceProfile::Standard) | None => None,
+    }
 }
 
 // ─── Resolved Script Steps (owned data for async execution) ───────────────
@@ -389,7 +605,7 @@ pub fn fire_on_exit(
         Option::None => return Ok(()),
     };
 
-    let _ = execute_action(conn, app, task, column, &action, next_column);
+    execute_action(conn, app, task, column, &action, next_column)?;
 
     // Check dependents after exit
     let _ = super::dependencies::check_dependents(conn, app, task);
@@ -457,8 +673,118 @@ fn execute_action(
         TriggerActionV2::AutoMerge { base_branch } => {
             execute_auto_merge(conn, app, task, column, base_branch.as_deref())
         }
+        TriggerActionV2::MergeToMain { base_branch } => {
+            execute_merge_to_main(conn, app, task, column, base_branch.as_deref())
+        }
         TriggerActionV2::None => Ok(task.clone()),
     }
+}
+
+/// MergeToMain: push the task branch directly to the base ref on origin
+/// (default `main`). Replaces `CreatePr` when the workspace doesn't want
+/// intermediate PRs. Globally serialized via an in-process mutex so multiple
+/// parallel Merge tasks can't race origin/<base>.
+///
+/// Assumes the prior `on_entry` (a codex spawn) already merged the latest
+/// origin/<base> into the task branch and committed/pushed the branch.
+/// We just do the final `git push origin HEAD:<base>` here.
+fn execute_merge_to_main(
+    conn: &Connection,
+    app: &AppHandle,
+    task: &Task,
+    column: &Column,
+    base_branch: Option<&str>,
+) -> Result<Task, AppError> {
+    use std::sync::{Mutex, OnceLock};
+    static PUSH_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    let workspace = db::get_workspace(conn, &task.workspace_id)?;
+    let base = base_branch.unwrap_or("main").to_string();
+    let repo_path = resolve_working_dir(task, &workspace.repo_path);
+
+    let branch_name = match &task.branch_name {
+        Some(b) if !b.is_empty() => b.clone(),
+        _ => {
+            return super::handle_trigger_failure(
+                conn,
+                app,
+                task,
+                column,
+                "Cannot merge_to_main: task has no branch_name",
+            );
+        }
+    };
+
+    let updated_task = db::update_task_pipeline_state(
+        conn,
+        &task.id,
+        PipelineState::Running.as_str(),
+        Some(&db::now()),
+        None,
+    )?;
+
+    emit_pipeline(
+        app,
+        EVT_RUNNING,
+        &task.id,
+        &column.id,
+        PipelineState::Running,
+        Some(format!("Pushing {} to origin/{}", branch_name, base)),
+    );
+
+    let _guard = PUSH_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|e| AppError::CommandError(format!("merge_to_main lock poisoned: {}", e)))?;
+
+    // Refresh origin/<base> so the fast-forward check works.
+    let fetch = run_command(&repo_path, "git", &["fetch", "origin", &base])
+        .map_err(AppError::CommandError)?;
+    if !fetch.status.success() {
+        log::warn!(
+            "[merge_to_main] git fetch origin {} failed: {}",
+            base,
+            command_stderr(&fetch)
+        );
+    }
+
+    // The codex `on_entry` for this column was responsible for merging
+    // origin/<base> into the task branch and committing — so HEAD should
+    // already be a fast-forwardable descendant of origin/<base>.
+    let push = run_command(
+        &repo_path,
+        "git",
+        &["push", "origin", &format!("HEAD:refs/heads/{}", base)],
+    )
+    .map_err(AppError::CommandError)?;
+
+    if !push.status.success() {
+        let stderr = command_stderr(&push);
+        let err_msg = format!("git push to origin/{} failed: {}", base, stderr);
+        log::error!("[merge_to_main] {}", err_msg);
+        let _ = db::update_task_pipeline_state(
+            conn,
+            &task.id,
+            PipelineState::Idle.as_str(),
+            None,
+            Some(&err_msg),
+        );
+        return Err(AppError::CommandError(err_msg));
+    }
+
+    log::info!(
+        "[merge_to_main] Pushed {} to origin/{} for task {}",
+        branch_name,
+        base,
+        task.id
+    );
+
+    // Reset state back to idle so the auto-advance can move us to Done.
+    let final_task =
+        db::update_task_pipeline_state(conn, &task.id, PipelineState::Idle.as_str(), None, None)?;
+
+    let _ = updated_task; // appease unused-binding lint when retained
+    Ok(final_task)
 }
 
 /// BatchWait: when a task enters the Staging column, check whether ALL tasks in this batch
@@ -1077,14 +1403,14 @@ fn execute_spawn_cli(
     let pipeline_settings = config::effective_pipeline_settings(&workspace.config);
 
     // ── Concurrency guard ──────────────────────────────────────────────
-    // Check how many agents are already running in this workspace.
-    // If at or above the limit, mark this task as queued instead of spawning.
+    // Two-layer cap: workspace-wide, then column-scoped. If either is at or
+    // above its limit, mark this task as queued instead of spawning.
     let max_concurrent = pipeline_settings.max_concurrent_agents;
     let running_count = db::get_running_agent_count(conn, &task.workspace_id).unwrap_or(0);
 
     if running_count >= max_concurrent {
         log::info!(
-            "[triggers] Concurrency limit reached ({}/{}) — queuing task {} instead of spawning",
+            "[triggers] Workspace concurrency limit reached ({}/{}) — queuing task {} instead of spawning",
             running_count,
             max_concurrent,
             task.id
@@ -1093,6 +1419,33 @@ fn execute_spawn_cli(
         db::update_task_agent_status(conn, &task.id, Some("queued"), Some(&ts))?;
         super::emit_tasks_changed(app, &task.workspace_id, "task_queued_concurrency");
         return Ok(task.clone());
+    }
+
+    // Column-scoped cap. Lets specific columns (e.g. Merge main) serialize
+    // their on_entry agents even when the workspace cap has room. Cap reads
+    // from the column's `triggers.max_concurrent` field.
+    let column_triggers = parse_column_triggers(column.triggers.as_deref());
+    if let Some(col_cap) = effective_column_max_concurrent(&column_triggers) {
+        let col_active = db::get_active_execution_count_in_column_excluding(
+            conn,
+            &task.workspace_id,
+            &column.id,
+            &task.id,
+        )
+        .unwrap_or(0);
+        if col_active >= col_cap {
+            log::info!(
+                "[triggers] Column '{}' concurrency limit reached ({}/{}) — queuing task {} instead of spawning",
+                column.name,
+                col_active,
+                col_cap,
+                task.id
+            );
+            let ts = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+            db::update_task_agent_status(conn, &task.id, Some("queued"), Some(&ts))?;
+            super::emit_tasks_changed(app, &task.workspace_id, "task_queued_column_cap");
+            return Ok(task.clone());
+        }
     }
 
     // Terminal columns (e.g. Done) are one-shot: by the time their trigger
@@ -1144,9 +1497,7 @@ fn execute_spawn_cli(
     // fallback, `tmux new-session -c <missing>` silently drops `-c` and the
     // pane inherits the app process's cwd — usually wrong.
     if !working_dir.is_empty() && !std::path::Path::new(&working_dir).exists() {
-        if !workspace.repo_path.is_empty()
-            && std::path::Path::new(&workspace.repo_path).exists()
-        {
+        if !workspace.repo_path.is_empty() && std::path::Path::new(&workspace.repo_path).exists() {
             log::warn!(
                 "[triggers] Working dir '{}' missing for task {} — falling back to repo_path '{}'",
                 working_dir,
@@ -1240,9 +1591,11 @@ fn execute_spawn_cli(
         None => resolved_prompt,
     };
 
-    // Store resolved prompt
+    // Store resolved prompt. `normalize_agent_runtime_mode` downgrades
+    // `interactive` to `terminal` when BENTOYA_INTERACTIVE_MODE_ENABLED is
+    // unset (with a one-time warning) so existing pipelines aren't affected.
     let ts = db::now();
-    let runtime_mode = normalize_agent_runtime_mode(runtime_mode);
+    let runtime_mode = normalize_agent_runtime_mode(runtime_mode, &cli_type);
     if let Err(e) = conn.execute(
         "UPDATE tasks SET trigger_prompt = ?1, agent_mode = ?2, updated_at = ?3 WHERE id = ?4",
         rusqlite::params![initial_prompt, runtime_mode, ts, task.id],
@@ -1289,6 +1642,9 @@ fn execute_spawn_cli(
         cli_args.push("--model".to_string());
         cli_args.push(m.clone());
     }
+    if let Some(flags) = flags {
+        cli_args.extend(flags.iter().cloned());
+    }
 
     if runtime_mode == "managed" {
         spawn_managed_trigger_task(
@@ -1300,6 +1656,25 @@ fn execute_spawn_cli(
             &initial_prompt,
             resolved_model,
         )?;
+    } else if runtime_mode == "interactive" {
+        // Phase 1: gated dispatch. The normalize helper above has already
+        // confirmed the env flag is on and the CLI is supported (claude
+        // only for Phase 1). Codex parity lands in Phase 3.
+        let exit_criteria_str = column_triggers
+            .exit_criteria
+            .as_ref()
+            .map(|c| c.criteria_type.as_str());
+        let include_sentinel = bridge::exit_criteria_needs_sentinel(exit_criteria_str);
+        bridge::spawn_interactive_trigger_task(
+            app.clone(),
+            task.id.clone(),
+            cli_type,
+            cli_args,
+            working_dir,
+            initial_prompt,
+            Some(env_vars),
+            include_sentinel,
+        );
     } else {
         // Force a fresh tmux pane for terminal columns: the persistent
         // per-task session was rooted at the now-deleted worktree, and
@@ -1321,9 +1696,34 @@ fn execute_spawn_cli(
     Ok(updated_task)
 }
 
-fn normalize_agent_runtime_mode(runtime_mode: Option<&str>) -> &'static str {
+fn normalize_agent_runtime_mode(runtime_mode: Option<&str>, cli_type: &str) -> &'static str {
     match runtime_mode {
         Some("managed") => "managed",
+        Some("interactive") => {
+            if !config::interactive_mode_enabled() {
+                static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+                if WARNED.set(()).is_ok() {
+                    log::warn!(
+                        "[triggers] runtime_mode=\"interactive\" requested but {} is not set — falling back to terminal mode. Set the env var to enable.",
+                        config::INTERACTIVE_MODE_ENV_VAR
+                    );
+                }
+                return "terminal";
+            }
+            let cli_name = cli_type.rsplit('/').next().unwrap_or(cli_type);
+            // Phase 3 adds codex; later phases may broaden further.
+            if cli_name != "claude" && cli_name != "codex" {
+                static WARNED_CLI: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+                if WARNED_CLI.set(()).is_ok() {
+                    log::warn!(
+                        "[triggers] runtime_mode=\"interactive\" is only supported for claude and codex (got cli=\"{}\") — falling back to terminal mode.",
+                        cli_type
+                    );
+                }
+                return "terminal";
+            }
+            "interactive"
+        }
         _ => "terminal",
     }
 }
@@ -2238,13 +2638,11 @@ fn execute_create_pr(
 ) -> Result<Task, AppError> {
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
     let task = ensure_task_batch_id(conn, task)?;
-    let batch_id = task
-        .batch_id
-        .as_deref()
-        .and_then(normalize_batch_id)
-        .unwrap_or_else(db::generate_batch_id);
+    // batch_id is kept for downstream grouping/labels but no longer drives
+    // the PR base. Bug-fix #6 completes the pipeline v3 migration that was
+    // applied to execute_auto_merge but not here: PRs go DIRECTLY to the
+    // final base branch (usually `main`) — no umbrella staging branch.
     let final_base = base_branch.unwrap_or("main").to_string();
-    let staging_branch = staging_branch_for_batch(&batch_id);
     let repo_path = resolve_working_dir(&task, &workspace.repo_path);
 
     let branch_name = match &task.branch_name {
@@ -2266,14 +2664,6 @@ fn execute_create_pr(
             task.id,
             pr_num
         );
-        maybe_create_ready_batch_pr(
-            conn,
-            &repo_path,
-            &task.workspace_id,
-            &batch_id,
-            &final_base,
-            &staging_branch,
-        );
         let updated = db::update_task_pipeline_state(
             conn,
             &task.id,
@@ -2290,11 +2680,12 @@ fn execute_create_pr(
         column,
         &workspace,
         &repo_path,
-        &staging_branch,
+        &final_base,
         &branch_name,
     );
     let task_id = task.id.clone();
     let workspace_id = task.workspace_id.clone();
+    let _ = workspace_id; // retained for symmetry with previous batch flow; intentionally unused
     let column_id = column.id.clone();
 
     let updated_task = db::update_task_pipeline_state(
@@ -2311,19 +2702,16 @@ fn execute_create_pr(
         &task.id,
         &column.id,
         PipelineState::Running,
-        Some(format!("Creating PR against {}", staging_branch)),
+        Some(format!("Creating PR against {}", final_base)),
     );
 
     let app_handle = app.clone();
     let pr_repo_path = repo_path.clone();
-    let pr_staging_branch = staging_branch.clone();
     let pr_final_base = final_base.clone();
     let pr_branch_name = branch_name.clone();
 
     tokio::spawn(async move {
         let result = tokio::task::spawn_blocking(move || -> Result<(i64, String), String> {
-            ensure_staging_branch(&pr_repo_path, &pr_staging_branch, &pr_final_base)?;
-
             // Rebase task branch onto fresh `origin/<base>` before pushing.
             // On conflicts the rebase is aborted and we propagate a
             // REBASE_CONFLICT_PREFIX error so the outer handler flags the
@@ -2344,7 +2732,7 @@ fn execute_create_pr(
                     "--body",
                     &pr_body,
                     "--base",
-                    &pr_staging_branch,
+                    &pr_final_base,
                     "--head",
                     &pr_branch_name,
                 ],
@@ -2383,14 +2771,6 @@ fn execute_create_pr(
                 );
                 if let Some(ref conn) = conn {
                     let _ = db::update_task_pr_info(conn, &task_id, Some(pr_number), Some(&pr_url));
-                    maybe_create_ready_batch_pr(
-                        conn,
-                        &repo_path,
-                        &workspace_id,
-                        &batch_id,
-                        &final_base,
-                        &staging_branch,
-                    );
                 }
                 true
             }
@@ -2848,6 +3228,315 @@ mod tests {
 
     // ─── resolve_trigger tests ────────────────────────────────────────
 
+    // ─── Phase 2: runtime mode resolver ────────────────────────────────
+
+    fn make_spawn_cli_triggers(runtime_mode: Option<&str>) -> ColumnTriggersV2 {
+        ColumnTriggersV2 {
+            on_entry: Some(TriggerActionV2::SpawnCli {
+                cli: Some("claude".to_string()),
+                command: None,
+                prompt_template: None,
+                prompt: None,
+                flags: None,
+                use_queue: None,
+                runtime_mode: runtime_mode.map(String::from),
+                model: None,
+            }),
+            on_exit: None,
+            exit_criteria: None,
+            resource_profile: None,
+            max_concurrent: None,
+            default_runtime_mode: None,
+        }
+    }
+
+    #[test]
+    fn test_resolve_runtime_mode_defaults_to_headless_bubbles() {
+        // Column has no triggers JSON at all — resolver must fall through to
+        // the global default (headless · bubbles, source = "default").
+        let (conn, ws, col, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+
+        let resolved = resolve_runtime_mode_for_task(&task, &col);
+        assert_eq!(resolved.mode, "headless");
+        assert_eq!(resolved.render.as_deref(), Some("bubbles"));
+        assert_eq!(resolved.source, "default");
+        assert!(!resolved.interactive_dev_flag_required);
+    }
+
+    #[test]
+    fn test_resolve_runtime_mode_reads_trigger_terminal_mode() {
+        let (conn, ws, mut col, _, _) = setup();
+        let triggers = make_spawn_cli_triggers(Some("terminal"));
+        let triggers_json = serde_json::to_string(&triggers).unwrap();
+        conn.execute(
+            "UPDATE columns SET triggers = ?1 WHERE id = ?2",
+            rusqlite::params![triggers_json, col.id],
+        )
+        .unwrap();
+        col = db::get_column(&conn, &col.id).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+
+        let resolved = resolve_runtime_mode_for_task(&task, &col);
+        assert_eq!(resolved.mode, "headless");
+        assert_eq!(resolved.render.as_deref(), Some("terminal"));
+        assert_eq!(resolved.source, "trigger");
+    }
+
+    #[test]
+    fn test_resolve_runtime_mode_reads_trigger_managed_mode() {
+        let (conn, ws, mut col, _, _) = setup();
+        let triggers = make_spawn_cli_triggers(Some("managed"));
+        let triggers_json = serde_json::to_string(&triggers).unwrap();
+        conn.execute(
+            "UPDATE columns SET triggers = ?1 WHERE id = ?2",
+            rusqlite::params![triggers_json, col.id],
+        )
+        .unwrap();
+        col = db::get_column(&conn, &col.id).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+
+        let resolved = resolve_runtime_mode_for_task(&task, &col);
+        assert_eq!(resolved.mode, "headless");
+        assert_eq!(resolved.render.as_deref(), Some("bubbles"));
+        assert_eq!(resolved.source, "trigger");
+    }
+
+    #[test]
+    fn test_resolve_runtime_mode_reads_trigger_interactive_mode() {
+        // Lock the env around this test so the dev-flag check is deterministic.
+        static ENV_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+        let prior = std::env::var(config::INTERACTIVE_MODE_ENV_VAR).ok();
+
+        let (conn, ws, mut col, _, _) = setup();
+        let triggers = make_spawn_cli_triggers(Some("interactive"));
+        let triggers_json = serde_json::to_string(&triggers).unwrap();
+        conn.execute(
+            "UPDATE columns SET triggers = ?1 WHERE id = ?2",
+            rusqlite::params![triggers_json, col.id],
+        )
+        .unwrap();
+        col = db::get_column(&conn, &col.id).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+
+        std::env::remove_var(config::INTERACTIVE_MODE_ENV_VAR);
+        let resolved = resolve_runtime_mode_for_task(&task, &col);
+        assert_eq!(resolved.mode, "interactive");
+        assert!(resolved.render.is_none());
+        assert_eq!(resolved.source, "trigger");
+        assert!(
+            resolved.interactive_dev_flag_required,
+            "dev flag must be reported as required when env var is unset"
+        );
+
+        std::env::set_var(config::INTERACTIVE_MODE_ENV_VAR, "1");
+        let resolved = resolve_runtime_mode_for_task(&task, &col);
+        assert_eq!(resolved.mode, "interactive");
+        assert!(!resolved.interactive_dev_flag_required);
+
+        match prior {
+            Some(v) => std::env::set_var(config::INTERACTIVE_MODE_ENV_VAR, v),
+            None => std::env::remove_var(config::INTERACTIVE_MODE_ENV_VAR),
+        }
+    }
+
+    #[test]
+    fn test_resolve_runtime_mode_column_default_fallback() {
+        // No on_entry trigger, but column has default_runtime_mode set.
+        let (conn, ws, mut col, _, _) = setup();
+        let triggers = ColumnTriggersV2 {
+            on_entry: None,
+            on_exit: None,
+            exit_criteria: None,
+            resource_profile: None,
+            max_concurrent: None,
+            default_runtime_mode: Some("terminal".to_string()),
+        };
+        let triggers_json = serde_json::to_string(&triggers).unwrap();
+        conn.execute(
+            "UPDATE columns SET triggers = ?1 WHERE id = ?2",
+            rusqlite::params![triggers_json, col.id],
+        )
+        .unwrap();
+        col = db::get_column(&conn, &col.id).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+
+        let resolved = resolve_runtime_mode_for_task(&task, &col);
+        assert_eq!(resolved.mode, "headless");
+        assert_eq!(resolved.render.as_deref(), Some("terminal"));
+        assert_eq!(
+            resolved.source, "column",
+            "column tier must be reported as source when trigger doesn't specify a mode"
+        );
+    }
+
+    #[test]
+    fn test_resolve_runtime_mode_trigger_overrides_column_default() {
+        // Column default is interactive, trigger says terminal → trigger wins.
+        let (conn, ws, mut col, _, _) = setup();
+        let mut triggers = make_spawn_cli_triggers(Some("terminal"));
+        triggers.default_runtime_mode = Some("interactive".to_string());
+        let triggers_json = serde_json::to_string(&triggers).unwrap();
+        conn.execute(
+            "UPDATE columns SET triggers = ?1 WHERE id = ?2",
+            rusqlite::params![triggers_json, col.id],
+        )
+        .unwrap();
+        col = db::get_column(&conn, &col.id).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+
+        let resolved = resolve_runtime_mode_for_task(&task, &col);
+        assert_eq!(resolved.mode, "headless");
+        assert_eq!(resolved.render.as_deref(), Some("terminal"));
+        assert_eq!(resolved.source, "trigger");
+    }
+
+    #[test]
+    fn test_resolve_runtime_mode_task_tier() {
+        // Task override wins over column default. No trigger set on the column,
+        // task says interactive → resolver picks task.
+        let (conn, ws, mut col, _, _) = setup();
+        let triggers = ColumnTriggersV2 {
+            on_entry: None,
+            on_exit: None,
+            exit_criteria: None,
+            resource_profile: None,
+            max_concurrent: None,
+            default_runtime_mode: Some("terminal".to_string()),
+        };
+        let triggers_json = serde_json::to_string(&triggers).unwrap();
+        conn.execute(
+            "UPDATE columns SET triggers = ?1 WHERE id = ?2",
+            rusqlite::params![triggers_json, col.id],
+        )
+        .unwrap();
+        col = db::get_column(&conn, &col.id).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+        let task = db::update_task_runtime_mode_override(&conn, &task.id, Some("interactive"))
+            .unwrap();
+
+        let resolved = resolve_runtime_mode_for_task(&task, &col);
+        assert_eq!(resolved.mode, "interactive");
+        assert_eq!(resolved.source, "task");
+    }
+
+    #[test]
+    fn test_resolve_runtime_mode_workspace_tier() {
+        // Neither task nor column nor trigger set runtime mode; workspace
+        // config carries `default_runtime_mode`.
+        let (conn, ws, col, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+
+        let resolved = resolve_runtime_mode_with_workspace_config(
+            &task,
+            &col,
+            Some(r#"{"default_runtime_mode":"terminal"}"#),
+        );
+        assert_eq!(resolved.mode, "headless");
+        assert_eq!(resolved.render.as_deref(), Some("terminal"));
+        assert_eq!(resolved.source, "workspace");
+    }
+
+    #[test]
+    fn test_resolve_runtime_mode_workspace_tier_nested() {
+        let (conn, ws, col, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+        let resolved = resolve_runtime_mode_with_workspace_config(
+            &task,
+            &col,
+            Some(r#"{"agent":{"defaultRuntimeMode":"managed"}}"#),
+        );
+        assert_eq!(resolved.mode, "headless");
+        assert_eq!(resolved.render.as_deref(), Some("bubbles"));
+        assert_eq!(resolved.source, "workspace");
+    }
+
+    #[test]
+    fn test_resolve_runtime_mode_workspace_tier_ignores_invalid_token() {
+        let (conn, ws, col, _, _) = setup();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+        let resolved = resolve_runtime_mode_with_workspace_config(
+            &task,
+            &col,
+            Some(r#"{"default_runtime_mode":"bogus"}"#),
+        );
+        assert_eq!(
+            resolved.source, "default",
+            "unrecognized token falls through to default, not workspace"
+        );
+    }
+
+    #[test]
+    fn test_resolve_runtime_mode_trigger_beats_task() {
+        // Trigger wins over task override.
+        let (conn, ws, mut col, _, _) = setup();
+        let triggers = make_spawn_cli_triggers(Some("terminal"));
+        let triggers_json = serde_json::to_string(&triggers).unwrap();
+        conn.execute(
+            "UPDATE columns SET triggers = ?1 WHERE id = ?2",
+            rusqlite::params![triggers_json, col.id],
+        )
+        .unwrap();
+        col = db::get_column(&conn, &col.id).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+        let task =
+            db::update_task_runtime_mode_override(&conn, &task.id, Some("interactive")).unwrap();
+
+        let resolved = resolve_runtime_mode_for_task(&task, &col);
+        assert_eq!(resolved.mode, "headless");
+        assert_eq!(resolved.source, "trigger");
+    }
+
+    #[test]
+    fn test_resolve_runtime_mode_task_beats_column() {
+        // Task tier wins over column.default_runtime_mode.
+        let (conn, ws, mut col, _, _) = setup();
+        let triggers = ColumnTriggersV2 {
+            on_entry: None,
+            on_exit: None,
+            exit_criteria: None,
+            resource_profile: None,
+            max_concurrent: None,
+            default_runtime_mode: Some("terminal".to_string()),
+        };
+        let triggers_json = serde_json::to_string(&triggers).unwrap();
+        conn.execute(
+            "UPDATE columns SET triggers = ?1 WHERE id = ?2",
+            rusqlite::params![triggers_json, col.id],
+        )
+        .unwrap();
+        col = db::get_column(&conn, &col.id).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+        let task =
+            db::update_task_runtime_mode_override(&conn, &task.id, Some("managed")).unwrap();
+
+        let resolved = resolve_runtime_mode_for_task(&task, &col);
+        assert_eq!(resolved.mode, "headless");
+        assert_eq!(resolved.render.as_deref(), Some("bubbles"));
+        assert_eq!(resolved.source, "task");
+    }
+
+    #[test]
+    fn test_resolve_runtime_mode_invalid_token_ignored() {
+        // A bogus runtime_mode value on the trigger should be ignored (not
+        // crash, not pick up the bogus token). Falls through to default.
+        let (conn, ws, mut col, _, _) = setup();
+        let triggers = make_spawn_cli_triggers(Some("does-not-exist"));
+        let triggers_json = serde_json::to_string(&triggers).unwrap();
+        conn.execute(
+            "UPDATE columns SET triggers = ?1 WHERE id = ?2",
+            rusqlite::params![triggers_json, col.id],
+        )
+        .unwrap();
+        col = db::get_column(&conn, &col.id).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+
+        let resolved = resolve_runtime_mode_for_task(&task, &col);
+        assert_eq!(resolved.mode, "headless");
+        assert_eq!(resolved.source, "default");
+    }
+
     #[test]
     fn test_resolve_trigger_returns_column_action() {
         let (conn, ws, col1, _, _) = setup();
@@ -2866,6 +3555,9 @@ mod tests {
             }),
             on_exit: None,
             exit_criteria: None,
+            resource_profile: None,
+            max_concurrent: None,
+            default_runtime_mode: None,
         };
 
         let result = resolve_trigger(&triggers, &task, "on_entry");
@@ -2882,6 +3574,9 @@ mod tests {
             on_entry: Some(TriggerActionV2::None),
             on_exit: None,
             exit_criteria: None,
+            resource_profile: None,
+            max_concurrent: None,
+            default_runtime_mode: None,
         };
 
         let result = resolve_trigger(&triggers, &task, "on_entry");
@@ -2897,6 +3592,9 @@ mod tests {
             on_entry: None,
             on_exit: None,
             exit_criteria: None,
+            resource_profile: None,
+            max_concurrent: None,
+            default_runtime_mode: None,
         };
 
         let result = resolve_trigger(&triggers, &task, "on_entry");
@@ -2929,6 +3627,9 @@ mod tests {
             }),
             on_exit: None,
             exit_criteria: None,
+            resource_profile: None,
+            max_concurrent: None,
+            default_runtime_mode: None,
         };
 
         let result = resolve_trigger(&triggers, &task, "on_entry");
@@ -2964,6 +3665,9 @@ mod tests {
             }),
             on_exit: None,
             exit_criteria: None,
+            resource_profile: None,
+            max_concurrent: None,
+            default_runtime_mode: None,
         };
 
         let result = resolve_trigger(&triggers, &task, "on_entry");
@@ -3000,6 +3704,9 @@ mod tests {
                 target: "next".to_string(),
             }),
             exit_criteria: None,
+            resource_profile: None,
+            max_concurrent: None,
+            default_runtime_mode: None,
         };
 
         // on_entry should return SpawnCli
@@ -3022,6 +3729,9 @@ mod tests {
             }),
             on_exit: None,
             exit_criteria: None,
+            resource_profile: None,
+            max_concurrent: None,
+            default_runtime_mode: None,
         };
 
         let result = resolve_trigger(&triggers, &task, "on_entry");
@@ -3042,6 +3752,9 @@ mod tests {
             on_entry: Some(TriggerActionV2::None),
             on_exit: None,
             exit_criteria: None,
+            resource_profile: None,
+            max_concurrent: None,
+            default_runtime_mode: None,
         };
 
         let result = resolve_trigger(&triggers, &task, "invalid_hook");
@@ -3161,9 +3874,65 @@ mod tests {
             }
             _ => panic!("Expected SpawnCli"),
         }
-        assert_eq!(normalize_agent_runtime_mode(Some("managed")), "managed");
-        assert_eq!(normalize_agent_runtime_mode(Some("terminal")), "terminal");
-        assert_eq!(normalize_agent_runtime_mode(Some("bogus")), "terminal");
+        assert_eq!(
+            normalize_agent_runtime_mode(Some("managed"), "claude"),
+            "managed"
+        );
+        assert_eq!(
+            normalize_agent_runtime_mode(Some("terminal"), "claude"),
+            "terminal"
+        );
+        assert_eq!(
+            normalize_agent_runtime_mode(Some("bogus"), "claude"),
+            "terminal"
+        );
+    }
+
+    #[test]
+    fn test_normalize_interactive_mode_requires_dev_flag() {
+        // Serialize against process-wide env mutation across normalize tests.
+        static ENV_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+        let prior = std::env::var(config::INTERACTIVE_MODE_ENV_VAR).ok();
+
+        std::env::remove_var(config::INTERACTIVE_MODE_ENV_VAR);
+        assert_eq!(
+            normalize_agent_runtime_mode(Some("interactive"), "claude"),
+            "terminal",
+            "interactive must downgrade to terminal when env flag unset"
+        );
+
+        std::env::set_var(config::INTERACTIVE_MODE_ENV_VAR, "1");
+        assert_eq!(
+            normalize_agent_runtime_mode(Some("interactive"), "claude"),
+            "interactive",
+            "interactive must stick for claude when env flag is set"
+        );
+        assert_eq!(
+            normalize_agent_runtime_mode(Some("interactive"), "/usr/local/bin/claude"),
+            "interactive",
+            "interactive must recognize claude even when invoked by absolute path"
+        );
+        assert_eq!(
+            normalize_agent_runtime_mode(Some("interactive"), "codex"),
+            "interactive",
+            "Phase 3 lifted the claude-only restriction — codex must also resolve to interactive"
+        );
+        assert_eq!(
+            normalize_agent_runtime_mode(Some("interactive"), "/opt/openai/bin/codex"),
+            "interactive",
+            "absolute paths to codex must also work"
+        );
+        assert_eq!(
+            normalize_agent_runtime_mode(Some("interactive"), "aider"),
+            "terminal",
+            "unknown CLIs must still downgrade — only claude/codex supported"
+        );
+
+        match prior {
+            Some(v) => std::env::set_var(config::INTERACTIVE_MODE_ENV_VAR, v),
+            None => std::env::remove_var(config::INTERACTIVE_MODE_ENV_VAR),
+        }
     }
 
     #[test]
@@ -3455,6 +4224,27 @@ mod tests {
             PipelineState::from_db_str("setup_queued"),
             PipelineState::SetupQueued
         );
+    }
+
+    #[test]
+    fn test_heavy_resource_profile_defaults_to_single_column_slot() {
+        let triggers = ColumnTriggersV2 {
+            resource_profile: Some(ResourceProfile::Heavy),
+            ..Default::default()
+        };
+
+        assert_eq!(effective_column_max_concurrent(&triggers), Some(1));
+    }
+
+    #[test]
+    fn test_explicit_max_concurrent_overrides_resource_profile() {
+        let triggers = ColumnTriggersV2 {
+            resource_profile: Some(ResourceProfile::Exclusive),
+            max_concurrent: Some(2),
+            ..Default::default()
+        };
+
+        assert_eq!(effective_column_max_concurrent(&triggers), Some(2));
     }
 
     fn make_test_pipeline_settings() -> EffectivePipelineSettings {

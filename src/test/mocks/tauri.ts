@@ -90,6 +90,8 @@ export const mockTask = (overrides: Partial<Task> = {}): Task => ({
   archivedAt: null,
   lastUserInputAt: null,
   heldByUser: false,
+  runtimeModeOverride: null,
+  agentPausedAt: null,
   queuedAt: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),

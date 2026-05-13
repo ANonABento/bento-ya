@@ -105,6 +105,8 @@ const TEST_TASK_BASE: Omit<Task, 'id' | 'title'> = {
   archivedAt: null,
       lastUserInputAt: null,
       heldByUser: false,
+      runtimeModeOverride: null,
+      agentPausedAt: null,
   labels: [],
   position: 0,
   createdAt: '2024-01-01T00:00:00Z',

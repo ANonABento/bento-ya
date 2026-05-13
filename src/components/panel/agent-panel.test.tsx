@@ -61,6 +61,31 @@ vi.mock('@/lib/ipc/agent', () => ({
   killTaskSession: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('@/lib/ipc/agent-interactive', () => ({
+  agentInjectMessage: vi.fn().mockResolvedValue(undefined),
+  agentInterrupt: vi.fn().mockResolvedValue(undefined),
+  agentSwitchModel: vi.fn().mockResolvedValue(undefined),
+  agentRestart: vi.fn().mockResolvedValue(undefined),
+  resolveRuntimeMode: vi.fn().mockResolvedValue({
+    mode: 'headless',
+    render: 'bubbles',
+    source: 'default',
+    interactiveDevFlagRequired: false,
+  }),
+  interactiveModeDevFlag: vi.fn().mockResolvedValue(false),
+}))
+
+vi.mock('@/hooks/use-resolved-runtime-mode', () => ({
+  useResolvedRuntimeMode: vi.fn().mockReturnValue({
+    mode: 'headless',
+    render: 'bubbles',
+    source: 'default',
+    interactiveDevFlagRequired: false,
+    isLoading: false,
+    error: null,
+  }),
+}))
+
 vi.mock('@/lib/ipc/terminal', () => ({
   getPtyScrollback: vi.fn().mockResolvedValue(''),
   signalPtyInterrupt: vi.fn().mockResolvedValue(undefined),
@@ -70,6 +95,12 @@ vi.mock('@/lib/ipc', () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
   getAgentTranscriptEvents: vi.fn().mockResolvedValue([]),
   onAgentTranscriptEvent: vi.fn().mockResolvedValue(() => {}),
+}))
+
+vi.mock('./interactive-agent-view', () => ({
+  InteractiveAgentView: ({ taskId }: { taskId: string }) => (
+    <div data-testid="interactive-agent-view" data-task-id={taskId} />
+  ),
 }))
 
 vi.mock('./use-agent-panel-session', () => ({
@@ -251,5 +282,77 @@ describe('AgentPanel session controls', () => {
       expect(confirmSpy).toHaveBeenCalled()
       expect(killTaskSession).toHaveBeenCalledWith('t1')
     })
+  })
+})
+
+// ─── Phase 2: mode dispatcher ──────────────────────────────────────────────
+
+import { useResolvedRuntimeMode } from '@/hooks/use-resolved-runtime-mode'
+import { agentInjectMessage } from '@/lib/ipc/agent-interactive'
+
+describe('AgentPanel mode dispatcher', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockPanelSession()
+  })
+
+  it('renders the loading skeleton while the mode resolves', () => {
+    vi.mocked(useResolvedRuntimeMode).mockReturnValue({
+      mode: 'headless',
+      render: 'bubbles',
+      source: 'default',
+      interactiveDevFlagRequired: false,
+      isLoading: true,
+      error: null,
+    })
+    renderPanel()
+    expect(screen.getByTestId('agent-panel-loading')).toBeInTheDocument()
+  })
+
+  it('renders the interactive view + control bar when mode resolves to interactive', () => {
+    vi.mocked(useResolvedRuntimeMode).mockReturnValue({
+      mode: 'interactive',
+      render: null,
+      source: 'trigger',
+      interactiveDevFlagRequired: false,
+      isLoading: false,
+      error: null,
+    })
+    renderPanel()
+    expect(screen.getByTestId('interactive-agent-view')).toBeInTheDocument()
+    // Headless transcript view must NOT render in interactive mode.
+    expect(screen.queryByTestId('agent-transcript')).not.toBeInTheDocument()
+  })
+
+  it('routes chat input through agent_inject_message in interactive mode', async () => {
+    vi.mocked(useResolvedRuntimeMode).mockReturnValue({
+      mode: 'interactive',
+      render: null,
+      source: 'trigger',
+      interactiveDevFlagRequired: false,
+      isLoading: false,
+      error: null,
+    })
+    renderPanel()
+    fireEvent.click(screen.getByRole('button', { name: 'Send transcript message' }))
+    await waitFor(() => {
+      expect(vi.mocked(agentInjectMessage)).toHaveBeenCalledWith('t1', 'hello agent')
+    })
+    // The headless chat-session send path must NOT fire.
+    expect(sendMessageMock).not.toHaveBeenCalled()
+  })
+
+  it('falls back to headless dispatcher when mode is headless', () => {
+    vi.mocked(useResolvedRuntimeMode).mockReturnValue({
+      mode: 'headless',
+      render: 'bubbles',
+      source: 'default',
+      interactiveDevFlagRequired: false,
+      isLoading: false,
+      error: null,
+    })
+    renderPanel()
+    expect(screen.getByTestId('agent-transcript')).toBeInTheDocument()
+    expect(screen.queryByTestId('interactive-agent-view')).not.toBeInTheDocument()
   })
 })

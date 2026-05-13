@@ -1,5 +1,13 @@
 # Interactive Agent Terminal — Design Spec
 
+> **Status (2026-05-13):** Superseded as the active execution plan by
+> [`AGENT_PANEL_MODES.md`](AGENT_PANEL_MODES.md). The interactive runtime
+> path described below shipped across phases 1–6 of that plan, with
+> design refinements documented per-phase. This doc remains as
+> historical context for the original design decisions; refer to
+> `AGENT_PANEL_MODES.md` for the current taxonomy, resolver hierarchy,
+> and the control surfaces (interrupt / pause / model switch / restart).
+>
 > Decided: 2026-04-10. Based on terminal bridge rewrite (2026-04-09) + tmux integration.
 
 ## Vision

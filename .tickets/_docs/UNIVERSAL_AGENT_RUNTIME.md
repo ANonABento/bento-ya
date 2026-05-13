@@ -1,6 +1,15 @@
 # Universal Agent Runtime
 
-> Status: Active design target (2026-05-08).
+> **Status (2026-05-13):** Active design target. The mode-taxonomy /
+> interactive-runtime portion of this spec was executed by
+> [`AGENT_PANEL_MODES.md`](AGENT_PANEL_MODES.md) (phases 1–6, May
+> 2026). Interactive mode now exists alongside headless and is gated
+> by `BENTOYA_INTERACTIVE_MODE_ENABLED` until usage data justifies
+> default-on. This doc remains the source of truth for the broader
+> universal-runtime concerns (cloud execution, multi-provider
+> abstraction) that go beyond what AGENT_PANEL_MODES delivered.
+>
+> Original status: Active design target (2026-05-08).
 > Builds on: `UNIFIED_CHAT.md`, `PERSISTENT_AGENT_REBUILD.md`, `AGENT_PANEL_TERMINAL_MD_SPEC.md`.
 > Purpose: converge Bento's task agents, transcript, terminal, and future model/provider support around one durable runtime contract.
 

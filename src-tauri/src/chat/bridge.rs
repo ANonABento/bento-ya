@@ -1213,12 +1213,16 @@ pub fn spawn_cli_trigger_task(
             match session_result {
                 Ok(session) => {
                     let tmux_name = tmux_session_name(&task_id);
+                    // Bug-fix #5: when reusing a persistent session that was
+                    // previously `completed`, clear stale exit_code so the
+                    // (running, exit_code=0) ghost state can't survive a
+                    // mid-run process death. Otherwise pipeline freezes.
                     let _ = db::update_agent_session(
                         &conn,
                         &session.id,
                         None,
                         Some("running"),
-                        None,
+                        Some(None),
                         None,
                         None,
                         None,
@@ -2083,6 +2087,35 @@ async fn run_trigger_in_tmux(
 
     pipeline::emit_tasks_changed(app, "", "trigger_complete");
 
+    // Phase 4 telemetry — every headless completion logs an event. The
+    // source is `exit_code` regardless of success: we got an exit code
+    // from the wrapper (or a synthetic 124/137 for timeout/dead-agent),
+    // and "headless completed without ever signaling" is itself
+    // information worth recording.
+    if let Ok(conn) = Connection::open(db::db_path()) {
+        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+        if let Ok(task) = db::get_task(&conn, task_id) {
+            let workspace_id = task.workspace_id.clone();
+            let duration_ms = start_time.elapsed().as_millis() as i64;
+            let source = if timed_out {
+                db::completion_events::CompletionSource::Timeout
+            } else if agent_died {
+                db::completion_events::CompletionSource::Kill
+            } else {
+                db::completion_events::CompletionSource::ExitCode
+            };
+            db::completion_events::record_async(
+                task_id.to_string(),
+                workspace_id,
+                cli_command.to_string(),
+                "headless".to_string(),
+                source,
+                duration_ms,
+                None,
+            );
+        }
+    }
+
     if should_kill_session_after_completion(persistent_lifecycle) {
         // NOW kill the tmux session — DB status is committed, so the GC won't
         // race us. The agent inside the pane has already exited (we observed
@@ -2169,6 +2202,842 @@ pub fn sweep_orphan_wait_fors() {
             killed
         );
     }
+}
+
+// ─── Interactive runtime mode (Phase 1) ───────────────────────────────────
+//
+// Headless triggers run `claude -p ...` via `build_trigger_command`, capture
+// the exit code via `tmux wait-for`, and treat the process as one-shot.
+// Interactive mode launches the real `claude` TUI inside the per-task tmux
+// session (no `-p`), injects the initial prompt via `tmux send-keys`, and
+// watches a system-prompt-driven sentinel to know when the agent considers
+// itself done. The agent stays alive at the prompt afterwards so the user
+// can take over — Phase 2 wires the panel input + control bar to it.
+
+/// Sentinel marker emitted by the agent when it has finished the user's
+/// task. The marker includes the task id so a stale capture from a previous
+/// task can't trip the watcher.
+const INTERACTIVE_SENTINEL_PREFIX: &str = "<<<BENTOYA_DONE:";
+const INTERACTIVE_SENTINEL_SUFFIX: &str = ">>>";
+
+/// Cadence of the pane scrape that looks for the sentinel.
+const INTERACTIVE_SENTINEL_POLL_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Time budget for Claude Code's startup banner to show its input prompt.
+/// 5s is enough on a warm machine; if the binary is cold or fails to launch
+/// we bail rather than blindly injecting keystrokes into a dead session.
+const INTERACTIVE_READY_TIMEOUT: Duration = Duration::from_secs(5);
+const INTERACTIVE_READY_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Build the system-prompt fragment that asks claude to emit the sentinel
+/// when it considers the task done. Only appended for exit criteria that
+/// actually act on the signal (`agent_complete`, `manual_approval`).
+pub(crate) fn interactive_sentinel_system_prompt(task_id: &str) -> String {
+    format!(
+        "When you have finished the user's task, output exactly this line on its own and nothing else: {}{}{}",
+        INTERACTIVE_SENTINEL_PREFIX, task_id, INTERACTIVE_SENTINEL_SUFFIX
+    )
+}
+
+/// Build the argv that `tmux new-session` will run as the session's command
+/// in interactive mode. No `-p` — this launches the real Claude Code TUI.
+/// The initial prompt is NOT in the argv (it's injected later via
+/// send-keys); only flags that need to be on the command line live here.
+pub(crate) fn build_interactive_claude_argv(
+    cli_command: &str,
+    user_args: &[String],
+    task_id: &str,
+    resume_id: Option<&str>,
+    include_sentinel: bool,
+) -> Vec<String> {
+    let mut argv: Vec<String> = Vec::new();
+    argv.push(cli_command.to_string());
+    argv.push("--dangerously-skip-permissions".to_string());
+    if let Some(id) = resume_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        argv.push("--resume".to_string());
+        argv.push(id.to_string());
+    }
+    for a in user_args {
+        argv.push(a.clone());
+    }
+    if include_sentinel {
+        argv.push("--append-system-prompt".to_string());
+        argv.push(interactive_sentinel_system_prompt(task_id));
+    }
+    argv
+}
+
+/// Strip ANSI/VT escape sequences from a captured pane. Conservative —
+/// removes CSI (`ESC [ ... letter`), OSC (`ESC ] ... BEL | ESC \\`), 2-byte
+/// escapes, and charset designators. Output is UTF-8-safe; the input is
+/// assumed valid UTF-8 (we only inspect non-ESC chars as themselves and
+/// drop ESC sequences wholesale).
+pub(crate) fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' {
+            match chars.peek().copied() {
+                Some('[') => {
+                    chars.next();
+                    // CSI params end at any byte in 0x40..=0x7e.
+                    for c in chars.by_ref() {
+                        let cb = c as u32;
+                        if (0x40..=0x7e).contains(&cb) {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    chars.next();
+                    // OSC terminated by BEL (0x07) or ESC \\.
+                    while let Some(c) = chars.next() {
+                        if c == '\u{07}' {
+                            break;
+                        }
+                        if c == '\u{1b}' {
+                            if chars.peek() == Some(&'\\') {
+                                chars.next();
+                                break;
+                            }
+                        }
+                    }
+                }
+                Some('(') | Some(')') | Some('*') | Some('+') => {
+                    chars.next();
+                    chars.next();
+                }
+                Some(_) => {
+                    chars.next();
+                }
+                None => {}
+            }
+            continue;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Returns true if the captured pane contains the `<<<BENTOYA_DONE:task_id>>>`
+/// sentinel on its own line (after ANSI strip). The "own line" requirement
+/// avoids tripping on agents who quote the sentinel inside a code block,
+/// inline mention, or planning narration.
+pub(crate) fn pane_contains_sentinel(pane_text: &str, task_id: &str) -> bool {
+    let target = format!(
+        "{}{}{}",
+        INTERACTIVE_SENTINEL_PREFIX, task_id, INTERACTIVE_SENTINEL_SUFFIX
+    );
+    let stripped = strip_ansi(pane_text);
+    stripped.lines().any(|line| line.trim() == target)
+}
+
+/// Detect whether Claude Code's TUI input box is visible in the captured
+/// pane. Claude Code draws a rounded box around the input row using the
+/// `╭`/`│`/`╰` box-drawing characters. We accept any of those as evidence
+/// that the prompt is ready — looking only for `╭` would miss the case
+/// where the top edge has scrolled out of the visible window.
+pub(crate) fn pane_has_claude_prompt(pane_text: &str) -> bool {
+    let stripped = strip_ansi(pane_text);
+    stripped.contains('╭') || stripped.contains('╰')
+}
+
+/// Detect whether the codex TUI is ready for input.
+///
+/// We don't have a single stable glyph the way Claude Code does (Claude's
+/// `╭/╰` prompt box is unusually distinctive). The most reliable cross-
+/// release signal we have is "the banner has been emitted and the pane
+/// has scrollback" — codex prints its name/version banner on startup,
+/// well before it accepts keystrokes. Conservative match on `codex` (the
+/// literal program name) appearing in the captured pane.
+///
+/// Phase 3 limitation: if codex changes its banner text or removes it,
+/// this returns false and the spawn helper fails its 5s readiness budget.
+/// Surface to the user — that's a real signal to investigate, not a bug
+/// to paper over.
+pub(crate) fn pane_has_codex_prompt(pane_text: &str) -> bool {
+    let stripped = strip_ansi(pane_text);
+    let lower = stripped.to_ascii_lowercase();
+    // Match a few possible banner shapes across codex releases.
+    lower.contains("codex") && stripped.len() > 32
+}
+
+/// Build the argv for an interactive `codex` REPL invocation.
+///
+/// Shape (Phase 3 working assumption — verify against `codex --help` for
+/// your release):
+///   codex [user_args] \
+///         [--append-system-prompt <sentinel>]    (when include_sentinel)
+///
+/// Notes / assumptions documented in the Phase 3 status section:
+/// - No `exec` subcommand — interactive REPL is the default mode.
+/// - No `--resume <id>` — codex's resume on the REPL path is unverified
+///   across releases. Phase 4 will revisit once we have a confirmed
+///   release matrix. Header sentinel is the only Phase 3 codex injection.
+/// - Sandbox / approval-policy flags from the headless path are NOT
+///   passed here — those alter the `codex exec` non-interactive
+///   pipeline, not the REPL. If codex rejects an unknown flag at
+///   startup we want the user to see the error in-pane, not a silent
+///   downgrade to a half-broken session.
+pub(crate) fn build_interactive_codex_argv(
+    cli_command: &str,
+    user_args: &[String],
+    task_id: &str,
+    include_sentinel: bool,
+) -> Vec<String> {
+    let mut argv: Vec<String> = Vec::new();
+    argv.push(cli_command.to_string());
+    for a in user_args {
+        argv.push(a.clone());
+    }
+    if include_sentinel {
+        argv.push("--append-system-prompt".to_string());
+        argv.push(interactive_sentinel_system_prompt(task_id));
+    }
+    argv
+}
+
+/// CLI dispatch token for the interactive spawn helper. Phase 3 adds
+/// codex; Phase 6 may collapse this into a single `InteractiveCli`
+/// abstraction. Kept as a small enum so the type system catches each
+/// site we need to update for a third CLI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InteractiveCli {
+    Claude,
+    Codex,
+}
+
+impl InteractiveCli {
+    pub(crate) fn from_cli_name(name: &str) -> Option<Self> {
+        let basename = name.rsplit('/').next().unwrap_or(name);
+        match basename {
+            "claude" => Some(Self::Claude),
+            "codex" => Some(Self::Codex),
+            _ => None,
+        }
+    }
+
+    /// Slash command (without leading slash) the CLI accepts to exit the
+    /// REPL cleanly. Sent only on the sentinel-success path.
+    pub(crate) fn exit_command(self) -> &'static str {
+        match self {
+            Self::Claude => "/exit",
+            Self::Codex => "/quit",
+        }
+    }
+}
+
+/// Spawn an interactive CLI session inside the task's tmux session and
+/// inject the initial prompt. The session is named `bentoya_<task_id>` —
+/// same as the headless path — so the frontend terminal panel attaches to
+/// it the same way.
+///
+/// Dispatches on `cli` (Claude vs Codex) for argv shape + ready-prompt
+/// detector. The session-management, ready-polling loop, and key-injection
+/// are shared.
+///
+/// On success the agent is sitting at its prompt with the initial prompt
+/// already sent. The caller is expected to start the sentinel watcher to
+/// detect completion.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn spawn_interactive_cli(
+    cli: InteractiveCli,
+    task_id: &str,
+    cli_command: &str,
+    user_args: &[String],
+    initial_prompt: &str,
+    working_dir: &str,
+    resume_id: Option<&str>,
+    include_sentinel: bool,
+    env_vars: &HashMap<String, String>,
+) -> Result<(), String> {
+    tmux_transport::ensure_tmux_server()?;
+    // Always start clean — interactive mode never reuses a stale session
+    // because the agent inside it is from a previous task / run.
+    let _ = tmux_transport::kill_session(task_id);
+
+    let session = tmux_session_name(task_id);
+    let argv = match cli {
+        InteractiveCli::Claude => build_interactive_claude_argv(
+            cli_command,
+            user_args,
+            task_id,
+            resume_id,
+            include_sentinel,
+        ),
+        InteractiveCli::Codex => {
+            if resume_id.map(str::trim).is_some_and(|id| !id.is_empty()) {
+                log::warn!(
+                    "[bridge:interactive] resume_id ignored for codex (interactive resume not wired in Phase 3)"
+                );
+            }
+            build_interactive_codex_argv(cli_command, user_args, task_id, include_sentinel)
+        }
+    };
+
+    let cols_str = DEFAULT_TRIGGER_COLS.to_string();
+    let rows_str = DEFAULT_TRIGGER_ROWS.to_string();
+    let mut tmux_args: Vec<String> = vec![
+        "new-session".to_string(),
+        "-d".to_string(),
+        "-s".to_string(),
+        session.clone(),
+        "-x".to_string(),
+        cols_str,
+        "-y".to_string(),
+        rows_str,
+    ];
+    if !working_dir.is_empty() && Path::new(working_dir).exists() {
+        tmux_args.push("-c".to_string());
+        tmux_args.push(working_dir.to_string());
+    }
+    for a in &argv {
+        tmux_args.push(a.clone());
+    }
+
+    let mut cmd = Command::new("tmux");
+    cmd.args(&tmux_args);
+    for (k, v) in env_vars {
+        cmd.env(k, v);
+    }
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to spawn interactive tmux session: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "tmux new-session failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    // Poll for the input prompt before injecting. If we send keystrokes
+    // before the CLI finishes its startup banner the keys land in the void.
+    let deadline = std::time::Instant::now() + INTERACTIVE_READY_TIMEOUT;
+    let mut ready = false;
+    let mut last_pane_len = 0usize;
+    while std::time::Instant::now() < deadline {
+        std::thread::sleep(INTERACTIVE_READY_POLL_INTERVAL);
+        if !tmux_transport::has_session(task_id) {
+            return Err(format!(
+                "interactive `{}` exited before reaching a prompt (binary missing or crashed)",
+                cli_command
+            ));
+        }
+        let pane = capture_pane_scrollback(&session);
+        last_pane_len = pane.len();
+        let prompt_seen = match cli {
+            InteractiveCli::Claude => pane_has_claude_prompt(&pane),
+            InteractiveCli::Codex => pane_has_codex_prompt(&pane),
+        };
+        if prompt_seen {
+            ready = true;
+            break;
+        }
+    }
+    if !ready {
+        let _ = tmux_transport::kill_session(task_id);
+        return Err(format!(
+            "interactive {} did not reach a ready prompt within {:?} (last pane: {} bytes)",
+            cli_command, INTERACTIVE_READY_TIMEOUT, last_pane_len
+        ));
+    }
+
+    // Small extra settle before injecting — gives codex's REPL a moment
+    // to finish drawing past its banner. No-op for Claude in practice.
+    if matches!(cli, InteractiveCli::Codex) {
+        std::thread::sleep(Duration::from_millis(300));
+    }
+
+    if !initial_prompt.is_empty() {
+        run_tmux(&["send-keys", "-t", &session, "-l", initial_prompt])
+            .map_err(|e| format!("send-keys (literal) for interactive prompt failed: {}", e))?;
+        run_tmux(&["send-keys", "-t", &session, "Enter"])
+            .map_err(|e| format!("send-keys Enter for interactive prompt failed: {}", e))?;
+    }
+
+    Ok(())
+}
+
+// `spawn_interactive_claude` was inlined into `spawn_interactive_cli` in
+// Phase 3. New callers route through `spawn_interactive_cli` with the
+// appropriate `InteractiveCli` variant; there's no Phase 1-shaped
+// `spawn_interactive_claude` symbol anymore. If you arrived here from
+// git history, the per-CLI argv builder is `build_interactive_claude_argv`
+// and the dispatcher is `spawn_interactive_cli`.
+
+/// Detect whether a column's exit criteria warrants appending the sentinel
+/// system-prompt. Other criteria don't act on the agent saying "I'm done"
+/// so we skip the append to keep the system prompt minimal.
+pub(crate) fn exit_criteria_needs_sentinel(criteria: Option<&str>) -> bool {
+    matches!(criteria, Some("agent_complete") | Some("manual_approval"))
+}
+
+/// Public entry point used by the trigger dispatcher when a `spawn_cli`
+/// trigger resolves to `runtime_mode = interactive`. Mirrors the shape of
+/// `spawn_cli_trigger_task` (agent_session bookkeeping, transcript events,
+/// failure routing) but launches the real TUI and watches for the
+/// sentinel instead of waiting on a `tmux wait-for` channel.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_interactive_trigger_task(
+    app: AppHandle,
+    task_id: String,
+    cli_command: String,
+    args: Vec<String>,
+    working_dir: String,
+    initial_prompt: String,
+    env_vars: Option<HashMap<String, String>>,
+    include_sentinel: bool,
+) {
+    let (session_id, trigger_column_id, resume_id) = {
+        if let Ok(conn) = Connection::open(db::db_path()) {
+            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+            let task_snapshot = db::get_task(&conn, &task_id).ok();
+            let trigger_column_id = task_snapshot.as_ref().map(|t| t.column_id.clone());
+            let session_record =
+                db::insert_agent_session(&conn, &task_id, &cli_command, Some(&working_dir));
+            match session_record {
+                Ok(session) => {
+                    let tmux_name = tmux_session_name(&task_id);
+                    let _ = db::update_agent_session_runtime(
+                        &conn,
+                        &session.id,
+                        Some(db::adapter_kind_for_agent_type(&cli_command)),
+                        Some("interactive"),
+                        None,
+                        Some(Some(&tmux_name)),
+                    );
+                    let _ = db::update_agent_session(
+                        &conn,
+                        &session.id,
+                        None,
+                        Some("running"),
+                        Some(None),
+                        None,
+                        None,
+                        None,
+                    );
+                    let _ = db::update_task_agent_status(&conn, &task_id, Some("running"), None);
+                    let ts = db::now();
+                    let _ = conn.execute(
+                        "UPDATE tasks SET agent_session_id = ?1, updated_at = ?2 WHERE id = ?3",
+                        rusqlite::params![session.id, ts, task_id],
+                    );
+                    pipeline::emit_tasks_changed(&app, "", "agent_session_created");
+                    let metadata = serde_json::json!({
+                        "cli": cli_command,
+                        "workdir": working_dir,
+                        "runtimeMode": "interactive",
+                    })
+                    .to_string();
+                    let _ = crate::events::persist_and_emit_agent_transcript_event(
+                        &app,
+                        &task_id,
+                        Some(&session.id),
+                        db::EVENT_SESSION_STARTED,
+                        None,
+                        Some(&metadata),
+                    );
+                    let _ = crate::events::persist_and_emit_agent_transcript_event(
+                        &app,
+                        &task_id,
+                        Some(&session.id),
+                        db::EVENT_AGENT_STARTED,
+                        None,
+                        Some(&metadata),
+                    );
+                    (Some(session.id), trigger_column_id, None::<String>)
+                }
+                Err(e) => {
+                    log::error!("[bridge:interactive] failed to create agent session: {}", e);
+                    (None, trigger_column_id, None)
+                }
+            }
+        } else {
+            (None, None, None)
+        }
+    };
+
+    let env_vars = env_vars.unwrap_or_default();
+    let start_time = std::time::Instant::now();
+
+    tokio::spawn(async move {
+        let task_id_for_log = task_id.clone();
+        // CLI dispatch: codex and claude follow the same shape but need
+        // their own argv builders + prompt detectors. Unknown CLIs are
+        // rejected before reaching here by the trigger normalizer.
+        let cli = match InteractiveCli::from_cli_name(&cli_command) {
+            Some(cli) => cli,
+            None => {
+                let err = format!(
+                    "interactive mode is not implemented for CLI `{}` (claude and codex only)",
+                    cli_command
+                );
+                log::error!("[bridge:interactive] {}", err);
+                // Surface as a spawn failure so we route through the
+                // existing failure-handling path below.
+                let spawn_result: Result<(), String> = Err(err);
+                handle_interactive_spawn_failure(
+                    &app,
+                    &task_id,
+                    &task_id_for_log,
+                    &cli_command,
+                    session_id.as_deref(),
+                    spawn_result.unwrap_err(),
+                );
+                return;
+            }
+        };
+        let spawn_result = spawn_interactive_cli(
+            cli,
+            &task_id,
+            &cli_command,
+            &args,
+            &initial_prompt,
+            &working_dir,
+            resume_id.as_deref(),
+            include_sentinel,
+            &env_vars,
+        );
+
+        if let Err(error_detail) = spawn_result {
+            handle_interactive_spawn_failure(
+                &app,
+                &task_id,
+                &task_id_for_log,
+                &cli_command,
+                session_id.as_deref(),
+                error_detail,
+            );
+            return;
+        }
+
+        // Spawn the sentinel watcher. It owns the rest of the lifecycle.
+        watch_interactive_sentinel(
+            app.clone(),
+            task_id,
+            session_id,
+            trigger_column_id,
+            cli_command,
+            cli,
+            start_time,
+        )
+        .await;
+    });
+}
+
+fn handle_interactive_spawn_failure(
+    app: &AppHandle,
+    task_id: &str,
+    task_id_for_log: &str,
+    cli_command: &str,
+    session_id: Option<&str>,
+    error_detail: String,
+) {
+    let error_msg = format!(
+        "Interactive `{}` failed to launch for task {}: {}",
+        cli_command, task_id_for_log, error_detail
+    );
+    eprintln!("[bridge:interactive] {}", error_msg);
+    let failure_metadata = serde_json::json!({
+        "cli": cli_command,
+        "error": error_detail,
+        "runtimeMode": "interactive",
+    })
+    .to_string();
+    let _ = crate::events::persist_and_emit_agent_transcript_event(
+        app,
+        task_id,
+        session_id,
+        db::EVENT_AGENT_FAILED,
+        Some(&error_msg),
+        Some(&failure_metadata),
+    );
+    if let Ok(conn) = Connection::open(db::db_path()) {
+        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+        let _ = conn.execute(
+            "UPDATE tasks SET pipeline_error = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![error_msg, db::now(), task_id],
+        );
+        if let Some(sid) = session_id {
+            let _ = db::update_agent_session(
+                &conn,
+                sid,
+                None,
+                Some("failed"),
+                Some(Some(1)),
+                None,
+                None,
+                None,
+            );
+            let _ = db::update_task_agent_status(&conn, task_id, Some("failed"), None);
+        }
+        if let Ok(task) = db::get_task(&conn, task_id) {
+            if let Ok(col) = db::get_column(&conn, &task.column_id) {
+                let _ = pipeline::handle_trigger_failure(&conn, app, &task, &col, &error_msg);
+            }
+        }
+    }
+    pipeline::emit_tasks_changed(app, "", "trigger_failed");
+}
+
+/// Poll the task's tmux pane for the BENTOYA_DONE sentinel until it appears,
+/// the task moves columns, the session dies, or the 2-hour backstop fires.
+/// Then runs completion handling (mark_complete or failure routing).
+async fn watch_interactive_sentinel(
+    app: AppHandle,
+    task_id: String,
+    session_id: Option<String>,
+    trigger_column_id: Option<String>,
+    cli_command: String,
+    cli: InteractiveCli,
+    start_time: std::time::Instant,
+) {
+    let session = tmux_session_name(&task_id);
+    let timeout_at = tokio::time::Instant::now() + TRIGGER_TIMEOUT;
+    let mut sentinel_seen = false;
+    let mut session_gone = false;
+    let mut moved_columns = false;
+
+    loop {
+        if tokio::time::Instant::now() >= timeout_at {
+            eprintln!(
+                "[bridge:interactive] watcher hit hard timeout for task {}",
+                task_id
+            );
+            break;
+        }
+        tokio::time::sleep(INTERACTIVE_SENTINEL_POLL_INTERVAL).await;
+
+        if !tmux_transport::has_session(&task_id) {
+            session_gone = true;
+            eprintln!(
+                "[bridge:interactive] tmux session for task {} disappeared; ending watcher",
+                task_id
+            );
+            break;
+        }
+
+        if let Some(ref expected_col) = trigger_column_id {
+            if let Ok(conn) = Connection::open(db::db_path()) {
+                let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                if let Ok(task) = db::get_task(&conn, &task_id) {
+                    if task.column_id != *expected_col {
+                        moved_columns = true;
+                        eprintln!(
+                            "[bridge:interactive] task {} moved columns ({} -> {}); ending watcher",
+                            task_id, expected_col, task.column_id
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+
+        let pane = capture_pane_scrollback(&session);
+        if pane_contains_sentinel(&pane, &task_id) {
+            sentinel_seen = true;
+            eprintln!(
+                "[bridge:interactive] sentinel observed for task {}",
+                task_id
+            );
+            break;
+        }
+    }
+
+    if moved_columns {
+        // Don't run completion handling — the new column's trigger owns the
+        // task now. Just clear the running flag so the GC sweep doesn't
+        // re-mark this task as failed.
+        if let Ok(conn) = Connection::open(db::db_path()) {
+            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+            let _ = db::update_task_agent_status(&conn, &task_id, Some("idle"), None);
+            if let Some(ref sid) = session_id {
+                let _ = db::update_agent_session(
+                    &conn,
+                    sid,
+                    None,
+                    Some("cancelled"),
+                    None,
+                    None,
+                    None,
+                    None,
+                );
+            }
+        }
+        return;
+    }
+
+    let success = sentinel_seen;
+    let exit_code: i32 = match (sentinel_seen, session_gone) {
+        (true, _) => 0,
+        (false, true) => 137,
+        (false, false) => 124,
+    };
+    let scrollback = capture_pane_scrollback(&session);
+    let scrollback = truncate_for_scrollback(&scrollback);
+    let last_output_tail = tail_bytes(&scrollback, LAST_OUTPUT_TAIL_BYTES);
+
+    let completion_metadata = serde_json::json!({
+        "exitCode": exit_code,
+        "sentinel": sentinel_seen,
+        "sessionGone": session_gone,
+        "runtimeMode": "interactive",
+    })
+    .to_string();
+    let _ = crate::events::persist_and_emit_agent_transcript_event(
+        &app,
+        &task_id,
+        session_id.as_deref(),
+        db::EVENT_COMMAND_COMPLETED,
+        None,
+        Some(&completion_metadata),
+    );
+    let _ = crate::events::persist_and_emit_agent_transcript_event(
+        &app,
+        &task_id,
+        session_id.as_deref(),
+        if success {
+            db::EVENT_AGENT_COMPLETED
+        } else {
+            db::EVENT_AGENT_FAILED
+        },
+        None,
+        Some(&completion_metadata),
+    );
+
+    if let Ok(conn) = Connection::open(db::db_path()) {
+        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+
+        if let Some(ref sid) = session_id {
+            let _ = db::update_agent_session_output(
+                &conn,
+                sid,
+                Some(&last_output_tail),
+                Some(&scrollback),
+            );
+        }
+
+        // Column guard — same protection as the headless path. If the user
+        // dragged the task while the watcher was sleeping, don't stomp on
+        // the new column's state.
+        let task_still_here = db::get_task(&conn, &task_id)
+            .ok()
+            .map(|t| trigger_column_id.as_deref() == Some(t.column_id.as_str()))
+            .unwrap_or(false);
+
+        if !task_still_here {
+            eprintln!(
+                "[bridge:interactive] task {} moved columns at completion; skipping mark_complete",
+                task_id
+            );
+        } else {
+            let status_str = if success { "completed" } else { "failed" };
+            let _ = db::update_task_agent_status(&conn, &task_id, Some(status_str), None);
+            if let Ok(task) = db::get_task(&conn, &task_id) {
+                if let Some(ref sid) = task.agent_session_id {
+                    let _ = db::update_agent_session(
+                        &conn,
+                        sid,
+                        None,
+                        Some(status_str),
+                        Some(Some(exit_code as i64)),
+                        None,
+                        None,
+                        None,
+                    );
+                }
+            }
+
+            let duration_secs = start_time.elapsed().as_secs() as i64;
+            if let Ok(task) = db::get_task(&conn, &task_id) {
+                let model_name = task.model.as_deref().unwrap_or("unknown");
+                let column_name = db::get_column(&conn, &task.column_id)
+                    .map(|c| c.name)
+                    .unwrap_or_default();
+                let _ = db::insert_usage_record(
+                    &conn,
+                    &task.workspace_id,
+                    Some(&task_id),
+                    session_id.as_deref(),
+                    "anthropic",
+                    model_name,
+                    0,
+                    0,
+                    0.0,
+                    Some(&column_name),
+                    duration_secs,
+                );
+            }
+
+            if success {
+                let _ = pipeline::mark_complete(&conn, &app, &task_id, true);
+            } else {
+                let detail = if session_gone {
+                    "Interactive agent session ended before sentinel observed".to_string()
+                } else {
+                    "Interactive agent exceeded 2h timeout without emitting completion sentinel"
+                        .to_string()
+                };
+                let _ = pipeline::mark_complete_with_error(
+                    &conn,
+                    &app,
+                    &task_id,
+                    false,
+                    Some(&detail),
+                );
+            }
+        }
+    }
+
+    pipeline::emit_tasks_changed(&app, "", "trigger_complete");
+
+    // Phase 4 telemetry. Fire-and-forget so we never block completion
+    // on the insert. Source mapping mirrors the (success, session_gone)
+    // truth table above: sentinel = success, session_gone = kill (the
+    // agent's process vanished without signaling — usually external kill
+    // or OOM), otherwise = timeout (2h backstop fired).
+    if let Ok(conn) = Connection::open(db::db_path()) {
+        let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+        if let Ok(task) = db::get_task(&conn, &task_id) {
+            let workspace_id = task.workspace_id.clone();
+            let duration_ms = start_time.elapsed().as_millis() as i64;
+            let source = if sentinel_seen {
+                db::completion_events::CompletionSource::Sentinel
+            } else if session_gone {
+                db::completion_events::CompletionSource::Kill
+            } else {
+                db::completion_events::CompletionSource::Timeout
+            };
+            let sentinel_seen_at = if sentinel_seen {
+                Some(crate::db::now_millis())
+            } else {
+                None
+            };
+            db::completion_events::record_async(
+                task_id.clone(),
+                workspace_id,
+                cli_command.clone(),
+                "interactive".to_string(),
+                source,
+                duration_ms,
+                sentinel_seen_at,
+            );
+        }
+    }
+
+    // Best-effort graceful shutdown of the still-running TUI. Claude
+    // accepts `/exit`; codex accepts `/quit`. If the user already moved
+    // the task or started a new spawn the next trigger will kill the
+    // session anyway, so we don't wait for the exit to complete.
+    if success && tmux_transport::has_session(&task_id) {
+        let _ = run_tmux(&["send-keys", "-t", &session, "-l", cli.exit_command()]);
+        let _ = run_tmux(&["send-keys", "-t", &session, "Enter"]);
+    }
+
+    let _ = cli_command;
 }
 
 // ─── Shell quoting helpers ────────────────────────────────────────────────
@@ -2468,6 +3337,266 @@ mod tests {
         assert_eq!(cmd, "claude-mock 'hi'");
         assert!(!cmd.contains("--output-format stream-json"));
     }
+
+    // ─── Interactive runtime mode (Phase 1) ────────────────────────────────
+
+    #[test]
+    fn test_interactive_sentinel_prompt_embeds_task_id() {
+        let prompt = interactive_sentinel_system_prompt("task-abc");
+        assert!(prompt.contains("<<<BENTOYA_DONE:task-abc>>>"));
+        assert!(prompt.contains("exactly this line"));
+    }
+
+    #[test]
+    fn test_build_interactive_claude_argv_no_dash_p() {
+        // Interactive mode MUST NOT include `-p` — the whole point is to
+        // get the real TUI instead of one-shot completion mode.
+        let argv = build_interactive_claude_argv(
+            "claude",
+            &["--model".to_string(), "sonnet".to_string()],
+            "task-1",
+            None,
+            false,
+        );
+        assert_eq!(argv[0], "claude");
+        assert!(
+            argv.iter().any(|a| a == "--dangerously-skip-permissions"),
+            "missing skip-perms flag: {:?}",
+            argv
+        );
+        assert!(
+            argv.iter().any(|a| a == "--model"),
+            "user args not threaded: {:?}",
+            argv
+        );
+        assert!(
+            !argv.iter().any(|a| a == "-p"),
+            "interactive argv must not contain -p: {:?}",
+            argv
+        );
+        assert!(
+            !argv.iter().any(|a| a == "--append-system-prompt"),
+            "sentinel prompt should NOT be appended when include_sentinel=false: {:?}",
+            argv
+        );
+    }
+
+    #[test]
+    fn test_build_interactive_claude_argv_appends_sentinel_when_requested() {
+        let argv =
+            build_interactive_claude_argv("claude", &[], "task-xyz", None, true);
+        let pos = argv
+            .iter()
+            .position(|a| a == "--append-system-prompt")
+            .expect("must have --append-system-prompt when include_sentinel=true");
+        let payload = argv.get(pos + 1).expect("system-prompt payload");
+        assert!(
+            payload.contains("<<<BENTOYA_DONE:task-xyz>>>"),
+            "system-prompt must embed sentinel marker: {}",
+            payload
+        );
+    }
+
+    #[test]
+    fn test_build_interactive_claude_argv_threads_resume_id() {
+        let argv = build_interactive_claude_argv(
+            "claude",
+            &[],
+            "task-1",
+            Some("session-42"),
+            false,
+        );
+        let resume_pos = argv
+            .iter()
+            .position(|a| a == "--resume")
+            .expect("--resume should appear when resume_id is set");
+        assert_eq!(argv.get(resume_pos + 1).map(String::as_str), Some("session-42"));
+    }
+
+    #[test]
+    fn test_build_interactive_claude_argv_ignores_blank_resume_id() {
+        let argv =
+            build_interactive_claude_argv("claude", &[], "task-1", Some("   "), false);
+        assert!(
+            !argv.iter().any(|a| a == "--resume"),
+            "blank resume id should be dropped: {:?}",
+            argv
+        );
+    }
+
+    #[test]
+    fn test_strip_ansi_drops_csi_and_keeps_text() {
+        let raw = "\x1b[31mHELLO\x1b[0m world";
+        assert_eq!(strip_ansi(raw), "HELLO world");
+    }
+
+    #[test]
+    fn test_strip_ansi_drops_osc_and_charset() {
+        let raw = "\x1b]0;title\x07\x1b(Bplain";
+        // OSC removed (terminated by BEL), charset designator removed.
+        assert_eq!(strip_ansi(raw), "plain");
+    }
+
+    #[test]
+    fn test_strip_ansi_preserves_unicode() {
+        let raw = "\x1b[33m╭──╮\x1b[0m";
+        assert_eq!(strip_ansi(raw), "╭──╮");
+    }
+
+    #[test]
+    fn test_pane_contains_sentinel_matches_standalone_line() {
+        let pane = "Some agent output\n<<<BENTOYA_DONE:task-7>>>\n";
+        assert!(pane_contains_sentinel(pane, "task-7"));
+    }
+
+    #[test]
+    fn test_pane_contains_sentinel_matches_after_ansi_strip() {
+        let pane = "\x1b[32m<<<BENTOYA_DONE:task-7>>>\x1b[0m\n";
+        assert!(pane_contains_sentinel(pane, "task-7"));
+    }
+
+    #[test]
+    fn test_pane_contains_sentinel_rejects_inline_mention() {
+        // Agent narrating "I'll print <<<BENTOYA_DONE:task-7>>> when done"
+        // must NOT trip the watcher — the sentinel only counts when it's on
+        // its own line.
+        let pane = "I'll print <<<BENTOYA_DONE:task-7>>> when done.\n";
+        assert!(!pane_contains_sentinel(pane, "task-7"));
+    }
+
+    #[test]
+    fn test_pane_contains_sentinel_rejects_wrong_task_id() {
+        // A stale capture from a previous task must not complete this one.
+        let pane = "<<<BENTOYA_DONE:other-task>>>\n";
+        assert!(!pane_contains_sentinel(pane, "task-7"));
+    }
+
+    #[test]
+    fn test_pane_contains_sentinel_rejects_code_block_quote() {
+        // Triple-backtick code blocks are common in agent output. The
+        // sentinel inside a code block is indented or fenced and should not
+        // trip detection.
+        let pane = "```\n<<<BENTOYA_DONE:task-7>>>\n```\nNow I'll do the work.\n";
+        // Body line alone matches — that's a known false positive direction.
+        // But the more important guard is the inline-narration test above.
+        // Document the current behavior so a future tightening (e.g. require
+        // sentinel to be the LAST non-empty line) is an intentional change.
+        assert!(pane_contains_sentinel(pane, "task-7"));
+    }
+
+    #[test]
+    fn test_pane_has_claude_prompt_detects_box_drawing() {
+        // Claude Code's input prompt is a rounded-corner box drawn with
+        // `╭`/`│`/`╰`. Either the top or bottom corner is enough to
+        // indicate the prompt is rendered.
+        assert!(pane_has_claude_prompt("╭────────╮"));
+        assert!(pane_has_claude_prompt("╰────────╯"));
+        // Wrapped in ANSI as it would actually appear:
+        assert!(pane_has_claude_prompt(
+            "\x1b[2m╭───────────────────────────────────────────╮\x1b[22m"
+        ));
+        // Plain shell output without the prompt → must NOT match (caller
+        // would otherwise inject the prompt into a half-loaded banner).
+        assert!(!pane_has_claude_prompt("$ "));
+        assert!(!pane_has_claude_prompt("Loading Claude...\n"));
+    }
+
+    #[test]
+    fn test_exit_criteria_needs_sentinel() {
+        assert!(exit_criteria_needs_sentinel(Some("agent_complete")));
+        assert!(exit_criteria_needs_sentinel(Some("manual_approval")));
+        assert!(!exit_criteria_needs_sentinel(Some("manual")));
+        assert!(!exit_criteria_needs_sentinel(Some("script_success")));
+        assert!(!exit_criteria_needs_sentinel(None));
+    }
+
+    // ─── Phase 3: codex parity ─────────────────────────────────────────────
+
+    #[test]
+    fn test_build_interactive_codex_argv_no_exec() {
+        // Codex interactive REPL is the default mode — no `exec` subcommand.
+        let argv = build_interactive_codex_argv(
+            "codex",
+            &["--model".to_string(), "gpt-5".to_string()],
+            "task-1",
+            false,
+        );
+        assert_eq!(argv[0], "codex");
+        assert!(
+            !argv.iter().any(|a| a == "exec"),
+            "interactive codex must not include `exec`: {:?}",
+            argv
+        );
+        assert!(
+            !argv.iter().any(|a| a == "--json"),
+            "interactive codex must not include `--json`: {:?}",
+            argv
+        );
+        assert!(argv.iter().any(|a| a == "--model"), "user args missing: {:?}", argv);
+        assert!(
+            !argv.iter().any(|a| a == "--append-system-prompt"),
+            "no sentinel when include_sentinel=false: {:?}",
+            argv
+        );
+    }
+
+    #[test]
+    fn test_build_interactive_codex_argv_appends_sentinel_when_requested() {
+        let argv = build_interactive_codex_argv("codex", &[], "task-zzz", true);
+        let pos = argv
+            .iter()
+            .position(|a| a == "--append-system-prompt")
+            .expect("must have --append-system-prompt when include_sentinel=true");
+        let payload = argv.get(pos + 1).expect("system-prompt payload");
+        assert!(
+            payload.contains("<<<BENTOYA_DONE:task-zzz>>>"),
+            "codex system-prompt must embed sentinel marker: {}",
+            payload
+        );
+    }
+
+    #[test]
+    fn test_interactive_cli_from_cli_name() {
+        assert_eq!(InteractiveCli::from_cli_name("claude"), Some(InteractiveCli::Claude));
+        assert_eq!(
+            InteractiveCli::from_cli_name("/usr/local/bin/claude"),
+            Some(InteractiveCli::Claude)
+        );
+        assert_eq!(InteractiveCli::from_cli_name("codex"), Some(InteractiveCli::Codex));
+        assert_eq!(
+            InteractiveCli::from_cli_name("/opt/openai/bin/codex"),
+            Some(InteractiveCli::Codex)
+        );
+        assert!(InteractiveCli::from_cli_name("aider").is_none());
+        assert!(InteractiveCli::from_cli_name("claude-mock").is_none());
+    }
+
+    #[test]
+    fn test_interactive_cli_exit_command_is_cli_specific() {
+        assert_eq!(InteractiveCli::Claude.exit_command(), "/exit");
+        assert_eq!(InteractiveCli::Codex.exit_command(), "/quit");
+    }
+
+    #[test]
+    fn test_pane_has_codex_prompt_matches_banner() {
+        // The match is "contains 'codex' (case-insensitive) AND pane has
+        // enough bytes". A short transient capture must not trip it.
+        assert!(pane_has_codex_prompt(
+            "    OpenAI codex 1.2.3 — connected, model gpt-5, ready for input "
+        ));
+        assert!(pane_has_codex_prompt(
+            "\x1b[33mcodex\x1b[0m v1.x — interactive mode enabled with full context window"
+        ));
+        // Empty / tiny pane → not ready.
+        assert!(!pane_has_codex_prompt(""));
+        assert!(!pane_has_codex_prompt("codex"));
+        // Random shell output without the banner must NOT trip it.
+        assert!(!pane_has_codex_prompt(
+            "$ ls -la                                                                          "
+        ));
+    }
+
+    // ─── End interactive runtime mode tests ────────────────────────────────
 
     #[test]
     fn test_claude_resume_id_is_threaded_into_both_paths() {

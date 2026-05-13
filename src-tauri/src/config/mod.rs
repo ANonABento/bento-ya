@@ -10,9 +10,30 @@ use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-pub const DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS: i64 = 5;
+pub const DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS: i64 = 6;
 pub const DEFAULT_BRANCH_PREFIX: &str = "bentoya/";
 pub const DEFAULT_BASE_BRANCH: &str = "main";
+
+/// Dev-gating env var for the Phase 1+ interactive runtime mode. When unset
+/// or set to a falsy value, any `runtime_mode = "interactive"` trigger config
+/// is downgraded to the legacy `terminal` path with a one-time warning. Will
+/// be promoted (or removed) in Phase 6 once telemetry on sentinel reliability
+/// supports flipping it on by default.
+pub const INTERACTIVE_MODE_ENV_VAR: &str = "BENTOYA_INTERACTIVE_MODE_ENABLED";
+
+/// Whether the interactive runtime mode is currently allowed. Reads the env
+/// var on every call (cheap) so the flag responds to test setup and `launchctl
+/// setenv`-style live tweaks without an app restart. Treats `1`, `true`,
+/// `yes`, `on` (case-insensitive) as enabled.
+pub fn interactive_mode_enabled() -> bool {
+    match std::env::var(INTERACTIVE_MODE_ENV_VAR) {
+        Ok(value) => {
+            let trimmed = value.trim().to_ascii_lowercase();
+            matches!(trimmed.as_str(), "1" | "true" | "yes" | "on")
+        }
+        Err(_) => false,
+    }
+}
 
 /// Global cached settings instance. Reloaded on save.
 static CACHED_SETTINGS: OnceLock<Mutex<AppSettings>> = OnceLock::new();
@@ -50,6 +71,11 @@ pub struct AppSettings {
     pub default_session_strategy: String,
     /// Default advance mode: "auto" or "manual"
     pub default_advance_mode: String,
+    /// Phase 4 (AGENT_PANEL_MODES) — global default runtime mode for
+    /// trigger-spawned agents. Tokens match the resolver: `"terminal" |
+    /// "managed" | "interactive" | ""` (empty = no global default, fall
+    /// through to plan default of headless·bubbles).
+    pub default_runtime_mode: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -201,6 +227,7 @@ impl Default for AppSettings {
             default_model: String::new(), // empty = use CLI default
             default_session_strategy: "fresh".to_string(),
             default_advance_mode: "auto".to_string(),
+            default_runtime_mode: String::new(),
         }
     }
 }
@@ -271,6 +298,9 @@ impl AppSettings {
             }
             if let Some(v) = obj.get("default_advance_mode").and_then(|v| v.as_str()) {
                 self.default_advance_mode = v.to_string();
+            }
+            if let Some(v) = obj.get("default_runtime_mode").and_then(|v| v.as_str()) {
+                self.default_runtime_mode = v.to_string();
             }
         }
     }
@@ -455,6 +485,41 @@ mod tests {
             DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS
         );
         assert_eq!(effective.branch_prefix, DEFAULT_BRANCH_PREFIX);
+    }
+
+    #[test]
+    fn test_interactive_mode_enabled_reads_env_var() {
+        // Serialize against process-global env mutation. Multiple values
+        // are exercised inside the guard so we don't ping-pong other tests
+        // that read the env.
+        static ENV_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+
+        let prior = std::env::var(INTERACTIVE_MODE_ENV_VAR).ok();
+        std::env::remove_var(INTERACTIVE_MODE_ENV_VAR);
+        assert!(!interactive_mode_enabled());
+
+        for truthy in ["1", "true", "TRUE", "Yes", "on"] {
+            std::env::set_var(INTERACTIVE_MODE_ENV_VAR, truthy);
+            assert!(
+                interactive_mode_enabled(),
+                "expected truthy value {} to enable interactive mode",
+                truthy
+            );
+        }
+        for falsy in ["0", "false", "no", "off", ""] {
+            std::env::set_var(INTERACTIVE_MODE_ENV_VAR, falsy);
+            assert!(
+                !interactive_mode_enabled(),
+                "expected falsy value {:?} to leave interactive mode disabled",
+                falsy
+            );
+        }
+
+        match prior {
+            Some(v) => std::env::set_var(INTERACTIVE_MODE_ENV_VAR, v),
+            None => std::env::remove_var(INTERACTIVE_MODE_ENV_VAR),
+        }
     }
 
     #[test]

@@ -3,8 +3,20 @@
 export type ActionType = 'auto_setup' | 'spawn_cli' | 'move_column' | 'trigger_task' | 'run_script' | 'create_pr' | 'auto_merge' | 'none'
 
 export type CliType = 'claude' | 'codex' | 'aider'
-export type AgentRuntimeMode = 'terminal' | 'managed'
+/**
+ * Runtime mode for trigger-spawned agents.
+ *
+ * - `'terminal'` / `'managed'` are headless-family modes (`claude -p` /
+ *   `codex exec`). They differ only in how the frontend renders the
+ *   stream (raw tmux pane vs. semantic chat bubbles).
+ * - `'interactive'` runs the CLI in its real TUI (no `-p`) inside the
+ *   per-task tmux session. The initial prompt is injected via
+ *   `tmux send-keys`, and the user can take over mid-task. Gated by the
+ *   `BENTOYA_INTERACTIVE_MODE_ENABLED` dev flag until Phase 6 promotes it.
+ */
+export type AgentRuntimeMode = 'terminal' | 'managed' | 'interactive'
 export type TriggerTaskActionType = 'move_column' | 'start' | 'unblock'
+export type ResourceProfile = 'light' | 'standard' | 'heavy' | 'exclusive'
 
 export interface SpawnCliAction {
   type: 'spawn_cli'
@@ -103,6 +115,17 @@ export interface ColumnTriggers {
   on_entry?: TriggerAction
   on_exit?: TriggerAction
   exit_criteria?: ExitCriteria
+  /** Scheduler resource profile for this column. Undefined = backend default. */
+  resource_profile?: ResourceProfile
+  /** Per-column concurrency cap. Undefined = unlimited (workspace cap still applies). */
+  max_concurrent?: number
+  /**
+   * Phase 4 (AGENT_PANEL_MODES) — column-level runtime mode default.
+   * Falls under any trigger's explicit `runtime_mode`. The column-config
+   * dialog can write this; the resolver consults it between the task
+   * tier and the workspace tier.
+   */
+  default_runtime_mode?: AgentRuntimeMode
 }
 
 // ─── Column ─────────────────────────────────────────────────────────────────

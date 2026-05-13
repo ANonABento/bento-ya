@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod agent_interactive;
 pub mod checklist;
 pub mod cli_detect;
 pub mod column;

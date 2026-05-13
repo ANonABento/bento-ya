@@ -73,6 +73,8 @@ const createMockTask = (overrides: Partial<Task> = {}): Task => ({
   archivedAt: null,
       lastUserInputAt: null,
       heldByUser: false,
+      runtimeModeOverride: null,
+      agentPausedAt: null,
   siegeIteration: 0,
   siegeActive: false,
   siegeMaxIterations: 3,
