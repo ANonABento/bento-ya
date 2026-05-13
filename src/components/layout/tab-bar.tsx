@@ -164,6 +164,7 @@ function SettingsButton() {
     <Tooltip content="Settings" side="bottom">
       <motion.button
         onClick={openSettings}
+        aria-label="Settings"
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
