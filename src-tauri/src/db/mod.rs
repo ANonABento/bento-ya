@@ -64,8 +64,17 @@ pub struct AppState {
     pub db: Mutex<Connection>,
 }
 
-/// Returns the path to the Bento-ya data directory (~/.bentoya/).
+/// Returns the path to the Bento-ya data directory.
+///
+/// Defaults to `~/.bentoya/`. Override with the `BENTOYA_DATA_DIR` environment
+/// variable — useful for E2E tests (so they don't pollute real data) and
+/// running multiple isolated instances side-by-side.
 pub fn data_dir() -> PathBuf {
+    if let Ok(override_path) = std::env::var("BENTOYA_DATA_DIR") {
+        if !override_path.is_empty() {
+            return PathBuf::from(override_path);
+        }
+    }
     let home = dirs_home();
     home.join(".bentoya")
 }

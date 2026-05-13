@@ -6,7 +6,17 @@
  *   2. Start Vite dev server: npm run dev
  *   3. Start WebDriver server: tauri-driver --port 4444
  *   4. Run tests: npx wdio run wdio.conf.mjs
+ *
+ * Binary path resolution:
+ *   - Defaults to `<repo>/target/debug/bento-ya` (Cargo workspace layout)
+ *   - Override with BENTOYA_BINARY env var (e.g. for release builds or non-standard targets)
  */
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const application = process.env.BENTOYA_BINARY || resolve(__dirname, 'target/debug/bento-ya')
+
 export const config = {
   runner: 'local',
   port: 4444,
@@ -14,8 +24,11 @@ export const config = {
   maxInstances: 1,
 
   capabilities: [{
+    // tauri-driver 2.x expects `application` (not `binary`); the latter is
+    // silently ignored, which makes WebKitWebDriver fall back to MiniBrowser
+    // and `window.__TAURI_INTERNALS__` ends up undefined.
     'tauri:options': {
-      binary: '/Users/bentomac/bento-ya/target/debug/bento-ya',
+      application,
     },
   }],
 

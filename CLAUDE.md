@@ -277,18 +277,24 @@ Backend `json!({ "workspace_id": ... })` → snake_case. Frontend expects `works
 - Run: `npx tsc --noEmit` (type-check), `npm run lint`, `cargo check`, `cargo test`
 
 ### WebDriver E2E Testing
-Real E2E tests run against the actual Tauri app with real Rust backend + SQLite via `tauri-webdriver`.
+Real E2E tests run against the actual Tauri app with real Rust backend + SQLite via `tauri-driver` (the crate is **`tauri-driver`**, not `tauri-wd` — `cargo install tauri-driver --locked`).
 
-**Setup:**
-1. Build with webdriver feature: `cd src-tauri && cargo build --features webdriver`
-2. Start Vite dev server: `npm run dev` (must be on port 1420)
-3. Start WebDriver server: `tauri-wd --port 4444`
-4. Run tests: `npm run test:webdriver`
+**Setup (Linux):**
+1. Install native deps: `sudo apt install webkit2gtk-driver` (provides `WebKitWebDriver`)
+2. Install `tauri-driver` once: `cargo install tauri-driver --locked`
+3. Build with webdriver feature: `npm run build:webdriver`
+4. Start Vite dev server: `npm run dev` (must be on port 1420)
+5. Start `tauri-driver` with an isolated data dir so tests don't pollute the real DB:
+   `BENTOYA_DATA_DIR=/tmp/bentoya-wdio tauri-driver --port 4444`
+6. Run tests: `npm run test:webdriver`
+
+`BENTOYA_DATA_DIR` is honored by `db::data_dir()` — defaults to `~/.bentoya/` when unset.
 
 **Key files:**
-- `wdio.conf.mjs` — WebDriverIO config
+- `wdio.conf.mjs` — WebDriverIO config. The capability key is `tauri:options.application` (not `binary`); writing `binary` makes `tauri-driver` silently fall back to MiniBrowser and `window.__TAURI_INTERNALS__` ends up undefined.
 - `tests/webdriver/core-flow.spec.mjs` — Core pipeline flow tests (17 tests)
-- `src-tauri/Cargo.toml` — `webdriver` feature flag
+- `tests/webdriver/agent-panel.spec.mjs` — Agent panel layout tests (5 tests)
+- `src-tauri/Cargo.toml` — `webdriver` feature flag (pulls in `tauri-plugin-webdriver-automation`)
 - `src/hooks/use-task-sync.ts` — Listens for `tasks:changed` events to keep UI in sync
 
 **IPC in tests:** Use `executeAsync` (not `executeScript`) for Tauri invoke calls since they return Promises. See the `tauriInvoke()` helper in the test file.
@@ -300,8 +306,8 @@ The `tauri-automation` MCP server wraps tauri-webdriver so Claude Code can inter
 
 **Prerequisites (two background processes):**
 ```bash
-npm run dev                  # Vite on port 1420 (tauri loads from devUrl)
-tauri-wd --port 4444         # WebDriver server
+npm run dev                                                    # Vite on port 1420 (tauri loads from devUrl)
+BENTOYA_DATA_DIR=/tmp/bentoya-wdio tauri-driver --port 4444    # WebDriver server, isolated data dir
 ```
 
 **MCP tools:** `launch_app`, `close_app`, `capture_screenshot`, `click_element`, `type_text`, `wait_for_element`, `get_element_text`, `execute_script`, `execute_tauri_command`, `get_page_title`, `get_page_url`, `get_app_state`
