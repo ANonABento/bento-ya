@@ -58,7 +58,13 @@ pub fn collect(conn: &Connection) {
         // since the pipeline's tmux wait-for completion detection needs the session alive.
         let pipeline_active = matches!(task.pipeline_state.as_str(), "running" | "triggered");
 
+        // Phase 5 — explicit paused tasks must never be reaped. The user
+        // intentionally suspended the agent; killing it would discard
+        // conversational state the user expected to come back to.
+        let paused = task.agent_paused_at.is_some();
+
         let agent_finished = !pipeline_active
+            && !paused
             && matches!(
                 task.agent_status.as_deref(),
                 Some("completed") | Some("failed") | Some("cancelled") | Some("idle")
@@ -112,10 +118,12 @@ pub fn collect(conn: &Connection) {
     }
 
     // Also check for tasks marked "running" whose tmux session has died
-    // (e.g., OOM kill, manual tmux kill-session)
-    if let Ok(mut stmt) =
-        conn.prepare("SELECT id, agent_session_id FROM tasks WHERE agent_status = 'running'")
-    {
+    // (e.g., OOM kill, manual tmux kill-session). Paused tasks (Phase 5)
+    // are exempt — their suspended process still owns the session.
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT id, agent_session_id FROM tasks
+         WHERE agent_status = 'running' AND agent_paused_at IS NULL",
+    ) {
         let stale: Vec<(String, Option<String>)> = stmt
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
             .ok()

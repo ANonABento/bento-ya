@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import type { AgentRuntimeMode, Task } from '@/types'
 import * as ipc from '@/lib/ipc'
+import { interactiveModeDevFlag } from '@/lib/ipc/agent-interactive'
+import { useResolvedRuntimeMode } from '@/hooks/use-resolved-runtime-mode'
 import { useTaskStore } from '@/stores/task-store'
 import { DependenciesTab } from './task-dependencies-tab'
 import type { Dependency } from './task-dependency-parsers'
@@ -126,6 +128,7 @@ export function TaskSettingsModal({ task, onClose, initialTab }: TaskSettingsMod
             {tab === 'triggers' ? (
               <motion.div key="triggers" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <TriggersTab
+                  taskId={task.id}
                   skipTriggers={skipTriggers}
                   setSkipTriggers={setSkipTriggers}
                   triggerPrompt={triggerPrompt}
@@ -174,12 +177,13 @@ export function TaskSettingsModal({ task, onClose, initialTab }: TaskSettingsMod
 }
 
 function isRuntimeMode(mode: Task['agentMode']): mode is AgentRuntimeMode {
-  return mode === 'terminal' || mode === 'managed'
+  return mode === 'terminal' || mode === 'managed' || mode === 'interactive'
 }
 
 // ─── Triggers Tab ───────────────────────────────────────────────────────────
 
 function TriggersTab({
+  taskId,
   skipTriggers,
   setSkipTriggers,
   triggerPrompt,
@@ -190,6 +194,7 @@ function TriggersTab({
   setRuntimeMode,
   lastOutput,
 }: {
+  taskId: string
   skipTriggers: boolean
   setSkipTriggers: (v: boolean) => void
   triggerPrompt: string
@@ -200,6 +205,27 @@ function TriggersTab({
   setRuntimeMode: (v: AgentRuntimeMode | '') => void
   lastOutput: string | null
 }) {
+  const resolved = useResolvedRuntimeMode(taskId)
+  const [devFlagEnabled, setDevFlagEnabled] = useState<boolean | null>(null)
+
+  // Reading the env flag is async-but-fast. While it loads we leave the
+  // 'Interactive' option enabled — worst case the user picks it and the
+  // backend downgrades to terminal with a warning (already wired up).
+  useEffect(() => {
+    let cancelled = false
+    interactiveModeDevFlag()
+      .then((value) => { if (!cancelled) setDevFlagEnabled(value) })
+      .catch(() => { if (!cancelled) setDevFlagEnabled(null) })
+    return () => { cancelled = true }
+  }, [])
+
+  const interactiveDisabled = devFlagEnabled === false
+  const effectiveLabel = resolved.isLoading
+    ? 'Resolving…'
+    : resolved.mode === 'interactive'
+      ? `Interactive (from ${resolved.source})`
+      : `Headless · ${resolved.render ?? 'bubbles'} (from ${resolved.source})`
+
   return (
     <div className="space-y-4">
       {/* Skip Triggers Toggle */}
@@ -251,7 +277,10 @@ function TriggersTab({
           Runtime
         </label>
         <p className="mb-2 text-xs text-text-secondary">
-          Override how this task talks to its agent.
+          Override how this task talks to its agent. Until column/workspace
+          defaults ship in Phase 4, only the column trigger&apos;s explicit
+          runtime mode resolves at fire time — task-level overrides are
+          saved but not consulted by the resolver yet.
         </p>
         <select
           id="task-runtime-mode"
@@ -259,10 +288,22 @@ function TriggersTab({
           onChange={(e) => { setRuntimeMode(e.target.value as AgentRuntimeMode | '') }}
           className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
         >
-          <option value="">Auto (column default)</option>
-          <option value="terminal">Terminal (tmux)</option>
-          <option value="managed">Managed (events)</option>
+          <option value="">Inherit from column</option>
+          <option value="terminal">Headless · terminal (tmux)</option>
+          <option value="managed">Headless · bubbles (managed)</option>
+          <option value="interactive" disabled={interactiveDisabled}>
+            Interactive (live TUI){interactiveDisabled ? ' — set BENTOYA_INTERACTIVE_MODE_ENABLED=1' : ''}
+          </option>
         </select>
+        <p
+          data-testid="task-runtime-effective"
+          className="mt-1.5 text-[11px] text-text-secondary"
+        >
+          Effective: <span className="font-medium text-text-primary">{effectiveLabel}</span>
+          {resolved.interactiveDevFlagRequired && (
+            <span className="ml-1 text-warning">· dev flag required</span>
+          )}
+        </p>
       </div>
 
       {/* Trigger Prompt */}

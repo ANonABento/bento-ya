@@ -1,11 +1,14 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { Task } from '@/types'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAgentTranscriptStore } from '@/stores/agent-transcript-store'
 import { holdTask, killTaskSession } from '@/lib/ipc/agent'
+import { agentInjectMessage } from '@/lib/ipc/agent-interactive'
 import { signalPtyInterrupt } from '@/lib/ipc/terminal'
+import { useResolvedRuntimeMode } from '@/hooks/use-resolved-runtime-mode'
 import { TerminalView } from './terminal-view'
-import { ChatInput } from './shared'
+import { InteractiveAgentView } from './interactive-agent-view'
+import { ChatInput, type ChatInputMessage } from './shared'
 import { AgentTranscript } from './agent-transcript'
 import { useAgentPanelSession } from './use-agent-panel-session'
 
@@ -16,7 +19,41 @@ type AgentPanelProps = {
 
 type PanelView = 'transcript' | 'terminal'
 
-export function AgentPanel({ task, onClose }: AgentPanelProps) {
+/**
+ * Dispatch the agent panel by resolved runtime mode.
+ *
+ * - `interactive` → `InteractivePanel` (xterm + control bar, input routed
+ *   to `agent_inject_message`). Never instantiates `useChatSession`.
+ * - `headless` → `HeadlessPanel` (existing chat bubbles / terminal toggle).
+ *
+ * The `key` prop forces a full unmount on mode change so neither half
+ * leaks listeners or stale state into the other.
+ */
+export function AgentPanel(props: AgentPanelProps) {
+  const { task } = props
+  const { mode, isLoading } = useResolvedRuntimeMode(task.id)
+
+  if (isLoading) {
+    return (
+      <div
+        data-testid="agent-panel-loading"
+        className="flex h-full items-center justify-center bg-bg text-xs text-text-secondary"
+      >
+        Resolving runtime mode…
+      </div>
+    )
+  }
+
+  if (mode === 'interactive') {
+    return <InteractivePanel key={`int-${task.id}`} {...props} />
+  }
+
+  return <HeadlessPanel key={`head-${task.id}`} {...props} />
+}
+
+// ─── Headless panel (existing behavior) ──────────────────────────────────
+
+function HeadlessPanel({ task, onClose }: AgentPanelProps) {
   const workspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === task.workspaceId)
   )
@@ -107,104 +144,72 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
 
   return (
     <div data-testid="agent-panel" className="flex h-full flex-col">
-      {/* Header */}
-      <div className="border-b border-border-default bg-bg">
-        <div className="flex items-center justify-between gap-3 px-3 py-2">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            {onClose && (
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded p-1 text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-                title="Close panel (Esc)"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                >
-                  <path d="M5 3l5 4-5 4" />
-                </svg>
-              </button>
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-medium text-text-primary">{task.title}</div>
-              <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-text-secondary">
-                <span>{task.model ?? 'agent'}</span>
-                <span className="text-text-secondary/40">/</span>
-                <span>{workingDir || 'no workdir'}</span>
-              </div>
-            </div>
-            <div className="inline-flex shrink-0 rounded-md border border-border-default bg-surface p-0.5">
-              <ViewButton
-                active={activeView === 'transcript'}
-                onClick={() => { setActiveView('transcript') }}
-                testId="agent-panel-tab-transcript"
-              >
-                Transcript
-              </ViewButton>
-              <ViewButton
-                active={activeView === 'terminal'}
-                onClick={() => { setActiveView('terminal') }}
-                testId="agent-panel-tab-terminal"
-              >
-                Terminal
-              </ViewButton>
-            </div>
+      <PanelHeader
+        task={task}
+        workingDir={workingDir}
+        isAgentRunning={isAgentRunning}
+        onClose={onClose}
+        rightSlot={
+          <>
+            <button
+              type="button"
+              onClick={() => { void handleHoldToggle() }}
+              disabled={holdBusy}
+              data-testid="agent-panel-hold-button"
+              title={task.heldByUser ? 'Release auto-advance hold' : 'Hold auto-advance for this task'}
+              className={`rounded border px-2 py-0.5 text-[11px] font-medium disabled:opacity-50 ${
+                task.heldByUser
+                  ? 'border-warning/40 bg-warning/10 text-warning'
+                  : 'border-border-default bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+              }`}
+              style={{ cursor: holdBusy ? 'wait' : 'pointer' }}
+            >
+              {task.heldByUser ? 'Held' : 'Hold'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { void handleStop() }}
+              disabled={stopDisabled}
+              data-testid="agent-panel-stop-button"
+              title="Send Ctrl+C to the agent (does not kill the session)"
+              className="rounded border border-border-default bg-surface px-2 py-0.5 text-[11px] font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+              style={{ cursor: stopBusy ? 'wait' : stopDisabled ? 'not-allowed' : 'pointer' }}
+            >
+              Stop
+            </button>
+            <button
+              type="button"
+              onClick={() => { void handleKill() }}
+              disabled={killBusy}
+              data-testid="agent-panel-kill-button"
+              title="Kill the tmux session"
+              className="rounded border border-error/30 bg-surface px-2 py-0.5 text-[11px] font-medium text-error hover:bg-error/10 disabled:opacity-50"
+              style={{ cursor: killBusy ? 'wait' : 'pointer' }}
+            >
+              Kill
+            </button>
+          </>
+        }
+        viewSlot={
+          <div className="inline-flex shrink-0 rounded-md border border-border-default bg-surface p-0.5">
+            <ViewButton
+              active={activeView === 'transcript'}
+              onClick={() => { setActiveView('transcript') }}
+              testId="agent-panel-tab-transcript"
+            >
+              Transcript
+            </ViewButton>
+            <ViewButton
+              active={activeView === 'terminal'}
+              onClick={() => { setActiveView('terminal') }}
+              testId="agent-panel-tab-terminal"
+            >
+              Terminal
+            </ViewButton>
           </div>
-
-          <div className="inline-flex shrink-0 items-center gap-1.5 text-xs">
-            {isAgentRunning && (
-              <span className="inline-flex items-center gap-1 rounded bg-running/10 px-1.5 py-0.5 text-[10px] text-running">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-running" />
-                live
-              </span>
-            )}
-          <button
-            type="button"
-            onClick={() => { void handleHoldToggle() }}
-            disabled={holdBusy}
-            data-testid="agent-panel-hold-button"
-            title={task.heldByUser ? 'Release auto-advance hold' : 'Hold auto-advance for this task'}
-            className={`rounded border px-2 py-0.5 text-[11px] font-medium disabled:opacity-50 ${
-              task.heldByUser
-                ? 'border-warning/40 bg-warning/10 text-warning'
-                : 'border-border-default bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-            }`}
-            style={{ cursor: holdBusy ? 'wait' : 'pointer' }}
-          >
-            {task.heldByUser ? 'Held' : 'Hold'}
-          </button>
-          <button
-            type="button"
-            onClick={() => { void handleStop() }}
-            disabled={stopDisabled}
-            data-testid="agent-panel-stop-button"
-            title="Send Ctrl+C to the agent (does not kill the session)"
-            className="rounded border border-border-default bg-surface px-2 py-0.5 text-[11px] font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
-            style={{ cursor: stopBusy ? 'wait' : stopDisabled ? 'not-allowed' : 'pointer' }}
-          >
-            Stop
-          </button>
-          <button
-            type="button"
-            onClick={() => { void handleKill() }}
-            disabled={killBusy}
-            data-testid="agent-panel-kill-button"
-            title="Kill the tmux session"
-            className="rounded border border-error/30 bg-surface px-2 py-0.5 text-[11px] font-medium text-error hover:bg-error/10 disabled:opacity-50"
-            style={{ cursor: killBusy ? 'wait' : 'pointer' }}
-          >
-            Kill
-          </button>
-          </div>
-        </div>
-
-        {session.error && (
-          <div className="px-3 pb-2">
+        }
+        errorSlot={
+          session.error ? (
             <button
               type="button"
               onClick={session.clearDisplayedError}
@@ -213,9 +218,9 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
             >
               {session.error}
             </button>
-          </div>
-        )}
-      </div>
+          ) : null
+        }
+      />
 
       <div className="relative min-h-0 flex-1">
         {activeView === 'transcript' ? (
@@ -251,6 +256,212 @@ export function AgentPanel({ task, onClose }: AgentPanelProps) {
           <TerminalView taskId={task.id} workingDir={workingDir} />
         )}
       </div>
+    </div>
+  )
+}
+
+// ─── Interactive panel (Phase 2) ────────────────────────────────────────
+
+function InteractivePanel({ task, onClose }: AgentPanelProps) {
+  const workspace = useWorkspaceStore((s) =>
+    s.workspaces.find((w) => w.id === task.workspaceId)
+  )
+  const workingDir = task.worktreePath ?? workspace?.repoPath ?? ''
+  const [injecting, setInjecting] = useState(false)
+  const [injectError, setInjectError] = useState<string | null>(null)
+  const [killBusy, setKillBusy] = useState(false)
+  const [holdBusy, setHoldBusy] = useState(false)
+
+  const isAgentRunning = task.agentStatus === 'running'
+
+  const handleSend = useCallback(async (message: ChatInputMessage) => {
+    const content = message.content.trim()
+    if (!content) return
+    setInjecting(true)
+    setInjectError(null)
+    try {
+      await agentInjectMessage(task.id, content)
+    } catch (err) {
+      setInjectError(err instanceof Error ? err.message : String(err))
+    } finally {
+      window.setTimeout(() => { setInjecting(false) }, 200)
+    }
+  }, [task.id])
+
+  const handleHoldToggle = async () => {
+    if (holdBusy) return
+    setHoldBusy(true)
+    try {
+      await holdTask(task.id, !task.heldByUser)
+    } catch (err) {
+      console.warn(`[agent-panel:interactive] hold toggle failed for ${task.id}:`, err)
+    } finally {
+      setHoldBusy(false)
+    }
+  }
+
+  const handleKill = async () => {
+    if (killBusy) return
+    if (!window.confirm('Kill this task session? The terminal scrollback and running process will be removed.')) {
+      return
+    }
+    setKillBusy(true)
+    try {
+      await killTaskSession(task.id)
+    } catch (err) {
+      console.warn(`[agent-panel:interactive] kill session failed for ${task.id}:`, err)
+    } finally {
+      setKillBusy(false)
+    }
+  }
+
+  return (
+    <div data-testid="agent-panel" data-mode="interactive" className="flex h-full flex-col">
+      <PanelHeader
+        task={task}
+        workingDir={workingDir}
+        isAgentRunning={isAgentRunning}
+        onClose={onClose}
+        rightSlot={
+          <>
+            <button
+              type="button"
+              onClick={() => { void handleHoldToggle() }}
+              disabled={holdBusy}
+              data-testid="agent-panel-hold-button"
+              title={task.heldByUser ? 'Release auto-advance hold' : 'Hold auto-advance for this task'}
+              className={`rounded border px-2 py-0.5 text-[11px] font-medium disabled:opacity-50 ${
+                task.heldByUser
+                  ? 'border-warning/40 bg-warning/10 text-warning'
+                  : 'border-border-default bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+              }`}
+              style={{ cursor: holdBusy ? 'wait' : 'pointer' }}
+            >
+              {task.heldByUser ? 'Held' : 'Hold'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { void handleKill() }}
+              disabled={killBusy}
+              data-testid="agent-panel-kill-button"
+              title="Kill the tmux session"
+              className="rounded border border-error/30 bg-surface px-2 py-0.5 text-[11px] font-medium text-error hover:bg-error/10 disabled:opacity-50"
+              style={{ cursor: killBusy ? 'wait' : 'pointer' }}
+            >
+              Kill
+            </button>
+          </>
+        }
+        errorSlot={
+          injectError ? (
+            <button
+              type="button"
+              onClick={() => { setInjectError(null) }}
+              className="truncate text-[11px] text-error hover:text-error/80"
+              title={injectError}
+            >
+              {injectError}
+            </button>
+          ) : null
+        }
+      />
+
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1">
+          <InteractiveAgentView
+            taskId={task.id}
+            workingDir={workingDir}
+            agentStatus={task.agentStatus}
+            agentPausedAt={task.agentPausedAt}
+          />
+        </div>
+        <ChatInput
+          config={{
+            placeholder: 'Message Claude…',
+            showModelSelector: false,
+            showThinkingSelector: false,
+            showVoiceInput: false,
+            showAttachments: false,
+            rows: 1,
+          }}
+          onSend={(message) => { void handleSend(message) }}
+          deliveryHint="Interactive · sends a literal line to the live agent"
+          submitLabel="Send"
+          isProcessing={injecting}
+          disabled={injecting}
+        />
+      </div>
+    </div>
+  )
+}
+
+// ─── Shared header ───────────────────────────────────────────────────────
+
+type PanelHeaderProps = {
+  task: Task
+  workingDir: string
+  isAgentRunning: boolean
+  onClose?: () => void
+  rightSlot?: ReactNode
+  viewSlot?: ReactNode
+  errorSlot?: ReactNode
+}
+
+function PanelHeader({
+  task,
+  workingDir,
+  isAgentRunning,
+  onClose,
+  rightSlot,
+  viewSlot,
+  errorSlot,
+}: PanelHeaderProps) {
+  return (
+    <div className="border-b border-border-default bg-bg">
+      <div className="flex items-center justify-between gap-3 px-3 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+              title="Close panel (Esc)"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              >
+                <path d="M5 3l5 4-5 4" />
+              </svg>
+            </button>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs font-medium text-text-primary">{task.title}</div>
+            <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-text-secondary">
+              <span>{task.model ?? 'agent'}</span>
+              <span className="text-text-secondary/40">/</span>
+              <span>{workingDir || 'no workdir'}</span>
+            </div>
+          </div>
+          {viewSlot}
+        </div>
+
+        <div className="inline-flex shrink-0 items-center gap-1.5 text-xs">
+          {isAgentRunning && (
+            <span className="inline-flex items-center gap-1 rounded bg-running/10 px-1.5 py-0.5 text-[10px] text-running">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-running" />
+              live
+            </span>
+          )}
+          {rightSlot}
+        </div>
+      </div>
+
+      {errorSlot && <div className="px-3 pb-2">{errorSlot}</div>}
     </div>
   )
 }

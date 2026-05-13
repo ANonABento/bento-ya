@@ -71,7 +71,10 @@ pub fn run() {
 
     // Seed built-in pipeline templates (idempotent — skips if already present)
     if let Err(e) = db::seed_built_in_pipeline_templates(&conn) {
-        eprintln!("[startup] Failed to seed built-in pipeline templates: {}", e);
+        eprintln!(
+            "[startup] Failed to seed built-in pipeline templates: {}",
+            e
+        );
     }
 
     let state = AppState {
@@ -222,6 +225,16 @@ pub fn run() {
             commands::agent::update_task_agent_status,
             commands::agent::get_queue_status,
             commands::agent::get_next_queued_task,
+            // Interactive runtime mode (Phase 2)
+            commands::agent_interactive::resolve_runtime_mode,
+            commands::agent_interactive::agent_inject_message,
+            commands::agent_interactive::agent_interrupt,
+            commands::agent_interactive::agent_switch_model,
+            commands::agent_interactive::agent_restart,
+            commands::agent_interactive::interactive_mode_dev_flag,
+            commands::agent_interactive::list_completion_events,
+            commands::agent_interactive::agent_pause,
+            commands::agent_interactive::agent_resume,
             // Pipeline commands
             commands::pipeline::mark_pipeline_complete,
             commands::pipeline::get_pipeline_state,
@@ -372,29 +385,27 @@ pub fn run() {
 /// quickly. macOS Finder/Spotlight launches can abort if `didFinishLaunching`
 /// blocks on DB locks, tmux shell-outs, or pipeline resume.
 fn spawn_startup_recovery(app: tauri::AppHandle) {
-    // Pipeline resume already needs a Tokio runtime context for tokio::spawn,
-    // so wrap it in `async_runtime::spawn` like before.
-    let resume_app = app.clone();
+    // Bug-fix #4: chain tmux recovery BEFORE pipeline resume. Previously these
+    // ran as concurrent tasks; if resume_stale_pipeline_tasks completed first
+    // it would reset task.agent_status to idle, and recover_tmux_sessions
+    // would then kill every surviving tmux session because none looked alive
+    // anymore. Now tmux liveness is established first, then resume runs with
+    // accurate session linkage.
+    let recovery_app = app;
     tauri::async_runtime::spawn(async move {
-        resume_stale_pipeline_tasks(resume_app);
+        let blocking_app = recovery_app.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            // Sweep stale `tmux wait-for bentoya_done_*` processes left over
+            // from a previous app instance. Their channels are nonce-scoped to
+            // the run that spawned them, so they'd never be signaled and would
+            // otherwise sit forever consuming a PID slot. Must run BEFORE any
+            // new triggers fire, so we don't accidentally kill our own.
+            chat::bridge::sweep_orphan_wait_fors();
+            recover_tmux_sessions(blocking_app);
+        })
+        .await;
+        resume_stale_pipeline_tasks(recovery_app);
     });
-
-    // Tmux recovery does shell-outs + DB work; push to a blocking thread so
-    // it never sits on the main thread during launch.
-    let tmux_app = app;
-    let recovery_task = tauri::async_runtime::spawn_blocking(move || {
-        // Sweep stale `tmux wait-for bentoya_done_*` processes left over
-        // from a previous app instance. Their channels are nonce-scoped to
-        // the run that spawned them, so they'd never be signaled and would
-        // otherwise sit forever consuming a PID slot. Must run BEFORE any
-        // new triggers fire, so we don't accidentally kill our own.
-        chat::bridge::sweep_orphan_wait_fors();
-        recover_tmux_sessions(tmux_app);
-    });
-
-    // Startup recovery is best-effort; do not hold up Tauri startup waiting
-    // for the join handle. Dropping detaches the task.
-    drop(recovery_task);
 }
 
 fn is_terminal_column_for_sweep(column: &db::Column, max_position: i64) -> bool {
@@ -622,6 +633,49 @@ fn recover_tmux_sessions(app: tauri::AppHandle) {
             // terminal panel, ensure_pty_session will call TmuxTransport::reconnect()
             // and attach.
             recovered += 1;
+
+            // Bug-fix #2 (orphan-watcher resume): the watcher that calls
+            // `mark_complete` lives in the process that spawned Codex. After
+            // a bento-ya restart, surviving tmux sessions whose Codex already
+            // exited are silent forever. Detect those here by checking the
+            // pane's current foreground command: if it's a shell (bash/zsh/sh),
+            // Codex has already returned to the prompt, so we can mark complete.
+            if let Some(cmd) = pane_current_command(session_name) {
+                if matches!(cmd.as_str(), "bash" | "sh" | "zsh" | "fish") {
+                    eprintln!(
+                        "[startup] Adopting orphan-done session: {} (pane at {} prompt)",
+                        session_name, cmd
+                    );
+                    let app_clone = app.clone();
+                    let task_id_owned = task_id.to_string();
+                    // mark_complete may need its own DB connection + can fire
+                    // downstream column triggers; do it after we release the
+                    // outer lock by deferring with tokio::spawn.
+                    tauri::async_runtime::spawn(async move {
+                        let state: tauri::State<db::AppState> = app_clone.state();
+                        let conn = match state.db.lock() {
+                            Ok(c) => c,
+                            Err(e) => {
+                                log::warn!(
+                                    "[startup] orphan-adopt DB lock failed for {}: {}",
+                                    task_id_owned,
+                                    e
+                                );
+                                return;
+                            }
+                        };
+                        if let Err(e) =
+                            pipeline::mark_complete(&conn, &app_clone, &task_id_owned, true)
+                        {
+                            log::warn!(
+                                "[startup] orphan-adopt mark_complete failed for {}: {:?}",
+                                task_id_owned,
+                                e
+                            );
+                        }
+                    });
+                }
+            }
         } else {
             eprintln!("[startup] Cleaning orphaned tmux session: {}", session_name);
             let _ = std::process::Command::new("tmux")
@@ -639,6 +693,36 @@ fn recover_tmux_sessions(app: tauri::AppHandle) {
     }
 }
 
+/// Probe the foreground command of the first pane in a tmux session.
+/// Returns the command name (e.g. `"bash"`, `"node"`, `"codex"`) or None
+/// if tmux can't be queried.
+fn pane_current_command(session_name: &str) -> Option<String> {
+    let output = std::process::Command::new("tmux")
+        .args([
+            "list-panes",
+            "-t",
+            session_name,
+            "-F",
+            "#{pane_current_command}",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
 const STALE_PIPELINE_STATES_SQL: &str =
     "'running', 'triggered', 'evaluating', 'advancing', 'setup_queued'";
 
@@ -648,6 +732,39 @@ fn is_stale_pipeline_state(state: &str) -> bool {
 
 fn stale_pipeline_state_filter(column: &str) -> String {
     format!("{column} IN ({STALE_PIPELINE_STATES_SQL})")
+}
+
+/// Bug-fix #1: probe `tmux ls` once and return the set of task ids whose
+/// `bentoya_<task_id>` session is alive. Used to skip "stale" detection on
+/// tasks that are actually being run by a sibling process (headless
+/// `bento-mcp`, another Tauri instance, etc.).
+fn alive_task_session_ids() -> std::collections::HashSet<String> {
+    use std::collections::HashSet;
+    let mut alive = HashSet::new();
+    let output = match std::process::Command::new("tmux")
+        .args(["ls", "-F", "#{session_name}"])
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return alive,
+    };
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if let Some(rest) = line.strip_prefix("bentoya_") {
+            alive.insert(rest.to_string());
+        }
+    }
+    alive
+}
+
+fn build_alive_exclusion_clause(alive: &std::collections::HashSet<String>) -> String {
+    if alive.is_empty() {
+        return String::new();
+    }
+    let escaped: Vec<String> = alive
+        .iter()
+        .map(|id| format!("'{}'", id.replace('\'', "''")))
+        .collect();
+    format!(" AND id NOT IN ({})", escaped.join(","))
 }
 
 fn startup_resume_candidates(
@@ -665,8 +782,14 @@ fn startup_resume_candidates(
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
+    // Bug-fix #1: don't re-fire on_entry triggers for tasks whose tmux session
+    // is still alive — they're being run by another bentoya process.
+    let alive = alive_task_session_ids();
     let mut candidates = Vec::new();
     for task_id in task_ids {
+        if alive.contains(&task_id) {
+            continue;
+        }
         let task = db::get_task(conn, &task_id)?;
         let column = db::get_column(conn, &task.column_id)?;
         if pipeline::triggers::has_effective_on_entry_trigger(&task, &column) {
@@ -680,6 +803,20 @@ fn startup_resume_candidates(
 fn reset_stale_pipeline_state(conn: &rusqlite::Connection) -> rusqlite::Result<usize> {
     let ts = db::now();
     let task_stale_pipeline_filter = stale_pipeline_state_filter("pipeline_state");
+
+    // Bug-fix #1: probe live tmux sessions and exclude them from reset.
+    // A task whose `bentoya_<id>` session is alive is either being run by
+    // another bentoya process or actively in-flight — destroying its state
+    // wastes Codex work and orphans the running agent.
+    let alive = alive_task_session_ids();
+    let alive_exclusion = build_alive_exclusion_clause(&alive);
+    if !alive.is_empty() {
+        eprintln!(
+            "[startup] {} tmux session(s) alive — skipping reset for those tasks",
+            alive.len()
+        );
+    }
+
     conn.execute(
         &format!(
             "UPDATE agent_sessions
@@ -687,7 +824,7 @@ fn reset_stale_pipeline_state(conn: &rusqlite::Connection) -> rusqlite::Result<u
          WHERE status = 'running'
            AND task_id IN (
                SELECT id FROM tasks
-               WHERE {task_stale_pipeline_filter}
+               WHERE {task_stale_pipeline_filter}{alive_exclusion}
            )"
         ),
         rusqlite::params![ts],
@@ -703,7 +840,7 @@ fn reset_stale_pipeline_state(conn: &rusqlite::Connection) -> rusqlite::Result<u
              queued_at = NULL,
              agent_session_id = NULL,
              updated_at = ?1
-         WHERE {task_stale_pipeline_filter}"
+         WHERE {task_stale_pipeline_filter}{alive_exclusion}"
         ),
         rusqlite::params![ts],
     )

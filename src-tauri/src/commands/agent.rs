@@ -1214,11 +1214,35 @@ pub async fn kill_task_session(
         registry.remove(&task_id);
     }
     crate::chat::tmux_transport::kill_session(&task_id).map_err(AppError::InvalidInput)?;
+    // Phase 4 telemetry — sample task state BEFORE we clear agent_status
+    // so we capture what was running. Done before the agent_status
+    // update so the resolver call sees the still-set fields.
     {
         let conn = state
             .db
             .lock()
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        if let Ok(task) = db::get_task(&conn, &task_id) {
+            if let Ok(column) = db::get_column(&conn, &task.column_id) {
+                let resolved =
+                    crate::pipeline::triggers::resolve_runtime_mode_for_task(&task, &column);
+                let cli = task
+                    .agent_session_id
+                    .as_deref()
+                    .and_then(|sid| db::get_agent_session(&conn, sid).ok())
+                    .map(|s| s.agent_type)
+                    .unwrap_or_else(|| "unknown".to_string());
+                db::completion_events::record_async(
+                    task_id.clone(),
+                    task.workspace_id.clone(),
+                    cli,
+                    resolved.mode,
+                    db::completion_events::CompletionSource::Kill,
+                    0,
+                    None,
+                );
+            }
+        }
         let _ = db::update_task_agent_status(&conn, &task_id, None, None)?;
     }
     let _ = app.emit(

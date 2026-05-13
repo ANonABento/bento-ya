@@ -17,6 +17,28 @@ vi.mock('@/lib/ipc', () => ({
     const result = await ipcMocks.updateTaskTriggers(...args) as unknown
     return result
   },
+  listen: vi.fn().mockResolvedValue(() => {}),
+}))
+
+vi.mock('@/lib/ipc/agent-interactive', () => ({
+  interactiveModeDevFlag: vi.fn().mockResolvedValue(false),
+  resolveRuntimeMode: vi.fn().mockResolvedValue({
+    mode: 'headless',
+    render: 'bubbles',
+    source: 'default',
+    interactiveDevFlagRequired: false,
+  }),
+}))
+
+vi.mock('@/hooks/use-resolved-runtime-mode', () => ({
+  useResolvedRuntimeMode: vi.fn().mockReturnValue({
+    mode: 'headless',
+    render: 'bubbles',
+    source: 'default',
+    interactiveDevFlagRequired: false,
+    isLoading: false,
+    error: null,
+  }),
 }))
 
 describe('TaskSettingsModal runtime override', () => {

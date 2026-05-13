@@ -389,6 +389,8 @@ mod tests {
             archived_at: None,
             last_user_input_at: None,
             held_by_user: false,
+            runtime_mode_override: None,
+            agent_paused_at: None,
             agent_status: None,
             queued_at: None,
             created_at: "2024-01-01".to_string(),

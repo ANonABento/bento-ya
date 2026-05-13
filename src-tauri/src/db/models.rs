@@ -113,6 +113,15 @@ pub struct Task {
     pub last_user_input_at: Option<i64>,
     /// Explicit hold gate: when true, auto-advance is disabled until released.
     pub held_by_user: bool,
+    /// Phase 4 (AGENT_PANEL_MODES) — task-level runtime mode override. NULL
+    /// means "inherit from column/workspace/global default". Distinct from
+    /// `agent_mode`, which records the *resolved* mode the last trigger fire
+    /// used. This column drives future resolution.
+    pub runtime_mode_override: Option<String>,
+    /// Phase 5 (AGENT_PANEL_MODES) — when the interactive agent was paused
+    /// via the control bar. NULL = not paused. Schema lands in Phase 4;
+    /// Phase 5 wires the pause/resume Tauri commands that flip it.
+    pub agent_paused_at: Option<i64>,
     /// Task labels — workspace-scoped tags. Loaded via JOIN; not a column on tasks table.
     #[serde(default)]
     pub labels: Vec<Label>,

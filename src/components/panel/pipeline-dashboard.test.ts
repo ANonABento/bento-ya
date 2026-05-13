@@ -75,6 +75,8 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     archivedAt: null,
       lastUserInputAt: null,
       heldByUser: false,
+      runtimeModeOverride: null,
+      agentPausedAt: null,
     position: 0,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',

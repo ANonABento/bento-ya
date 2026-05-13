@@ -15,6 +15,7 @@ pub mod agent_transcript_event;
 pub mod chat_message;
 pub mod chat_session;
 pub mod checklist;
+pub mod completion_events;
 pub mod column;
 pub mod github_sync;
 pub mod history;
@@ -302,6 +303,14 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
             "043_agent_session_per_cli",
             include_str!("migrations/043_agent_session_per_cli.sql"),
         ),
+        (
+            "044_runtime_mode_override",
+            include_str!("migrations/044_runtime_mode_override.sql"),
+        ),
+        (
+            "045_agent_completion_events",
+            include_str!("migrations/045_agent_completion_events.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {
@@ -369,8 +378,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // Includes split 019 and 030 migration files.
-        assert_eq!(count, 45);
+        // Includes split 019, 030 + Phase 4 (044, 045) migrations.
+        assert_eq!(count, 47);
     }
 
     #[test]

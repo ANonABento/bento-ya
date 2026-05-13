@@ -6,7 +6,7 @@ use super::{new_id, now, now_millis};
 
 /// Shared SELECT columns for tasks (54 fields).
 /// Order is load-bearing: `map_task_row` reads by index matching this list.
-const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked, archived_at, estimated_hours, actual_hours, last_user_input_at, held_by_user";
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked, archived_at, estimated_hours, actual_hours, last_user_input_at, held_by_user, runtime_mode_override, agent_paused_at";
 
 /// Generate a sortable task batch identifier for staging PR workflows.
 pub fn generate_batch_id() -> String {
@@ -75,6 +75,8 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         actual_hours: row.get::<_, Option<f64>>(51)?.unwrap_or(0.0),
         last_user_input_at: row.get(52)?,
         held_by_user: row.get::<_, Option<i64>>(53)?.unwrap_or(0) != 0,
+        runtime_mode_override: row.get(54)?,
+        agent_paused_at: row.get(55)?,
         labels: Vec::new(),
     })
 }
@@ -483,6 +485,36 @@ pub fn update_task_worktree_path(
     get_task(conn, id)
 }
 
+/// Phase 4 (AGENT_PANEL_MODES) — set or clear the task-level runtime
+/// mode override. Pass `None` to clear (back to inherit-from-column).
+pub fn update_task_runtime_mode_override(
+    conn: &Connection,
+    id: &str,
+    runtime_mode: Option<&str>,
+) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET runtime_mode_override = ?1, updated_at = ?2 WHERE id = ?3",
+        params![runtime_mode, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
+/// Phase 5 (AGENT_PANEL_MODES) — set or clear the pause timestamp.
+/// `Some(epoch_ms)` marks the task as paused; `None` clears it.
+pub fn update_task_agent_paused_at(
+    conn: &Connection,
+    id: &str,
+    paused_at: Option<i64>,
+) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET agent_paused_at = ?1, updated_at = ?2 WHERE id = ?3",
+        params![paused_at, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
 /// Update agent_status and optionally queued_at for a task
 pub fn update_task_agent_status(
     conn: &Connection,
@@ -524,6 +556,45 @@ pub fn get_running_agent_count(conn: &Connection, workspace_id: &str) -> SqlResu
     conn.query_row(
         "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND agent_status = 'running'",
         params![workspace_id],
+        |row| row.get(0),
+    )
+}
+
+/// Count tasks with agent_status = 'running' in a single column of a workspace.
+/// Used for per-column concurrency caps (e.g. serialize Merge main).
+pub fn get_running_agent_count_in_column(
+    conn: &Connection,
+    workspace_id: &str,
+    column_id: &str,
+) -> SqlResult<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND column_id = ?2 AND agent_status = 'running'",
+        params![workspace_id, column_id],
+        |row| row.get(0),
+    )
+}
+
+/// Count active, non-queued task executions in a single column.
+///
+/// Column caps need this broader count because a terminal-mode agent can be
+/// in `pipeline_state='triggered'` or `pipeline_state='running'` before its
+/// `agent_status` is updated to `running`.
+pub fn get_active_execution_count_in_column_excluding(
+    conn: &Connection,
+    workspace_id: &str,
+    column_id: &str,
+    excluded_task_id: &str,
+) -> SqlResult<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM tasks \
+         WHERE workspace_id = ?1 \
+           AND column_id = ?2 \
+           AND id != ?3 \
+           AND archived_at IS NULL \
+           AND COALESCE(agent_status, '') != 'queued' \
+           AND (agent_status = 'running' \
+                OR pipeline_state IN ('triggered', 'running', 'evaluating', 'advancing', 'rate_limited'))",
+        params![workspace_id, column_id, excluded_task_id],
         |row| row.get(0),
     )
 }
@@ -727,5 +798,30 @@ mod tests {
 
         assert_eq!(released.last_user_input_at, stamped.last_user_input_at);
         assert!(!released.held_by_user);
+    }
+
+    #[test]
+    fn active_execution_count_in_column_counts_pipeline_states_but_not_queued() {
+        let conn = crate::db::init_test().unwrap();
+        let workspace = crate::db::insert_workspace(&conn, "WS", "/tmp/ws").unwrap();
+        let column = crate::db::insert_column(&conn, &workspace.id, "Verify", 0).unwrap();
+        let active = insert_task(&conn, &workspace.id, &column.id, "Active", None).unwrap();
+        let queued = insert_task(&conn, &workspace.id, &column.id, "Queued", None).unwrap();
+        let current = insert_task(&conn, &workspace.id, &column.id, "Current", None).unwrap();
+
+        update_task_pipeline_state(&conn, &active.id, "triggered", None, None).unwrap();
+        update_task_pipeline_state(&conn, &queued.id, "triggered", None, None).unwrap();
+        update_task_agent_status(&conn, &queued.id, Some("queued"), Some(&now())).unwrap();
+        update_task_pipeline_state(&conn, &current.id, "triggered", None, None).unwrap();
+
+        let count = get_active_execution_count_in_column_excluding(
+            &conn,
+            &workspace.id,
+            &column.id,
+            &current.id,
+        )
+        .unwrap();
+
+        assert_eq!(count, 1);
     }
 }

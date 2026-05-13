@@ -16,6 +16,7 @@ export type AgentMode =
   | 'review'
   | 'terminal'
   | 'managed'
+  | 'interactive'
 
 export type AgentSession = {
   id: string

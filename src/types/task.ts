@@ -75,6 +75,12 @@ export type Task = {
   archivedAt: string | null        // Set when archived; null = active task
   lastUserInputAt: number | null    // Unix ms when user last steered the task session
   heldByUser: boolean               // Explicit auto-advance hold gate
+  /** Phase 4 (AGENT_PANEL_MODES) — task-level runtime mode override.
+   *  null = inherit from column/workspace/global default. */
+  runtimeModeOverride: string | null
+  /** Phase 5 (AGENT_PANEL_MODES) — Unix ms timestamp the interactive
+   *  agent was paused (Ctrl+Z). null = not paused. */
+  agentPausedAt: number | null
   labels: Label[]                  // Workspace-scoped labels (loaded via JOIN)
   position: number
   createdAt: string
