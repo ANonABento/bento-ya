@@ -550,7 +550,7 @@ export const TaskCard = memo(function TaskCard({
             )}
             <span className="flex-1" />
             {cardSettings.showTimestamp && !isPipelineActive && (
-              <span className="text-text-secondary/50">
+              <span className="text-[10px] text-text-secondary/40 tabular-nums">
                 {formatRelativeTime(task.updatedAt)}
               </span>
             )}
