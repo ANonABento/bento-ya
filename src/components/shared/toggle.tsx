@@ -25,8 +25,10 @@ export function Toggle({ checked, onChange, disabled = false, size = 'sm', 'aria
       aria-labelledby={ariaLabelledby}
       disabled={disabled}
       onClick={() => { onChange(!checked); }}
-      className={`relative inline-flex shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50 ${s.track} ${
-        checked ? 'bg-accent' : 'bg-surface-hover'
+      className={`relative inline-flex shrink-0 cursor-pointer items-center rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50 ${s.track} ${
+        checked
+          ? 'border-accent bg-accent'
+          : 'border-border-default/80 bg-surface-hover/60'
       }`}
     >
       <motion.span
