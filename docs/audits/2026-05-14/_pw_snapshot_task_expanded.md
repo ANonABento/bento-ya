@@ -1,0 +1,219 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e116]:
+      - button "Demo Workspace 1" [ref=e117]:
+        - button "Demo Workspace 1" [ref=e5] [cursor=pointer]:
+          - generic [ref=e6]:
+            - generic [ref=e7]: Demo Workspace
+            - generic [ref=e8]: "1"
+      - status [ref=e9]
+    - generic [ref=e10]:
+      - button "New workspace" [ref=e12]:
+        - img [ref=e13]
+      - button "Checklist" [ref=e16]:
+        - img [ref=e17]
+      - button "Show archived workspaces" [ref=e20]:
+        - img [ref=e21]
+      - 'button "Usage costs: less than 1 cent" [ref=e25]':
+        - img [ref=e26]
+        - generic [ref=e29]: <$0.01
+      - button "Settings" [ref=e31]:
+        - img [ref=e32]
+  - main [ref=e34]:
+    - generic [ref=e35]:
+      - generic [ref=e36]:
+        - generic [ref=e37]:
+          - generic [ref=e119]:
+            - button "1 Backlog Run All Add task Configure column" [ref=e120]:
+              - generic [ref=e121]:
+                - img [ref=e123]
+                - generic [ref=e125]: "1"
+                - heading "Backlog" [level=3] [ref=e126]
+                - generic [ref=e127]:
+                  - button "Run All" [ref=e129]:
+                    - img [ref=e130]
+                  - button "Add task" [ref=e133]:
+                    - img [ref=e134]
+                  - button "Configure column" [ref=e137]:
+                    - img [ref=e138]
+            - article "Sample Task" [ref=e141] [cursor=pointer]:
+              - generic [ref=e142]:
+                - button "Open task" [ref=e143]:
+                  - img [ref=e144]
+                - button "Run agent" [ref=e147]:
+                  - img [ref=e148]
+                - button "Move to next column" [ref=e150]:
+                  - img [ref=e151]
+                - button "More actions" [ref=e153]:
+                  - img [ref=e154]
+              - button "Sample Task" [active] [ref=e226]:
+                - heading "Sample Task" [level=4] [ref=e158]
+              - generic [ref=e228]:
+                - paragraph [ref=e229]: This is a demo task for testing
+                - generic [ref=e231]:
+                  - generic [ref=e232]:
+                    - generic [ref=e233]: Estimate
+                    - generic [ref=e234]:
+                      - spinbutton "Estimate" [ref=e235]
+                      - generic [ref=e236]: h
+                  - generic [ref=e237]:
+                    - generic [ref=e238]: Actual
+                    - generic [ref=e239]: 0h
+                - generic [ref=e240]:
+                  - heading "Changes" [level=4] [ref=e241]
+                  - generic [ref=e242]: No branch on this task — create one to see diffs.
+                - generic [ref=e243]:
+                  - heading "Commits" [level=4] [ref=e244]
+                  - generic [ref=e245]: No commits
+          - generic [ref=e162]:
+            - button "0 Working Add task Configure column" [ref=e163]:
+              - generic [ref=e164]:
+                - img [ref=e166]
+                - generic [ref=e169]: "0"
+                - heading "Working" [level=3] [ref=e170]
+                - generic [ref=e171]:
+                  - button "Add task" [ref=e173]:
+                    - img [ref=e174]
+                  - button "Configure column" [ref=e177]:
+                    - img [ref=e178]
+            - status "Working column is empty" [ref=e181]:
+              - paragraph [ref=e182]: No tasks yet
+          - generic [ref=e183]:
+            - button "0 Review Add task Configure column" [ref=e184]:
+              - generic [ref=e185]:
+                - img [ref=e187]
+                - generic [ref=e190]: "0"
+                - heading "Review" [level=3] [ref=e191]
+                - generic [ref=e192]:
+                  - button "Add task" [ref=e194]:
+                    - img [ref=e195]
+                  - button "Configure column" [ref=e198]:
+                    - img [ref=e199]
+            - status "Review column is empty" [ref=e202]:
+              - paragraph [ref=e203]: No tasks yet
+          - generic [ref=e204]:
+            - button "0 Done Add task Configure column" [ref=e205]:
+              - generic [ref=e206]:
+                - img [ref=e208]
+                - generic [ref=e210]: "0"
+                - heading "Done" [level=3] [ref=e211]
+                - generic [ref=e212]:
+                  - button "Add task" [ref=e214]:
+                    - img [ref=e215]
+                  - button "Configure column" [ref=e218]:
+                    - img [ref=e219]
+            - status "Done column is empty" [ref=e222]:
+              - paragraph [ref=e223]: No tasks yet
+        - generic [ref=e46]:
+          - button "Collapse orchestrator panel" [expanded] [ref=e47] [cursor=pointer]:
+            - generic [ref=e48]:
+              - button [ref=e49]:
+                - img [ref=e50]
+              - button [ref=e52]:
+                - img [ref=e53]
+              - button "Pipeline dashboard" [ref=e56]:
+                - img [ref=e57]
+              - button "Pipeline v2 dashboard — column distribution, ETA, cost" [ref=e59]:
+                - img [ref=e60]
+            - generic [ref=e63]: Chef
+            - generic [ref=e64]:
+              - button "New" [disabled] [ref=e65]:
+                - img [ref=e66]
+                - text: New
+              - generic [ref=e68]: Cmd+J
+              - button "Dock to right" [ref=e69]:
+                - img [ref=e70]
+              - button "Collapse orchestrator panel" [expanded] [ref=e72]:
+                - img [ref=e73]
+          - generic [ref=e76]:
+            - generic [ref=e78]:
+              - paragraph [ref=e224]: No messages yet
+              - paragraph [ref=e225]: Ask me to create tasks for you
+            - generic [ref=e84]:
+              - generic [ref=e86]:
+                - button "Sonnet" [ref=e88] [cursor=pointer]:
+                  - text: Sonnet
+                  - img [ref=e89]
+                - generic [ref=e91]: 200k
+                - button "Medium" [ref=e93] [cursor=pointer]:
+                  - text: Medium
+                  - img [ref=e94]
+                - button "Plan" [ref=e97] [cursor=pointer]:
+                  - text: Plan
+                  - img [ref=e98]
+              - generic [ref=e100]:
+                - button "Attach files" [ref=e102] [cursor=pointer]:
+                  - img [ref=e103]
+                - textbox "Ask me to create tasks..." [ref=e105]
+                - button "Record voice message" [ref=e107]:
+                  - img [ref=e108]
+                - button "Send message" [disabled] [ref=e112]:
+                  - img [ref=e113]
+      - generic [ref=e249]:
+        - generic [ref=e251]:
+          - generic [ref=e252]:
+            - button "Close panel (Esc)" [ref=e253]:
+              - img [ref=e254]
+            - generic [ref=e256]:
+              - generic [ref=e257]: Sample Task
+              - generic [ref=e258]:
+                - generic [ref=e259]: agent
+                - generic [ref=e260]: /
+                - generic [ref=e261]: /tmp/demo-repo
+            - generic [ref=e262]:
+              - button "Transcript" [ref=e263]
+              - button "Terminal" [ref=e264]
+          - generic [ref=e265]:
+            - button "Hold" [ref=e266] [cursor=pointer]
+            - button "Stop" [disabled] [ref=e267]
+            - button "Kill" [ref=e268] [cursor=pointer]
+        - generic [ref=e270]:
+          - generic [ref=e273]:
+            - button "▶ run · Working · claude · demo-repo agent completed 04:17 AM" [ref=e274] [cursor=pointer]:
+              - generic [ref=e275]: ▶
+              - generic [ref=e276]: run · Working · claude · demo-repo
+              - generic [ref=e277]: agent completed
+              - time [ref=e278]: 04:17 AM
+            - generic [ref=e280]:
+              - article [ref=e281]:
+                - button "› thinking" [ref=e283] [cursor=pointer]:
+                  - generic [ref=e284]: ›
+                  - text: thinking
+              - article [ref=e285]:
+                - button "▶ Read completed 04:17 AM details" [ref=e287] [cursor=pointer]:
+                  - generic [ref=e288]: ▶
+                  - generic [ref=e289]: Read
+                  - generic [ref=e290]: completed
+                  - time [ref=e291]: 04:17 AM
+                  - generic [ref=e292]: details
+              - article [ref=e293]:
+                - generic [ref=e294]:
+                  - generic [ref=e295]: agent
+                  - time [ref=e296]: 04:17 AM
+                - paragraph [ref=e298]: I found the sample task and would start by confirming the expected output before editing.
+              - article [ref=e299]:
+                - button "▶ Bash completed 04:17 AM details" [ref=e301] [cursor=pointer]:
+                  - generic [ref=e302]: ▶
+                  - generic [ref=e303]: Bash
+                  - generic [ref=e304]: completed
+                  - time [ref=e305]: 04:17 AM
+                  - generic [ref=e306]: details
+          - generic [ref=e308]:
+            - generic [ref=e310]:
+              - button "Sonnet" [ref=e312] [cursor=pointer]:
+                - text: Sonnet
+                - img [ref=e313]
+              - generic [ref=e315]: 200k
+              - button "Medium" [ref=e317] [cursor=pointer]:
+                - text: Medium
+                - img [ref=e318]
+              - generic [ref=e320]: Idle · next message resumes this agent context
+            - generic [ref=e321]:
+              - button "Attach files" [ref=e323] [cursor=pointer]:
+                - img [ref=e324]
+              - textbox "Steer the agent... /commands, @files, !shell" [ref=e326]
+              - button "Record voice message" [ref=e328]:
+                - img [ref=e329]
+              - button "Resume agent" [disabled] [ref=e333]:
+                - img [ref=e334]
+    - status [ref=e115]

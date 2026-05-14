@@ -1,0 +1,226 @@
+{
+  "summary": {
+    "date": "2026-05-14",
+    "total_raw": 33,
+    "total_after_dedupe": 22,
+    "by_severity": { "P0": 1, "P1": 8, "P2": 13 },
+    "subagent_buckets": ["board+cards", "settings", "dialogs", "agent-panel+tab-bar"]
+  },
+  "findings": [
+    {
+      "id": "P0-A",
+      "severity": "P0",
+      "carry_forward_from": "ux-audit-2026-05-12 P0-1",
+      "surface": "task-card-expanded",
+      "title": "REGRESSION P0-1 — Task title + description still uneditable in expanded card",
+      "where": "src/components/kanban/task-card.tsx (h4 title), src/components/kanban/task-card-expanded.tsx:158-160 (description <p>)",
+      "repro": "Click any task card to expand. The title renders as a plain <h4> and description as a plain <p> — no contenteditable, no rename button, no nearby <input>. Estimate is editable (TimeTrackingSection spinbutton). Title/description are not.",
+      "fix_hint": "Inline-edit pattern. Replace the static <h4>{displayTitle}</h4> with a <button> that on click swaps to an <input value={task.title} onBlur={save} onKeyDown={Enter→save, Esc→revert}>. Mirror the TimeTrackingSection edit pattern used at task-card-expanded.tsx:73-101. Add a pencil-icon edit affordance to TaskQuickActions. Call ipc.updateTask(task.id, { title, description })."
+    },
+    {
+      "id": "P1-A",
+      "severity": "P1",
+      "surface": "task-card",
+      "title": "Hover quick-actions overlay intercepts clicks when invisible (opacity:0 with hit-testing on)",
+      "where": "src/components/kanban/task-quick-actions.tsx:31-34",
+      "repro": "WDIO `element click intercepted` failures (4 specs). When a test moves cursor into the card the overlay is opacity:0 but the absolute z-10 overlay still hit-tests. e.stopPropagation in the overlay's onClick (line 33) swallows the click intended for the card.",
+      "fix_hint": "Add `pointer-events-none group-hover:pointer-events-auto` to the overlay wrapper className. Keeps the fade-in animation but disables hit-testing when invisible. One-line change."
+    },
+    {
+      "id": "P1-B",
+      "severity": "P1",
+      "surface": "task-card-expanded",
+      "title": "Expanded card clipped by orchestrator panel at 1024px and fully covered at 375px",
+      "where": "src/components/kanban/task-card-expanded.tsx (no responsive guard); src/components/layout/split-view.tsx",
+      "repro": "Resize window to 1024×768 + click a task — the Estimate input + Changes/Commits sub-sections clip mid-line. At 375×667 the expanded card is fully hidden behind the agent panel.",
+      "fix_hint": "(a) When expanding a task below `lg` breakpoint, auto-collapse the docked agent panel (set ui-store collapsed=true). (b) Add min-w-0 on the expanded-card parent so it can shrink without overflow.",
+      "needs_product_judgment": true
+    },
+    {
+      "id": "P1-C",
+      "severity": "P1",
+      "surface": "tab-bar",
+      "title": "Workspace tab label collides with right-side icon cluster at 375px",
+      "where": "src/components/layout/tab-bar.tsx:90-105 (max-w-[120px]), :328-376 (right cluster)",
+      "repro": "Resize to 375×667. The centered 'Demo Workspace 1' visually overlaps with ShowArchivedButton + CostBadge icons. See docs/audits/2026-05-14/screenshots/wdio/board-default-mobile.png.",
+      "fix_hint": "At <sm: reduce max-w-[120px] to max-w-[64px], hide active-task badge, collapse the right-cluster (only Settings + Cost stay visible — others go into a `...` overflow menu)."
+    },
+    {
+      "id": "P1-D",
+      "severity": "P1",
+      "surface": "agent-panel",
+      "title": "Agent panel header (Transcript/Terminal toggle, Hold/Stop/Kill) off-screen on mobile",
+      "where": "src/components/panel/agent-panel.tsx:419-466 (PanelHeader single-row flex)",
+      "repro": "Resize to 375×667 + open a task. Header shows title + path but the segmented view toggle and the Hold/Stop/Kill buttons are pushed off the right edge with no horizontal scroll affordance.",
+      "fix_hint": "Wrap PanelHeader to a second row below `lg`: put viewSlot + rightSlot on their own row OR hide workdir below `sm` to free space. The Stop/Kill must remain reachable."
+    },
+    {
+      "id": "P1-E",
+      "severity": "P1",
+      "surface": "settings",
+      "title": "Settings drawer missing role=\"dialog\" + aria-modal — SRs don't announce modal context",
+      "where": "src/components/settings/settings-panel.tsx:221-227",
+      "repro": "Open Settings (Cmd+,). Playwright snapshot confirms wrapper renders as <generic> with no role; backdrop missing aria-hidden. Screen readers report no modal entry/exit.",
+      "fix_hint": "Add role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"settings-title\" to the motion.div panel; add id=\"settings-title\" to the <h2>Settings</h2>; aria-hidden=\"true\" on the backdrop motion.div."
+    },
+    {
+      "id": "P1-F",
+      "severity": "P1",
+      "surface": "settings",
+      "title": "No focus trap or initial-focus management — Tab leaks into background board",
+      "where": "src/components/settings/settings-panel.tsx:208-310",
+      "repro": "Open Settings → Tab repeatedly. Focus leaves the drawer and lands on background board buttons (Add task / Run All) sitting behind the dimmed backdrop.",
+      "fix_hint": "On isOpen, focus the close button (ref + .focus() in useEffect at line 147). Wrap content with a focus-trap (focus-trap-react, or hand-rolled keydown handler that loops Tab/Shift+Tab between first and last interactive elements)."
+    },
+    {
+      "id": "P1-G",
+      "severity": "P1",
+      "regression_of": "P1-2 (2026-05-13 / dedb576)",
+      "surface": "orchestrator-panel",
+      "title": "REGRESSION:P1-2 — Orchestrator sidebar-mode icon buttons missing aria-label",
+      "where": "src/components/panel/orchestrator-panel.tsx:325-379 (History/Files/Dashboard/v2-Dashboard)",
+      "repro": "Tab into the orchestrator panel — the four sidebar-mode toggle buttons (History, Files, Pipeline dashboard, Pipeline v2 dashboard) have no aria-label (Dashboard and v2 only have `title`).",
+      "fix_hint": "Add aria-label={sidebarMode === 'history' ? 'Hide history' : 'Show history'} and equivalents. Keep `title` for hover tooltip."
+    },
+    {
+      "id": "P1-H",
+      "severity": "P1",
+      "carry_forward_from": "ux-audit-2026-05-12 P0-5",
+      "surface": "tab-bar",
+      "title": "Workspace tab close button missing from tab bar (still)",
+      "where": "src/components/layout/tab-bar.tsx:44-117 (SortableTab — onClose prop accepted in TabProps but not rendered)",
+      "repro": "Hover any workspace tab in the tab bar — there's no close (X) icon, no right-click menu close, no keyboard close affordance. Only via the workspace's Cmd+W or Settings > Workspace > Delete.",
+      "fix_hint": "Render a hover-revealed close button inside SortableTab when tabs.length > 1 (preserve the implicit 'cannot close last tab' rule). Add a two-step confirmation dialog before deletion to prevent accidents.",
+      "needs_product_judgment": true,
+      "judgment_note": "Some apps deliberately omit tab-close to force flow through Settings. But UX_AUDIT 2026-05-12 explicitly logged this as P0. Defer the rename/close decision but at minimum add a hover-revealed close button with confirm dialog."
+    },
+    {
+      "id": "P2-A",
+      "severity": "P2",
+      "surface": "task-card",
+      "title": "Card title reserves pr-24 (96px) for hover overlay even when overlay is hidden — wastes title width",
+      "where": "src/components/kanban/task-card.tsx (h4 with `flex-1 pr-24` classes)",
+      "repro": "On any card at 300px column width, titles wrap to two lines because effective title area is ~140px (300 − 24 padding − 96 reservation − misc).",
+      "fix_hint": "Drop pr-24 from the title; apply pr only on group-hover (`group-hover:pr-24`) — or position TaskQuickActions absolutely so it doesn't reflow the title row."
+    },
+    {
+      "id": "P2-B",
+      "severity": "P2",
+      "surface": "task-card",
+      "title": "Quick-action icon buttons are 24×24px — below 44×44 WCAG touch-target",
+      "where": "src/components/kanban/task-quick-actions.tsx (each `h-6 w-6` button)",
+      "repro": "Hover a task card → four 24×24 icon buttons stacked at top-right. On touchpads they're tight; on touch devices they fail SC 2.5.5.",
+      "fix_hint": "Bump to h-7 w-7 (28px) plus inner SVG h-4 w-4. Low-priority on desktop per ACCESSIBILITY_FINDINGS.md but the change is trivial."
+    },
+    {
+      "id": "P2-C",
+      "severity": "P2",
+      "surface": "tab-bar",
+      "title": "Workspace tab focus ring missing — keyboard focus indistinguishable from inactive state",
+      "where": "src/components/layout/tab-bar.tsx:73-89",
+      "repro": "Tab into tab bar → tabs render `role=\"button\" tabIndex={0}` divs but with no focus-visible:ring style. Keyboard users can't see which tab is focused vs active.",
+      "fix_hint": "Add `focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface focus:outline-none` to the inner div className."
+    },
+    {
+      "id": "P2-D",
+      "severity": "P2",
+      "surface": "orchestrator-panel",
+      "title": "Sidebar mode toggle buttons missing aria-pressed",
+      "where": "src/components/panel/orchestrator-panel.tsx:325-379",
+      "repro": "Same buttons as P1-G. They are pressed-state toggles (highlighted when active) but expose no aria-pressed to screen readers.",
+      "fix_hint": "Add aria-pressed={sidebarMode === 'history'} (etc.) to each of the four mode toggle buttons."
+    },
+    {
+      "id": "P2-E",
+      "severity": "P2",
+      "surface": "column-config",
+      "title": "Color swatches have no focus ring — keyboard selection invisible",
+      "where": "src/components/kanban/column-config-dialog.tsx:386-401",
+      "repro": "Tab into the color radiogroup in column config General tab. Selection moves but no visible focus indicator.",
+      "fix_hint": "Add `focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus:outline-none` to the swatch button className."
+    },
+    {
+      "id": "P2-F",
+      "severity": "P2",
+      "surface": "column-config",
+      "title": "Color radiogroup not arrow-navigable; 10 swatches all in tab order",
+      "where": "src/components/kanban/column-config-dialog.tsx:386-401",
+      "repro": "Tab through column-config General. Each color swatch is its own tab stop — 10 tab stops in one radiogroup. ARIA Authoring Practices requires roving tabindex + arrow-key navigation.",
+      "fix_hint": "Roving tabindex: tabIndex={color === c ? 0 : -1} + onKeyDown(ArrowLeft/Right/Up/Down → focus next radio). Same pattern as the triplet tabs already in this dialog at lines 189-231."
+    },
+    {
+      "id": "P2-G",
+      "severity": "P2",
+      "surface": "shortcuts-modal",
+      "title": "Duplicate-looking rows: `?` and `Cmd+/` both labeled \"Open keyboard shortcuts\"",
+      "where": "src/components/shortcuts-modal.tsx:21-22 (and 50-51 for Del/Backspace)",
+      "repro": "Open shortcuts modal (`?`). Two consecutive rows show the same description with different keys — reads like a list bug.",
+      "fix_hint": "Combine alt keys onto one row: `{ keys: ['?', 'or', 'Cmd', '/'] }` (or render the two key alternatives separated by 'or'). Same for Del/Backspace."
+    },
+    {
+      "id": "P2-H",
+      "severity": "P2",
+      "surface": "settings",
+      "title": "SettingRow <label> not bound via htmlFor — clicking label doesn't focus input",
+      "where": "src/components/shared/setting-components.tsx:35-61",
+      "repro": "In any Settings tab, click the bold label text next to an input (e.g. \"Default base branch\"). Focus does not move to the input. Already called out in ACCESSIBILITY_FINDINGS.md.",
+      "fix_hint": "Accept an optional `htmlFor` prop on SettingRow (or generate a useId, pass via context). Render `<label htmlFor={id}>` and clone the child to apply id={id}."
+    },
+    {
+      "id": "P2-I",
+      "severity": "P2",
+      "surface": "settings-batches",
+      "title": "\"Refresh\" looks like body copy — no border / icon / button affordance",
+      "where": "src/components/settings/tabs/batches-tab.tsx (header row, text-xs text-text-secondary, no border/icon)",
+      "repro": "Settings → Batches header. Refresh is plain secondary text with no button styling. Users miss it.",
+      "fix_hint": "Promote to a secondary button (border-border-default + bg-surface) or add a refresh icon. Match agent-tab.tsx's \"Check for new models\" button pattern."
+    },
+    {
+      "id": "P2-J",
+      "severity": "P2",
+      "surface": "settings-voice",
+      "title": "Push-to-talk toggle looks active when parent toggle is off",
+      "where": "src/components/settings/tabs/voice-tab.tsx (via shared/toggle.tsx)",
+      "repro": "Settings → Voice. Toggle 'Enable voice input' off. The Push-to-talk row's toggle remains in the accent (checked) color at opacity-50 — misleads users into thinking PTT is still on.",
+      "fix_hint": "When parent toggle is OFF, force-render dependent toggles as `checked=false` OR add an explicit disabled-track style in Toggle when disabled+checked (neutral gray track, collapsed thumb)."
+    },
+    {
+      "id": "P2-K",
+      "severity": "P2",
+      "surface": "settings-agent",
+      "title": "\"Upcoming providers\" rows fail contrast (opacity-50 + text-text-secondary)",
+      "where": "src/components/settings/tabs/agent-tab.tsx (\"Upcoming providers\" section)",
+      "repro": "Settings → Models & Limits → expand Upcoming providers. Each card uses opacity-50 wrapper + text-text-secondary on name and description. Stacked produces effective gray-on-gray that fails WCAG AA.",
+      "fix_hint": "Drop opacity-50. Use text-text-primary on the name + text-text-secondary/60 on the description. Add a \"Coming soon\" pill so the disabled affordance is clear without relying on visual fade."
+    },
+    {
+      "id": "P2-L",
+      "severity": "P2",
+      "surface": "terminal-view",
+      "title": "Terminal host div has no role / aria-label — SR users get unlabeled region",
+      "where": "src/components/panel/terminal-view.tsx:267-289",
+      "repro": "Tab into Terminal pane in agent panel. The xterm host has no semantic role or label.",
+      "fix_hint": "Add role=\"region\" aria-label={`Agent terminal for task ${taskId}`} to the wrapper at line 267. Optionally aria-live=\"polite\" on empty-state container."
+    },
+    {
+      "id": "P2-M",
+      "severity": "P2",
+      "surface": "command-palette",
+      "title": "Command palette has no recents/quick-actions on empty search — long Navigation list dominates",
+      "where": "src/components/command-palette/command-palette.tsx",
+      "repro": "Open Cmd+K with no search. Long list of 'Go to task: …' rows fills the panel. Standard practice (Linear/Raycast/VSCode) shows recents/pinned first.",
+      "fix_hint": "When !search, surface a 'Quick actions' group (Create task / Open settings / Switch workspace) above the Navigation list — or limit Navigation to 5 + 'Show all'.",
+      "needs_product_judgment": true
+    }
+  ],
+  "duplicates_dropped": [
+    "AP-2 (agent-panel header overflow at mobile) — same as P1-D",
+    "AP-4 (tab label collision) — same as P1-C",
+    "AP-5 (P0-2/P0-5 verification) — subagent confused 'still broken' with 'intentionally absent'; preserved P1-H carry-forward"
+  ],
+  "test_infra_findings": [
+    "WDIO 4 failing specs: all root-caused to P1-A (overlay pointer-events). Fixing P1-A unblocks WDIO regression coverage.",
+    "Agent-panel-transcript shots absent from WDIO output (3 failures): caused by same click-intercept bug.",
+    "Playwright theme divergence (dialogs render light surface on dark app): no action — test artifact only."
+  ]
+}
