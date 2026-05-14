@@ -1,0 +1,26 @@
+{
+  "phase": 0,
+  "completed_at": "2026-05-14T00:00:00Z",
+  "starting_commit": "54f4a8c",
+  "stash_ref": "stash@{0}",
+  "stash_message": "pre-overnight-ui-audit-2026-05-14",
+  "plan_path": "docs/audits/2026-05-14/_plan.md",
+  "target_count": 40,
+  "regression_watchlist": {
+    "open_p0_count": 5,
+    "fragile_fixes_count": 7,
+    "hotspot_files": [
+      "src/components/settings/settings-panel.tsx",
+      "src/components/kanban/column-config-dialog.tsx",
+      "src/components/panel/orchestrator-panel.tsx",
+      "src/components/layout/tab-bar.tsx"
+    ]
+  },
+  "skip_list": [
+    "agent-panel-interactive",
+    "terminal-view-live",
+    "workspace-setup-legacy",
+    "community-gallery-server-data",
+    "drag-drop-interactions"
+  ]
+}

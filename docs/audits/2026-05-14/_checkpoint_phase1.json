@@ -1,0 +1,21 @@
+{
+  "phase": 1,
+  "completed_at": "2026-05-14T01:25:00Z",
+  "wdio": {
+    "shots": 42,
+    "tests": "15 passing, 4 failing",
+    "failure_root_cause": "element click intercepted by overlapping quick-actions overlay on task cards (audit-candidate P1)"
+  },
+  "playwright": {
+    "shots": 21,
+    "snapshots": 4,
+    "console_errors": 17
+  },
+  "findings_path": "docs/audits/2026-05-14/_findings.json",
+  "key_signals": {
+    "open_p0_confirmed": ["P0-1 (task title uneditable)", "P0-5 (workspace tab no close)"],
+    "open_p0_partially_fixed": ["P0-4 (Settings closes on Esc, but TaskSettings/Onboarding/Checklist need re-verify)"],
+    "new_a11y": ["3 unlabeled buttons in app shell", "3 title-only orchestrator buttons"],
+    "new_dev_quality": ["raw @tauri-apps/api/event listen() in 2 files breaks browser-mode E2E"]
+  }
+}

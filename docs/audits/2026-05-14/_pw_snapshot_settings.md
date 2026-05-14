@@ -1,0 +1,280 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e116]:
+        - button "Demo Workspace 1" [ref=e117]:
+          - button "Demo Workspace 1" [ref=e5] [cursor=pointer]:
+            - generic [ref=e6]:
+              - generic [ref=e7]: Demo Workspace
+              - generic [ref=e8]: "1"
+        - status [ref=e9]
+      - generic [ref=e10]:
+        - button "New workspace" [ref=e12]:
+          - img [ref=e13]
+        - button "Checklist" [ref=e16]:
+          - img [ref=e17]
+        - button "Show archived workspaces" [ref=e20]:
+          - img [ref=e21]
+        - 'button "Usage costs: less than 1 cent" [ref=e25]':
+          - img [ref=e26]
+          - generic [ref=e29]: <$0.01
+        - button "Settings" [active] [ref=e31]:
+          - img [ref=e32]
+    - main [ref=e34]:
+      - generic [ref=e36]:
+        - generic [ref=e37]:
+          - generic [ref=e119]:
+            - button "1 Backlog Run All Add task Configure column" [ref=e120]:
+              - generic [ref=e121]:
+                - img [ref=e123]
+                - generic [ref=e125]: "1"
+                - heading "Backlog" [level=3] [ref=e126]
+                - generic [ref=e127]:
+                  - button "Run All" [ref=e129]:
+                    - img [ref=e130]
+                  - button "Add task" [ref=e133]:
+                    - img [ref=e134]
+                  - button "Configure column" [ref=e137]:
+                    - img [ref=e138]
+            - article "Sample Task" [ref=e141] [cursor=pointer]:
+              - generic [ref=e142]:
+                - button "Open task" [ref=e143]:
+                  - img [ref=e144]
+                - button "Run agent" [ref=e147]:
+                  - img [ref=e148]
+                - button "Move to next column" [ref=e150]:
+                  - img [ref=e151]
+                - button "More actions" [ref=e153]:
+                  - img [ref=e154]
+              - button "Sample Task This is a demo task for testing 2m" [ref=e438]:
+                - heading "Sample Task" [level=4] [ref=e158]
+                - paragraph [ref=e337]: This is a demo task for testing
+                - generic [ref=e339]: 2m
+          - generic [ref=e162]:
+            - button "0 Working Add task Configure column" [ref=e163]:
+              - generic [ref=e164]:
+                - img [ref=e166]
+                - generic [ref=e169]: "0"
+                - heading "Working" [level=3] [ref=e170]
+                - generic [ref=e171]:
+                  - button "Add task" [ref=e173]:
+                    - img [ref=e174]
+                  - button "Configure column" [ref=e177]:
+                    - img [ref=e178]
+            - status "Working column is empty" [ref=e181]:
+              - paragraph [ref=e182]: No tasks yet
+          - generic [ref=e183]:
+            - button "0 Review Add task Configure column" [ref=e184]:
+              - generic [ref=e185]:
+                - img [ref=e187]
+                - generic [ref=e190]: "0"
+                - heading "Review" [level=3] [ref=e191]
+                - generic [ref=e192]:
+                  - button "Add task" [ref=e194]:
+                    - img [ref=e195]
+                  - button "Configure column" [ref=e198]:
+                    - img [ref=e199]
+            - status "Review column is empty" [ref=e202]:
+              - paragraph [ref=e203]: No tasks yet
+          - generic [ref=e204]:
+            - button "0 Done Add task Configure column" [ref=e205]:
+              - generic [ref=e206]:
+                - img [ref=e208]
+                - generic [ref=e210]: "0"
+                - heading "Done" [level=3] [ref=e211]
+                - generic [ref=e212]:
+                  - button "Add task" [ref=e214]:
+                    - img [ref=e215]
+                  - button "Configure column" [ref=e218]:
+                    - img [ref=e219]
+            - status "Done column is empty" [ref=e222]:
+              - paragraph [ref=e223]: No tasks yet
+          - button "Add Column" [ref=e340]:
+            - img [ref=e341]
+            - generic [ref=e344]: Add Column
+        - generic [ref=e46]:
+          - button "Collapse orchestrator panel" [expanded] [ref=e47] [cursor=pointer]:
+            - generic [ref=e48]:
+              - button [ref=e49]:
+                - img [ref=e50]
+              - button [ref=e52]:
+                - img [ref=e53]
+              - button "Pipeline dashboard" [ref=e56]:
+                - img [ref=e57]
+              - button "Pipeline v2 dashboard — column distribution, ETA, cost" [ref=e59]:
+                - img [ref=e60]
+            - generic [ref=e63]: Chef
+            - generic [ref=e64]:
+              - button "New" [disabled] [ref=e65]:
+                - img [ref=e66]
+                - text: New
+              - generic [ref=e68]: Cmd+J
+              - button "Dock to right" [ref=e69]:
+                - img [ref=e70]
+              - button "Collapse orchestrator panel" [expanded] [ref=e72]:
+                - img [ref=e73]
+          - generic [ref=e76]:
+            - generic [ref=e78]:
+              - paragraph [ref=e224]: No messages yet
+              - paragraph [ref=e225]: Ask me to create tasks for you
+            - generic [ref=e84]:
+              - generic [ref=e86]:
+                - button "Sonnet" [ref=e88] [cursor=pointer]:
+                  - text: Sonnet
+                  - img [ref=e89]
+                - generic [ref=e91]: 200k
+                - button "Medium" [ref=e93] [cursor=pointer]:
+                  - text: Medium
+                  - img [ref=e94]
+                - button "Plan" [ref=e97] [cursor=pointer]:
+                  - text: Plan
+                  - img [ref=e98]
+              - generic [ref=e100]:
+                - button "Attach files" [ref=e102] [cursor=pointer]:
+                  - img [ref=e103]
+                - textbox "Ask me to create tasks..." [ref=e105]
+                - button "Record voice message" [ref=e107]:
+                  - img [ref=e108]
+                - button "Send message" [disabled] [ref=e112]:
+                  - img [ref=e113]
+      - status [ref=e115]
+    - generic [ref=e440]:
+      - generic [ref=e441]:
+        - heading "Settings" [level=2] [ref=e442]
+        - button "Close settings" [ref=e443]:
+          - img [ref=e444]
+      - generic [ref=e446]:
+        - navigation [ref=e447]:
+          - generic [ref=e448]:
+            - generic [ref=e449]: General
+            - button "Workspace" [ref=e450]:
+              - img [ref=e451]
+              - generic [ref=e453]: Workspace
+            - button "Appearance" [ref=e454]:
+              - img [ref=e455]
+              - generic [ref=e457]: Appearance
+            - button "Board" [ref=e458]:
+              - img [ref=e459]
+              - generic [ref=e461]: Board
+          - generic [ref=e462]:
+            - generic [ref=e463]: Agents & Models
+            - button "Models & Limits" [ref=e464]:
+              - img [ref=e465]
+              - generic [ref=e467]: Models & Limits
+            - button "Voice" [ref=e468]:
+              - img [ref=e469]
+              - generic [ref=e472]: Voice
+          - generic [ref=e473]:
+            - generic [ref=e474]: Integrations
+            - button "GitHub" [ref=e475]:
+              - img [ref=e476]
+              - generic [ref=e478]: GitHub
+            - button "MCP Server" [ref=e479]:
+              - img [ref=e480]
+              - generic [ref=e483]: MCP Server
+            - button "Batches" [ref=e484]:
+              - img [ref=e485]
+              - generic [ref=e487]: Batches
+          - generic [ref=e488]:
+            - generic [ref=e489]: System
+            - button "Advanced" [ref=e490]:
+              - img [ref=e491]
+              - generic [ref=e493]: Advanced
+            - button "Updates" [ref=e494]:
+              - img [ref=e495]
+              - generic [ref=e497]: Updates
+        - generic [ref=e498]:
+          - banner [ref=e499]:
+            - heading "Workspace" [level=3] [ref=e500]
+            - paragraph [ref=e501]: Active workspace, agent defaults, danger zone
+          - generic [ref=e504]:
+            - generic [ref=e505]:
+              - heading "Current workspace" [level=3] [ref=e507]
+              - generic [ref=e508]:
+                - generic [ref=e509]:
+                  - generic [ref=e510]:
+                    - generic [ref=e511]: Name
+                    - paragraph [ref=e512]: Demo Workspace
+                  - generic [ref=e513]: Active
+                - generic [ref=e514]:
+                  - generic [ref=e515]: Repository path
+                  - generic [ref=e517]:
+                    - textbox "/path/to/repo" [ref=e518]: /tmp/demo-repo
+                    - button "Browse" [ref=e519]
+                - generic [ref=e520]:
+                  - generic [ref=e521]: Created 5/14/2026
+                  - generic [ref=e522]: Updated 5/14/2026
+            - generic [ref=e523]:
+              - generic [ref=e524]:
+                - heading "Agent defaults" [level=3] [ref=e525]
+                - paragraph [ref=e526]: Fallbacks for this workspace when a column trigger or task doesn't specify its own value. Per-trigger and per-task overrides take precedence.
+              - generic [ref=e527]:
+                - generic [ref=e528]:
+                  - generic [ref=e529]:
+                    - text: Default model
+                    - paragraph [ref=e530]: Used when a trigger or task doesn't pick a model.
+                  - combobox [ref=e532]:
+                    - option "Inherit (use trigger / global default)" [selected]
+                    - option "Opus"
+                    - option "Sonnet"
+                    - option "Haiku"
+                - generic [ref=e533]:
+                  - generic [ref=e534]:
+                    - text: Default agent CLI
+                    - paragraph [ref=e535]: The CLI tool that spawns agent sessions.
+                  - combobox [ref=e537]:
+                    - option "Inherit (use trigger / global default)" [selected]
+                    - option "Claude"
+                    - option "Codex"
+                - generic [ref=e538]:
+                  - generic [ref=e539]:
+                    - text: Default base branch
+                    - paragraph [ref=e540]: Branch new task branches are created from.
+                  - textbox "main" [ref=e542]
+            - generic [ref=e543]:
+              - generic [ref=e544]:
+                - heading "Concurrency & lifecycle" [level=3] [ref=e545]
+                - paragraph [ref=e546]: How many agents run in parallel in this workspace, and how their sessions are managed.
+              - generic [ref=e547]:
+                - generic [ref=e548]:
+                  - generic [ref=e549]:
+                    - text: Max concurrent agents (this workspace)
+                    - paragraph [ref=e550]: Cap for this workspace only. Lower than the global limit takes effect.
+                  - generic [ref=e551]:
+                    - slider [ref=e552]: "5"
+                    - generic [ref=e553]: "5"
+                - generic [ref=e554]:
+                  - generic [ref=e555]:
+                    - text: Persistent agent sessions
+                    - paragraph [ref=e556]: Keep per-task tmux sessions alive across triggers, panel reopens, and app restarts. Disable to spawn a fresh shell each time (uses less memory but loses session history).
+                  - switch "Persistent agent sessions" [checked] [ref=e558] [cursor=pointer]
+            - generic [ref=e560]:
+              - generic [ref=e561]:
+                - heading "Pipeline behavior" [level=3] [ref=e562]
+                - paragraph [ref=e563]: How tasks advance through columns and get cleaned up.
+              - generic [ref=e564]:
+                - generic [ref=e565]:
+                  - generic [ref=e566]:
+                    - text: Auto-advance to next column
+                    - paragraph [ref=e567]: Move tasks to the next column automatically when exit criteria are met (e.g. agent_complete, script_success).
+                  - switch "Auto-Advance" [checked] [ref=e569] [cursor=pointer]
+                - generic [ref=e571]:
+                  - generic [ref=e572]:
+                    - text: Auto-archive Done
+                    - paragraph [ref=e573]: Tasks that sit in Done past the grace period are archived automatically.
+                  - switch "Auto-Archive Done" [checked] [ref=e575] [cursor=pointer]
+                - generic [ref=e577]:
+                  - generic [ref=e578]:
+                    - text: Archive grace period (minutes)
+                    - paragraph [ref=e579]: How long a task waits in Done before auto-archive.
+                  - generic [ref=e581]:
+                    - slider [ref=e582]: "5"
+                    - generic [ref=e583]: 5m
+            - generic [ref=e584]:
+              - heading "Danger zone" [level=3] [ref=e586]
+              - generic [ref=e588]:
+                - generic [ref=e589]:
+                  - paragraph [ref=e590]: Delete this workspace
+                  - paragraph [ref=e591]: Permanently removes all columns, tasks, agent sessions, and history for Demo Workspace.
+                - button "Delete…" [ref=e592]
+  - tooltip "Settings" [ref=e593]

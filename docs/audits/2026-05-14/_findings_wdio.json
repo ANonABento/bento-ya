@@ -1,0 +1,392 @@
+{
+  "shots": [
+    {
+      "name": "board-default-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/board-default-desktop.png",
+      "note": "@desktop"
+    },
+    {
+      "name": "board-default-tablet",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/board-default-tablet.png",
+      "note": "@tablet"
+    },
+    {
+      "name": "board-default-mobile",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/board-default-mobile.png",
+      "note": "@mobile"
+    },
+    {
+      "name": "board-card-hover-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/board-card-hover-desktop.png",
+      "note": "first card hover quick-actions"
+    },
+    {
+      "name": "task-card-expanded-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/task-card-expanded-desktop.png",
+      "note": "@desktop"
+    },
+    {
+      "name": "task-card-expanded-tablet",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/task-card-expanded-tablet.png",
+      "note": "@tablet"
+    },
+    {
+      "name": "task-card-expanded-mobile",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/task-card-expanded-mobile.png",
+      "note": "@mobile"
+    },
+    {
+      "name": "agent-panel-terminal-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/agent-panel-terminal-desktop.png",
+      "note": "@desktop"
+    },
+    {
+      "name": "agent-panel-terminal-tablet",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/agent-panel-terminal-tablet.png",
+      "note": "@tablet"
+    },
+    {
+      "name": "agent-panel-terminal-mobile",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/agent-panel-terminal-mobile.png",
+      "note": "@mobile"
+    },
+    {
+      "name": "command-palette-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/command-palette-desktop.png",
+      "note": "paletteOpen=true"
+    },
+    {
+      "name": "command-palette-tablet",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/command-palette-tablet.png",
+      "note": "paletteOpen=true"
+    },
+    {
+      "name": "command-palette-mobile",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/command-palette-mobile.png",
+      "note": "paletteOpen=true"
+    },
+    {
+      "name": "settings-workspace-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/settings-workspace-desktop.png",
+      "note": "opens to Workspace"
+    },
+    {
+      "name": "settings-appearance-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/settings-appearance-desktop.png",
+      "note": ""
+    },
+    {
+      "name": "settings-board-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/settings-board-desktop.png",
+      "note": ""
+    },
+    {
+      "name": "settings-agent-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/settings-agent-desktop.png",
+      "note": ""
+    },
+    {
+      "name": "settings-voice-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/settings-voice-desktop.png",
+      "note": ""
+    },
+    {
+      "name": "settings-github-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/settings-github-desktop.png",
+      "note": ""
+    },
+    {
+      "name": "settings-mcp-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/settings-mcp-desktop.png",
+      "note": ""
+    },
+    {
+      "name": "settings-batches-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/settings-batches-desktop.png",
+      "note": ""
+    },
+    {
+      "name": "settings-advanced-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/settings-advanced-desktop.png",
+      "note": ""
+    },
+    {
+      "name": "settings-updates-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/settings-updates-desktop.png",
+      "note": ""
+    },
+    {
+      "name": "settings-workspace-tablet",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/settings-workspace-tablet.png",
+      "note": ""
+    },
+    {
+      "name": "settings-appearance-tablet",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/settings-appearance-tablet.png",
+      "note": ""
+    },
+    {
+      "name": "settings-workspace-mobile",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/settings-workspace-mobile.png",
+      "note": ""
+    },
+    {
+      "name": "settings-appearance-mobile",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/settings-appearance-mobile.png",
+      "note": ""
+    },
+    {
+      "name": "column-config-general-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/column-config-general-desktop.png",
+      "note": ""
+    },
+    {
+      "name": "column-config-triggers-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/column-config-triggers-desktop.png",
+      "note": ""
+    },
+    {
+      "name": "column-config-exit-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/column-config-exit-desktop.png",
+      "note": ""
+    },
+    {
+      "name": "column-config-general-tablet",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/column-config-general-tablet.png",
+      "note": ""
+    },
+    {
+      "name": "column-config-general-mobile",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/column-config-general-mobile.png",
+      "note": ""
+    },
+    {
+      "name": "shortcuts-modal-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/shortcuts-modal-desktop.png",
+      "note": "open=true"
+    },
+    {
+      "name": "shortcuts-modal-tablet",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/shortcuts-modal-tablet.png",
+      "note": "open=true"
+    },
+    {
+      "name": "shortcuts-modal-mobile",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/shortcuts-modal-mobile.png",
+      "note": "open=true"
+    },
+    {
+      "name": "tab-bar-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/tab-bar-desktop.png",
+      "note": ""
+    },
+    {
+      "name": "tab-bar-tablet",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/tab-bar-tablet.png",
+      "note": ""
+    },
+    {
+      "name": "tab-bar-mobile",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/tab-bar-mobile.png",
+      "note": ""
+    },
+    {
+      "name": "orchestrator-panel-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/orchestrator-panel-desktop.png",
+      "note": ""
+    },
+    {
+      "name": "orchestrator-panel-tablet",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/orchestrator-panel-tablet.png",
+      "note": ""
+    },
+    {
+      "name": "regression-P0-2-cmdw-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/regression-P0-2-cmdw-desktop.png",
+      "note": "{\"tabCount\":3,\"tabsWithCloseBtn\":0}"
+    },
+    {
+      "name": "tab-focus-state-desktop",
+      "file": "docs/audits/2026-05-14/screenshots/wdio/tab-focus-state-desktop.png",
+      "note": "12 Tab presses"
+    }
+  ],
+  "ariaIssues": [
+    {
+      "surface": "board-default",
+      "items": []
+    },
+    {
+      "surface": "task-card-expanded",
+      "items": []
+    },
+    {
+      "surface": "settings",
+      "items": []
+    },
+    {
+      "surface": "column-config",
+      "items": []
+    }
+  ],
+  "consoleLogs": [
+    {
+      "note": "getLogs not supported: browser.getLogs is not a function"
+    },
+    {
+      "total": 0,
+      "errors": []
+    }
+  ],
+  "interactionNotes": [
+    {
+      "surface": "settings.open",
+      "note": "{\"ok\":true}"
+    },
+    {
+      "surface": "settings-appearance.click",
+      "note": "{\"ok\":true}"
+    },
+    {
+      "surface": "settings-board.click",
+      "note": "{\"ok\":true}"
+    },
+    {
+      "surface": "settings-agent.click",
+      "note": "{\"ok\":true}"
+    },
+    {
+      "surface": "settings-voice.click",
+      "note": "{\"ok\":true}"
+    },
+    {
+      "surface": "settings-github.click",
+      "note": "{\"ok\":true}"
+    },
+    {
+      "surface": "settings-mcp.click",
+      "note": "{\"ok\":true}"
+    },
+    {
+      "surface": "settings-batches.click",
+      "note": "{\"ok\":true}"
+    },
+    {
+      "surface": "settings-advanced.click",
+      "note": "{\"ok\":true}"
+    },
+    {
+      "surface": "settings-updates.click",
+      "note": "{\"ok\":true}"
+    },
+    {
+      "surface": "column-config.open",
+      "note": "{\"ok\":true}"
+    },
+    {
+      "surface": "tab-focus",
+      "trail": [
+        {
+          "ariaLabel": null,
+          "outline": "3px none rgb(229, 229, 229)",
+          "text": "3Backlog",
+          "tag": "DIV"
+        },
+        {
+          "ariaLabel": "Run All",
+          "outline": "3px none oklab(0.626754 0 0 / 0.5)",
+          "text": "",
+          "tag": "BUTTON"
+        },
+        {
+          "ariaLabel": "Add task",
+          "outline": "3px none oklab(0.626754 0 0 / 0.5)",
+          "text": "",
+          "tag": "BUTTON"
+        },
+        {
+          "ariaLabel": "Configure column",
+          "outline": "3px none oklab(0.626754 0 0 / 0.5)",
+          "text": "",
+          "tag": "BUTTON"
+        },
+        {
+          "ariaLabel": "Add dark mode toggle",
+          "outline": "3px none rgb(229, 229, 229)",
+          "text": "Add dark mode toggleImplement theme switching in s",
+          "tag": "DIV"
+        },
+        {
+          "ariaLabel": "Open task",
+          "outline": "3px none rgb(136, 136, 136)",
+          "text": "",
+          "tag": "BUTTON"
+        },
+        {
+          "ariaLabel": "Run agent",
+          "outline": "3px none rgb(136, 136, 136)",
+          "text": "",
+          "tag": "BUTTON"
+        },
+        {
+          "ariaLabel": "Move to next column",
+          "outline": "3px none rgb(136, 136, 136)",
+          "text": "",
+          "tag": "BUTTON"
+        },
+        {
+          "ariaLabel": "More actions",
+          "outline": "3px none rgb(136, 136, 136)",
+          "text": "",
+          "tag": "BUTTON"
+        },
+        {
+          "ariaLabel": null,
+          "outline": "3px none rgb(229, 229, 229)",
+          "text": "Add dark mode toggleImplement theme switching in s",
+          "tag": "DIV"
+        },
+        {
+          "ariaLabel": "Refactor auth flow",
+          "outline": "3px none rgb(229, 229, 229)",
+          "text": "Refactor auth flowSimplify the authentication logi",
+          "tag": "DIV"
+        },
+        {
+          "ariaLabel": "Open task",
+          "outline": "3px none rgb(136, 136, 136)",
+          "text": "",
+          "tag": "BUTTON"
+        }
+      ]
+    }
+  ],
+  "regressionChecks": [
+    {
+      "id": "P0-2",
+      "title": "Cmd+W workspace delete confirmation",
+      "result": {
+        "wsCountBefore": 3,
+        "hasConfirmHandler": {
+          "tabCount": 3,
+          "tabsWithCloseBtn": 0
+        }
+      }
+    },
+    {
+      "id": "P0-4-task-settings",
+      "title": "Escape closes TaskSettings",
+      "result": {
+        "openResult": {
+          "ok": false,
+          "reason": "no task-settings trigger"
+        }
+      }
+    },
+    {
+      "id": "P0-5",
+      "title": "workspace tab close button",
+      "result": []
+    }
+  ]
+}

@@ -1,0 +1,209 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e116]:
+        - button "Demo Workspace 1" [ref=e117]:
+          - button "Demo Workspace 1" [ref=e5] [cursor=pointer]:
+            - generic [ref=e6]:
+              - generic [ref=e7]: Demo Workspace
+              - generic [ref=e8]: "1"
+        - status [ref=e9]
+      - generic [ref=e10]:
+        - button "New workspace" [ref=e12]:
+          - img [ref=e13]
+        - button "Checklist" [ref=e16]:
+          - img [ref=e17]
+        - button "Show archived workspaces" [ref=e20]:
+          - img [ref=e21]
+        - 'button "Usage costs: less than 1 cent" [ref=e25]':
+          - img [ref=e26]
+          - generic [ref=e29]: <$0.01
+        - button "Settings" [ref=e31]:
+          - img [ref=e32]
+    - main [ref=e34]:
+      - generic [ref=e36]:
+        - generic [ref=e37]:
+          - generic [ref=e119]:
+            - button "1 Backlog Run All Add task Configure column" [ref=e120]:
+              - generic [ref=e121]:
+                - img [ref=e123]
+                - generic [ref=e125]: "1"
+                - heading "Backlog" [level=3] [ref=e126]
+                - generic [ref=e127]:
+                  - button "Run All" [ref=e129]:
+                    - img [ref=e130]
+                  - button "Add task" [ref=e133]:
+                    - img [ref=e134]
+                  - button "Configure column" [active] [ref=e137]:
+                    - img [ref=e138]
+            - article "Sample Task" [ref=e141] [cursor=pointer]:
+              - generic [ref=e142]:
+                - button "Open task" [ref=e143]:
+                  - img [ref=e144]
+                - button "Run agent" [ref=e147]:
+                  - img [ref=e148]
+                - button "Move to next column" [ref=e150]:
+                  - img [ref=e151]
+                - button "More actions" [ref=e153]:
+                  - img [ref=e154]
+              - button "Sample Task This is a demo task for testing 4m" [ref=e1439]:
+                - heading "Sample Task" [level=4] [ref=e158]
+                - paragraph [ref=e337]: This is a demo task for testing
+                - generic [ref=e339]: 4m
+          - generic [ref=e1441]:
+            - heading "Configure Column" [level=2] [ref=e1443]
+            - tablist "Column configuration sections" [ref=e1444]:
+              - tab "General" [selected] [ref=e1445]: General
+              - tab "Triggers" [ref=e1447]
+              - tab "Exit" [ref=e1448]
+            - generic [ref=e1449]:
+              - tabpanel "General" [ref=e1451]:
+                - generic [ref=e1452]:
+                  - generic [ref=e1453]:
+                    - generic [ref=e1454]: Name
+                    - textbox [ref=e1455]: Backlog
+                  - generic [ref=e1456]:
+                    - generic [ref=e1457]:
+                      - generic [ref=e1458]: Icon
+                      - combobox [ref=e1459]:
+                        - option "List"
+                        - option "Inbox" [selected]
+                        - option "Play"
+                        - option "Code"
+                        - option "Check"
+                        - option "Review"
+                        - option "Deploy"
+                        - option "Archive"
+                    - generic [ref=e1460]:
+                      - generic [ref=e1461]: Color
+                      - radiogroup "Column color" [ref=e1462]:
+                        - 'radio "Color: accent" [checked] [ref=e1463]'
+                        - 'radio "Color: gray" [ref=e1464]'
+                        - 'radio "Color: blue" [ref=e1465]'
+                        - 'radio "Color: amber" [ref=e1466]'
+                        - 'radio "Color: green" [ref=e1467]'
+                        - 'radio "Color: red" [ref=e1468]'
+                        - 'radio "Color: purple" [ref=e1469]'
+                        - 'radio "Color: pink" [ref=e1470]'
+                        - 'radio "Color: teal" [ref=e1471]'
+                        - 'radio "Color: slate" [ref=e1472]'
+                  - generic [ref=e1473]:
+                    - generic [ref=e1474]:
+                      - heading "Capacity" [level=3] [ref=e1475]
+                      - paragraph [ref=e1476]: Column resource profile and concurrency.
+                    - generic [ref=e1477]:
+                      - generic [ref=e1478]:
+                        - generic [ref=e1479]: Resource profile
+                        - generic [ref=e1480]:
+                          - button "Auto Backend default" [pressed] [ref=e1481]:
+                            - generic [ref=e1482]: Auto
+                            - generic [ref=e1483]: Backend default
+                          - button "Light Small work" [ref=e1484]:
+                            - generic [ref=e1485]: Light
+                            - generic [ref=e1486]: Small work
+                          - button "Standard Normal agent work" [ref=e1487]:
+                            - generic [ref=e1488]: Standard
+                            - generic [ref=e1489]: Normal agent work
+                          - button "Heavy Prefer one at a time" [ref=e1490]:
+                            - generic [ref=e1491]: Heavy
+                            - generic [ref=e1492]: Prefer one at a time
+                          - button "Exclusive Single lane work" [ref=e1493]:
+                            - generic [ref=e1494]: Exclusive
+                            - generic [ref=e1495]: Single lane work
+                      - generic [ref=e1497]:
+                        - generic [ref=e1498]: Max concurrent agents
+                        - spinbutton [ref=e1499]
+              - generic [ref=e1500]:
+                - button "Delete column" [ref=e1501]
+                - generic [ref=e1502]:
+                  - button "Cancel" [ref=e1503]
+                  - button "Save" [ref=e1504]
+          - generic [ref=e162]:
+            - button "0 Working Add task Configure column" [ref=e163]:
+              - generic [ref=e164]:
+                - img [ref=e166]
+                - generic [ref=e169]: "0"
+                - heading "Working" [level=3] [ref=e170]
+                - generic [ref=e171]:
+                  - button "Add task" [ref=e173]:
+                    - img [ref=e174]
+                  - button "Configure column" [ref=e177]:
+                    - img [ref=e178]
+            - status "Working column is empty" [ref=e181]:
+              - paragraph [ref=e182]: No tasks yet
+          - generic [ref=e183]:
+            - button "0 Review Add task Configure column" [ref=e184]:
+              - generic [ref=e185]:
+                - img [ref=e187]
+                - generic [ref=e190]: "0"
+                - heading "Review" [level=3] [ref=e191]
+                - generic [ref=e192]:
+                  - button "Add task" [ref=e194]:
+                    - img [ref=e195]
+                  - button "Configure column" [ref=e198]:
+                    - img [ref=e199]
+            - status "Review column is empty" [ref=e202]:
+              - paragraph [ref=e203]: No tasks yet
+          - generic [ref=e204]:
+            - button "0 Done Add task Configure column" [ref=e205]:
+              - generic [ref=e206]:
+                - img [ref=e208]
+                - generic [ref=e210]: "0"
+                - heading "Done" [level=3] [ref=e211]
+                - generic [ref=e212]:
+                  - button "Add task" [ref=e214]:
+                    - img [ref=e215]
+                  - button "Configure column" [ref=e218]:
+                    - img [ref=e219]
+            - status "Done column is empty" [ref=e222]:
+              - paragraph [ref=e223]: No tasks yet
+          - button "Add Column" [ref=e340]:
+            - img [ref=e341]
+            - generic [ref=e344]: Add Column
+        - generic [ref=e46]:
+          - button "Collapse orchestrator panel" [expanded] [ref=e47] [cursor=pointer]:
+            - generic [ref=e48]:
+              - button [ref=e49]:
+                - img [ref=e50]
+              - button [ref=e52]:
+                - img [ref=e53]
+              - button "Pipeline dashboard" [ref=e56]:
+                - img [ref=e57]
+              - button "Pipeline v2 dashboard — column distribution, ETA, cost" [ref=e59]:
+                - img [ref=e60]
+            - generic [ref=e63]: Chef
+            - generic [ref=e64]:
+              - button "New" [disabled] [ref=e65]:
+                - img [ref=e66]
+                - text: New
+              - generic [ref=e68]: Cmd+J
+              - button "Dock to right" [ref=e69]:
+                - img [ref=e70]
+              - button "Collapse orchestrator panel" [expanded] [ref=e72]:
+                - img [ref=e73]
+          - generic [ref=e76]:
+            - generic [ref=e78]:
+              - paragraph [ref=e224]: No messages yet
+              - paragraph [ref=e225]: Ask me to create tasks for you
+            - generic [ref=e84]:
+              - generic [ref=e86]:
+                - button "Sonnet" [ref=e88] [cursor=pointer]:
+                  - text: Sonnet
+                  - img [ref=e89]
+                - generic [ref=e91]: 200k
+                - button "Medium" [ref=e93] [cursor=pointer]:
+                  - text: Medium
+                  - img [ref=e94]
+                - button "Plan" [ref=e97] [cursor=pointer]:
+                  - text: Plan
+                  - img [ref=e98]
+              - generic [ref=e100]:
+                - button "Attach files" [ref=e102] [cursor=pointer]:
+                  - img [ref=e103]
+                - textbox "Ask me to create tasks..." [ref=e105]
+                - button "Record voice message" [ref=e107]:
+                  - img [ref=e108]
+                - button "Send message" [disabled] [ref=e112]:
+                  - img [ref=e113]
+      - status [ref=e115]
+  - tooltip "Configure column" [ref=e1505]

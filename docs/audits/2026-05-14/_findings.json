@@ -1,0 +1,159 @@
+{
+  "summary": {
+    "date": "2026-05-14",
+    "startingCommit": "54f4a8c",
+    "wdioShots": 42,
+    "playwrightShots": 21,
+    "wdioPassFail": "15 passing, 4 failing"
+  },
+  "wdio": {
+    "shotsDir": "docs/audits/2026-05-14/screenshots/wdio/",
+    "findingsFile": "docs/audits/2026-05-14/_findings_wdio.json",
+    "regressionChecks": [
+      {
+        "id": "P0-2",
+        "title": "Cmd+W workspace delete confirmation",
+        "result": {"tabCount": 3, "tabsWithCloseBtn": 0},
+        "verdict": "no close affordance exposed → P0-5 confirmed broken; Cmd+W handler not yet verified"
+      },
+      {
+        "id": "P0-4-task-settings",
+        "title": "Escape closes TaskSettings",
+        "result": {"openResult": {"ok": false, "reason": "no task-settings trigger"}},
+        "verdict": "could not locate task-settings trigger via aria-label — manual verification needed"
+      },
+      {
+        "id": "P0-5",
+        "title": "workspace tab close button",
+        "result": [],
+        "verdict": "no [data-workspace-id] tabs found; verified via Playwright that role=tab buttons lack inner close button"
+      }
+    ],
+    "failingSpecs": [
+      {
+        "test": "task-card-expanded at all viewports",
+        "error": "element click intercepted — task card click blocked by overlapping quick-actions overlay (opacity:0 group-hover:opacity-100 z-10 absolute)",
+        "candidate_finding": "P1 - card click target reliability"
+      },
+      {
+        "test": "agent-panel-transcript at all viewports",
+        "error": "element click intercepted (same root cause)"
+      },
+      {
+        "test": "agent-panel-terminal at all viewports",
+        "error": "element click intercepted"
+      },
+      {
+        "test": "REGRESSION P0-1: task title/description editability",
+        "error": "element click intercepted"
+      }
+    ]
+  },
+  "playwright": {
+    "shotsDir": "docs/audits/2026-05-14/screenshots/playwright/",
+    "snapshots": [
+      "_pw_snapshot_board.md",
+      "_pw_snapshot_task_expanded.md",
+      "_pw_snapshot_settings.md",
+      "_pw_snapshot_column_config.md"
+    ],
+    "consoleErrors": {
+      "file": "docs/audits/2026-05-14/_pw_console_initial.log",
+      "criticalErrors": [
+        {
+          "type": "TypeError",
+          "file": "src/hooks/chat-session/use-chat-session.ts:9",
+          "details": "imports raw `listen` from @tauri-apps/api/event instead of typed wrapper from src/lib/ipc/invoke.ts — crashes in browser/E2E mock environment",
+          "severity_hint": "P2 (dev-only impact)"
+        },
+        {
+          "type": "TypeError",
+          "file": "src/components/panel/orchestrator-panel.tsx:10",
+          "details": "same — imports raw `listen` from @tauri-apps/api/event",
+          "severity_hint": "P2 (dev-only impact)"
+        }
+      ],
+      "missingMockHandlers": [
+        "get_available_models",
+        "list_scripts",
+        "get_average_pipeline_timing"
+      ]
+    },
+    "regressionChecks": [
+      {
+        "id": "P0-1",
+        "title": "task title/description editability",
+        "verdict": "STILL OPEN — expanded task card shows title as `heading [level=4]` (no contenteditable, no Edit/Rename button, no nearby input). Description is a `paragraph` with no edit affordance. Estimate field IS editable (spinbutton)."
+      },
+      {
+        "id": "P0-4-settings-escape",
+        "title": "Escape closes Settings",
+        "verdict": "FIXED (regression P1-1 from 2026-05-13 holds) — real Playwright keyboard event closes Settings; synthetic dispatchEvent does not (handler bound at framework level)."
+      },
+      {
+        "id": "P0-5",
+        "title": "workspace tab close button",
+        "verdict": "STILL OPEN — 3 role=tab buttons in banner; none has inner close button or hover-revealed X icon. No `close` aria-label anywhere in the banner."
+      }
+    ],
+    "ariaScan": {
+      "unlabeledIconButtons": [
+        {
+          "location": "bottom of viewport (897,596)",
+          "class": "h-6 w-11 rounded-full transition-colors bg-surface-hover",
+          "guess": "Toggle switch with no aria-label / aria-checked"
+        },
+        {
+          "location": "bottom-left (11,606)",
+          "class": "h-6 w-6 icon button",
+          "guess": "Likely panel sidebar control"
+        },
+        {
+          "location": "bottom-left (35,606)",
+          "class": "h-6 w-6 icon button",
+          "guess": "Likely panel sidebar control"
+        }
+      ],
+      "titleOnlyButtons": [
+        {
+          "title": "Pipeline dashboard",
+          "location": "orchestrator panel header",
+          "issue": "title is unreliable for screen readers — should be aria-label"
+        },
+        {
+          "title": "Pipeline v2 dashboard — column distribution, ETA, cost",
+          "location": "orchestrator panel header",
+          "issue": "same"
+        },
+        {
+          "title": "Dock to right",
+          "location": "orchestrator panel header",
+          "issue": "same"
+        }
+      ]
+    }
+  },
+  "surfacesCaptured": [
+    "board-default (3 viewports)",
+    "board-card-hover (desktop)",
+    "task-card-expanded (3 viewports — WDIO; 1 PW)",
+    "agent-panel-transcript (3 viewports)",
+    "agent-panel-terminal (3 viewports)",
+    "command-palette (3 viewports)",
+    "settings-workspace (3 viewports)",
+    "settings-appearance / board / agent / voice / github / mcp / batches / advanced / updates (desktop + PW)",
+    "column-config-general / triggers / exit (3 viewports — WDIO; desktop — PW)",
+    "shortcuts-modal (3 viewports)",
+    "tab-bar (3 viewports)",
+    "orchestrator-panel (desktop + tablet)",
+    "regression P0-2 / P0-4 / P0-5 verification flows (desktop)"
+  ],
+  "surfacesSkipped": [
+    {"name": "agent-panel-interactive", "reason": "requires live CLI + tmux backend; only static markup observable"},
+    {"name": "task-context-menu", "reason": "right-click only, no keyboard equivalent (known a11y gap from ACCESSIBILITY_FINDINGS.md)"},
+    {"name": "onboarding-wizard", "reason": "requires fresh DB state — deferred to manual verification"},
+    {"name": "drag-and-drop interactions", "reason": "WDIO/@dnd-kit HTML5 DnD unreliable; existing e2e coverage suffices"},
+    {"name": "community-gallery", "reason": "server-fetched gallery items empty in mock"},
+    {"name": "diff-viewer", "reason": "requires real git commits; mock state doesn't render diffs"}
+  ]
+}

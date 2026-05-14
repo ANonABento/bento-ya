@@ -1,0 +1,23 @@
+{
+  "phase": 2,
+  "completed_at": "2026-05-14T01:55:00Z",
+  "candidates_path": "docs/audits/2026-05-14/_candidates.json",
+  "counts": {
+    "raw_findings": 33,
+    "after_dedupe": 22,
+    "P0": 1,
+    "P1": 8,
+    "P2": 13
+  },
+  "regressions_confirmed_open": [
+    "ux-audit-2026-05-12 P0-1 — task title uneditable (P0-A)",
+    "ux-audit-2026-05-12 P0-5 — workspace tab no close button (P1-H, deferred — product judgment)",
+    "UI_AUDIT_2026-05-13 P1-2 — orchestrator panel header icons missing aria-label (P1-G)"
+  ],
+  "subagent_completion": {
+    "board+cards": "complete (7 findings)",
+    "settings": "complete (8 findings)",
+    "dialogs": "complete (10 findings)",
+    "agent-panel+tab-bar": "complete (8 findings, 3 duplicates dropped)"
+  }
+}
