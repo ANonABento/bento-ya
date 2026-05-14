@@ -270,6 +270,7 @@ export function WorkspaceTab() {
                 checked={config.persistentAgentLifecycle ?? true}
                 onChange={(v) => { void updateConfig({ persistentAgentLifecycle: v }) }}
                 size="md"
+                aria-label="Persistent agent sessions"
               />
             </SettingRow>
           </div>
