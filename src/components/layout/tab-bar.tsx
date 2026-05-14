@@ -78,8 +78,9 @@ function SortableTab({
           if (e.key === 'Enter' || e.key === ' ') onSelect()
         }}
         className={`
-          group flex h-8 cursor-pointer items-center justify-center px-3 text-sm
+          group flex h-8 cursor-pointer items-center justify-center rounded px-3 text-sm
           transition-colors duration-150
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-bg
           ${
             isActive
               ? 'font-medium text-text-primary'
