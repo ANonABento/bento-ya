@@ -27,6 +27,7 @@ export function AttachmentButton({
         type="button"
         onClick={onClick}
         disabled={disabled || isLoading}
+        aria-label={isLoading ? 'Loading attachments' : count > 0 ? `Attachments (${String(count)})` : 'Attach files'}
         className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded border transition-colors ${
           count > 0
             ? 'border-accent bg-accent/10 text-accent'
