@@ -384,15 +384,29 @@ function GeneralTab({
             Color
           </label>
           <div role="radiogroup" aria-label="Column color" className="flex flex-wrap gap-2">
-            {Object.entries(COLUMN_COLORS).map(([name, c]) => (
+            {Object.entries(COLUMN_COLORS).map(([name, c], idx, all) => (
               <button
                 key={c}
                 type="button"
                 role="radio"
                 aria-checked={color === c}
                 aria-label={`Color: ${name}`}
+                tabIndex={color === c ? 0 : -1}
                 onClick={() => { setColor(c) }}
-                className={`h-6 w-6 rounded-full transition-transform ${
+                onKeyDown={(e) => {
+                  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return
+                  e.preventDefault()
+                  let nextIdx = idx
+                  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') nextIdx = (idx - 1 + all.length) % all.length
+                  else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextIdx = (idx + 1) % all.length
+                  else if (e.key === 'Home') nextIdx = 0
+                  else if (e.key === 'End') nextIdx = all.length - 1
+                  const nextColor = all[nextIdx]?.[1]
+                  if (nextColor) setColor(nextColor)
+                  const sibling = e.currentTarget.parentElement?.children[nextIdx]
+                  if (sibling instanceof HTMLElement) sibling.focus()
+                }}
+                className={`h-6 w-6 rounded-full transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
                   color === c ? 'scale-110 ring-2 ring-white/50' : 'hover:scale-105'
                 }`}
                 style={{ backgroundColor: c }}
