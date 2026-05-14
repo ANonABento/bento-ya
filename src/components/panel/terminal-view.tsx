@@ -264,7 +264,12 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
   }, [fontSize, lineHeight, scrollback, taskId, workingDir])
 
   return (
-    <div data-testid="agent-terminal-view" className="relative flex h-full min-h-0 flex-col overflow-hidden bg-bg">
+    <div
+      data-testid="agent-terminal-view"
+      role="region"
+      aria-label="Agent terminal"
+      className="relative flex h-full min-h-0 flex-col overflow-hidden bg-bg"
+    >
       <div className="min-h-0 flex-1 overflow-hidden" style={{ padding: '4px 8px' }}>
         <div ref={terminalHostRef} data-testid="agent-terminal-host" className="agent-terminal-host h-full min-h-0 w-full overflow-hidden" />
       </div>
