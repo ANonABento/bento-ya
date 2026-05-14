@@ -48,6 +48,7 @@ pub enum CollisionPolicy {
 }
 
 impl CollisionPolicy {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Result<Self, AppError> {
         match s {
             "replace_all" => Ok(Self::ReplaceAll),
@@ -117,10 +118,8 @@ pub fn substitute_placeholders(
 
 fn walk_substitute(value: &mut serde_json::Value, placeholders: &HashMap<String, String>) {
     match value {
-        serde_json::Value::String(s) => {
-            if s.contains("{{") {
-                *s = substitute_in_string(s, placeholders);
-            }
+        serde_json::Value::String(s) if s.contains("{{") => {
+            *s = substitute_in_string(s, placeholders);
         }
         serde_json::Value::Array(arr) => {
             for v in arr.iter_mut() {
