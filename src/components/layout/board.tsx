@@ -3,10 +3,13 @@ import {
   DndContext,
   DragOverlay,
   closestCorners,
+  pointerWithin,
+  rectIntersection,
   PointerSensor,
   KeyboardSensor,
   useSensor,
   useSensors,
+  type CollisionDetection,
 } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { useColumnStore } from '@/stores/column-store'
@@ -97,6 +100,37 @@ export function Board() {
   })?.id ?? null, [sortedColumns])
 
   const { activeItem, onDragStart, onDragOver, onDragEnd } = useDnd()
+
+  // Custom collision detection: closestCorners (the default) routinely picks the
+  // outer column-reorder sortable (or a neighbor column's edge) over the inner
+  // column-drop droppable when a task hovers near the top or bottom of an empty
+  // target column, because corner-pair distance sums penalize tall rects.
+  // Result: task drops only register near the vertical middle of a column.
+  //
+  // For task drags we prefer pointer-based detection so the cursor's location
+  // is what matters, and we filter out column-reorder sortables so the inner
+  // column-drop droppable wins reliably. rectIntersection is the fallback for
+  // when the cursor briefly leaves all rects (e.g. between columns).
+  const collisionDetection = useCallback<CollisionDetection>((args) => {
+    const activeData = args.active.data.current as { type?: string } | undefined
+    if (activeData?.type === 'column') {
+      return closestCorners(args)
+    }
+    const filteredContainers = args.droppableContainers.filter((container) => {
+      const id = String(container.id)
+      if (id.startsWith('column-drop-')) return true
+      const data = container.data.current as { type?: string; columnId?: string } | undefined
+      // Bare column.id sortables register data.type === 'column' but no columnId
+      // (the column-drop droppable carries columnId). Exclude the column-reorder
+      // sortables for task drags.
+      if (data?.type === 'column' && !data.columnId) return false
+      return true
+    })
+    const filtered = { ...args, droppableContainers: filteredContainers }
+    const pointerCollisions = pointerWithin(filtered)
+    if (pointerCollisions.length > 0) return pointerCollisions
+    return rectIntersection(filtered)
+  }, [])
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -214,7 +248,7 @@ export function Board() {
     <DepDragContext.Provider value={{ onDepDragStart, isDraggingDep: !!dragState, hoveredTaskId, setHoveredTaskId }}>
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={collisionDetection}
         onDragStart={(e) => { setHoveredTaskId(null); collapseTask(); onDragStart(e) }}
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
