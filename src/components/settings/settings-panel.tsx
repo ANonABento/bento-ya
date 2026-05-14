@@ -294,7 +294,11 @@ export function SettingsPanel() {
                   )}
                 </header>
                 <div className="flex-1 overflow-y-auto px-6 py-6">
-                  <div className="mx-auto max-w-3xl">
+                  {/* Forms read better at a comfortable measure on dense
+                      tabs (board toggles, advanced inputs), so cap content
+                      width — but at a wider stop on big screens so we don't
+                      leave a yawning gutter on 1440px+. */}
+                  <div className="mx-auto w-full max-w-3xl xl:max-w-4xl">
                     {renderTabContent()}
                   </div>
                 </div>
