@@ -186,11 +186,33 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
           </div>
 
           {/* Tabs */}
-          <div className="flex border-b border-border-default px-6">
+          <div role="tablist" aria-label="Column configuration sections" className="flex border-b border-border-default px-6">
             {(['general', 'triggers', 'exit'] as Tab[]).map((t) => (
               <button
                 key={t}
+                id={`column-config-tab-${t}`}
+                role="tab"
+                type="button"
+                aria-selected={tab === t}
+                aria-controls={`column-config-panel-${t}`}
+                tabIndex={tab === t ? 0 : -1}
                 onClick={() => { setTab(t) }}
+                onKeyDown={(e) => {
+                  // Roving-tabindex arrow navigation per ARIA Authoring Practices.
+                  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+                  e.preventDefault()
+                  const tabs = ['general', 'triggers', 'exit'] as const
+                  const idx = tabs.indexOf(t)
+                  const nextIdx = e.key === 'ArrowRight'
+                    ? (idx + 1) % tabs.length
+                    : (idx - 1 + tabs.length) % tabs.length
+                  const next = tabs[nextIdx] ?? 'general'
+                  setTab(next)
+                  // Focus the newly-selected tab so the visual + DOM focus agree.
+                  setTimeout(() => {
+                    document.getElementById(`column-config-tab-${next}`)?.focus()
+                  }, 0)
+                }}
                 className={`px-4 py-3 text-sm font-medium transition-colors relative ${
                   tab === t
                     ? 'text-accent'
@@ -212,6 +234,7 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
           <form onSubmit={(e) => { void handleSubmit(e) }} className="flex-1 overflow-y-auto">
             <div className="p-6">
               {tab === 'general' && (
+                <div role="tabpanel" id="column-config-panel-general" aria-labelledby="column-config-tab-general">
                 <GeneralTab
                   name={name}
                   setName={handleNameChange}
@@ -224,8 +247,10 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
                   resourceProfile={resourceProfile}
                   setResourceProfile={setResourceProfile}
                 />
+                </div>
               )}
               {tab === 'triggers' && (
+                <div role="tabpanel" id="column-config-panel-triggers" aria-labelledby="column-config-tab-triggers">
                 <TriggersTab
                   columnName={column.name}
                   onEntry={onEntry}
@@ -234,12 +259,15 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
                   setOnExit={setOnExit}
                   setExitCriteria={setExitCriteria}
                 />
+                </div>
               )}
               {tab === 'exit' && (
+                <div role="tabpanel" id="column-config-panel-exit" aria-labelledby="column-config-tab-exit">
                 <ExitTab
                   exitCriteria={exitCriteria}
                   setExitCriteria={setExitCriteria}
                 />
+                </div>
               )}
             </div>
 
