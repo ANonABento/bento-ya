@@ -1,4 +1,4 @@
-# Bento-ya
+# KaitenCode
 
 Tauri desktop app for orchestrating AI coding agents. Automated kanban board where columns are pipeline stages with trigger-driven automation.
 
@@ -62,7 +62,7 @@ Columns define `on_entry`/`on_exit` triggers. Tasks can override. See `.tickets/
 
 **Auto-retry:** When `max_retries` is set on exit criteria, failed triggers automatically re-fire up to N times. Retry count tracked per-task, resets on success.
 
-**Trigger execution:** `spawn_cli` triggers run CLI agents inside per-task **tmux sessions** via `chat::bridge::spawn_cli_trigger_task()`. The CLI command is injected via `tmux send-keys -l` into a fresh `bentoya_<task_id>` session, with output mirrored to a log file via `tmux pipe-pane` and an exit-code sentinel file written when the agent finishes. Completion is detected via `tmux wait-for`. The same tmux session is what the frontend Terminal panel attaches to — pipeline mode and interactive mode are now the same transport. Exit code determines success/failure. 2-hour timeout kills the session if it hangs. Concurrent limit: `DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS = 5` per workspace (see `src-tauri/src/config/mod.rs`; overridable via workspace config). Triggers fired while at the limit mark the task `queued` instead of spawning.
+**Trigger execution:** `spawn_cli` triggers run CLI agents inside per-task **tmux sessions** via `chat::bridge::spawn_cli_trigger_task()`. The CLI command is injected via `tmux send-keys -l` into a fresh `kaitencode_<task_id>` session, with output mirrored to a log file via `tmux pipe-pane` and an exit-code sentinel file written when the agent finishes. Completion is detected via `tmux wait-for`. The same tmux session is what the frontend Terminal panel attaches to — pipeline mode and interactive mode are now the same transport. Exit code determines success/failure. 2-hour timeout kills the session if it hangs. Concurrent limit: `DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS = 5` per workspace (see `src-tauri/src/config/mod.rs`; overridable via workspace config). Triggers fired while at the limit mark the task `queued` instead of spawning.
 
 **Worktree-aware cwd:** `resolve_working_dir()` in triggers.rs picks `task.worktree_path` (if set and exists) over `workspace.repo_path`. Used by `spawn_cli`, `run_script`, and `create_pr` actions. Template variable: `{task.worktree_path}`.
 
@@ -70,7 +70,7 @@ Columns define `on_entry`/`on_exit` triggers. Tasks can override. See `.tickets/
 
 Tasks can have isolated git worktrees so agents don't conflict on branches.
 
-- `create_task_worktree(repo_path, branch, task_id)` — creates at `<repo>/.worktrees/bentoya-<taskId>/`
+- `create_task_worktree(repo_path, branch, task_id)` — creates at `<repo>/.worktrees/kaitencode-<taskId>/`
 - `remove_task_worktree(repo_path, task_id)` — prunes git tracking + removes directory
 - Auto-gitignores `.worktrees/` on first creation
 - `delete_task` auto-cleans up worktrees (filesystem I/O runs outside DB mutex)
@@ -88,13 +88,13 @@ Transport abstraction + session layer with tmux-managed terminal sessions:
 - `pipe_transport.rs` — `PipeTransport` (structured JSON streaming, chat bubbles)
 - `session.rs` — `UnifiedChatSession` (lifecycle: idle/running/suspended, resume ID tracking, pipe + PTY modes)
 - `registry.rs` — `SessionRegistry` (max 20 sessions configurable, LRU eviction, idle sweep, bridge tracking)
-- `bridge.rs` — `ManagedBridge` (single bridge per task, broadcast-based) + `spawn_cli_trigger_task` (tmux-backed pipeline trigger runner: creates `bentoya_<task_id>` session, sends command via `send-keys -l`, waits via `tmux wait-for`, captures output via `pipe-pane` log file)
+- `bridge.rs` — `ManagedBridge` (single bridge per task, broadcast-based) + `spawn_cli_trigger_task` (tmux-backed pipeline trigger runner: creates `kaitencode_<task_id>` session, sends command via `send-keys -l`, waits via `tmux wait-for`, captures output via `pipe-pane` log file)
 - `gc.rs` — Garbage collector (periodic tmux session cleanup for interactive sessions, orphan detection, idle kill; skips tasks with active pipelines)
 - `chef.rs` — ChefSession layer (orchestrator capabilities)
 
 ### Agent Execution — One Transport for Everything
 
-Pipeline triggers and the interactive Terminal panel share a single transport: a per-task tmux session named `bentoya_<task_id>`. The Terminal panel attaches to whatever tmux session the task owns, including one a pipeline trigger spawned. There is no separate Output panel.
+Pipeline triggers and the interactive Terminal panel share a single transport: a per-task tmux session named `kaitencode_<task_id>`. The Terminal panel attaches to whatever tmux session the task owns, including one a pipeline trigger spawned. There is no separate Output panel.
 
 **Runtime modes** (see `.tickets/_docs/AGENT_PANEL_MODES.md` for the full design):
 
@@ -102,7 +102,7 @@ Pipeline triggers and the interactive Terminal panel share a single transport: a
 |---|---|---|---|---|
 | `headless` (`terminal`) | `claude -p` / `codex exec` piped through jq | xterm.js raw pane | `tmux wait-for` + exit code | Agent SDK credit → API rates |
 | `headless` (`managed`/`bubbles`) | same `-p` shape, semantic event stream | chat bubbles in `agent-panel` | same | same |
-| `interactive` | `claude` / `codex` (no `-p`/`exec`); prompt via `tmux send-keys -l` | xterm.js TUI + control bar | `<<<BENTOYA_DONE:{task_id}>>>` sentinel scraped from pane | Subscription interactive limits |
+| `interactive` | `claude` / `codex` (no `-p`/`exec`); prompt via `tmux send-keys -l` | xterm.js TUI + control bar | `<<<KAITENCODE_DONE:{task_id}>>>` sentinel scraped from pane | Subscription interactive limits |
 
 The legacy DB tokens `'terminal'` and `'managed'` are both headless variants (terminal-render vs bubbles-render). `'interactive'` is the new third value. Resolution hierarchy (narrowest wins): `trigger > task > column > workspace > global > default(headless·bubbles)` — implemented in `pipeline::triggers::resolve_runtime_mode_for_task`.
 
@@ -115,12 +115,12 @@ The legacy DB tokens `'terminal'` and `'managed'` are both headless variants (te
 - Concurrent limit: 5 per workspace by default (queued tasks auto-promote)
 - Used by: `spawn_cli` column triggers when `runtime_mode` resolves to `terminal`/`managed`
 
-**Interactive mode** (gated by `BENTOYA_INTERACTIVE_MODE_ENABLED=1` until the dev flag is promoted):
+**Interactive mode** (gated by `KAITENCODE_INTERACTIVE_MODE_ENABLED=1` until the dev flag is promoted):
 - Spawns the real CLI TUI (no `-p`/`exec`) inside the tmux session via `chat::bridge::spawn_interactive_cli` — argv-based dispatch on `InteractiveCli::Claude` vs `InteractiveCli::Codex`
 - Polls the captured pane for a CLI-specific ready indicator before injecting the initial prompt (Claude: `╭`/`╰` box-drawing chars; Codex: `codex` banner substring)
 - Optionally appends `--append-system-prompt` with the sentinel marker when the column's exit criteria is `agent_complete` or `manual_approval`
-- A 2s-cadence watcher (`watch_interactive_sentinel`) scans `tmux capture-pane` for `<<<BENTOYA_DONE:{task_id}>>>` (after ANSI strip, line-anchored) and runs `mark_complete` on hit
-- Same `bentoya_<task_id>` tmux session — the Terminal panel and the panel's interactive view both attach to it
+- A 2s-cadence watcher (`watch_interactive_sentinel`) scans `tmux capture-pane` for `<<<KAITENCODE_DONE:{task_id}>>>` (after ANSI strip, line-anchored) and runs `mark_complete` on hit
+- Same `kaitencode_<task_id>` tmux session — the Terminal panel and the panel's interactive view both attach to it
 - 2h hard timeout fires `mark_complete_with_error` if the sentinel never lands
 - Completion paths emit telemetry rows to `agent_completion_events` (sentinel / exit_code / manual / timeout / kill) for the Phase 6 fallback decision
 
@@ -135,7 +135,7 @@ Clicking a task card mid-trigger still drops you straight into the live agent's 
 
 ### Terminal View (tmux-backed)
 
-Each task gets a tmux session (`bentoya_{task_id}`) with an embedded terminal panel:
+Each task gets a tmux session (`kaitencode_{task_id}`) with an embedded terminal panel:
 - `TmuxTransport` creates a detached tmux session, then spawns `tmux attach` in a PTY for xterm.js output
 - Resize via `tmux resize-window` propagates SIGWINCH — TUI apps (codex, vim, claude) redraw correctly
 - `ensure_pty_session` reconnect path resizes PTY to panel dimensions on open
@@ -150,15 +150,15 @@ Each task gets a tmux session (`bentoya_{task_id}`) with an embedded terminal pa
 
 **Garbage collector** (`gc.rs`): Runs every 5 minutes (configurable). Kills orphaned tmux sessions (task not in DB), kills idle sessions past threshold (default 4h), detects running agents with dead tmux sessions (marks failed).
 
-**Session recovery:** On startup, `recover_tmux_sessions()` discovers existing `bentoya_*` tmux sessions, logs recovery for tasks still running, kills orphans.
+**Session recovery:** On startup, `recover_tmux_sessions()` discovers existing `kaitencode_*` tmux sessions, logs recovery for tasks still running, kills orphans.
 
-**Settings:** `~/.bentoya/settings.json` with `max_agent_sessions`, `gc_interval_minutes`, `idle_kill_hours`, `default_agent_cli`, `default_model`, etc. Cached in memory (OnceLock), workspace config column overrides. API: `GET/POST /api/settings`.
+**Settings:** `~/.kaitencode/settings.json` with `max_agent_sessions`, `gc_interval_minutes`, `idle_kill_hours`, `default_agent_cli`, `default_model`, etc. Cached in memory (OnceLock), workspace config column overrides. API: `GET/POST /api/settings`.
 
 Key files: `src/components/panel/terminal-view.tsx`, `src/lib/ipc/terminal.ts`, `.tickets/_docs/INTERACTIVE_AGENT_TERMINAL.md`
 
 ### Database (`src-tauri/src/db/`)
 
-SQLite with WAL mode. 29 versioned migrations (001-028 + scripts). Both `bento-ya` and `bento-mcp` share the same `rusqlite` build via Cargo workspace, ensuring WAL format compatibility for concurrent access.
+SQLite with WAL mode. 29 versioned migrations (001-028 + scripts). Both `kaitencode` and `kaitencode-mcp` share the same `rusqlite` build via Cargo workspace, ensuring WAL format compatibility for concurrent access.
 - `models.rs` — All 18 model structs (Workspace, Column, Task, AgentSession, ChatSession, etc.)
 - `mod.rs` — Init, migrations, re-exports from domain modules, tests
 - Domain modules: `workspace.rs`, `column.rs`, `task.rs`, `agent_session.rs`, `agent_message.rs`, `chat_session.rs`, `chat_message.rs`, `orchestrator_session.rs`, `checklist.rs`, `usage.rs`, `history.rs`, `script.rs`
@@ -227,9 +227,9 @@ mcp-server/
 
 **Pipeline template tools:** save_pipeline_template, apply_pipeline_template, delete_pipeline_template
 
-**Config:** `{ "command": "bento-mcp" }` — auto-detects DB at `~/.bentoya/data.db` with platform-specific Tauri data dir fallbacks.
+**Config:** `{ "command": "kaitencode-mcp" }` — auto-detects DB at `~/.kaitencode/data.db` with platform-specific Tauri data dir fallbacks.
 
-**App requirement:** Most mutation tools route through the Tauri app's HTTP API (port discovered via `~/.bentoya/api.port`) so triggers fire and `tasks:changed` events flow to the UI. If the app isn't running, those tools error out (production builds disable direct-DB fallback; only `cfg!(test)` allows it). Read-only tools work without the app.
+**App requirement:** Most mutation tools route through the Tauri app's HTTP API (port discovered via `~/.kaitencode/api.port`) so triggers fire and `tasks:changed` events flow to the UI. If the app isn't running, those tools error out (production builds disable direct-DB fallback; only `cfg!(test)` allows it). Read-only tools work without the app.
 
 **Known gaps (see `.tickets/_docs/MCP_DOGFOOD_REPORT.md`):**
 - `create_task` accepts a `model` parameter but silently drops it — the `/api/create_task` payload doesn't include it.
@@ -305,10 +305,10 @@ Real E2E tests run against the actual Tauri app with real Rust backend + SQLite 
 3. Build with webdriver feature: `npm run build:webdriver`
 4. Start Vite dev server: `npm run dev` (must be on port 1420)
 5. Start `tauri-driver` with an isolated data dir so tests don't pollute the real DB:
-   `BENTOYA_DATA_DIR=/tmp/bentoya-wdio tauri-driver --port 4444`
+   `KAITENCODE_DATA_DIR=/tmp/kaitencode-wdio tauri-driver --port 4444`
 6. Run tests: `npm run test:webdriver`
 
-`BENTOYA_DATA_DIR` is honored by `db::data_dir()` — defaults to `~/.bentoya/` when unset.
+`KAITENCODE_DATA_DIR` is honored by `db::data_dir()` — defaults to `~/.kaitencode/` when unset.
 
 **Key files:**
 - `wdio.conf.mjs` — WebDriverIO config. The capability key is `tauri:options.application` (not `binary`); writing `binary` makes `tauri-driver` silently fall back to MiniBrowser and `window.__TAURI_INTERNALS__` ends up undefined.
@@ -327,7 +327,7 @@ The `tauri-automation` MCP server wraps tauri-webdriver so Claude Code can inter
 **Prerequisites (two background processes):**
 ```bash
 npm run dev                                                    # Vite on port 1420 (tauri loads from devUrl)
-BENTOYA_DATA_DIR=/tmp/bentoya-wdio tauri-driver --port 4444    # WebDriver server, isolated data dir
+KAITENCODE_DATA_DIR=/tmp/kaitencode-wdio tauri-driver --port 4444    # WebDriver server, isolated data dir
 ```
 
 **MCP tools:** `launch_app`, `close_app`, `capture_screenshot`, `click_element`, `type_text`, `wait_for_element`, `get_element_text`, `execute_script`, `execute_tauri_command`, `get_page_title`, `get_page_url`, `get_app_state`

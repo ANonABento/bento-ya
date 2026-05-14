@@ -1,4 +1,4 @@
-# Bento-ya Roadmap
+# KaitenCode Roadmap
 
 ## v1.0 - Foundation (Current)
 **Status**: Ready to merge

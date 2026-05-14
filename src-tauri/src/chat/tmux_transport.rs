@@ -7,8 +7,8 @@
 //! - Structured completion detection via `wait-for`
 //!
 //! Architecture:
-//!   tmux new-session -d -s "bentoya_{id}" (detached server-side session)
-//!   tmux attach-session -t "bentoya_{id}" (spawned in a PTY for xterm.js output)
+//!   tmux new-session -d -s "kaitencode_{id}" (detached server-side session)
+//!   tmux attach-session -t "kaitencode_{id}" (spawned in a PTY for xterm.js output)
 //!     └─ reader thread → broadcast channel → ManagedBridge → frontend
 //!
 //! User input flows through the attached PTY stdin (same as raw PtyTransport).
@@ -41,7 +41,8 @@ pub(crate) fn tmux_test_lock_blocking() -> tokio::sync::MutexGuard<'static, ()> 
 }
 
 /// Prefix for tmux session names to avoid collision with user sessions.
-const SESSION_PREFIX: &str = "bentoya_";
+const SESSION_PREFIX: &str = "kaitencode_";
+const LEGACY_SESSION_PREFIXES: &[&str] = &["bentoya_"];
 
 /// Check if tmux is available on the system.
 /// Returns the version string on success, or an error message.
@@ -97,8 +98,8 @@ pub fn ensure_tmux_server() -> Result<(), String> {
     Ok(())
 }
 
-/// List existing bentoya tmux sessions.
-/// Returns session names (e.g., ["bentoya_task-123", "bentoya_task-456"]).
+/// List existing KaitenCode tmux sessions, including legacy names.
+/// Returns session names (e.g., ["kaitencode_task-123", "bentoya_task-456"]).
 pub fn list_sessions() -> Vec<String> {
     Command::new("tmux")
         .args(["list-sessions", "-F", "#{session_name}"])
@@ -107,7 +108,12 @@ pub fn list_sessions() -> Vec<String> {
         .map(|output| {
             String::from_utf8_lossy(&output.stdout)
                 .lines()
-                .filter(|line| line.starts_with(SESSION_PREFIX))
+                .filter(|line| {
+                    line.starts_with(SESSION_PREFIX)
+                        || LEGACY_SESSION_PREFIXES
+                            .iter()
+                            .any(|prefix| line.starts_with(prefix))
+                })
                 .map(|s| s.to_string())
                 .collect()
         })
@@ -116,7 +122,11 @@ pub fn list_sessions() -> Vec<String> {
 
 /// Extract task_id from a tmux session name.
 pub fn session_name_to_task_id(session_name: &str) -> Option<&str> {
-    session_name.strip_prefix(SESSION_PREFIX)
+    session_name.strip_prefix(SESSION_PREFIX).or_else(|| {
+        LEGACY_SESSION_PREFIXES
+            .iter()
+            .find_map(|prefix| session_name.strip_prefix(prefix))
+    })
 }
 
 /// Build the tmux session name for a task.
@@ -124,26 +134,55 @@ pub fn session_name(task_id: &str) -> String {
     format!("{}{}", SESSION_PREFIX, task_id)
 }
 
-/// Check if a tmux session exists.
-pub fn has_session(task_id: &str) -> bool {
+fn session_names_for_task(task_id: &str) -> Vec<String> {
+    let mut names = vec![session_name(task_id)];
+    names.extend(
+        LEGACY_SESSION_PREFIXES
+            .iter()
+            .map(|prefix| format!("{}{}", prefix, task_id)),
+    );
+    names
+}
+
+fn tmux_has_session_name(name: &str) -> bool {
     Command::new("tmux")
-        .args(["has-session", "-t", &session_name(task_id)])
+        .args(["has-session", "-t", name])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
 }
 
+fn existing_session_name(task_id: &str) -> Option<String> {
+    session_names_for_task(task_id)
+        .into_iter()
+        .find(|name| tmux_has_session_name(name))
+}
+
+fn target_session_name(task_id: &str) -> String {
+    existing_session_name(task_id).unwrap_or_else(|| session_name(task_id))
+}
+
+/// Check if a tmux session exists.
+pub fn has_session(task_id: &str) -> bool {
+    existing_session_name(task_id).is_some()
+}
+
 /// Kill a tmux session by task id.
 pub fn kill_session(task_id: &str) -> Result<(), String> {
-    let output = Command::new("tmux")
-        .args(["kill-session", "-t", &session_name(task_id)])
-        .output()
-        .map_err(|e| format!("Failed to kill tmux session: {}", e))?;
-    if !output.status.success() {
-        // Session might already be dead — not an error
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.contains("no server running") && !stderr.contains("session not found") {
-            return Err(format!("tmux kill-session failed: {}", stderr));
+    for name in session_names_for_task(task_id) {
+        let output = Command::new("tmux")
+            .args(["kill-session", "-t", &name])
+            .output()
+            .map_err(|e| format!("Failed to kill tmux session: {}", e))?;
+        if !output.status.success() {
+            // Session might already be dead — not an error
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !stderr.contains("no server running")
+                && !stderr.contains("session not found")
+                && !stderr.contains("can't find session")
+            {
+                return Err(format!("tmux kill-session failed: {}", stderr));
+            }
         }
     }
     Ok(())
@@ -155,7 +194,7 @@ pub fn capture_scrollback_text(task_id: &str) -> String {
         .args([
             "capture-pane",
             "-t",
-            &session_name(task_id),
+            &target_session_name(task_id),
             "-p",
             "-e",
             "-J",
@@ -176,7 +215,7 @@ pub fn capture_scrollback(task_id: &str) -> String {
 
 /// Send a literal line of user input to the task's tmux pane.
 pub fn send_text_line(task_id: &str, text: &str) -> Result<(), String> {
-    let name = session_name(task_id);
+    let name = target_session_name(task_id);
     let output = Command::new("tmux")
         .args(["send-keys", "-t", &name, "-l", text])
         .output()
@@ -301,7 +340,7 @@ impl TmuxTransport {
 
     /// Attach to the tmux session in a PTY (for xterm.js output).
     fn attach_in_pty(&mut self) -> Result<mpsc::Receiver<TransportEvent>, String> {
-        let name = session_name(&self.task_id);
+        let name = target_session_name(&self.task_id);
 
         // Open blocking PTY
         let (pty, pts) =
@@ -476,7 +515,7 @@ impl ChatTransport for TmuxTransport {
             // This preserves running agents across app restarts.
             eprintln!(
                 "[tmux] Reattaching to existing session: {}",
-                session_name(&self.task_id)
+                target_session_name(&self.task_id)
             );
             self.owns_session = true; // Take ownership since we're managing it now
             return self.attach_in_pty();
@@ -507,7 +546,7 @@ impl ChatTransport for TmuxTransport {
             .args([
                 "resize-window",
                 "-t",
-                &session_name(&self.task_id),
+                &target_session_name(&self.task_id),
                 "-x",
                 &cols.to_string(),
                 "-y",
@@ -597,7 +636,7 @@ impl Default for TmuxTransport {
 
 /// Send Ctrl+C to the agent process in a tmux session (cancel without killing session).
 pub fn cancel_agent(task_id: &str) {
-    let name = session_name(task_id);
+    let name = target_session_name(task_id);
     let _ = Command::new("tmux")
         .args(["send-keys", "-t", &name, "C-c"])
         .output();
@@ -626,7 +665,7 @@ pub fn cancel_task_agent(
     }
 }
 
-/// Kill all bentoya tmux sessions (cleanup).
+/// Kill all KaitenCode tmux sessions, including legacy names.
 pub fn kill_all_sessions() {
     for session in list_sessions() {
         let _ = Command::new("tmux")
@@ -679,11 +718,15 @@ mod tests {
 
     #[test]
     fn test_session_name() {
-        assert_eq!(session_name("task-123"), "bentoya_task-123");
+        assert_eq!(session_name("task-123"), "kaitencode_task-123");
     }
 
     #[test]
     fn test_session_name_to_task_id() {
+        assert_eq!(
+            session_name_to_task_id("kaitencode_task-123"),
+            Some("task-123")
+        );
         assert_eq!(
             session_name_to_task_id("bentoya_task-123"),
             Some("task-123")
@@ -715,7 +758,7 @@ mod tests {
         let task_id = format!("test-send-line-{}", uuid::Uuid::new_v4());
         create_shell_session(&task_id);
 
-        send_text_line(&task_id, "echo BENTOYA_SEND_TEXT_LINE_MARK").expect("send text line");
+        send_text_line(&task_id, "echo KAITENCODE_SEND_TEXT_LINE_MARK").expect("send text line");
         thread::sleep(Duration::from_millis(250));
 
         let output = Command::new("tmux")
@@ -731,7 +774,7 @@ mod tests {
             .expect("capture pane");
         let decoded = String::from_utf8_lossy(&output.stdout);
         assert!(
-            decoded.contains("BENTOYA_SEND_TEXT_LINE_MARK"),
+            decoded.contains("KAITENCODE_SEND_TEXT_LINE_MARK"),
             "{}",
             decoded
         );

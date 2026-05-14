@@ -18,7 +18,7 @@ No more headless `codex exec`. The agent experience is the same as running the C
 
 ## Current State (What We Have)
 
-- tmux session per task (`bentoya_{task_id}`)
+- tmux session per task (`kaitencode_{task_id}`)
 - `tmux send-keys` for command injection
 - `tmux wait-for` for completion detection
 - ManagedBridge forwards output to xterm.js
@@ -159,7 +159,7 @@ TRANSITIONS:
 #### Garbage Collector
 
 Runs every 5 minutes:
-1. List all `bentoya_*` tmux sessions
+1. List all `kaitencode_*` tmux sessions
 2. For each, check if task exists in DB
 3. If task doesn't exist → kill session + clean worktree (orphan)
 4. If task in Done and session idle > 4 hours → kill session
@@ -179,7 +179,7 @@ USER INTERACTION:
   User types → PTY stdin → tmux session → agent CLI stdin
 
 TRIGGER INJECTION:
-  Chef/trigger → tmux send-keys -t bentoya_{task_id} -l "message" + Enter
+  Chef/trigger → tmux send-keys -t kaitencode_{task_id} -l "message" + Enter
   → Agent CLI receives as if user typed it
 
 COMPLETION:
@@ -216,7 +216,7 @@ TOKEN-OPTIMIZED FLOW:
 2. Agent cancellation when task leaves trigger column
 3. Garbage collector: tmux sessions, archive stage 1
 4. Write `.task.md` to worktree on trigger fire
-5. Settings system (`~/.bentoya/settings.json` + workspace config)
+5. Settings system (`~/.kaitencode/settings.json` + workspace config)
 6. `max_agent_sessions` configurable
 
 **Phase 2: Session strategy + manual check**
@@ -319,7 +319,7 @@ Events that wake a sleeping session:
 
 ## Settings Architecture
 
-### Global Settings (`~/.bentoya/settings.json`)
+### Global Settings (`~/.kaitencode/settings.json`)
 ```json
 {
   "max_agent_sessions": 20,

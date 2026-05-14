@@ -22,7 +22,7 @@ A user can set `cli: "codex"` on a trigger with `runtime_mode: "interactive"` an
 
 Before writing code, manually validate against the actual `codex` binary on the system:
 
-1. Does `codex --append-system-prompt "..."` work, or is there a different flag? If neither, the sentinel must be inlined in the initial prompt (`"<task>\n\nWhen done, output: <<<BENTOYA_DONE:{id}>>>"`).
+1. Does `codex --append-system-prompt "..."` work, or is there a different flag? If neither, the sentinel must be inlined in the initial prompt (`"<task>\n\nWhen done, output: <<<KAITENCODE_DONE:{id}>>>"`).
 2. Does `/model <name>` work mid-conversation? If not, the model switch button must do "Restart with --model X" instead.
 3. What does Codex's input prompt indicator look like? (Needed for ready-detection in the spawn helper.)
 4. Confirm `/quit` (or whichever exit command) leaves the shell clean for restart.
@@ -45,7 +45,7 @@ Before writing code, manually validate against the actual `codex` binary on the 
 
 8. **`agent_restart` codex branch**: same as Claude restart but uses `/quit` (or whichever exit codex needs).
 
-9. **Sentinel detection is unchanged.** The watcher from Phase 1 polls `tmux capture-pane` and matches `<<<BENTOYA_DONE:{task_id}>>>`. CLI-agnostic.
+9. **Sentinel detection is unchanged.** The watcher from Phase 1 polls `tmux capture-pane` and matches `<<<KAITENCODE_DONE:{task_id}>>>`. CLI-agnostic.
 
 10. **`agent_inject_message`, `agent_interrupt` are unchanged.** They're tmux-level operations that don't care which CLI is running.
 

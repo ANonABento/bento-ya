@@ -6,8 +6,8 @@ Set up SQLite via rusqlite with the full data model from PRODUCT.md. Create the 
 
 ## Acceptance Criteria
 
-- [ ] SQLite database created at `~/.bentoya/data.db` on first run
-- [ ] `~/.bentoya/` directory auto-created if missing
+- [ ] SQLite database created at `~/.kaitencode/data.db` on first run
+- [ ] `~/.kaitencode/` directory auto-created if missing
 - [ ] Schema includes all v0.1 tables: `workspaces`, `columns`, `tasks`, `agent_sessions`
 - [ ] Migration system: numbered SQL files in `src-tauri/src/db/migrations/`
 - [ ] Migrations run automatically on app startup (idempotent)

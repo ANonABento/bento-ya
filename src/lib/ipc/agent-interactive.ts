@@ -60,7 +60,7 @@ export async function agentResume(taskId: string): Promise<void> {
 }
 
 /**
- * True when the BENTOYA_INTERACTIVE_MODE_ENABLED env var is set. Used by
+ * True when the KAITENCODE_INTERACTIVE_MODE_ENABLED env var is set. Used by
  * the settings modal to grey out the interactive picker option.
  */
 export async function interactiveModeDevFlag(): Promise<boolean> {

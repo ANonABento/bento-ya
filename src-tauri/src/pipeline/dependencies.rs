@@ -317,17 +317,18 @@ fn auto_promote_if_eligible(
     task: &Task,
 ) -> Result<(), AppError> {
     if task.held_by_user {
-        log::info!(
-            "[deps] auto-promote skipped for {}: held_by_user",
-            task.id
-        );
+        log::info!("[deps] auto-promote skipped for {}: held_by_user", task.id);
         return Ok(());
     }
 
     let workspace = db::get_workspace(conn, &task.workspace_id)?;
     let auto_promote = serde_json::from_str::<serde_json::Value>(&workspace.config)
         .ok()
-        .and_then(|v| v.get("dependencies").and_then(|d| d.get("autoPromote")).cloned())
+        .and_then(|v| {
+            v.get("dependencies")
+                .and_then(|d| d.get("autoPromote"))
+                .cloned()
+        })
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
     if !auto_promote {
@@ -385,7 +386,10 @@ fn auto_promote_if_eligible(
         &task.id,
         &target_col.id,
         PipelineState::Idle,
-        Some(format!("Auto-promoted to {} after dependency cleared", target_col.name)),
+        Some(format!(
+            "Auto-promoted to {} after dependency cleared",
+            target_col.name
+        )),
     );
     emit_tasks_changed(app, &task.workspace_id, "dependency_auto_promoted");
 
@@ -1030,10 +1034,7 @@ mod tests {
         let task_b = db::insert_task(&conn, &ws.id, &col.id, "B", None).unwrap();
 
         // MCP-shaped dep: no on_met field, no target_column.
-        let mcp_deps = format!(
-            r#"[{{"task_id":"{}","condition":"completed"}}]"#,
-            task_a.id
-        );
+        let mcp_deps = format!(r#"[{{"task_id":"{}","condition":"completed"}}]"#, task_a.id);
         conn.execute(
             "UPDATE tasks SET dependencies = ?1, blocked = 1 WHERE id = ?2",
             rusqlite::params![mcp_deps, task_b.id],

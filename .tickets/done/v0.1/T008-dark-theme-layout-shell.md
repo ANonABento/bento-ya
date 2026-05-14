@@ -89,5 +89,5 @@ public/
 - Keep components minimal — no over-engineering. A Button is just a styled `<button>` with variants
 - Dialog can use HTML `<dialog>` element for native accessibility
 - Dropdown can be a simple `<select>` or custom with Radix/headless UI — keep it simple for now
-- The layout shell should be the only thing visible after this ticket — "Bento-ya" text in the middle, dark background, tab bar placeholder at top
+- The layout shell should be the only thing visible after this ticket — "KaitenCode" text in the middle, dark background, tab bar placeholder at top
 - Don't add animations yet — T009 and T011 handle Motion integration

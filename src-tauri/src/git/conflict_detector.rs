@@ -3,9 +3,9 @@ use std::collections::{HashMap, HashSet};
 use git2::{BranchType, Repository};
 use serde::Serialize;
 
-use super::change_tracker::get_files_touched;
+use crate::config::is_task_branch_name;
 
-const BRANCH_PREFIX: &str = "bentoya/";
+use super::change_tracker::get_files_touched;
 
 #[derive(Debug, Serialize)]
 pub struct ConflictEntry {
@@ -19,7 +19,7 @@ pub struct ConflictMatrix {
     pub has_conflicts: bool,
 }
 
-/// Compare all active `bentoya/*` branches and return files that are modified
+/// Compare all active task branches and return files that are modified
 /// by more than one branch (potential merge conflicts).
 pub fn get_conflict_matrix(repo_path: &str) -> Result<ConflictMatrix, String> {
     let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
@@ -27,7 +27,7 @@ pub fn get_conflict_matrix(repo_path: &str) -> Result<ConflictMatrix, String> {
         .branches(Some(BranchType::Local))
         .map_err(|e| e.to_string())?;
 
-    // Collect all bentoya/* branch names
+    // Collect all task branch names.
     let mut task_branches = Vec::new();
     for branch_result in branches {
         let (branch, _) = branch_result.map_err(|e| e.to_string())?;
@@ -36,7 +36,7 @@ pub fn get_conflict_matrix(repo_path: &str) -> Result<ConflictMatrix, String> {
             .map_err(|e| e.to_string())?
             .unwrap_or("")
             .to_string();
-        if name.starts_with(BRANCH_PREFIX) {
+        if is_task_branch_name(&name) {
             task_branches.push(name);
         }
     }

@@ -405,7 +405,7 @@ async fn check_github_latest(owner: &str, repo: &str) -> (Option<String>, Option
 
     let resp = match client
         .get(&url)
-        .header("User-Agent", "bento-ya")
+        .header("User-Agent", "kaitencode")
         .send()
         .await
     {

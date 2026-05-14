@@ -1594,7 +1594,7 @@ fn execute_spawn_cli(
     };
 
     // Store resolved prompt. `normalize_agent_runtime_mode` downgrades
-    // `interactive` to `terminal` when BENTOYA_INTERACTIVE_MODE_ENABLED is
+    // `interactive` to `terminal` when KAITENCODE_INTERACTIVE_MODE_ENABLED is
     // unset (with a one-time warning) so existing pipelines aren't affected.
     let ts = db::now();
     let runtime_mode = normalize_agent_runtime_mode(runtime_mode, &cli_type);
@@ -2438,8 +2438,8 @@ fn push_task_branch(repo_path: &str, branch_name: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    // Safety: only force-push Bento task branches, never main/master or user branches.
-    if !branch_name.starts_with("bentoya/") {
+    // Safety: only force-push task branches, never main/master or user branches.
+    if !crate::config::is_task_branch_name(branch_name) {
         return Err(format!(
             "git push failed (force-push not allowed on '{}'): {}",
             branch_name, stderr
@@ -4337,7 +4337,7 @@ mod tests {
         )
         .expect("branch creation should succeed with explicit base");
 
-        assert_eq!(branch, "bentoya/implement-feature");
+        assert_eq!(branch, "kaitencode/implement-feature");
     }
 
     /// Bogus base branch → hard fail (Bug D test on the underlying git layer).
@@ -4350,7 +4350,7 @@ mod tests {
             tmp.path().to_str().unwrap(),
             "Some Task",
             Some("does-not-exist"),
-            "bentoya/",
+            "kaitencode/",
         )
         .expect_err("nonexistent base must error");
 

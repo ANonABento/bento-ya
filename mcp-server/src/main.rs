@@ -12,26 +12,42 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 #[derive(Parser)]
-#[command(name = "bento-mcp", about = "MCP server for bento-ya kanban board")]
+#[command(
+    name = "kaitencode-mcp",
+    about = "MCP server for KaitenCode kanban board"
+)]
 struct Args {
-    /// Path to bento-ya SQLite database
+    /// Path to KaitenCode SQLite database
     #[arg(long)]
     db: Option<String>,
 }
 
 fn default_db_path() -> String {
-    // Primary: ~/.bentoya/data.db (custom app data dir)
+    // Primary: ~/.kaitencode/data.db (custom app data dir)
     let home = dirs::home_dir().expect("Could not determine home directory");
-    let primary = home.join(".bentoya").join("data.db");
+    let primary = home.join(".kaitencode").join("data.db");
     if primary.exists() {
         return primary.to_string_lossy().to_string();
     }
 
+    // Deprecated primary retained for users mid-migration.
+    let legacy_primary = home.join(".bentoya").join("data.db");
+    if legacy_primary.exists() {
+        return legacy_primary.to_string_lossy().to_string();
+    }
+
     // Fallback: platform-specific Tauri data dirs.
     let data_dir = dirs::data_dir().expect("Could not determine data directory");
-    let current_fallback = data_dir.join("com.bentoya.desktop").join("bento-ya.db");
+    let current_fallback = data_dir
+        .join("com.kaitencode.desktop")
+        .join("kaitencode.db");
     if current_fallback.exists() {
         return current_fallback.to_string_lossy().to_string();
+    }
+
+    let legacy_desktop_fallback = data_dir.join("com.bentoya.desktop").join("bento-ya.db");
+    if legacy_desktop_fallback.exists() {
+        return legacy_desktop_fallback.to_string_lossy().to_string();
     }
 
     // Legacy identifier retained as a final fallback for pre-fix installs.
@@ -72,14 +88,17 @@ fn checkpoint_wal(conn: &Connection) {
     let _ = conn.execute_batch("PRAGMA wal_checkpoint(FULL);");
 }
 
-/// Read the API port from ~/.bentoya/api.port
+/// Read the API port from ~/.kaitencode/api.port, falling back to the legacy
+/// ~/.bentoya/api.port during the migration window.
 fn read_api_port() -> Option<u16> {
     let home = dirs::home_dir()?;
-    let port_str = std::fs::read_to_string(home.join(".bentoya").join("api.port")).ok()?;
+    let port_str = std::fs::read_to_string(home.join(".kaitencode").join("api.port"))
+        .or_else(|_| std::fs::read_to_string(home.join(".bentoya").join("api.port")))
+        .ok()?;
     port_str.trim().parse().ok()
 }
 
-/// Check if the Bento-ya app is running and its API is reachable.
+/// Check if the KaitenCode app is running and its API is reachable.
 /// Verifies response body contains {"status":"ok"} to avoid false positives
 /// from a different process on a stale port.
 #[cfg(not(test))]
@@ -90,13 +109,12 @@ fn is_app_running() -> bool {
     };
     let url = format!("http://127.0.0.1:{}/api/health", port);
     match ureq::get(&url).call() {
-        Ok(resp) => {
-            resp.into_body()
-                .read_json::<Value>()
-                .ok()
-                .and_then(|v| v.get("data")?.get("status")?.as_str().map(|s| s == "ok"))
-                .unwrap_or(false)
-        }
+        Ok(resp) => resp
+            .into_body()
+            .read_json::<Value>()
+            .ok()
+            .and_then(|v| v.get("data")?.get("status")?.as_str().map(|s| s == "ok"))
+            .unwrap_or(false),
         Err(_) => false,
     }
 }
@@ -111,7 +129,7 @@ fn require_app() -> Result<(), Value> {
     if is_app_running() {
         Ok(())
     } else {
-        Err(json!({ "error": "Bento-ya app is not running. Start the app to use this tool." }))
+        Err(json!({ "error": "KaitenCode app is not running. Start the app to use this tool." }))
     }
 }
 
@@ -119,9 +137,7 @@ fn require_app() -> Result<(), Value> {
 fn api_call(endpoint: &str, body: &Value) -> Option<Value> {
     let port = read_api_port()?;
     let url = format!("http://127.0.0.1:{}{}", port, endpoint);
-    let resp = ureq::post(&url)
-        .send_json(body)
-        .ok()?;
+    let resp = ureq::post(&url).send_json(body).ok()?;
     resp.into_body().read_json().ok()
 }
 
@@ -173,10 +189,7 @@ fn tool_result(id: Value, content: &Value) -> JsonRpcResponse {
 }
 
 fn tool_error(id: Value, message: &str) -> JsonRpcResponse {
-    tool_result(
-        id,
-        &json!({ "error": message }),
-    )
+    tool_result(id, &json!({ "error": message }))
 }
 
 // ---------------------------------------------------------------------------
@@ -524,9 +537,7 @@ fn find_workspace(conn: &Connection, query: &str) -> Result<(String, String), St
 fn first_workspace(conn: &Connection) -> Result<(String, String), String> {
     conn.prepare("SELECT id, name FROM workspaces ORDER BY tab_order ASC, created_at ASC LIMIT 1")
         .map_err(|e| e.to_string())?
-        .query_row([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-        })
+        .query_row([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
         .map_err(|_| "No workspaces found".to_string())
 }
 
@@ -605,7 +616,11 @@ fn find_task(conn: &Connection, query: &str, workspace_id: Option<&str>) -> Resu
 }
 
 /// Find column by name or ID within workspace. Returns (id, name).
-fn find_column(conn: &Connection, query: &str, workspace_id: &str) -> Result<(String, String), String> {
+fn find_column(
+    conn: &Connection,
+    query: &str,
+    workspace_id: &str,
+) -> Result<(String, String), String> {
     // Exact ID
     let mut stmt = conn
         .prepare("SELECT id, name FROM columns WHERE id = ?1 AND workspace_id = ?2")
@@ -629,7 +644,9 @@ fn find_column(conn: &Connection, query: &str, workspace_id: &str) -> Result<(St
     // Partial name match
     let pattern = format!("%{}%", query);
     let mut stmt = conn
-        .prepare("SELECT id, name FROM columns WHERE LOWER(name) LIKE LOWER(?1) AND workspace_id = ?2")
+        .prepare(
+            "SELECT id, name FROM columns WHERE LOWER(name) LIKE LOWER(?1) AND workspace_id = ?2",
+        )
         .map_err(|e| e.to_string())?;
     if let Ok(row) = stmt.query_row(params![pattern, workspace_id], |r| {
         Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
@@ -642,12 +659,14 @@ fn find_column(conn: &Connection, query: &str, workspace_id: &str) -> Result<(St
 
 /// Get the first column in a workspace.
 fn first_column(conn: &Connection, workspace_id: &str) -> Result<(String, String), String> {
-    conn.prepare("SELECT id, name FROM columns WHERE workspace_id = ?1 ORDER BY position ASC LIMIT 1")
-        .map_err(|e| e.to_string())?
-        .query_row(params![workspace_id], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-        })
-        .map_err(|_| "No columns found in workspace".to_string())
+    conn.prepare(
+        "SELECT id, name FROM columns WHERE workspace_id = ?1 ORDER BY position ASC LIMIT 1",
+    )
+    .map_err(|e| e.to_string())?
+    .query_row(params![workspace_id], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    })
+    .map_err(|_| "No columns found in workspace".to_string())
 }
 
 /// Get the max position for tasks in a column.
@@ -816,7 +835,9 @@ fn handle_get_board(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_create_task(conn: &Connection, args: &Value) -> Value {
-    if let Err(e) = require_app() { return e; }
+    if let Err(e) = require_app() {
+        return e;
+    }
     let title = match args.get("title").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "title is required" }),
@@ -852,12 +873,15 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
     let model = args.get("model").and_then(|v| v.as_str());
 
     // Route through app API (triggers pipeline + updates UI)
-    if let Some(resp) = api_call("/api/create_task", &json!({
-        "workspace_id": ws_id,
-        "column_id": col_id,
-        "title": title,
-        "description": description,
-    })) {
+    if let Some(resp) = api_call(
+        "/api/create_task",
+        &json!({
+            "workspace_id": ws_id,
+            "column_id": col_id,
+            "title": title,
+            "description": description,
+        }),
+    ) {
         if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
             return json!({
                 "task": resp.get("data"),
@@ -889,7 +913,9 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_move_task(conn: &Connection, args: &Value) -> Value {
-    if let Err(e) = require_app() { return e; }
+    if let Err(e) = require_app() {
+        return e;
+    }
     let task_q = match args.get("task").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "task is required" }),
@@ -915,11 +941,14 @@ fn handle_move_task(conn: &Connection, args: &Value) -> Value {
     let position = max_task_position(conn, &col_id) + 1;
 
     // Route through app API (triggers pipeline + updates UI)
-    if let Some(resp) = api_call("/api/move_task", &json!({
-        "id": task_id,
-        "target_column_id": col_id,
-        "position": position,
-    })) {
+    if let Some(resp) = api_call(
+        "/api/move_task",
+        &json!({
+            "id": task_id,
+            "target_column_id": col_id,
+            "position": position,
+        }),
+    ) {
         if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
             return json!({
                 "task_id": task_id,
@@ -949,7 +978,9 @@ fn handle_move_task(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_update_task(conn: &Connection, args: &Value) -> Value {
-    if let Err(e) = require_app() { return e; }
+    if let Err(e) = require_app() {
+        return e;
+    }
     let task_q = match args.get("task").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "task is required" }),
@@ -990,7 +1021,8 @@ fn handle_update_task(conn: &Connection, args: &Value) -> Value {
     );
     param_values.push(Box::new(task_id.to_string()));
 
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        param_values.iter().map(|p| p.as_ref()).collect();
 
     match conn.execute(&sql, param_refs.as_slice()) {
         Ok(_) => json!({
@@ -1003,7 +1035,9 @@ fn handle_update_task(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_delete_task(conn: &Connection, args: &Value) -> Value {
-    if let Err(e) = require_app() { return e; }
+    if let Err(e) = require_app() {
+        return e;
+    }
     let task_q = match args.get("task").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "task is required" }),
@@ -1034,7 +1068,9 @@ fn handle_delete_task(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_approve_task(conn: &Connection, args: &Value) -> Value {
-    if let Err(e) = require_app() { return e; }
+    if let Err(e) = require_app() {
+        return e;
+    }
     let task_q = match args.get("task").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "task is required" }),
@@ -1061,7 +1097,10 @@ fn handle_approve_task(conn: &Connection, args: &Value) -> Value {
     }
 
     let ts = now();
-    match conn.execute("UPDATE tasks SET review_status = 'approved', updated_at = ?1 WHERE id = ?2", params![ts, task_id]) {
+    match conn.execute(
+        "UPDATE tasks SET review_status = 'approved', updated_at = ?1 WHERE id = ?2",
+        params![ts, task_id],
+    ) {
         Ok(_) => json!({ "task_id": task_id, "title": task["title"], "review_status": "approved",
             "message": format!("Approved task '{}'", task["title"].as_str().unwrap_or("?")) }),
         Err(e) => json!({ "error": e.to_string() }),
@@ -1069,7 +1108,9 @@ fn handle_approve_task(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_reject_task(conn: &Connection, args: &Value) -> Value {
-    if let Err(e) = require_app() { return e; }
+    if let Err(e) = require_app() {
+        return e;
+    }
     let task_q = match args.get("task").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "task is required" }),
@@ -1131,9 +1172,7 @@ fn handle_add_dependency(conn: &Connection, args: &Value) -> Value {
     let dep_id = dep_task["id"].as_str().unwrap();
 
     // Parse existing dependencies
-    let deps_str = task["dependencies"]
-        .as_str()
-        .unwrap_or("[]");
+    let deps_str = task["dependencies"].as_str().unwrap_or("[]");
     let mut deps: Vec<Value> = serde_json::from_str(deps_str).unwrap_or_default();
 
     // Check for duplicate
@@ -1228,12 +1267,17 @@ fn handle_remove_dependency(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_mark_complete(conn: &Connection, args: &Value) -> Value {
-    if let Err(e) = require_app() { return e; }
+    if let Err(e) = require_app() {
+        return e;
+    }
     let task_q = match args.get("task").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "task is required" }),
     };
-    let success = args.get("success").and_then(|v| v.as_bool()).unwrap_or(true);
+    let success = args
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     let task = match find_task(conn, task_q, None) {
         Ok(t) => t,
@@ -1263,7 +1307,9 @@ fn handle_mark_complete(conn: &Connection, args: &Value) -> Value {
 }
 
 fn handle_retry_task(conn: &Connection, args: &Value) -> Value {
-    if let Err(e) = require_app() { return e; }
+    if let Err(e) = require_app() {
+        return e;
+    }
     let task_q = match args.get("task").and_then(|v| v.as_str()) {
         Some(t) => t,
         None => return json!({ "error": "task is required" }),
@@ -1408,7 +1454,11 @@ fn handle_create_column(conn: &Connection, args: &Value) -> Value {
     let ws_q = args.get("workspace").and_then(|v| v.as_str()).unwrap_or("");
     let workspace_id = if ws_q.is_empty() {
         // Use first workspace
-        match conn.query_row("SELECT id FROM workspaces ORDER BY tab_order LIMIT 1", [], |r| r.get::<_, String>(0)) {
+        match conn.query_row(
+            "SELECT id FROM workspaces ORDER BY tab_order LIMIT 1",
+            [],
+            |r| r.get::<_, String>(0),
+        ) {
             Ok(id) => id,
             Err(_) => return json!({ "error": "No workspaces found" }),
         }
@@ -1419,13 +1469,17 @@ fn handle_create_column(conn: &Connection, args: &Value) -> Value {
         }
     };
 
-    let position = args.get("position").and_then(|v| v.as_i64()).unwrap_or_else(|| {
-        conn.query_row(
-            "SELECT COALESCE(MAX(position), -1) + 1 FROM columns WHERE workspace_id = ?1",
-            params![workspace_id],
-            |r| r.get(0),
-        ).unwrap_or(0)
-    });
+    let position = args
+        .get("position")
+        .and_then(|v| v.as_i64())
+        .unwrap_or_else(|| {
+            conn.query_row(
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM columns WHERE workspace_id = ?1",
+                params![workspace_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0)
+        });
 
     let id = Uuid::new_v4().to_string();
     let ts = now();
@@ -1489,7 +1543,11 @@ fn handle_configure_triggers(conn: &Connection, args: &Value) -> Value {
     // Find workspace for column resolution
     let ws_q = args.get("workspace").and_then(|v| v.as_str()).unwrap_or("");
     let workspace_id = if ws_q.is_empty() {
-        match conn.query_row("SELECT id FROM workspaces ORDER BY tab_order LIMIT 1", [], |r| r.get::<_, String>(0)) {
+        match conn.query_row(
+            "SELECT id FROM workspaces ORDER BY tab_order LIMIT 1",
+            [],
+            |r| r.get::<_, String>(0),
+        ) {
             Ok(id) => id,
             Err(_) => return json!({ "error": "No workspaces found" }),
         }
@@ -1550,7 +1608,8 @@ fn handle_list_scripts(conn: &Connection) -> Value {
     let rows: Vec<Value> = stmt
         .query_map([], |r| {
             let steps_str = r.get::<_, String>(3)?;
-            let steps_parsed: Value = serde_json::from_str(&steps_str).unwrap_or(Value::Array(vec![]));
+            let steps_parsed: Value =
+                serde_json::from_str(&steps_str).unwrap_or(Value::Array(vec![]));
             let step_count = steps_parsed.as_array().map_or(0, |a| a.len());
 
             Ok(json!({
@@ -1574,7 +1633,10 @@ fn handle_create_script(conn: &Connection, args: &Value) -> Value {
         Some(n) => n,
         None => return json!({ "error": "name is required" }),
     };
-    let description = args.get("description").and_then(|v| v.as_str()).unwrap_or("");
+    let description = args
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let steps = match args.get("steps").and_then(|v| v.as_str()) {
         Some(s) => s,
         None => return json!({ "error": "steps is required (JSON array string)" }),
@@ -1661,7 +1723,9 @@ fn handle_run_script(conn: &Connection, args: &Value) -> Value {
         }
     } else {
         // Use first workspace
-        match conn.query_row("SELECT id FROM workspaces LIMIT 1", [], |r| r.get::<_, String>(0)) {
+        match conn.query_row("SELECT id FROM workspaces LIMIT 1", [], |r| {
+            r.get::<_, String>(0)
+        }) {
             Ok(id) => id,
             Err(_) => return json!({ "error": "No workspaces found" }),
         }
@@ -1686,7 +1750,10 @@ fn handle_run_script(conn: &Connection, args: &Value) -> Value {
 
     let mut triggers = existing_triggers;
     if let Some(obj) = triggers.as_object_mut() {
-        obj.insert("on_entry".to_string(), json!({ "type": "run_script", "script_id": script_id }));
+        obj.insert(
+            "on_entry".to_string(),
+            json!({ "type": "run_script", "script_id": script_id }),
+        );
     }
 
     let ts = now();
@@ -1815,7 +1882,10 @@ fn handle_save_pipeline_template(conn: &Connection, args: &Value) -> Value {
         Some(n) => n,
         None => return json!({ "error": "name is required" }),
     };
-    let description = args.get("description").and_then(|v| v.as_str()).unwrap_or("");
+    let description = args
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let workspace_q = match args.get("workspace").and_then(|v| v.as_str()) {
         Some(w) => w,
         None => return json!({ "error": "workspace is required" }),
@@ -1848,7 +1918,7 @@ fn handle_save_pipeline_template(conn: &Connection, args: &Value) -> Value {
 
     if !allow_db_fallback() {
         return json!({
-            "error": "Could not save pipeline template through the app API. Make sure Bento-ya is running.",
+            "error": "Could not save pipeline template through the app API. Make sure KaitenCode is running.",
         });
     }
 
@@ -1947,7 +2017,7 @@ fn handle_apply_pipeline_template(conn: &Connection, args: &Value) -> Value {
     }
 
     json!({
-        "error": "Could not apply pipeline template through the app API. Make sure Bento-ya is running.",
+        "error": "Could not apply pipeline template through the app API. Make sure KaitenCode is running.",
     })
 }
 
@@ -1980,7 +2050,7 @@ fn handle_delete_pipeline_template(conn: &Connection, args: &Value) -> Value {
     }
 
     json!({
-        "error": "Could not delete pipeline template through the app API. Make sure Bento-ya is running.",
+        "error": "Could not delete pipeline template through the app API. Make sure KaitenCode is running.",
     })
 }
 
@@ -1997,7 +2067,7 @@ fn handle_initialize(req: &JsonRpcRequest) -> JsonRpcResponse {
                 "tools": {}
             },
             "serverInfo": {
-                "name": "bento-ya",
+                "name": "kaitencode",
                 "version": "0.1.0"
             }
         }),
@@ -2013,10 +2083,7 @@ fn handle_tools_list(req: &JsonRpcRequest) -> JsonRpcResponse {
 
 fn handle_tools_call(conn: &Connection, req: &JsonRpcRequest) -> JsonRpcResponse {
     let params = req.params.as_ref().cloned().unwrap_or(Value::Null);
-    let tool_name = params
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
     let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
     if tool_name.is_empty() {
@@ -2038,7 +2105,7 @@ fn main() {
     let args = Args::parse();
     let db_path = args.db.unwrap_or_else(default_db_path);
 
-    // Both bento-ya and bento-mcp share the same rusqlite build via Cargo workspace,
+    // KaitenCode and kaitencode-mcp share the same rusqlite build via Cargo workspace,
     // so WAL/SHM formats are guaranteed compatible for concurrent access.
     let conn = Connection::open(&db_path).unwrap_or_else(|e| {
         eprintln!("Failed to open database at {}: {}", db_path, e);
@@ -2108,7 +2175,8 @@ mod tests {
         conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
 
         // Run all migrations inline (matching src-tauri/src/db/migrations/)
-        conn.execute_batch("
+        conn.execute_batch(
+            "
             -- 001_initial
             CREATE TABLE IF NOT EXISTS workspaces (
                 id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, repo_path TEXT NOT NULL,
@@ -2161,7 +2229,9 @@ mod tests {
                 steps TEXT NOT NULL DEFAULT '[]', is_built_in INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             );
-        ").unwrap();
+        ",
+        )
+        .unwrap();
 
         conn
     }
@@ -2208,10 +2278,13 @@ mod tests {
     #[test]
     fn test_create_workspace() {
         let conn = setup_test_db();
-        let result = handle_create_workspace(&conn, &json!({
-            "name": "My Project",
-            "repo_path": "/home/user/project"
-        }));
+        let result = handle_create_workspace(
+            &conn,
+            &json!({
+                "name": "My Project",
+                "repo_path": "/home/user/project"
+            }),
+        );
         assert!(result.get("error").is_none(), "Got error: {:?}", result);
         assert_eq!(result["workspace"]["name"], "My Project");
 
@@ -2255,12 +2328,15 @@ mod tests {
         let conn = setup_test_db();
         create_test_workspace(&conn);
 
-        let result = handle_create_task(&conn, &json!({
-            "workspace": "Test WS",
-            "column": "Backlog",
-            "title": "New Task",
-            "description": "Do something"
-        }));
+        let result = handle_create_task(
+            &conn,
+            &json!({
+                "workspace": "Test WS",
+                "column": "Backlog",
+                "title": "New Task",
+                "description": "Do something"
+            }),
+        );
         assert!(result.get("error").is_none(), "Got error: {:?}", result);
         assert_eq!(result["task"]["title"], "New Task");
     }
@@ -2270,11 +2346,14 @@ mod tests {
         let conn = setup_test_db();
         create_test_workspace(&conn);
 
-        let result = handle_create_task(&conn, &json!({
-            "workspace": "Test WS",
-            "column": "NonexistentColumn",
-            "title": "Task"
-        }));
+        let result = handle_create_task(
+            &conn,
+            &json!({
+                "workspace": "Test WS",
+                "column": "NonexistentColumn",
+                "title": "Task"
+            }),
+        );
         assert!(result.get("error").is_some());
     }
 
@@ -2290,17 +2369,24 @@ mod tests {
             params![task_id, ws_id, col_id, ts, ts],
         ).unwrap();
 
-        let result = handle_move_task(&conn, &json!({
-            "task": "Task",
-            "column": "Done"
-        }));
+        let result = handle_move_task(
+            &conn,
+            &json!({
+                "task": "Task",
+                "column": "Done"
+            }),
+        );
         assert!(result.get("error").is_none(), "Got error: {:?}", result);
         assert!(result["message"].as_str().unwrap().contains("Done"));
 
         // Verify task moved
-        let task: String = conn.query_row(
-            "SELECT column_id FROM tasks WHERE id = ?1", params![task_id], |r| r.get(0)
-        ).unwrap();
+        let task: String = conn
+            .query_row(
+                "SELECT column_id FROM tasks WHERE id = ?1",
+                params![task_id],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(task, col2_id);
     }
 
@@ -2316,10 +2402,13 @@ mod tests {
             params![task_id, ws_id, col_id, ts, ts],
         ).unwrap();
 
-        let result = handle_update_task(&conn, &json!({
-            "task": "Old Title",
-            "title": "New Title"
-        }));
+        let result = handle_update_task(
+            &conn,
+            &json!({
+                "task": "Old Title",
+                "title": "New Title"
+            }),
+        );
         assert!(result.get("error").is_none(), "Got error: {:?}", result);
         assert_eq!(result["title"], "New Title");
         assert_eq!(result["message"], "Task updated");
@@ -2341,7 +2430,9 @@ mod tests {
         assert!(result.get("error").is_none(), "Got error: {:?}", result);
 
         // Verify deleted
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0)).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count, 0);
     }
 
@@ -2360,17 +2451,25 @@ mod tests {
         // Approve
         let result = handle_approve_task(&conn, &json!({ "task": "Review Me" }));
         assert!(result.get("error").is_none());
-        let status: Option<String> = conn.query_row(
-            "SELECT review_status FROM tasks WHERE id = ?1", params![task_id], |r| r.get(0)
-        ).unwrap();
+        let status: Option<String> = conn
+            .query_row(
+                "SELECT review_status FROM tasks WHERE id = ?1",
+                params![task_id],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(status.as_deref(), Some("approved"));
 
         // Reject
         let result = handle_reject_task(&conn, &json!({ "task": "Review Me" }));
         assert!(result.get("error").is_none());
-        let status: Option<String> = conn.query_row(
-            "SELECT review_status FROM tasks WHERE id = ?1", params![task_id], |r| r.get(0)
-        ).unwrap();
+        let status: Option<String> = conn
+            .query_row(
+                "SELECT review_status FROM tasks WHERE id = ?1",
+                params![task_id],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(status.as_deref(), Some("rejected"));
     }
 
@@ -2379,11 +2478,14 @@ mod tests {
         let conn = setup_test_db();
         create_test_workspace(&conn);
 
-        let result = handle_create_column(&conn, &json!({
-            "workspace": "Test WS",
-            "name": "In Progress",
-            "position": 1
-        }));
+        let result = handle_create_column(
+            &conn,
+            &json!({
+                "workspace": "Test WS",
+                "name": "In Progress",
+                "position": 1
+            }),
+        );
         assert!(result.get("error").is_none(), "Got error: {:?}", result);
         assert_eq!(result["column"]["name"], "In Progress");
     }
@@ -2398,11 +2500,14 @@ mod tests {
     #[test]
     fn test_create_script() {
         let conn = setup_test_db();
-        let result = handle_create_script(&conn, &json!({
-            "name": "My Script",
-            "description": "Does stuff",
-            "steps": "[{\"type\":\"bash\",\"command\":\"echo hi\"}]"
-        }));
+        let result = handle_create_script(
+            &conn,
+            &json!({
+                "name": "My Script",
+                "description": "Does stuff",
+                "steps": "[{\"type\":\"bash\",\"command\":\"echo hi\"}]"
+            }),
+        );
         assert!(result.get("error").is_none(), "Got error: {:?}", result);
         assert_eq!(result["name"], "My Script");
 

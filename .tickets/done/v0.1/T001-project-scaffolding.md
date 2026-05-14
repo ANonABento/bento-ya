@@ -2,7 +2,7 @@
 
 ## Summary
 
-Initialize the Bento-ya project with Tauri v2, React, TypeScript, Tailwind CSS, Vite, and pnpm. Set up the foundational project structure, build tooling, and dev environment so all subsequent tickets can start working immediately.
+Initialize the KaitenCode project with Tauri v2, React, TypeScript, Tailwind CSS, Vite, and pnpm. Set up the foundational project structure, build tooling, and dev environment so all subsequent tickets can start working immediately.
 
 ## Acceptance Criteria
 
@@ -12,7 +12,7 @@ Initialize the Bento-ya project with Tauri v2, React, TypeScript, Tailwind CSS, 
 - [ ] pnpm as package manager with lockfile
 - [ ] Rust backend compiles with `cargo build`
 - [ ] Frontend builds with `pnpm build`
-- [ ] `pnpm tauri dev` launches a window with "Hello Bento-ya" placeholder
+- [ ] `pnpm tauri dev` launches a window with "Hello KaitenCode" placeholder
 - [ ] ESLint configured (strict TS rules, React hooks, import ordering)
 - [ ] Prettier configured (single quotes, no semicolons, 100 char width)
 - [ ] `tsconfig.json` with strict mode, `@/` path alias
@@ -20,7 +20,7 @@ Initialize the Bento-ya project with Tauri v2, React, TypeScript, Tailwind CSS, 
 - [ ] `.gitignore` covers Tauri build artifacts, node_modules, target/
 - [ ] Directory structure matches PRODUCT.md file structure (empty placeholder files OK)
 - [ ] Tauri v2 capabilities directory created with minimal permissions
-- [ ] `tauri.conf.json` configured (app name: "Bento-ya", window title, default size 1280x800)
+- [ ] `tauri.conf.json` configured (app name: "KaitenCode", window title, default size 1280x800)
 
 ## Dependencies
 
@@ -33,7 +33,7 @@ Initialize the Bento-ya project with Tauri v2, React, TypeScript, Tailwind CSS, 
 ## Key Files to Create
 
 ```
-bento-ya/
+kaitencode/
   src-tauri/
     src/main.rs
     src/lib.rs

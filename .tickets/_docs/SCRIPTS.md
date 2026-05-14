@@ -239,7 +239,7 @@ Steps are drag-reorderable. Each step has a type badge (bash/agent/check) and a 
 
 ## MCP Integration
 
-Add to bento-mcp:
+Add to kaitencode-mcp:
 
 ```
 list_scripts       -> list all scripts

@@ -41,7 +41,7 @@ Without this, the orchestrator is just a chatbot. With this, it becomes a task m
 ### System Prompt
 
 ```
-You are the orchestrator for a Kanban task board called "bento-ya".
+You are the orchestrator for a Kanban task board called "kaitencode".
 
 Your role is to help the user manage their tasks:
 - Create new tasks when asked
@@ -218,7 +218,7 @@ Parse stdout for JSON lines, execute actions.
 
 pub fn build_system_prompt(workspace: &Workspace) -> String {
     format!(r#"
-You are the orchestrator for "{}" in bento-ya, a Kanban task board.
+You are the orchestrator for "{}" in kaitencode, a Kanban task board.
 ...
 "#, workspace.name)
 }

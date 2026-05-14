@@ -2,7 +2,7 @@
 
 ## Context
 
-You're implementing Phase 1 of a 6-phase plan to add an **interactive** runtime mode alongside bento-ya's existing **headless** (`claude -p`) mode. Today every trigger spawns `claude -p` regardless of the `runtime_mode` field on the action — both `terminal` and `managed` modes are headless variants. This phase makes a *truly* interactive mode work end-to-end at the backend layer, gated behind a dev flag so it doesn't affect existing users.
+You're implementing Phase 1 of a 6-phase plan to add an **interactive** runtime mode alongside kaitencode's existing **headless** (`claude -p`) mode. Today every trigger spawns `claude -p` regardless of the `runtime_mode` field on the action — both `terminal` and `managed` modes are headless variants. This phase makes a *truly* interactive mode work end-to-end at the backend layer, gated behind a dev flag so it doesn't affect existing users.
 
 **Read first, in order:**
 1. [`README.md`](README.md) in this folder — the rollout overview.
@@ -32,14 +32,14 @@ Spawning a Claude trigger with `runtime_mode = "interactive"` produces a fresh `
    ```
    Steps inside:
    - Start `claude --dangerously-skip-permissions [args]` in the tmux session via `tmux new-session -d` (no `-p`). Use `-c <worktree_path>` so claude starts in the right directory.
-   - If `exit_criteria` is `agent_complete` or `manual_approval`, append `--append-system-prompt "When you have finished the user's task, output exactly this line on its own and nothing else: <<<BENTOYA_DONE:{task_id}>>>"`.
+   - If `exit_criteria` is `agent_complete` or `manual_approval`, append `--append-system-prompt "When you have finished the user's task, output exactly this line on its own and nothing else: <<<KAITENCODE_DONE:{task_id}>>>"`.
    - Poll `tmux capture-pane -p` (up to 5s, ~100ms interval) waiting for Claude Code's input prompt indicator to appear. (Inspect the pane manually to find a stable indicator string — likely `╭` or `>` at the cursor row.)
    - Inject the prompt: `tmux send-keys -t <session> -l -- "<prompt>"` then `tmux send-keys -t <session> Enter`. The `-l` (literal) flag is critical — never construct keystrokes from unescaped content.
    - Return a handle the caller can use to register the completion watcher.
 
 3. **Sentinel-based completion watcher.** New module or extend `src-tauri/src/chat/gc.rs` pattern:
    - Spawn a tokio task per interactive trigger that polls `tmux capture-pane -p -S -50` every 2s.
-   - Strip ANSI escape codes before matching. Look for `<<<BENTOYA_DONE:{task_id}>>>` as a standalone line.
+   - Strip ANSI escape codes before matching. Look for `<<<KAITENCODE_DONE:{task_id}>>>` as a standalone line.
    - On match: call the same completion path `bridge::spawn_cli_trigger_task` uses today (`mark_complete` + emit `tasks:changed`).
    - 2-hour hard timeout (matches existing headless timeout).
    - Cancel the watcher if the task is moved out of the trigger column (existing cancel hook in `triggers.rs`).
@@ -48,7 +48,7 @@ Spawning a Claude trigger with `runtime_mode = "interactive"` produces a fresh `
    - `"interactive"` AND `cli == "claude"` AND dev flag enabled → call new `spawn_interactive_trigger_task` (parallel to `spawn_cli_trigger_task`).
    - Anything else → existing path unchanged.
 
-5. **Dev flag.** Add `BENTOYA_INTERACTIVE_MODE_ENABLED` env var check in `src-tauri/src/config/mod.rs`. When unset/false, treat any `runtime_mode = "interactive"` as `"terminal"` and log a one-time warning. Document the flag in the plan doc.
+5. **Dev flag.** Add `KAITENCODE_INTERACTIVE_MODE_ENABLED` env var check in `src-tauri/src/config/mod.rs`. When unset/false, treat any `runtime_mode = "interactive"` as `"terminal"` and log a one-time warning. Document the flag in the plan doc.
 
 6. **Manual completion fallback.** The existing `mark_complete` Tauri command already exists. Verify it works against interactive-mode tasks (the agent is still running — `mark_complete` should send the kill signal first, then mark). Add a test.
 
@@ -63,13 +63,13 @@ Spawning a Claude trigger with `runtime_mode = "interactive"` produces a fresh `
 
 ## Definition of done
 
-1. `cargo check` and `cargo test` pass for the bento-ya workspace.
+1. `cargo check` and `cargo test` pass for the kaitencode workspace.
 2. New unit tests:
    - `spawn_interactive_claude` builds the right command shape (no `-p`, has `--append-system-prompt` when sentinel needed, doesn't when not).
    - Sentinel regex matches the expected line and ignores false-positive substrings (e.g. agent mentioning the sentinel in passing inside a code block).
 3. New integration test (`#[ignore]` if it needs a real `claude` binary): spawn an interactive Claude in a real tmux session, send a trivial prompt ("say done"), append-system-prompt with the sentinel, observe the watcher fire and `mark_complete` get called. Document how to enable.
 4. Manual verification:
-   - With `BENTOYA_INTERACTIVE_MODE_ENABLED=1`, create a task, set its column's `on_entry` trigger to `{"type":"spawn_cli","cli":"claude","runtime_mode":"interactive","prompt":"say done"}`, move task into the column. Confirm: the tmux session has interactive `claude`, you can attach and see the TUI, the agent receives the prompt, prints the sentinel, task auto-advances.
+   - With `KAITENCODE_INTERACTIVE_MODE_ENABLED=1`, create a task, set its column's `on_entry` trigger to `{"type":"spawn_cli","cli":"claude","runtime_mode":"interactive","prompt":"say done"}`, move task into the column. Confirm: the tmux session has interactive `claude`, you can attach and see the TUI, the agent receives the prompt, prints the sentinel, task auto-advances.
    - Without the env var, the same trigger config falls back to terminal/headless behavior with a log warning.
 5. Plan doc updated with anything you learned (e.g. exact prompt indicator string used for ready-detection).
 
@@ -79,7 +79,7 @@ Spawning a Claude trigger with `runtime_mode = "interactive"` produces a fresh `
 - **ANSI in sentinel matching.** `tmux capture-pane -p` returns text with cursor positioning sequences. Strip with a `regex` crate substitution or `tmux capture-pane -p -J` (join wrapped lines) before regex.
 - **Race: prompt sent before Claude ready.** If you `send-keys` before Claude finishes its startup banner, the keystrokes go into the void. The ready-poll must succeed before injection. If it times out (5s), fail loudly — don't silently inject anyway.
 - **Existing completion path uses `tmux wait-for`.** Don't try to make `tmux wait-for` work for interactive mode — the agent never exits. Your watcher is a separate mechanism; don't conflate them.
-- **The session name is `bentoya_<task_id>`.** Don't pick a new naming scheme — the interactive panel + GC + recovery all key on this.
+- **The session name is `kaitencode_<task_id>`.** Don't pick a new naming scheme — the interactive panel + GC + recovery all key on this.
 - **Worktree cwd.** `resolve_working_dir()` in `triggers.rs` picks the worktree if present. Interactive spawn must respect this — start the tmux session with `-c <worktree>` so claude starts in the right directory.
 
 ## After you're done

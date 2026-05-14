@@ -203,7 +203,9 @@ function ConflictRow({ conflict }: { conflict: ConflictEntry }) {
                     >
                       <path fillRule="evenodd" d="M9.965 2.018a.75.75 0 0 1 .813.68l.69 7.893a.75.75 0 1 1-1.494.13l-.5-5.725-4.22 4.22a.75.75 0 0 1-1.13-.094l-2.5-3.5a.75.75 0 0 1 1.202-.896l1.913 2.678 4.238-4.238a.75.75 0 0 1 .988-.148Z" clipRule="evenodd" />
                     </svg>
-                    <span className="font-mono">{branch.replace('bentoya/', '')}</span>
+                    <span className="font-mono">
+                      {branch.replace(/^kaitencode\/|^bentoya\//, '')}
+                    </span>
                   </div>
                 ))}
               </div>

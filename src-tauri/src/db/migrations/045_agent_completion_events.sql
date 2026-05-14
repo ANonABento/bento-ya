@@ -6,7 +6,7 @@
 -- idle-prompt-detector fallback.
 --
 -- completion_source values:
---   'sentinel'   — interactive watcher observed <<<BENTOYA_DONE:taskid>>>
+--   'sentinel'   — interactive watcher observed <<<KAITENCODE_DONE:taskid>>>
 --   'exit_code'  — headless `-p`/`exec` process exited (success or not)
 --   'manual'     — user clicked Mark Complete / mark_pipeline_complete IPC
 --   'timeout'    — 2h hard backstop fired in the watcher

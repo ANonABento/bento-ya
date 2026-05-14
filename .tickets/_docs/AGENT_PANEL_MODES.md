@@ -24,7 +24,7 @@ Despite the type system having `AgentRuntimeMode = 'terminal' | 'managed'` (`src
 
 | Existing mode | Spawn | Render |
 |---------------|-------|--------|
-| `terminal` (default) | `bridge::spawn_cli_trigger_task` → `claude -p --output-format stream-json` piped through jq into a tmux pane | xterm.js attached to `bentoya_<task_id>` tmux session — user sees pretty-printed streaming |
+| `terminal` (default) | `bridge::spawn_cli_trigger_task` → `claude -p --output-format stream-json` piped through jq into a tmux pane | xterm.js attached to `kaitencode_<task_id>` tmux session — user sees pretty-printed streaming |
 | `managed` | `spawn_managed_trigger_task` → same `-p` flag, but events routed through `ManagedBridge` semantic stream | Chat-bubble UI in `agent-panel.tsx`, parses `agent:*` events |
 
 Neither mode is *truly* interactive — both run `-p` and the user is read-only. Stop works (Ctrl+C via `tmux send-keys`), but model switch, pause, mid-task redirection don't exist for the running agent.
@@ -69,7 +69,7 @@ column.default_runtime_mode       (NEW — column-level default)
   ↓ falls back to
 workspace.default_runtime_mode    (NEW — workspace config)
   ↓ falls back to
-global settings.default_runtime_mode  (NEW — ~/.bentoya/settings.json)
+global settings.default_runtime_mode  (NEW — ~/.kaitencode/settings.json)
   ↓ falls back to
 'headless'                        (preserves current behavior)
 ```
@@ -78,7 +78,7 @@ Same hierarchy applies to `headless_render` (bubbles vs terminal) when mode = he
 
 ### Settings storage
 
-- Global: `~/.bentoya/settings.json` — add `default_runtime_mode`, `default_headless_render`
+- Global: `~/.kaitencode/settings.json` — add `default_runtime_mode`, `default_headless_render`
 - Workspace: `workspace_config` JSON — add `default_runtime_mode`, `default_headless_render`
 - Column: existing `columns.triggers` JSON — add top-level `default_runtime_mode` (not nested under on_entry)
 - Task: new migration adding `runtime_mode_override TEXT` column
@@ -128,7 +128,7 @@ This is the hardest design choice. `tmux wait-for {channel}` doesn't work becaus
 1. **System-prompt sentinel** (primary, conditional):
    Only appended when `mode = interactive AND exit_criteria.type in {agent_complete, manual_approval}`.
    ```
-   claude --append-system-prompt "When you have finished the user's task, output exactly this line on its own and nothing else: <<<BENTOYA_DONE:{task_id}>>>"
+   claude --append-system-prompt "When you have finished the user's task, output exactly this line on its own and nothing else: <<<KAITENCODE_DONE:{task_id}>>>"
    ```
    Pane scraper polls `tmux capture-pane -p -S -50` every 2s for the sentinel. Robust against UI redraws because the sentinel is unique and includes the task id. For exit criteria like `manual`, `script_success`, etc., skip the append entirely.
 
@@ -149,7 +149,7 @@ New Tauri commands, all routed through the existing per-task tmux session:
 ```rust
 #[tauri::command]
 async fn agent_interrupt(task_id: String) -> Result<()>
-//   sends Ctrl+C via `tmux send-keys -t bentoya_<id> C-c`
+//   sends Ctrl+C via `tmux send-keys -t kaitencode_<id> C-c`
 //   in interactive mode: aborts current generation, agent returns to prompt (alive)
 //   in headless mode: kills the -p process (terminates task)
 
@@ -268,7 +268,7 @@ Three new surfaces:
 3. **Settings panel** (`src/components/settings/`):
    - New tab or section in existing Agents tab: "Default runtime mode"
    - Same picker, applies to workspace default
-   - Global default exposed in `~/.bentoya/settings.json` editor
+   - Global default exposed in `~/.kaitencode/settings.json` editor
 
 ### Cross-mode column transitions
 
@@ -282,7 +282,7 @@ The resolver runs at column-entry time and reads the *new* column's mode, not th
 
 ### Live attach to running agents
 
-Already works for headless (`bentoya_<task_id>` session persists, user can attach via terminal panel). For interactive, the attach point is the same — `terminal-view.tsx` attaches xterm.js to the tmux session whether it was spawned headless or interactive. The agent panel renders interactive view when mode = interactive, terminal view (raw) when mode = headless+terminal.
+Already works for headless (`kaitencode_<task_id>` session persists, user can attach via terminal panel). For interactive, the attach point is the same — `terminal-view.tsx` attaches xterm.js to the tmux session whether it was spawned headless or interactive. The agent panel renders interactive view when mode = interactive, terminal view (raw) when mode = headless+terminal.
 
 ## Codex Parity
 
@@ -294,7 +294,7 @@ Codex has the same CLI shape: `codex exec '<prompt>'` (headless) vs `codex` (int
 | Interactive spawn | `claude` then `tmux send-keys` | `codex` then `tmux send-keys` |
 | Slash commands | `/model`, `/clear`, `/exit` | `/model`, `/clear`, `/quit` |
 | System prompt append | `--append-system-prompt` | `--append-system-prompt` (verify in current codex release) |
-| Sentinel pattern | `<<<BENTOYA_DONE:{id}>>>` | same |
+| Sentinel pattern | `<<<KAITENCODE_DONE:{id}>>>` | same |
 | Resume | `--resume <session_id>` | `--resume <session_id>` |
 | Billing model | Subscription plans, [Agent SDK credit](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) for headless | OpenAI API (no equivalent split — interactive vs headless billing is identical for Codex) |
 
@@ -327,14 +327,14 @@ Roughly 5 phases. Each ships independently; no big-bang.
 **Shipped.**
 
 What landed:
-- `src-tauri/src/config/mod.rs`: `BENTOYA_INTERACTIVE_MODE_ENABLED` env-var dev
+- `src-tauri/src/config/mod.rs`: `KAITENCODE_INTERACTIVE_MODE_ENABLED` env-var dev
   flag + `interactive_mode_enabled()` reader.
 - `src-tauri/src/chat/bridge.rs`:
   - `build_interactive_claude_argv()` — pure argv builder. No `-p`,
     optional `--resume`, optional `--append-system-prompt <sentinel>`.
   - `interactive_sentinel_system_prompt(task_id)` — produces the system
     prompt the agent must echo verbatim. Marker shape:
-    `<<<BENTOYA_DONE:{task_id}>>>` on its own line.
+    `<<<KAITENCODE_DONE:{task_id}>>>` on its own line.
   - `strip_ansi()` — VT/CSI/OSC scrubber used by the sentinel matcher.
   - `pane_contains_sentinel()` — line-anchored match (after ANSI strip).
     Inline mentions ("I'll print …") and other-task ids are rejected.
@@ -346,7 +346,7 @@ What landed:
     These have shipped for many releases; tightening to a more specific
     indicator is cheap if it drifts.
   - `spawn_interactive_claude()` — runs `tmux new-session -d -s
-    bentoya_<id> -c <worktree> -- claude --dangerously-skip-permissions
+    kaitencode_<id> -c <worktree> -- claude --dangerously-skip-permissions
     [args] [--append-system-prompt …]`, polls the pane for the prompt
     box (5s timeout @ 100ms cadence), then injects the initial prompt
     via `tmux send-keys -t … -l <prompt>` + `Enter`. `tmux send-keys
@@ -438,7 +438,7 @@ Notes for Phase 2:
 - The task's `agent_mode` DB column is set to `"interactive"` when
   the trigger fires in this mode. Phase 2's mode-resolver hook can
   read it directly via `useTaskStore`.
-- `bentoya_<task_id>` is still the only tmux session name; the existing
+- `kaitencode_<task_id>` is still the only tmux session name; the existing
   `TerminalView`'s `ensure_pty_session` path already finds it. Phase 2's
   `InteractiveAgentView` should be a thin wrapper around `terminal-view.tsx`
   plus a control bar.
@@ -450,7 +450,7 @@ Notes for Phase 2:
   pause/resume + Phase 2's Stop button will probably want a direct
   cancellation channel for the watcher. Keep the door open for an
   explicit handle in `SpawnInteractiveResult`.
-- `BENTOYA_INTERACTIVE_MODE_ENABLED=1` is required end-to-end. Phase 2's
+- `KAITENCODE_INTERACTIVE_MODE_ENABLED=1` is required end-to-end. Phase 2's
   task settings UI should grey out "Interactive" with a tooltip when
   the env var isn't set — otherwise users save the override and silently
   fall through to terminal mode at runtime.
@@ -487,7 +487,7 @@ What landed:
     respawns via `bridge::spawn_interactive_trigger_task` using the
     same trigger config (model, cli, prompt) cached on the task.
   - `interactive_mode_dev_flag()` — boolean introspection of
-    `BENTOYA_INTERACTIVE_MODE_ENABLED`. The settings modal greys out
+    `KAITENCODE_INTERACTIVE_MODE_ENABLED`. The settings modal greys out
     the Interactive picker option when this returns false.
 - `src-tauri/src/pipeline/triggers.rs`:
   - `ColumnTriggersV2` gains an optional `default_runtime_mode` field
@@ -724,7 +724,7 @@ Notes for Phase 4 (settings surfaces):
   config dialog just needs a picker that writes this field.
 - Workspace + global defaults need new storage. Per the plan:
   workspace_config JSON for the workspace tier (no schema change),
-  `~/.bentoya/settings.json` for the global tier (extend
+  `~/.kaitencode/settings.json` for the global tier (extend
   `AppSettings`). The resolver's hierarchy is structurally ready —
   add the new tiers between `column` and `default` in
   `resolve_runtime_mode_for_task`.
@@ -946,7 +946,7 @@ Spec deviations:
   on the right). Cosmetic placement choice.
 
 Notes for Phase 6:
-- The dev flag `BENTOYA_INTERACTIVE_MODE_ENABLED` still gates the
+- The dev flag `KAITENCODE_INTERACTIVE_MODE_ENABLED` still gates the
   whole interactive path. Phase 6 should decide whether to promote
   it to a real persisted setting (perhaps in onboarding) or keep
   it as a dev-only flag indefinitely.
@@ -993,7 +993,7 @@ Decisions (with reasoning given the lack of dogfooding data):
   ship interactive mode default-on to every user without anyone
   having ever verified that the spawn helper actually works against
   a real `claude` binary.
-- The flag stays as `BENTOYA_INTERACTIVE_MODE_ENABLED=1`. Phase 6
+- The flag stays as `KAITENCODE_INTERACTIVE_MODE_ENABLED=1`. Phase 6
   did NOT replace it with a settings-panel toggle — that would
   give users a footgun (they could turn it on, hit an edge case
   with their CLI version, and not know how to recover). Keeping
@@ -1131,7 +1131,7 @@ verification the README explicitly required.
 7. Consider adding state-transition timestamps to
    `agent_completion_events` for richer Phase-6-redo telemetry.
 8. Manual verification end-to-end: real claude, real codex, with
-   `BENTOYA_INTERACTIVE_MODE_ENABLED=1`, exercising trigger spawn,
+   `KAITENCODE_INTERACTIVE_MODE_ENABLED=1`, exercising trigger spawn,
    panel switch, message inject, interrupt, pause/resume, model
    switch, restart, sentinel completion. The first dogfood pass
    will surface the assumptions worth turning into hard checks.
@@ -1161,7 +1161,7 @@ To know if completion detection is working in the wild, log to a new `agent_comp
 
 ## Open Questions / Risks
 
-1. **TOS / detection.** Interactive `claude` driven entirely by `tmux send-keys` with no real human interaction is gray-zone. Defensible because bento-ya is a single-user supervised tool with manual approval gates, but worth being honest in user-facing copy: interactive mode is for *supervised* agents. Don't market as "unlimited free Claude Code automation."
+1. **TOS / detection.** Interactive `claude` driven entirely by `tmux send-keys` with no real human interaction is gray-zone. Defensible because kaitencode is a single-user supervised tool with manual approval gates, but worth being honest in user-facing copy: interactive mode is for *supervised* agents. Don't market as "unlimited free Claude Code automation."
 
 2. **Sentinel reliability.** Models occasionally ignore system-prompt instructions, especially Haiku. Mitigations: keep the idle-prompt-detector as fallback, expose "Mark Complete" prominently, telemetry on sentinel hit rate.
 

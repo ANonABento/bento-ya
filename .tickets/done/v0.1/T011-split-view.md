@@ -18,7 +18,7 @@ Build the split view: clicking a task card transitions the board into a two-pane
 - [ ] Active task card expanded vertically:
   - Title (editable inline)
   - Description / notes
-  - Branch name (`bentoya/fix-auth`)
+  - Branch name (`kaitencode/fix-auth`)
   - Status indicator (Running / Done / Failed)
 - [ ] Changes section:
   - File count with aggregate +/- line counts

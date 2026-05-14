@@ -1,4 +1,4 @@
-# GPT Agent Handoff — Bento-ya Persistent Agent Rebuild
+# GPT Agent Handoff — KaitenCode Persistent Agent Rebuild
 
 > Paste the section under `## PROMPT FOR GPT AGENT` into the GPT/codex agent.
 > The sections above it are notes for the human running the handoff.
@@ -7,10 +7,10 @@
 
 ## Context (for you, the human)
 
-- Spec lives at `/Users/bentomac/bento-ya/.tickets/_docs/PERSISTENT_AGENT_REBUILD.md`. It's the source of truth. The prompt below tells the agent to read it.
+- Spec lives at `/Users/bentomac/kaitencode/.tickets/_docs/PERSISTENT_AGENT_REBUILD.md`. It's the source of truth. The prompt below tells the agent to read it.
 - Decisions on the 7 questions are baked into §15 of that spec.
 - Optimization audit pass is §17. Card UI fixes are §18.
-- Repo: `/Users/bentomac/bento-ya` — Tauri v2 desktop app, Rust backend + React/TS frontend.
+- Repo: `/Users/bentomac/kaitencode` — Tauri v2 desktop app, Rust backend + React/TS frontend.
 - Existing GC infra is in `src-tauri/src/chat/gc.rs` and `registry.rs`. The agent must reuse, not duplicate.
 - Recent merges: PR #192 (jq stream filter) and PR #194 (panel collapse fix). Don't undo either.
 
@@ -22,15 +22,15 @@
 
 ## PROMPT FOR GPT AGENT
 
-You are an implementation agent working on **bento-ya**, a Tauri desktop app at `/Users/bentomac/bento-ya`. We are rebuilding the per-task agent loop to be Conductor/Vibe-Kanban-style: one persistent agent per task, you steer it via chat, it survives column moves.
+You are an implementation agent working on **kaitencode**, a Tauri desktop app at `/Users/bentomac/kaitencode`. We are rebuilding the per-task agent loop to be Conductor/Vibe-Kanban-style: one persistent agent per task, you steer it via chat, it survives column moves.
 
 ### Required reading (read in this order, do not skip)
 
-1. `/Users/bentomac/bento-ya/.tickets/_docs/PERSISTENT_AGENT_REBUILD.md` — **the spec. Source of truth.**
-2. `/Users/bentomac/bento-ya/.tickets/_docs/INTERACTIVE_AGENT_TERMINAL.md` — the April 2026 design this rebuild realizes.
-3. `/Users/bentomac/bento-ya/.tickets/_docs/UNIFIED_CHAT.md` — the chat transport architecture.
-4. `/Users/bentomac/bento-ya/PRODUCT.md` (lines 1-300, 940-1000) — product vision, terminal panel UX.
-5. `/Users/bentomac/bento-ya/CLAUDE.md` — repo conventions.
+1. `/Users/bentomac/kaitencode/.tickets/_docs/PERSISTENT_AGENT_REBUILD.md` — **the spec. Source of truth.**
+2. `/Users/bentomac/kaitencode/.tickets/_docs/INTERACTIVE_AGENT_TERMINAL.md` — the April 2026 design this rebuild realizes.
+3. `/Users/bentomac/kaitencode/.tickets/_docs/UNIFIED_CHAT.md` — the chat transport architecture.
+4. `/Users/bentomac/kaitencode/PRODUCT.md` (lines 1-300, 940-1000) — product vision, terminal panel UX.
+5. `/Users/bentomac/kaitencode/CLAUDE.md` — repo conventions.
 
 ### Code to study before touching anything
 
@@ -114,7 +114,7 @@ If the work is bigger than fits this session, stop after the audit note + Phase 
 
 ### Working directory
 
-`/Users/bentomac/bento-ya`
+`/Users/bentomac/kaitencode`
 
 ### Verification commands
 

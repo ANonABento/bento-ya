@@ -41,6 +41,10 @@ has_unmerged_files() {
 }
 
 typecheck_commands() {
+  if [ -n "${KAITENCODE_TYPECHECK_CMD:-}" ]; then
+    printf "%s\n" "$KAITENCODE_TYPECHECK_CMD"
+    return
+  fi
   if [ -n "${BENTOYA_TYPECHECK_CMD:-}" ]; then
     printf "%s\n" "$BENTOYA_TYPECHECK_CMD"
     return
@@ -82,10 +86,10 @@ run_typecheck() {
 
 mark_needs_manual_review() {
   local reason=$1
-  local git_dir status_dir marker safe_branch now db_path branch_sql reason_sql task_sql updated
+  local git_dir status_dir marker safe_branch now db_path branch_sql reason_sql task_id task_sql updated
 
   git_dir=$(git rev-parse --git-common-dir)
-  status_dir="$git_dir/bentoya"
+  status_dir="$git_dir/kaitencode"
   safe_branch=$(safe_branch_name "$BRANCH")
   marker="$status_dir/needs-manual-review-$safe_branch.txt"
   now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -103,13 +107,14 @@ mark_needs_manual_review() {
     manual_review_conflict_files
   } > "$marker"
 
-  db_path=${BENTOYA_DB_PATH:-"$HOME/.bentoya/data.db"}
+  db_path=${KAITENCODE_DB_PATH:-${BENTOYA_DB_PATH:-"$HOME/.kaitencode/data.db"}}
   if command -v sqlite3 >/dev/null 2>&1 && [ -f "$db_path" ]; then
     branch_sql=$(sql_quote "$BRANCH")
     reason_sql=$(sql_quote "needs-manual-review: $reason")
-    task_sql=$(sql_quote "${BENTOYA_TASK_ID:-}")
+    task_id=${KAITENCODE_TASK_ID:-${BENTOYA_TASK_ID:-}}
+    task_sql=$(sql_quote "$task_id")
 
-    if [ -n "${BENTOYA_TASK_ID:-}" ]; then
+    if [ -n "$task_id" ]; then
       updated=$(
         sqlite3 "$db_path" \
           "PRAGMA busy_timeout=5000;
@@ -170,7 +175,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 BRANCH=$(gh pr view "$PR" --json headRefName --jq '.headRefName')
-BASE_BRANCH=${BENTOYA_BASE_BRANCH:-$(gh pr view "$PR" --json baseRefName --jq '.baseRefName')}
+BASE_BRANCH=${KAITENCODE_BASE_BRANCH:-${BENTOYA_BASE_BRANCH:-$(gh pr view "$PR" --json baseRefName --jq '.baseRefName')}}
 
 if [ -z "$BRANCH" ]; then
   echo "ERROR: Could not find branch for PR #$PR" >&2

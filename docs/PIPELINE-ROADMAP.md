@@ -1,4 +1,4 @@
-# Bento-ya Pipeline Roadmap
+# KaitenCode Pipeline Roadmap
 
 > Autonomous coding pipeline — what's done, what's next.
 
@@ -8,7 +8,7 @@
 - 9-column pipeline: Backlog → Plan → Working → Review-Logic → Review-Quality → Verify → E2E → PR → Done
 - Smart Verify agent (runs checks + fixes failures)
 - Auto-advance between all columns
-- Force-push fallback on PR creation (bentoya/* branches only)
+- Force-push fallback on PR creation (kaitencode/* branches only)
 - Per-column model routing (sonnet for plan/review, opus for working)
 - External Python batch monitor for sequential task processing
 
@@ -19,7 +19,7 @@
 - Worktree isolation per task (separate branches, no conflicts)
 - Max retries per column with auto-advance on exhaustion
 
-### UX (bento-ya app)
+### UX (kaitencode app)
 - Column default icons + colors (Backlog=gray, Working=blue, Review=amber, Done=green)
 - Auto-icon suggestion when naming columns (keyword matching)
 - Done column dims task cards (60% opacity)
@@ -74,10 +74,10 @@
 ### How the Pipeline Works
 ```
 Task enters column with trigger
-  → Bento-ya creates git worktree (isolated branch)
+  → KaitenCode creates git worktree (isolated branch)
   → Spawns Claude CLI in tmux session with task prompt
   → CLI runs, makes changes, exits
-  → Bento-ya checks exit criteria
+  → KaitenCode checks exit criteria
   → Pass → auto-advance to next column → repeat
   → Fail → retry N times → stop with error
 ```
@@ -92,9 +92,9 @@ Task enters column with trigger
 ```
 User ↔ Discord ↔ Choomfie (MCP)
                       ↓
-                Bento-ya MCP server ↔ SQLite DB
+                KaitenCode MCP server ↔ SQLite DB
                       ↓
-                Bento-ya Tauri app
+                KaitenCode Tauri app
                       ↓
                 Pipeline agents (Claude CLI in tmux)
                       ↓

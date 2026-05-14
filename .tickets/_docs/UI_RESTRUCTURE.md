@@ -28,7 +28,7 @@ Click a task card → split view opens:
 │ ▼ EXPANDED DETAIL           │  ← new: slides open below
 │                             │
 │ Full description            │
-│ Branch: bentoya/feature-x   │
+│ Branch: kaitencode/feature-x   │
 │ Status: Agent working       │
 │ Model: sonnet               │
 │                             │

@@ -8,7 +8,7 @@
 
 ## Vision
 
-Transform Discord into a remote cockpit for Bento-ya. Users can monitor agent progress, receive notifications, reply to agents, and manage the board through natural language - all from Discord (including mobile).
+Transform Discord into a remote cockpit for KaitenCode. Users can monitor agent progress, receive notifications, reply to agents, and manage the board through natural language - all from Discord (including mobile).
 
 **Key Insight**: Chef already manages the board via natural language. Discord bot is simply a new interface to Chef.
 
@@ -63,9 +63,9 @@ Thread-per-task model (inside column channels):
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| **Bot location** | Built into Bento-ya | Tight integration, works offline, no extra hosting |
+| **Bot location** | Built into KaitenCode | Tight integration, works offline, no extra hosting |
 | **Task representation** | Threads (not channels) | Avoids 500 channel limit, auto-archive, cleaner |
-| **Source of truth** | Bento-ya | Discord is a view/interface, not storage |
+| **Source of truth** | KaitenCode | Discord is a view/interface, not storage |
 | **Reply routing** | Active → direct, Done → --resume | Matches existing session management |
 | **Chef interface** | Dedicated #chef channel | Clear separation, familiar pattern |
 
@@ -136,7 +136,7 @@ Thread-per-task model (inside column channels):
 ### Discord Bot Setup (discord.js)
 
 ```typescript
-// Embedded in Bento-ya via sidecar or Tauri plugin
+// Embedded in KaitenCode via sidecar or Tauri plugin
 import { Client, GatewayIntentBits, ThreadAutoArchiveDuration } from 'discord.js';
 
 const client = new Client({
@@ -148,7 +148,7 @@ const client = new Client({
   ],
 });
 
-// Connect to Bento-ya via Tauri event bridge
+// Connect to KaitenCode via Tauri event bridge
 ```
 
 ### Database Schema Additions
@@ -380,7 +380,7 @@ PR #142 created: https://github.com/user/repo/pull/142
 Agent used 2,341 tokens ($0.07)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-View in Bento-ya | View PR | Thread: #task-add-auth
+View in KaitenCode | View PR | Thread: #task-add-auth
 ```
 
 ---
@@ -400,7 +400,7 @@ View in Bento-ya | View PR | Thread: #task-add-auth
 
 ## Out of Scope (v1.1)
 
-- Multi-server support (one Discord server per Bento-ya instance)
+- Multi-server support (one Discord server per KaitenCode instance)
 - Slash commands (natural language via #chef is sufficient)
 - Voice channels
 - Role-based permissions

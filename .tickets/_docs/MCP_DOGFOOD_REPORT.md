@@ -1,10 +1,10 @@
-# Bentoya MCP — Dogfood Report (2026-05-12)
+# KaitenCode MCP — Dogfood Report (2026-05-12)
 
-Audit of the `bento-mcp` stdio server (`mcp-server/src/main.rs`, ~2.4k LOC, 25 tools). Goal: can an agent inspect the board, mutate it, and avoid runaway recursion?
+Audit of the `kaitencode-mcp` stdio server (`mcp-server/src/main.rs`, ~2.4k LOC, 25 tools). Goal: can an agent inspect the board, mutate it, and avoid runaway recursion?
 
 ## TL;DR
 
-- **Setup works.** Binary lives at `~/.cargo/bin/bento-mcp` (or build with `cargo build -p bento-mcp`). Auto-detects DB at `~/.bentoya/data.db` with platform-specific fallbacks. Read tools work without the app; mutations require the app running (HTTP API on a port written to `~/.bentoya/api.port`).
+- **Setup works.** Binary lives at `~/.cargo/bin/kaitencode-mcp` (or build with `cargo build -p kaitencode-mcp`). Auto-detects DB at `~/.kaitencode/data.db` with platform-specific fallbacks. Read tools work without the app; mutations require the app running (HTTP API on a port written to `~/.kaitencode/api.port`).
 - **No agent-level recursion guard.** A task that spawns a CLI agent (e.g. Claude Code with this MCP attached) can transitively call `create_task` again. The only ceiling today is `DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS = 5` per workspace (extra tasks get queued, not rejected). Safe self-task patterns require client-side discipline — see `MCP_SELF_TASK_WORKFLOW.md`.
 - **Three concrete MCP bugs / inconsistencies found** (none catastrophic, all worth fixing). Each filed as a follow-up ticket under `.tickets/`.
 - **CLAUDE.md drift fixed** in this branch: tool list, LOC count, and concurrency default now match the code.
@@ -17,9 +17,9 @@ Audit of the `bento-mcp` stdio server (`mcp-server/src/main.rs`, ~2.4k LOC, 25 t
 |---|---|
 | `mcp-server/Cargo.toml` | Cargo workspace member; depends on `rusqlite`, `ureq`, `chrono`, `uuid`, `dirs`, `clap`. |
 | `mcp-server/src/main.rs` | Single-file impl. JSON-RPC over stdio. |
-| `~/.cargo/bin/bento-mcp` | Installed binary (verified present on dev box). |
-| `~/.bentoya/data.db` | Default DB path (primary). Fallback: `<data_dir>/com.bentoya.desktop/bento-ya.db`, then `<data_dir>/com.bento-ya.app/bento-ya.db` for legacy installs. |
-| `~/.bentoya/api.port` | Port file the MCP uses to find the running app for mutations. |
+| `~/.cargo/bin/kaitencode-mcp` | Installed binary (verified present on dev box). |
+| `~/.kaitencode/data.db` | Default DB path (primary). Fallback: `<data_dir>/com.kaitencode.desktop/kaitencode.db`, then `<data_dir>/com.kaitencode.app/kaitencode.db` for legacy installs. |
+| `~/.kaitencode/api.port` | Port file the MCP uses to find the running app for mutations. |
 
 Verified by reading `default_db_path()` (`mcp-server/src/main.rs:22-40`) and `read_api_port()` (`mcp-server/src/main.rs:76-80`).
 
@@ -30,7 +30,7 @@ For Claude Code (`~/.claude.json` or project `.mcp.json`):
 ```json
 {
   "mcpServers": {
-    "bento-ya": { "command": "bento-mcp" }
+    "kaitencode": { "command": "kaitencode-mcp" }
   }
 }
 ```
@@ -54,11 +54,11 @@ Counted from `get_tools()` in `mcp-server/src/main.rs:194-481`.
 
 `mcp-server/src/main.rs` has `#[cfg(test)]` coverage for `get_workspaces`, `create_workspace`, `get_board`, `create_task`, `move_task`, `update_task`, `delete_task`, `approve_task`, `reject_task`, `create_column`, `list_scripts`, `create_script`, fuzzy workspace resolution, and unknown-tool error path (lines 2101-2461). Tests run in-memory and use the `cfg!(test)` direct-DB fallback — they do **not** exercise the API bridge.
 
-I was unable to run `cargo test -p bento-mcp` in this sandbox (no execute permission for cargo). The test code looks correct on inspection.
+I was unable to run `cargo test -p kaitencode-mcp` in this sandbox (no execute permission for cargo). The test code looks correct on inspection.
 
 ## End-to-end dogfooding
 
-I was unable to invoke the live `mcp__bento-ya__*` tools in this session (permission gate). The walk-through below traces the call paths from the source.
+I was unable to invoke the live `mcp__kaitencode__*` tools in this session (permission gate). The walk-through below traces the call paths from the source.
 
 ### Read flow (no app required)
 
@@ -78,7 +78,7 @@ This is the correct path: it ensures the on-entry trigger of the destination col
 
 ### Surface
 
-Loop shape: `agent in column with spawn_cli` → `agent has bento-ya MCP configured` → `agent calls create_task` → `target column has spawn_cli` → another agent spawns → repeats.
+Loop shape: `agent in column with spawn_cli` → `agent has kaitencode MCP configured` → `agent calls create_task` → `target column has spawn_cli` → another agent spawns → repeats.
 
 ### Existing safeguards
 
@@ -130,9 +130,9 @@ The current design intentionally pushes the responsibility to the **agent prompt
 - Read 2461 lines of `mcp-server/src/main.rs` end-to-end.
 - Cross-referenced the tools against `src-tauri/src/api.rs` (route table at line 622-634).
 - Cross-referenced the recursion claim against `DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS` (`src-tauri/src/config/mod.rs:13`).
-- `cargo test -p bento-mcp` — **blocked** (no permission in this sandbox). Recommend running it before merging the follow-up fixes.
+- `cargo test -p kaitencode-mcp` — **blocked** (no permission in this sandbox). Recommend running it before merging the follow-up fixes.
 
 ## Blockers / next steps
 
 - I could not run `cargo test`, `cargo check`, or invoke the live MCP tools from this session — the sandbox blocks both the binary and `cargo` commands. The findings here are source-only.
-- All proposed fixes need verification with `cargo test -p bento-mcp` + manual MCP test with the app running before merge.
+- All proposed fixes need verification with `cargo test -p kaitencode-mcp` + manual MCP test with the app running before merge.

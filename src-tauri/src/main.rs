@@ -2,5 +2,5 @@
 #![deny(clippy::all)]
 
 fn main() {
-    bento_ya_lib::run()
+    kaitencode_lib::run()
 }

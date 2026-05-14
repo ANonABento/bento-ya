@@ -1,4 +1,4 @@
-# Bento-ya Roadmap
+# KaitenCode Roadmap
 
 > **Status:** See [STATUS.md](./STATUS.md) for detailed implementation status.
 >
@@ -98,7 +98,7 @@ T026 Manual Test Checklists (needs siege loop output)
 
 ---
 
-### v1.0 — "Bento-ya" — COMPLETE
+### v1.0 — "KaitenCode" — COMPLETE
 
 ```
 T029 History & Replay ─────────┐
@@ -157,7 +157,7 @@ T032 Polish & Ship
 | T027 | Notification Column | ❌ | S |
 | T028 | Checklist Auto-Detect & Fix-This | ❌ | M |
 
-### v1.0 — "Bento-ya" — COMPLETE
+### v1.0 — "KaitenCode" — COMPLETE
 | ID | Title | Status |
 |----|-------|--------|
 | T029 | History & Replay | ✅ |

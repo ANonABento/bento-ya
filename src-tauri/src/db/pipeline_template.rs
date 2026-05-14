@@ -4,7 +4,8 @@ use super::models::PipelineTemplate;
 use super::now;
 
 /// Shared SELECT columns for pipeline_templates.
-const PIPELINE_TEMPLATE_COLUMNS: &str = "id, name, description, columns_json, source_workspace_id, is_built_in, created_at, updated_at";
+const PIPELINE_TEMPLATE_COLUMNS: &str =
+    "id, name, description, columns_json, source_workspace_id, is_built_in, created_at, updated_at";
 
 fn map_pipeline_template_row(row: &rusqlite::Row) -> rusqlite::Result<PipelineTemplate> {
     Ok(PipelineTemplate {
@@ -91,10 +92,7 @@ pub fn update_pipeline_template(
 }
 
 pub fn delete_pipeline_template(conn: &Connection, id: &str) -> SqlResult<()> {
-    conn.execute(
-        "DELETE FROM pipeline_templates WHERE id = ?1",
-        params![id],
-    )?;
+    conn.execute("DELETE FROM pipeline_templates WHERE id = ?1", params![id])?;
     Ok(())
 }
 

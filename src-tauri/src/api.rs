@@ -1,7 +1,7 @@
 //! HTTP API server for external control (MCP bridge).
 //!
 //! Starts an axum server on a random available port. The port is written
-//! to `~/.bentoya/api.port` so MCP clients can discover it.
+//! to `~/.kaitencode/api.port` so MCP clients can discover it.
 //! Mutation endpoints call the same internal functions as Tauri IPC commands.
 
 use crate::db;
@@ -439,7 +439,7 @@ async fn update_settings(Json(updates): Json<serde_json::Value>) -> impl IntoRes
     }
 }
 
-// ─── Pipeline template endpoints (used by bento-mcp) ───────────────────────
+// ─── Pipeline template endpoints (used by kaitencode-mcp) ──────────────────
 
 #[derive(Deserialize)]
 struct SavePipelineTemplateReq {
@@ -462,23 +462,28 @@ async fn save_pipeline_template_api(
     if let Ok(Some(existing)) = db::find_pipeline_template_by_name(&conn, req.name.trim()) {
         return err_response(
             StatusCode::CONFLICT,
-            format!("Template '{}' already exists (id {})", existing.name, existing.id),
+            format!(
+                "Template '{}' already exists (id {})",
+                existing.name, existing.id
+            ),
         )
         .into_response();
     }
 
-    let column_data = match pipeline::templates::extract_template_from_workspace(
-        &conn,
-        &req.source_workspace_id,
-    ) {
-        Ok(d) => d,
-        Err(e) => {
-            return err_response(StatusCode::BAD_REQUEST, e.to_string()).into_response();
-        }
-    };
+    let column_data =
+        match pipeline::templates::extract_template_from_workspace(&conn, &req.source_workspace_id)
+        {
+            Ok(d) => d,
+            Err(e) => {
+                return err_response(StatusCode::BAD_REQUEST, e.to_string()).into_response();
+            }
+        };
     if column_data.is_empty() {
-        return err_response(StatusCode::BAD_REQUEST, "Source workspace has no columns".into())
-            .into_response();
+        return err_response(
+            StatusCode::BAD_REQUEST,
+            "Source workspace has no columns".into(),
+        )
+        .into_response();
     }
     let columns_json = match serde_json::to_string(&column_data) {
         Ok(s) => s,
@@ -538,14 +543,12 @@ async fn apply_pipeline_template_api(
                 &req.task_mapping,
             )
         }
-        pipeline::templates::CollisionPolicy::Append => {
-            pipeline::templates::apply_template_append(
-                &conn,
-                &template,
-                &req.target_workspace_id,
-                &req.placeholders,
-            )
-        }
+        pipeline::templates::CollisionPolicy::Append => pipeline::templates::apply_template_append(
+            &conn,
+            &template,
+            &req.target_workspace_id,
+            &req.placeholders,
+        ),
         pipeline::templates::CollisionPolicy::Prompt => {
             return err_response(
                 StatusCode::BAD_REQUEST,
@@ -597,13 +600,10 @@ async fn delete_pipeline_template_api(
 // ─── Server lifecycle ───────────────────────────────────────────────────────
 
 fn port_file_path() -> std::path::PathBuf {
-    dirs::home_dir()
-        .unwrap_or_default()
-        .join(".bentoya")
-        .join("api.port")
+    crate::db::data_dir().join("api.port")
 }
 
-/// Start the HTTP API server on a random port. Writes port to ~/.bentoya/api.port.
+/// Start the HTTP API server on a random port. Writes port to ~/.kaitencode/api.port.
 pub fn start(app: AppHandle) {
     // Open a separate DB connection for the API server (WAL allows concurrent access)
     let db = Arc::new(std::sync::Mutex::new(
@@ -629,9 +629,18 @@ pub fn start(app: AppHandle) {
             .route("/api/retry_from_start", post(retry_from_start))
             .route("/api/settings", get(get_settings))
             .route("/api/settings", post(update_settings))
-            .route("/api/save_pipeline_template", post(save_pipeline_template_api))
-            .route("/api/apply_pipeline_template", post(apply_pipeline_template_api))
-            .route("/api/delete_pipeline_template", post(delete_pipeline_template_api))
+            .route(
+                "/api/save_pipeline_template",
+                post(save_pipeline_template_api),
+            )
+            .route(
+                "/api/apply_pipeline_template",
+                post(apply_pipeline_template_api),
+            )
+            .route(
+                "/api/delete_pipeline_template",
+                post(delete_pipeline_template_api),
+            )
             .with_state(api_state);
 
         // Bind to random available port

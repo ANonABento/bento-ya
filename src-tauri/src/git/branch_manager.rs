@@ -1,9 +1,11 @@
-use crate::config::{normalize_branch_prefix, DEFAULT_BRANCH_PREFIX};
+use crate::config::{is_task_branch_name, normalize_branch_prefix, DEFAULT_BRANCH_PREFIX};
 use git2::{BranchType, Repository, Signature, StashFlags, WorktreeAddOptions};
 use serde::Serialize;
 use std::path::PathBuf;
 
-const AUTO_STASH_PREFIX: &str = "bentoya-auto-stash-";
+const AUTO_STASH_PREFIX: &str = "kaitencode-auto-stash-";
+const WORKTREE_PREFIX: &str = "kaitencode-";
+const LEGACY_WORKTREE_PREFIXES: &[&str] = &["bentoya-"];
 
 #[derive(Debug, Serialize)]
 pub struct BranchInfo {
@@ -139,7 +141,7 @@ pub fn fetch_and_fastforward_base(repo_path: &str, base_branch: &str) {
     }
 }
 
-/// Create a task branch `bentoya/<slug>` from the base branch.
+/// Create a task branch from the base branch.
 pub fn create_task_branch(
     repo_path: &str,
     task_slug: &str,
@@ -210,7 +212,7 @@ pub fn switch_branch(repo_path: &str, branch: &str) -> Result<(), String> {
     if is_working_tree_dirty(&repo).map_err(|e| e.to_string())? {
         let sig = repo
             .signature()
-            .or_else(|_| Signature::now("Bento-ya", "bentoya@local"))
+            .or_else(|_| Signature::now("KaitenCode", "kaitencode@local"))
             .map_err(|e| e.to_string())?;
 
         let message = format!("{}{}", AUTO_STASH_PREFIX, current);
@@ -264,7 +266,7 @@ pub fn get_current_branch(repo_path: &str) -> Result<String, String> {
     get_current_branch_inner(&repo)
 }
 
-/// List all branches matching the `bentoya/*` prefix.
+/// List all task branches, including legacy-prefixed branches.
 pub fn list_task_branches(repo_path: &str) -> Result<Vec<BranchInfo>, String> {
     let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
     let branches = repo
@@ -284,7 +286,7 @@ pub fn list_task_branches(repo_path: &str) -> Result<Vec<BranchInfo>, String> {
             .unwrap_or("")
             .to_string();
 
-        if name.starts_with(DEFAULT_BRANCH_PREFIX) {
+        if is_task_branch_name(&name) {
             let upstream = branch
                 .upstream()
                 .ok()
@@ -335,10 +337,23 @@ pub fn delete_task_branch(repo_path: &str, branch: &str) -> Result<bool, String>
 
 /// Git-internal worktree name (no slashes — git stores metadata at `.git/worktrees/<name>/`).
 fn worktree_name(task_id: &str) -> String {
-    format!("bentoya-{}", task_id)
+    format!("{}{}", WORKTREE_PREFIX, task_id)
 }
 
-/// On-disk worktree path: `<repo>/.worktrees/bentoya-<task_id>/`.
+fn legacy_worktree_names(task_id: &str) -> Vec<String> {
+    LEGACY_WORKTREE_PREFIXES
+        .iter()
+        .map(|prefix| format!("{}{}", prefix, task_id))
+        .collect()
+}
+
+pub fn task_worktree_names(task_id: &str) -> Vec<String> {
+    let mut names = vec![worktree_name(task_id)];
+    names.extend(legacy_worktree_names(task_id));
+    names
+}
+
+/// On-disk worktree path: `<repo>/.worktrees/kaitencode-<task_id>/`.
 fn worktree_path(repo_path: &str, task_id: &str) -> PathBuf {
     PathBuf::from(repo_path)
         .join(".worktrees")
@@ -348,7 +363,7 @@ fn worktree_path(repo_path: &str, task_id: &str) -> PathBuf {
 /// Create a git worktree for a task, checked out to the given branch.
 /// Returns the absolute path to the worktree directory.
 ///
-/// Worktrees live at `<repo>/.worktrees/bentoya-<task_id>/` to keep
+/// Worktrees live at `<repo>/.worktrees/kaitencode-<task_id>/` to keep
 /// them out of the way while staying inside the repo root.
 pub fn create_task_worktree(
     repo_path: &str,
@@ -430,23 +445,29 @@ fn ensure_worktrees_gitignored(repo_path: &str) {
 pub fn remove_task_worktree(repo_path: &str, task_id: &str) -> Result<(), String> {
     let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
 
-    let wt_name = worktree_name(task_id);
-    let wt_path = worktree_path(repo_path, task_id);
+    for wt_name in task_worktree_names(task_id) {
+        let wt_path = PathBuf::from(repo_path).join(".worktrees").join(&wt_name);
 
-    // Prune the worktree from git's tracking
-    if let Ok(wt) = repo.find_worktree(&wt_name) {
-        wt.prune(Some(
-            git2::WorktreePruneOptions::new()
-                .valid(true)
-                .working_tree(true),
-        ))
-        .map_err(|e| format!("Failed to prune worktree: {}", e))?;
-    }
+        // Prune the worktree from git's tracking
+        if let Ok(wt) = repo.find_worktree(&wt_name) {
+            wt.prune(Some(
+                git2::WorktreePruneOptions::new()
+                    .valid(true)
+                    .working_tree(true),
+            ))
+            .map_err(|e| format!("Failed to prune worktree '{}': {}", wt_name, e))?;
+        }
 
-    // Remove directory if it still exists
-    if wt_path.exists() {
-        std::fs::remove_dir_all(&wt_path)
-            .map_err(|e| format!("Failed to remove worktree directory: {}", e))?;
+        // Remove directory if it still exists
+        if wt_path.exists() {
+            std::fs::remove_dir_all(&wt_path).map_err(|e| {
+                format!(
+                    "Failed to remove worktree directory '{}': {}",
+                    wt_path.display(),
+                    e
+                )
+            })?;
+        }
     }
 
     Ok(())
@@ -574,10 +595,7 @@ pub fn worktree_is_dirty(worktree_path: &str) -> Result<bool, String> {
 /// successfully but forgot to commit its own output. We disable gpg signing
 /// (`-c commit.gpgsign=false`) since this is an automated commit and the
 /// host's signing config may prompt interactively.
-pub fn auto_commit_dirty_worktree(
-    worktree_path: &str,
-    message: &str,
-) -> Result<bool, String> {
+pub fn auto_commit_dirty_worktree(worktree_path: &str, message: &str) -> Result<bool, String> {
     if !worktree_is_dirty(worktree_path)? {
         return Ok(false);
     }
@@ -617,7 +635,7 @@ pub fn auto_commit_dirty_worktree(
     Ok(true)
 }
 
-/// List all bentoya worktrees in a repo.
+/// List all KaitenCode worktrees in a repo, including legacy names.
 pub fn list_worktrees(repo_path: &str) -> Result<Vec<String>, String> {
     let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
 
@@ -628,7 +646,12 @@ pub fn list_worktrees(repo_path: &str) -> Result<Vec<String>, String> {
     Ok(names
         .iter()
         .filter_map(|n| n.map(|s| s.to_string()))
-        .filter(|name| name.starts_with("bentoya-"))
+        .filter(|name| {
+            name.starts_with(WORKTREE_PREFIX)
+                || LEGACY_WORKTREE_PREFIXES
+                    .iter()
+                    .any(|prefix| name.starts_with(prefix))
+        })
         .collect())
 }
 
@@ -712,7 +735,8 @@ mod tests {
 
     #[test]
     fn test_clean_worktree_removes_dirty_state() {
-        let tmp = std::env::temp_dir().join(format!("bentoya-clean-test-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("kaitencode-clean-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
@@ -745,8 +769,10 @@ mod tests {
 
     #[test]
     fn test_create_task_branch_with_custom_prefix() {
-        let tmp =
-            std::env::temp_dir().join(format!("bentoya-branch-prefix-test-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!(
+            "kaitencode-branch-prefix-test-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
@@ -770,8 +796,10 @@ mod tests {
 
     #[test]
     fn test_branch_exists_reports_local_branch_presence() {
-        let tmp =
-            std::env::temp_dir().join(format!("bentoya-branch-exists-test-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!(
+            "kaitencode-branch-exists-test-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
@@ -779,14 +807,26 @@ mod tests {
 
         let repo_path = tmp.to_str().unwrap();
         assert!(branch_exists(repo_path, "main").unwrap());
-        assert!(!branch_exists(repo_path, "bentoya/missing-task").unwrap());
+        assert!(!branch_exists(repo_path, "kaitencode/missing-task").unwrap());
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
+    fn test_task_worktree_names_include_legacy_alias() {
+        assert_eq!(
+            task_worktree_names("task-1"),
+            vec![
+                "kaitencode-task-1".to_string(),
+                "bentoya-task-1".to_string()
+            ]
+        );
+    }
+
+    #[test]
     fn test_clean_worktree_on_clean_repo_is_noop() {
-        let tmp = std::env::temp_dir().join(format!("bentoya-clean-noop-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("kaitencode-clean-noop-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
@@ -804,7 +844,7 @@ mod tests {
 
     #[test]
     fn test_clean_worktree_missing_path_errors() {
-        let missing = std::env::temp_dir().join("bentoya-definitely-not-there-xyz");
+        let missing = std::env::temp_dir().join("kaitencode-definitely-not-there-xyz");
         let _ = std::fs::remove_dir_all(&missing);
         let err = clean_worktree(missing.to_str().unwrap()).unwrap_err();
         assert!(err.contains("does not exist"));
@@ -821,7 +861,7 @@ mod tests {
         use std::process::Command;
 
         let root = std::env::temp_dir().join(format!(
-            "bentoya-fetch-{}-{}-{}",
+            "kaitencode-fetch-{}-{}-{}",
             tag,
             std::process::id(),
             std::time::SystemTime::now()
@@ -1019,7 +1059,7 @@ mod tests {
         // Repo with no `origin` remote — fetch_and_fastforward_base must
         // log + return without panicking.
         let tmp =
-            std::env::temp_dir().join(format!("bentoya-fetch-noremote-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kaitencode-fetch-noremote-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         init_test_repo(&tmp);
@@ -1050,8 +1090,10 @@ mod tests {
 
     #[test]
     fn test_branch_feature_commit_count_zero_when_branch_equals_base() {
-        let tmp =
-            std::env::temp_dir().join(format!("bentoya-branchcount-zero-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!(
+            "kaitencode-branchcount-zero-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         init_test_repo(&tmp);
@@ -1072,8 +1114,10 @@ mod tests {
 
     #[test]
     fn test_branch_feature_commit_count_counts_real_commits() {
-        let tmp =
-            std::env::temp_dir().join(format!("bentoya-branchcount-real-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!(
+            "kaitencode-branchcount-real-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         init_test_repo(&tmp);
@@ -1095,8 +1139,10 @@ mod tests {
 
     #[test]
     fn test_branch_feature_commit_count_excludes_merge_commits() {
-        let tmp =
-            std::env::temp_dir().join(format!("bentoya-branchcount-merge-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!(
+            "kaitencode-branchcount-merge-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         init_test_repo(&tmp);
@@ -1128,12 +1174,9 @@ mod tests {
 
         // The branch's only new commit is the merge commit; --no-merges
         // should report 1 (the side commit).
-        let count = branch_feature_commit_count(
-            tmp.to_str().unwrap(),
-            "main",
-            "feature/merge-only",
-        )
-        .expect("count");
+        let count =
+            branch_feature_commit_count(tmp.to_str().unwrap(), "main", "feature/merge-only")
+                .expect("count");
         assert_eq!(
             count, 1,
             "side commit counts; merge commit excluded by --no-merges"
@@ -1147,7 +1190,7 @@ mod tests {
     #[test]
     fn test_worktree_is_dirty_clean_repo() {
         let tmp =
-            std::env::temp_dir().join(format!("bentoya-dirty-clean-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kaitencode-dirty-clean-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         init_test_repo(&tmp);
@@ -1159,8 +1202,7 @@ mod tests {
 
     #[test]
     fn test_worktree_is_dirty_modified_file() {
-        let tmp =
-            std::env::temp_dir().join(format!("bentoya-dirty-mod-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("kaitencode-dirty-mod-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         init_test_repo(&tmp);
@@ -1174,7 +1216,7 @@ mod tests {
     #[test]
     fn test_worktree_is_dirty_untracked_file() {
         let tmp =
-            std::env::temp_dir().join(format!("bentoya-dirty-untracked-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kaitencode-dirty-untracked-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         init_test_repo(&tmp);
@@ -1188,7 +1230,7 @@ mod tests {
     #[test]
     fn test_auto_commit_dirty_worktree_no_op_when_clean() {
         let tmp =
-            std::env::temp_dir().join(format!("bentoya-autocommit-noop-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kaitencode-autocommit-noop-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         init_test_repo(&tmp);
@@ -1202,8 +1244,10 @@ mod tests {
 
     #[test]
     fn test_auto_commit_dirty_worktree_commits_modified_and_new() {
-        let tmp =
-            std::env::temp_dir().join(format!("bentoya-autocommit-dirty-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!(
+            "kaitencode-autocommit-dirty-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         init_test_repo(&tmp);
@@ -1212,11 +1256,9 @@ mod tests {
         std::fs::write(tmp.join("README.md"), "modified\n").unwrap();
         std::fs::write(tmp.join("new.txt"), "new\n").unwrap();
 
-        let committed = auto_commit_dirty_worktree(
-            tmp.to_str().unwrap(),
-            "auto: rescued agent output",
-        )
-        .expect("auto-commit");
+        let committed =
+            auto_commit_dirty_worktree(tmp.to_str().unwrap(), "auto: rescued agent output")
+                .expect("auto-commit");
         assert!(committed, "expected a commit when worktree is dirty");
 
         // Worktree must now be clean.

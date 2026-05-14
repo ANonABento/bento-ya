@@ -5,7 +5,7 @@
  *   npm run test:webdriver -- --spec ./tests/webdriver/screenshots.spec.mjs
  *
  * Each scenario navigates to a different surface and snaps the viewport.
- * Uses the same seeded `/tmp/bentoya-wdio` fixture as the other specs.
+ * Uses the same seeded `/tmp/kaitencode-wdio` fixture as the other specs.
  */
 import fs from 'node:fs/promises'
 import path from 'node:path'

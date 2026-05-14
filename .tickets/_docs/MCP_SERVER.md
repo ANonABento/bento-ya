@@ -1,8 +1,8 @@
-# Bento-ya MCP Server — Implementation Spec
+# KaitenCode MCP Server — Implementation Spec
 
 ## Goal
 
-Expose bento-ya's kanban board as MCP tools so any agent (choomfie, Claude Code, Cursor, etc.) can manage tasks, trigger pipelines, and check board state. Replaces the Discord sidecar as the external integration layer.
+Expose kaitencode's kanban board as MCP tools so any agent (choomfie, Claude Code, Cursor, etc.) can manage tasks, trigger pipelines, and check board state. Replaces the Discord sidecar as the external integration layer.
 
 ## Architecture
 
@@ -12,7 +12,7 @@ Any MCP Client (choomfie, claude code, etc.)
   ├─ stdio or SSE transport
   │
   ▼
-bento-ya MCP Server (Rust, runs inside Tauri app)
+kaitencode MCP Server (Rust, runs inside Tauri app)
   │
   ├─ SQLite DB (direct access, same as UI)
   ├─ Pipeline engine (fire triggers, check deps)
@@ -161,7 +161,7 @@ Tools accept names OR IDs for columns and workspaces. Internally resolve names t
 - No subprocess needed — runs in the Tauri app's tokio runtime
 
 **Option C: Separate binary** (simplest)
-- Build a separate CLI binary `bento-mcp` that connects to the same SQLite DB
+- Build a separate CLI binary `kaitencode-mcp` that connects to the same SQLite DB
 - Runs as stdio MCP server (standard pattern)
 - No Tauri dependency
 - Limitation: can't fire triggers (no AppHandle for events)
@@ -172,7 +172,7 @@ Tools accept names OR IDs for columns and workspaces. Internally resolve names t
 - OR: just access DB directly + call pipeline functions (they only need Connection + AppHandle for events, and events are optional for MCP usage)
 
 Actually, **Option C pure** is best:
-- Separate `bento-mcp` binary in the same Cargo workspace
+- Separate `kaitencode-mcp` binary in the same Cargo workspace
 - Shares `db/` and `pipeline/` modules with the Tauri app
 - Reads/writes SQLite directly
 - Pipeline functions work without AppHandle (events just don't emit to frontend — that's fine, frontend polls via `tasks:changed`)
@@ -184,7 +184,7 @@ src-tauri/
 ├── src/          — existing Tauri app
 ├── src-mcp/      — new MCP server binary
 │   └── main.rs   — MCP server entry point
-└── Cargo.toml    — add [[bin]] for bento-mcp
+└── Cargo.toml    — add [[bin]] for kaitencode-mcp
 ```
 
 Or better as a workspace member:
@@ -199,17 +199,17 @@ packages/
 Actually simplest: add a `bin/mcp.rs` to the existing crate:
 ```toml
 [[bin]]
-name = "bento-mcp"
+name = "kaitencode-mcp"
 path = "src/bin/mcp.rs"
 ```
 
 ### MCP server main.rs
 ```rust
-use bento_ya::db;
-use bento_ya::pipeline;
+use kaitencode_lib::db;
+use kaitencode_lib::pipeline;
 
 fn main() {
-    // 1. Find bento-ya DB path (~/.local/share/bento-ya/bento-ya.db or platform-specific)
+    // 1. Find kaitencode DB path (~/.local/share/kaitencode/kaitencode.db or platform-specific)
     // 2. Open SQLite connection
     // 3. Start MCP server on stdio
     // 4. Register tools
@@ -221,9 +221,9 @@ fn main() {
 ```json
 {
   "mcpServers": {
-    "bento-ya": {
-      "command": "bento-mcp",
-      "args": ["--db", "~/.local/share/bento-ya/bento-ya.db"]
+    "kaitencode": {
+      "command": "kaitencode-mcp",
+      "args": ["--db", "~/.local/share/kaitencode/kaitencode.db"]
     }
   }
 }
@@ -233,7 +233,7 @@ fn main() {
 
 **Estimated: 30 min**
 
-Add `bento-ya` as an MCP server in choomfie's config or project `.mcp.json`. Choomfie can then:
+Add `kaitencode` as an MCP server in choomfie's config or project `.mcp.json`. Choomfie can then:
 - "create a task for fixing the login bug" → calls `create_task`
 - "what's on the board?" → calls `get_board_state`
 - "approve the rate limiting task" → calls `approve_task`
@@ -245,7 +245,7 @@ No code changes to choomfie — it already speaks MCP.
 
 ```
 Phase 1 (1-2 hrs) → Remove Discord + orphaned process files
-Phase 2 (3-4 hrs) → Build bento-mcp binary with MCP tools
+Phase 2 (3-4 hrs) → Build kaitencode-mcp binary with MCP tools
 Phase 3 (30 min)  → Connect choomfie via MCP config
 ```
 
@@ -258,7 +258,7 @@ Total: ~5-6 hours
 | Discord bot sidecar (2228 LOC) | MCP server binary (~500 LOC) |
 | Chef channel (NL commands) | Any MCP client sends tool calls |
 | Task → thread sync | Not needed (board IS the source of truth) |
-| Agent output streaming | Agent output stays in bento-ya UI |
+| Agent output streaming | Agent output stays in kaitencode UI |
 | Rate limiting / queue | Not needed (MCP is request/response) |
 | Discord settings UI | MCP config JSON |
 | 22 Tauri commands | 15 MCP tools |

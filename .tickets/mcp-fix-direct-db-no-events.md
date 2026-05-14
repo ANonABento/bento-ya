@@ -4,7 +4,7 @@ Found during MCP dogfood audit, 2026-05-12. See `.tickets/_docs/MCP_DOGFOOD_REPO
 
 ## Symptom
 
-Three MCP mutation tools write the SQLite DB directly without going through the Tauri HTTP API, so no `tasks:changed` event fires. The Bento-ya UI doesn't refresh in real time after these calls; it relies on whatever periodic / explicit re-fetch happens to come next.
+Three MCP mutation tools write the SQLite DB directly without going through the Tauri HTTP API, so no `tasks:changed` event fires. The KaitenCode UI doesn't refresh in real time after these calls; it relies on whatever periodic / explicit re-fetch happens to come next.
 
 Affected:
 
@@ -49,8 +49,8 @@ After the direct-DB write succeeds, POST to a new `/api/notify_tasks_changed` en
 
 ## Validation
 
-- `cargo test -p bento-ya` — existing tests pass.
-- `cargo test -p bento-mcp` — existing direct-DB tests pass.
+- `cargo test -p kaitencode` — existing tests pass.
+- `cargo test -p kaitencode-mcp` — existing direct-DB tests pass.
 - Manual: `mark_complete` from MCP → UI updates within ~100 ms.
 
 ## Acceptance

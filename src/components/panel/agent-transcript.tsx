@@ -1100,7 +1100,9 @@ function isTerminalScaffoldLine(line: string): boolean {
   if (!trimmed) return true
   if (trimmed === '^C') return true
   if (trimmed === '%' || trimmed === 'm') return true
+  if (trimmed.includes('KAITENCODE_CLAUDE_SESSION_ID:')) return true
   if (trimmed.includes('BENTOYA_CLAUDE_SESSION_ID:')) return true
+  if (trimmed.includes('/.kaitencode/trigger_logs/run_')) return true
   if (trimmed.includes('/.bentoya/trigger_logs/run_')) return true
   if (/^[a-f0-9]{4,}\.sh'?$/i.test(trimmed)) return true
   if (/^b?bash\s+'?\/Users\/bento/i.test(trimmed)) return true
@@ -1110,6 +1112,7 @@ function isTerminalScaffoldLine(line: string): boolean {
   if (/^\[[^\]]+:zsh\*?\]/.test(trimmed)) return true
   if (/^\[[0-9]+,[0-9]+\]/.test(trimmed)) return true
   if (/^\[claude\b.*\]$/i.test(trimmed)) return true
+  if (/^KAITENCODE_CLAUDE_FILTER=/.test(trimmed)) return true
   if (/^BENTOYA_CLAUDE_FILTER=/.test(trimmed)) return true
   if (/^quote>/.test(trimmed)) return true
   return false
@@ -1118,8 +1121,11 @@ function isTerminalScaffoldLine(line: string): boolean {
 function looksLikeRawTerminal(content: string): boolean {
   return (
     content.includes('/.bentoya/trigger_logs/run_') ||
+    content.includes('/.kaitencode/trigger_logs/run_') ||
+    content.includes('KAITENCODE_CLAUDE_FILTER=') ||
     content.includes('BENTOYA_CLAUDE_FILTER=') ||
     content.includes('quote>') ||
+    /kaitencode-[0-9a-f-]+\s*%/.test(content) ||
     /bentoya-[0-9a-f-]+\s*%/.test(content) ||
     /\[[^\]]+:zsh\*\]/.test(content)
   )

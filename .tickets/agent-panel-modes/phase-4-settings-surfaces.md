@@ -56,7 +56,7 @@ Users can set defaults at any tier through the settings panel. The agent panel's
 4. **Wire the storage tiers** in `resolve_runtime_mode` (Phase 2 stubbed task/workspace/global):
    - **Task tier:** read `tasks.runtime_mode_override` directly.
    - **Workspace tier:** read `workspace_config` JSON → `default_runtime_mode`.
-   - **Global tier:** read `~/.bentoya/settings.json` → `default_runtime_mode` via existing settings cache.
+   - **Global tier:** read `~/.kaitencode/settings.json` → `default_runtime_mode` via existing settings cache.
    - Both `default_runtime_mode` and `default_headless_render` are resolved with the same hierarchy.
 
 5. **Update the `source` return** to reflect the real tier the value came from, not "default" as a fallback when stubbed tiers had values.
@@ -70,7 +70,7 @@ Users can set defaults at any tier through the settings panel. The agent panel's
 
 7. **Settings panel** — extend an existing tab (likely Agents tab) or add a new "Agent Modes" section:
    - Workspace-level "Default runtime mode" picker (saves to `workspace_config`).
-   - Global "Default runtime mode" picker (saves to `~/.bentoya/settings.json`).
+   - Global "Default runtime mode" picker (saves to `~/.kaitencode/settings.json`).
    - Both pickers also have a "Default headless render" sub-picker (bubbles vs terminal) shown when mode = headless.
    - Compact effective-mode preview: "New tasks will use: X (from Y)" for the current selection cascade.
 
@@ -97,7 +97,7 @@ Users can set defaults at any tier through the settings panel. The agent panel's
 - **No idle-prompt-detector.** Phase 6 evaluates whether to add it based on Phase 4 telemetry.
 - **No pause/resume.** Phase 5.
 - **No mode rename / collapse.** Phase 6 decides.
-- **No removal of the dev flag.** `BENTOYA_INTERACTIVE_MODE_ENABLED` stays gating the runtime path until Phase 6.
+- **No removal of the dev flag.** `KAITENCODE_INTERACTIVE_MODE_ENABLED` stays gating the runtime path until Phase 6.
 
 ## Definition of done
 

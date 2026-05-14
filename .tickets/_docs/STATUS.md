@@ -1,4 +1,4 @@
-# Bento-ya Implementation Status
+# KaitenCode Implementation Status
 
 > Last updated: 2026-04-05
 >
@@ -35,7 +35,7 @@ Phase 5 ✅ — Shared chat helpers extracted
 Phase 6 🟡 — CliSessionManager removed, but AgentRunner + PtyManager still used by terminal/siege commands
 ```
 
-### MCP Server (bento-mcp)
+### MCP Server (kaitencode-mcp)
 
 Standalone Rust binary (19 tools), shares Cargo workspace with Tauri app for WAL-compatible concurrent DB access. 17 unit tests.
 
@@ -48,8 +48,8 @@ SQLite with WAL mode. 29 migration files. Schema split into 12 domain modules:
 
 | Suite | Count | Notes |
 |-------|-------|-------|
-| Rust (bento-ya) | 156 | db, pipeline, triggers, dependencies, chat, chef, siege |
-| Rust (bento-mcp) | 17 | tool handlers, fuzzy resolution |
+| Rust (kaitencode) | 156 | db, pipeline, triggers, dependencies, chat, chef, siege |
+| Rust (kaitencode-mcp) | 17 | tool handlers, fuzzy resolution |
 | Frontend (Vitest) | 149 | stores, hooks, utils |
 | E2E (WebDriverIO) | 17 | Tauri WKWebView automation |
 | **Total** | **339** | |
@@ -119,4 +119,4 @@ From `docs/ROADMAP.md`:
 | Lint | ✅ | `npm run lint` (0 errors) |
 | Rust check | ✅ | `cargo check --workspace` |
 | Tauri build | ✅ | Requires macOS 10.15+ for whisper-rs |
-| MCP server | ✅ | `cargo build -p bento-mcp --release` |
+| MCP server | ✅ | `cargo build -p kaitencode-mcp --release` |

@@ -269,7 +269,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   workspaceDefaults: {
     defaultColumns: ['Backlog', 'Working', 'Review', 'Done'],
-    branchPrefix: 'bentoya/',
-    autoStashPrefix: 'bentoya-auto-stash-',
+    branchPrefix: 'kaitencode/',
+    autoStashPrefix: 'kaitencode-auto-stash-',
   },
 }

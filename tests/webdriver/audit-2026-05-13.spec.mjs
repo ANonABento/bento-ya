@@ -8,8 +8,8 @@
  *
  * Prereqs (see CLAUDE.md > "WebDriver E2E Testing"):
  *   - Vite on :1420
- *   - tauri-driver --port 4444 with BENTOYA_DATA_DIR=/tmp/bentoya-wdio
- *   - Webdriver-feature binary at target/debug/bento-ya
+ *   - tauri-driver --port 4444 with KAITENCODE_DATA_DIR=/tmp/kaitencode-wdio
+ *   - Webdriver-feature binary at target/debug/kaitencode
  */
 import fs from 'node:fs/promises'
 import path from 'node:path'

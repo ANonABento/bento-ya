@@ -2,7 +2,7 @@
 //! triggers inside per-task tmux sessions.
 //!
 //! Every pipeline trigger runs inside a tmux session named
-//! `bentoya_<task_id>` — the same naming used by interactive chat sessions.
+//! `kaitencode_<task_id>` — the same naming used by interactive chat sessions.
 //! The frontend's `TerminalView` attaches to that session via
 //! `ensure_pty_session` and gets a live, interactive view. Completion
 //! detection uses `tmux wait-for` plus an exit-code sentinel file, so the
@@ -14,7 +14,7 @@
 //!
 //! Output capture for rate-limit detection and persistence is done by
 //! `tmux pipe-pane`, which mirrors the pane's raw output to a log file in
-//! `~/.bentoya/trigger_logs/`. We read that file on completion to drive
+//! `~/.kaitencode/trigger_logs/`. We read that file on completion to drive
 //! rate-limit detection and `tasks.pipeline_error`.
 
 use std::collections::HashMap;
@@ -72,7 +72,8 @@ const DEAD_AGENT_GRACE_PERIOD: Duration = Duration::from_secs(10);
 /// Default window dimensions when the trigger runs headless (no UI attached).
 const DEFAULT_TRIGGER_COLS: u16 = 120;
 const DEFAULT_TRIGGER_ROWS: u16 = 50;
-const CLAUDE_SESSION_MARKER: &str = "BENTOYA_CLAUDE_SESSION_ID:";
+const CLAUDE_SESSION_MARKER: &str = "KAITENCODE_CLAUDE_SESSION_ID:";
+const LEGACY_CLAUDE_SESSION_MARKER: &str = "BENTOYA_CLAUDE_SESSION_ID:";
 
 /// Generate a random 16-char hex nonce (used for tmux wait-for channel names
 /// and exit-code sentinel files).
@@ -336,7 +337,7 @@ const CLAUDE_STREAM_PRETTY_JQ: &str = r#"
   (
   if .type == "system" and .subtype == "init" then
     (if (.session_id // .conversation_id // "") != "" then
-      "[8mBENTOYA_CLAUDE_SESSION_ID:" + (.session_id // .conversation_id) + "[0m\n"
+      "[8mKAITENCODE_CLAUDE_SESSION_ID:" + (.session_id // .conversation_id) + "[0m\n"
     else "" end)
     + "[claude " + (.claude_code_version // "?") + " " + (.model // "?") + "]\n"
   elif .type == "stream_event" then
@@ -541,7 +542,7 @@ fn build_claude_streaming_command(
     // the helper `bash_double_quote_for_outer_squote` escapes single quotes
     // for that outer layer.
     let stream_cmd = format!(
-        "{cli} --dangerously-skip-permissions --output-format stream-json --verbose --include-partial-messages{resume}{args}{prompt} | tee -a \"${{BENTOYA_CLAUDE_JSON_LOG:-/dev/null}}\" | jq -rj --unbuffered \"$BENTOYA_CLAUDE_FILTER\"",
+        "{cli} --dangerously-skip-permissions --output-format stream-json --verbose --include-partial-messages{resume}{args}{prompt} | tee -a \"${{KAITENCODE_CLAUDE_JSON_LOG:-${{BENTOYA_CLAUDE_JSON_LOG:-/dev/null}}}}\" | jq -rj --unbuffered \"$KAITENCODE_CLAUDE_FILTER\"",
         cli = cli_quoted,
         resume = resume_segment,
         args = user_args_segment,
@@ -571,7 +572,7 @@ fn build_claude_streaming_command(
     // Export the jq filter via env var so we don't have to re-escape it
     // through multiple quoting layers — bash will read it directly.
     format!(
-        "BENTOYA_CLAUDE_FILTER='{filter}' bash -o pipefail -c '{body}'",
+        "KAITENCODE_CLAUDE_FILTER='{filter}' BENTOYA_CLAUDE_FILTER='{filter}' bash -o pipefail -c '{body}'",
         filter = filter_outer_escaped,
         body = bash_body_outer_escaped,
     )
@@ -614,7 +615,7 @@ fn build_codex_streaming_command(
         args = user_args_segment,
     );
     let stream_cmd = format!(
-        "{common} --json{prompt} | tee -a \"${{BENTOYA_CODEX_JSON_LOG:-/dev/null}}\" | jq -rj --unbuffered \"$BENTOYA_CODEX_FILTER\"",
+        "{common} --json{prompt} | tee -a \"${{KAITENCODE_CODEX_JSON_LOG:-${{BENTOYA_CODEX_JSON_LOG:-/dev/null}}}}\" | jq -rj --unbuffered \"$KAITENCODE_CODEX_FILTER\"",
         common = common,
         prompt = prompt_quoted,
     );
@@ -628,7 +629,7 @@ fn build_codex_streaming_command(
     let filter_outer_escaped = CODEX_STREAM_PRETTY_JQ.replace('\'', "'\\''");
 
     format!(
-        "BENTOYA_CODEX_FILTER='{filter}' bash -o pipefail -c '{body}'",
+        "KAITENCODE_CODEX_FILTER='{filter}' BENTOYA_CODEX_FILTER='{filter}' bash -o pipefail -c '{body}'",
         filter = filter_outer_escaped,
         body = bash_body_outer_escaped,
     )
@@ -1010,8 +1011,14 @@ fn truncate_for_scrollback(s: &str) -> String {
 
 fn extract_claude_session_id(output: &str) -> Option<String> {
     output.lines().find_map(|line| {
-        let marker_start = line.find(CLAUDE_SESSION_MARKER)?;
-        let after_marker = &line[marker_start + CLAUDE_SESSION_MARKER.len()..];
+        let (marker_start, marker_len) = line
+            .find(CLAUDE_SESSION_MARKER)
+            .map(|start| (start, CLAUDE_SESSION_MARKER.len()))
+            .or_else(|| {
+                line.find(LEGACY_CLAUDE_SESSION_MARKER)
+                    .map(|start| (start, LEGACY_CLAUDE_SESSION_MARKER.len()))
+            })?;
+        let after_marker = &line[marker_start + marker_len..];
         let session_id = after_marker
             .split(|ch: char| ch.is_whitespace() || ch == '\u{1b}' || ch == '\u{7}')
             .next()
@@ -1161,7 +1168,7 @@ fn ensure_trigger_session(
     }
 }
 
-/// Run a CLI trigger inside a tmux session named `bentoya_<task_id>`.
+/// Run a CLI trigger inside a tmux session named `kaitencode_<task_id>`.
 ///
 /// Behavior:
 /// 1. Ensure the tmux server is running and create a fresh session for the task.
@@ -1492,7 +1499,7 @@ async fn run_trigger_in_tmux(
         log_retention::trigger_logs_dir().display(),
         nonce
     );
-    let wait_channel = format!("bentoya_done_{}", nonce);
+    let wait_channel = format!("kaitencode_done_{}", nonce);
 
     // Build the wrapped command. We send it as a single line via send-keys
     // with `Enter`. Layout:
@@ -1504,12 +1511,14 @@ async fn run_trigger_in_tmux(
     let semantic_adapter = semantic_adapter_for_cli(cli_command);
     let command_with_semantic_log = match semantic_adapter {
         Some(AgentAdapterKind::ClaudeCli) => format!(
-            "BENTOYA_CLAUDE_JSON_LOG={} {}",
+            "KAITENCODE_CLAUDE_JSON_LOG={} BENTOYA_CLAUDE_JSON_LOG={} {}",
+            shell_quote_arg(&semantic_log_path),
             shell_quote_arg(&semantic_log_path),
             full_cmd
         ),
         Some(AgentAdapterKind::CodexCli) => format!(
-            "BENTOYA_CODEX_JSON_LOG={} {}",
+            "KAITENCODE_CODEX_JSON_LOG={} BENTOYA_CODEX_JSON_LOG={} {}",
+            shell_quote_arg(&semantic_log_path),
             shell_quote_arg(&semantic_log_path),
             full_cmd
         ),
@@ -1622,7 +1631,7 @@ async fn run_trigger_in_tmux(
     // session-local. If the session dies before signaling its channel (e.g.
     // killed externally, app crashed mid-trigger), the wait-for process keeps
     // running indefinitely — its channel will never fire. Without explicit
-    // cleanup, every timed-out trigger leaks a `tmux wait-for bentoya_done_*`
+    // cleanup, every timed-out trigger leaks a `tmux wait-for kaitencode_done_*`
     // process, and over hours of pipeline activity these accumulate.
     //
     // We `spawn()` (not `output()`) so we get a `Child` with a known PID
@@ -1770,7 +1779,7 @@ async fn run_trigger_in_tmux(
     // the file is empty (e.g. pipe-pane never opened in time).
     let log_contents = std::fs::read_to_string(log_path).unwrap_or_default();
     // Only claude wraps its stream-json output through the jq filter that
-    // emits BENTOYA_CLAUDE_SESSION_ID. Gating on the CLI prevents a future
+    // emits KAITENCODE_CLAUDE_SESSION_ID. Gating on the CLI prevents a future
     // (or hostile) non-claude stream from polluting the per-task slot.
     let captured_cli_session_id = if cli_command == "claude" {
         extract_claude_session_id(&log_contents)
@@ -1848,7 +1857,7 @@ async fn run_trigger_in_tmux(
                     match branch_manager::worktree_is_dirty(worktree_path) {
                         Ok(true) => {
                             let msg = format!(
-                                "auto-commit: bento-ya rescued uncommitted work for task {} (agent exited 0 without committing)",
+                                "auto-commit: kaitencode rescued uncommitted work for task {} (agent exited 0 without committing)",
                                 task_id
                             );
                             match branch_manager::auto_commit_dirty_worktree(worktree_path, &msg) {
@@ -2156,7 +2165,8 @@ fn kill_wait_for_pid(pid: u32) {
     }
 }
 
-/// Sweep any orphaned `tmux wait-for bentoya_done_*` processes left over
+/// Sweep any orphaned `tmux wait-for kaitencode_done_*` or legacy
+/// `bentoya_done_*` processes left over
 /// from a previous app instance. Their channels will never be signaled by
 /// THIS process (the nonces are randomized per trigger), so they'd otherwise
 /// sit forever consuming a PID slot.
@@ -2164,41 +2174,44 @@ fn kill_wait_for_pid(pid: u32) {
 /// Called once at startup, before any new triggers run, so we don't kill
 /// our own freshly-spawned wait-fors.
 ///
-/// Pattern matched: `tmux wait-for bentoya_done_<hex>` — narrow enough that
-/// we won't kill chat-session waits or other tmux clients.
+/// Pattern matched: `tmux wait-for kaitencode_done_<hex>` and legacy
+/// `tmux wait-for bentoya_done_<hex>` — narrow enough that we won't kill
+/// chat-session waits or other tmux clients.
 pub fn sweep_orphan_wait_fors() {
     // pgrep -f matches against the full command line. -l prints both pid and
     // command so we can log what we're killing.
-    let output = match Command::new("pgrep")
-        .args(["-fl", "tmux wait-for bentoya_done_"])
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) => {
-            log::debug!("[bridge] pgrep not available for orphan sweep: {}", e);
-            return;
-        }
-    };
-    if !output.status.success() {
-        // pgrep returns 1 when nothing matches — that's the common case.
-        return;
-    }
-    let listing = String::from_utf8_lossy(&output.stdout);
     let mut killed = 0u32;
-    for line in listing.lines() {
-        let pid: Option<u32> = line.split_whitespace().next().and_then(|p| p.parse().ok());
-        if let Some(pid) = pid {
-            // Skip our own pid out of paranoia (not a real risk, but cheap).
-            if pid == std::process::id() {
-                continue;
+    for pattern in [
+        "tmux wait-for kaitencode_done_",
+        "tmux wait-for bentoya_done_",
+    ] {
+        let output = match Command::new("pgrep").args(["-fl", pattern]).output() {
+            Ok(o) => o,
+            Err(e) => {
+                log::debug!("[bridge] pgrep not available for orphan sweep: {}", e);
+                return;
             }
-            kill_wait_for_pid(pid);
-            killed += 1;
+        };
+        if !output.status.success() {
+            // pgrep returns 1 when nothing matches — that's the common case.
+            continue;
+        }
+        let listing = String::from_utf8_lossy(&output.stdout);
+        for line in listing.lines() {
+            let pid: Option<u32> = line.split_whitespace().next().and_then(|p| p.parse().ok());
+            if let Some(pid) = pid {
+                // Skip our own pid out of paranoia (not a real risk, but cheap).
+                if pid == std::process::id() {
+                    continue;
+                }
+                kill_wait_for_pid(pid);
+                killed += 1;
+            }
         }
     }
     if killed > 0 {
         log::info!(
-            "[bridge] startup orphan sweep: killed {} stale `tmux wait-for bentoya_done_*` processes",
+            "[bridge] startup orphan sweep: killed {} stale `tmux wait-for kaitencode_done_*`/legacy processes",
             killed
         );
     }
@@ -2217,7 +2230,8 @@ pub fn sweep_orphan_wait_fors() {
 /// Sentinel marker emitted by the agent when it has finished the user's
 /// task. The marker includes the task id so a stale capture from a previous
 /// task can't trip the watcher.
-const INTERACTIVE_SENTINEL_PREFIX: &str = "<<<BENTOYA_DONE:";
+const INTERACTIVE_SENTINEL_PREFIX: &str = "<<<KAITENCODE_DONE:";
+const LEGACY_INTERACTIVE_SENTINEL_PREFIX: &str = "<<<BENTOYA_DONE:";
 const INTERACTIVE_SENTINEL_SUFFIX: &str = ">>>";
 
 /// Cadence of the pane scrape that looks for the sentinel.
@@ -2317,7 +2331,7 @@ pub(crate) fn strip_ansi(s: &str) -> String {
     out
 }
 
-/// Returns true if the captured pane contains the `<<<BENTOYA_DONE:task_id>>>`
+/// Returns true if the captured pane contains the `<<<KAITENCODE_DONE:task_id>>>`
 /// sentinel on its own line (after ANSI strip). The "own line" requirement
 /// avoids tripping on agents who quote the sentinel inside a code block,
 /// inline mention, or planning narration.
@@ -2326,8 +2340,15 @@ pub(crate) fn pane_contains_sentinel(pane_text: &str, task_id: &str) -> bool {
         "{}{}{}",
         INTERACTIVE_SENTINEL_PREFIX, task_id, INTERACTIVE_SENTINEL_SUFFIX
     );
+    let legacy_target = format!(
+        "{}{}{}",
+        LEGACY_INTERACTIVE_SENTINEL_PREFIX, task_id, INTERACTIVE_SENTINEL_SUFFIX
+    );
     let stripped = strip_ansi(pane_text);
-    stripped.lines().any(|line| line.trim() == target)
+    stripped.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed == target || trimmed == legacy_target
+    })
 }
 
 /// Detect whether Claude Code's TUI input box is visible in the captured
@@ -2426,7 +2447,7 @@ impl InteractiveCli {
 }
 
 /// Spawn an interactive CLI session inside the task's tmux session and
-/// inject the initial prompt. The session is named `bentoya_<task_id>` —
+/// inject the initial prompt. The session is named `kaitencode_<task_id>` —
 /// same as the headless path — so the frontend terminal panel attaches to
 /// it the same way.
 ///
@@ -2775,7 +2796,7 @@ fn handle_interactive_spawn_failure(
     pipeline::emit_tasks_changed(app, "", "trigger_failed");
 }
 
-/// Poll the task's tmux pane for the BENTOYA_DONE sentinel until it appears,
+/// Poll the task's tmux pane for the KAITENCODE_DONE sentinel until it appears,
 /// the task moves columns, the session dies, or the 2-hour backstop fires.
 /// Then runs completion handling (mark_complete or failure routing).
 async fn watch_interactive_sentinel(
@@ -3072,7 +3093,7 @@ mod tests {
         assert!(cmd.contains("--skip-git-repo-check"));
         assert!(cmd.contains("--json"));
         assert!(cmd.contains("tee -a"));
-        assert!(cmd.contains("BENTOYA_CODEX_JSON_LOG"));
+        assert!(cmd.contains("KAITENCODE_CODEX_JSON_LOG"));
         assert!(cmd.contains("jq -rj --unbuffered"));
         assert!(cmd.contains("do the thing"));
         assert!(!cmd.contains(" -p "));
@@ -3107,7 +3128,7 @@ mod tests {
             cmd
         );
         assert!(
-            cmd.contains("BENTOYA_CLAUDE_FILTER="),
+            cmd.contains("KAITENCODE_CLAUDE_FILTER="),
             "filter must be exported via env var: {}",
             cmd
         );
@@ -3127,7 +3148,7 @@ mod tests {
             cmd
         );
         assert!(
-            cmd.contains("BENTOYA_CLAUDE_JSON_LOG"),
+            cmd.contains("KAITENCODE_CLAUDE_JSON_LOG"),
             "semantic JSON log env var should be supported: {}",
             cmd
         );
@@ -3292,7 +3313,7 @@ mod tests {
 
     #[test]
     fn test_tmux_session_name() {
-        assert_eq!(tmux_session_name("task-123"), "bentoya_task-123");
+        assert_eq!(tmux_session_name("task-123"), "kaitencode_task-123");
     }
 
     #[test]
@@ -3330,7 +3351,7 @@ mod tests {
     #[test]
     fn test_interactive_sentinel_prompt_embeds_task_id() {
         let prompt = interactive_sentinel_system_prompt("task-abc");
-        assert!(prompt.contains("<<<BENTOYA_DONE:task-abc>>>"));
+        assert!(prompt.contains("<<<KAITENCODE_DONE:task-abc>>>"));
         assert!(prompt.contains("exactly this line"));
     }
 
@@ -3377,7 +3398,7 @@ mod tests {
             .expect("must have --append-system-prompt when include_sentinel=true");
         let payload = argv.get(pos + 1).expect("system-prompt payload");
         assert!(
-            payload.contains("<<<BENTOYA_DONE:task-xyz>>>"),
+            payload.contains("<<<KAITENCODE_DONE:task-xyz>>>"),
             "system-prompt must embed sentinel marker: {}",
             payload
         );
@@ -3428,29 +3449,35 @@ mod tests {
 
     #[test]
     fn test_pane_contains_sentinel_matches_standalone_line() {
-        let pane = "Some agent output\n<<<BENTOYA_DONE:task-7>>>\n";
+        let pane = "Some agent output\n<<<KAITENCODE_DONE:task-7>>>\n";
         assert!(pane_contains_sentinel(pane, "task-7"));
     }
 
     #[test]
     fn test_pane_contains_sentinel_matches_after_ansi_strip() {
-        let pane = "\x1b[32m<<<BENTOYA_DONE:task-7>>>\x1b[0m\n";
+        let pane = "\x1b[32m<<<KAITENCODE_DONE:task-7>>>\x1b[0m\n";
+        assert!(pane_contains_sentinel(pane, "task-7"));
+    }
+
+    #[test]
+    fn test_pane_contains_sentinel_matches_legacy_marker() {
+        let pane = "Some agent output\n<<<BENTOYA_DONE:task-7>>>\n";
         assert!(pane_contains_sentinel(pane, "task-7"));
     }
 
     #[test]
     fn test_pane_contains_sentinel_rejects_inline_mention() {
-        // Agent narrating "I'll print <<<BENTOYA_DONE:task-7>>> when done"
+        // Agent narrating "I'll print <<<KAITENCODE_DONE:task-7>>> when done"
         // must NOT trip the watcher — the sentinel only counts when it's on
         // its own line.
-        let pane = "I'll print <<<BENTOYA_DONE:task-7>>> when done.\n";
+        let pane = "I'll print <<<KAITENCODE_DONE:task-7>>> when done.\n";
         assert!(!pane_contains_sentinel(pane, "task-7"));
     }
 
     #[test]
     fn test_pane_contains_sentinel_rejects_wrong_task_id() {
         // A stale capture from a previous task must not complete this one.
-        let pane = "<<<BENTOYA_DONE:other-task>>>\n";
+        let pane = "<<<KAITENCODE_DONE:other-task>>>\n";
         assert!(!pane_contains_sentinel(pane, "task-7"));
     }
 
@@ -3459,7 +3486,7 @@ mod tests {
         // Triple-backtick code blocks are common in agent output. The
         // sentinel inside a code block is indented or fenced and should not
         // trip detection.
-        let pane = "```\n<<<BENTOYA_DONE:task-7>>>\n```\nNow I'll do the work.\n";
+        let pane = "```\n<<<KAITENCODE_DONE:task-7>>>\n```\nNow I'll do the work.\n";
         // Body line alone matches — that's a known false positive direction.
         // But the more important guard is the inline-narration test above.
         // Document the current behavior so a future tightening (e.g. require
@@ -3536,7 +3563,7 @@ mod tests {
             .expect("must have --append-system-prompt when include_sentinel=true");
         let payload = argv.get(pos + 1).expect("system-prompt payload");
         assert!(
-            payload.contains("<<<BENTOYA_DONE:task-zzz>>>"),
+            payload.contains("<<<KAITENCODE_DONE:task-zzz>>>"),
             "codex system-prompt must embed sentinel marker: {}",
             payload
         );
@@ -3685,6 +3712,15 @@ mod tests {
 
     #[test]
     fn test_extract_claude_session_id_from_hidden_marker() {
+        let output = "\x1b[8mKAITENCODE_CLAUDE_SESSION_ID:abc-123\x1b[0m\n[claude 2 model]\n";
+        assert_eq!(
+            extract_claude_session_id(output).as_deref(),
+            Some("abc-123")
+        );
+    }
+
+    #[test]
+    fn test_extract_claude_session_id_from_legacy_hidden_marker() {
         let output = "\x1b[8mBENTOYA_CLAUDE_SESSION_ID:abc-123\x1b[0m\n[claude 2 model]\n";
         assert_eq!(
             extract_claude_session_id(output).as_deref(),
@@ -3893,7 +3929,7 @@ mod tests {
         let dir = log_retention::trigger_logs_dir();
         std::fs::create_dir_all(&dir).ok();
         let exit_path = format!("{}/exit_{}.code", dir.display(), nonce);
-        let chan = format!("bentoya_done_{}", nonce);
+        let chan = format!("kaitencode_done_{}", nonce);
         let wrapped = format!(
             "echo HELLO_FROM_TMUX; printf '%s' \"0\" > {}; tmux wait-for -S {}",
             shell_quote_arg(&exit_path),
@@ -4020,7 +4056,7 @@ mod tests {
         // Stage 1: create the persistent session in a temp dir, leave a
         // marker in scrollback. This simulates Plan/Working/Merge main.
         let stale_dir =
-            std::env::temp_dir().join(format!("bentoya_stale_{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("kaitencode_stale_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&stale_dir).expect("create stale dir");
         let stale_dir_str = stale_dir.display().to_string();
 
@@ -4047,7 +4083,7 @@ mod tests {
         // Stage 3: terminal column trigger fires with a fresh, valid cwd
         // (workspace.repo_path) and force_fresh=true.
         let fresh_dir =
-            std::env::temp_dir().join(format!("bentoya_fresh_{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("kaitencode_fresh_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&fresh_dir).expect("create fresh dir");
         let fresh_dir_str = fresh_dir.display().to_string();
 

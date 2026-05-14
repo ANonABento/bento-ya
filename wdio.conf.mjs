@@ -1,5 +1,5 @@
 /**
- * WebDriverIO config for Bento-ya E2E testing via tauri-driver.
+ * WebDriverIO config for KaitenCode E2E testing via tauri-driver.
  *
  * Prerequisites:
  *   1. Build with webdriver feature: cd src-tauri && cargo build --features webdriver
@@ -8,14 +8,14 @@
  *   4. Run tests: npx wdio run wdio.conf.mjs
  *
  * Binary path resolution:
- *   - Defaults to `<repo>/target/debug/bento-ya` (Cargo workspace layout)
- *   - Override with BENTOYA_BINARY env var (e.g. for release builds or non-standard targets)
+ *   - Defaults to `<repo>/target/debug/kaitencode` (Cargo workspace layout)
+ *   - Override with KAITENCODE_BINARY env var (e.g. for release builds or non-standard targets)
  */
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const application = process.env.BENTOYA_BINARY || resolve(__dirname, 'target/debug/bento-ya')
+const application = process.env.KAITENCODE_BINARY || resolve(__dirname, 'target/debug/kaitencode')
 
 export const config = {
   runner: 'local',

@@ -7,12 +7,12 @@ Implement smart git management: branch-per-task creation, file-level change trac
 ## Acceptance Criteria
 
 ### Branch Manager
-- [ ] `create_task_branch(repo_path, task_slug, base_branch?)` → creates `bentoya/<task-slug>` from base (default: main)
+- [ ] `create_task_branch(repo_path, task_slug, base_branch?)` → creates `kaitencode/<task-slug>` from base (default: main)
 - [ ] `switch_branch(repo_path, branch)` → checkout with auto-stash/restore of uncommitted changes
 - [ ] `get_current_branch(repo_path)` → returns current branch name
-- [ ] `list_task_branches(repo_path)` → returns all `bentoya/*` branches
+- [ ] `list_task_branches(repo_path)` → returns all `kaitencode/*` branches
 - [ ] `delete_task_branch(repo_path, branch)` → deletes branch (with confirmation if unmerged)
-- [ ] Branch naming convention: `bentoya/<task-slug>` (slugified from task title)
+- [ ] Branch naming convention: `kaitencode/<task-slug>` (slugified from task title)
 - [ ] Stash management: auto-stash before switching, auto-restore after switching back
 
 ### Change Tracker
@@ -57,7 +57,7 @@ src-tauri/src/
 - **Do NOT shell out to `git` CLI** — use libgit2 for reliability and speed
 - The stash flow for branch switching:
   1. Check if working tree is dirty
-  2. If dirty: `git stash push -m "bentoya-auto-stash-{branch}"`
+  2. If dirty: `git stash push -m "kaitencode-auto-stash-{branch}"`
   3. Checkout target branch
   4. Check for matching auto-stash and pop if found
 - `files_touched` tracking: after agent finishes, run `git diff --name-only base_branch..task_branch`

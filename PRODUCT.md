@@ -1,4 +1,4 @@
-# Bento-ya - Agentic Workflow App
+# KaitenCode - Agentic Workflow App
 
 > Talk about what to build. Watch agents build it.
 
@@ -6,7 +6,7 @@
 
 ## What Is This
 
-Bento-ya is a lightweight desktop app for orchestrating AI coding agents across multiple projects. You describe what you want in natural language (type or speak), it breaks work into tasks, spawns agents to implement them, and gives you an automated kanban pipeline where columns actually do things.
+KaitenCode is a lightweight desktop app for orchestrating AI coding agents across multiple projects. You describe what you want in natural language (type or speak), it breaks work into tasks, spawns agents to implement them, and gives you an automated kanban pipeline where columns actually do things.
 
 The whole UI is drag-and-droppable. Columns, cards, tabs — everything moves. Click a task card and you drop into a full terminal session with the agent. It's a thin, beautiful wrapper around the terminals where real work happens.
 
@@ -284,7 +284,7 @@ Task Focus View (split)
 - Only the active column is visible, narrowed
 - Active task card is expanded, showing:
   - Title + description
-  - Branch name (`bentoya/fix-auth`)
+  - Branch name (`kaitencode/fix-auth`)
   - Commit count + list (expandable)
   - Changed files list (expandable, with +/- line counts)
 - Below the card: usage/stats tile
@@ -458,7 +458,7 @@ Modes are implemented by:
 - Automatic stash/restore when switching between agent branches
 - PR-ready: each task's changes map to a clean diff
 - Conflict detection: warn before two agents touch the same file
-- Branch naming: `bentoya/<task-slug>` convention
+- Branch naming: `kaitencode/<task-slug>` convention
 
 #### Diff Review
 - When agent completes, task auto-advances to Review column
@@ -470,7 +470,7 @@ Modes are implemented by:
 
 #### Settings (Highly Configurable)
 
-Settings panel — full page, tabbed layout. Every aspect of Bento-ya is configurable.
+Settings panel — full page, tabbed layout. Every aspect of KaitenCode is configurable.
 
 **Agent Configuration**
 - Default agent CLI per workspace (claude-code, codex, aider, cursor, amp, opencode, etc.)
@@ -524,7 +524,7 @@ Settings panel — full page, tabbed layout. Every aspect of Bento-ya is configu
 - Auto-punctuation toggle
 
 **Git**
-- Branch prefix convention (default: `bentoya/`)
+- Branch prefix convention (default: `kaitencode/`)
 - Auto-PR creation toggle
 - Default PR template (markdown editor)
 - Merge strategy (squash, merge, rebase)
@@ -731,7 +731,7 @@ A workspace-level feature that gives you a living checklist of everything needed
 - Create your own checklist template from scratch
 - Fork a built-in template and customize it
 - Export/import as JSON for sharing across teams
-- Checklist templates stored in `~/.bentoya/checklists/`
+- Checklist templates stored in `~/.kaitencode/checklists/`
 
 **Data Model**:
 
@@ -799,7 +799,7 @@ Click 📋 -->
 
 **"Fix this" flow**:
 1. Click "Fix this" on unchecked item "Add error boundaries"
-2. Bento-ya creates a task: "Add React error boundaries to all major UI sections"
+2. KaitenCode creates a task: "Add React error boundaries to all major UI sections"
 3. Task enters the pipeline (Backlog → Combobulating → ...)
 4. When task completes and is approved, the checklist item auto-checks
 5. Checklist item links to the task for traceability
@@ -920,7 +920,7 @@ The left panel shows only the column this task belongs to, with the task card ex
 **Task Card (Expanded)**
 - Title (editable)
 - Description / notes
-- Branch: `bentoya/fix-auth-validation`
+- Branch: `kaitencode/fix-auth-validation`
 - Status indicator (● Running / ✓ Done / ✕ Failed)
 
 **Changes Section**
@@ -992,7 +992,7 @@ Board View                          Task Focus View
 +----------------------------------+
 |  Fix login validation       [...]|
 |                                  |
-|  claude-code    bentoya/fix-login|
+|  claude-code    kaitencode/fix-login|
 |  ● Running  [!]      00:02:34   |
 +----------------------------------+
 ```
@@ -1139,7 +1139,7 @@ Tauri is confirmed. Reasons:
 ### Data
 - **SQLite** via rusqlite - local-first, no server needed
 - Schema: workspaces, tasks, columns, agent_sessions, chat_history, settings
-- Config: `~/.bentoya/config.json` (global settings)
+- Config: `~/.kaitencode/config.json` (global settings)
 - Per-workspace config stored in DB
 
 ### Build & Package
@@ -1273,7 +1273,7 @@ Settings (global + per-workspace override)
   voice_mode            enum (push_to_talk, toggle, continuous)
 
   -- Git
-  git_branch_prefix     string (default: "bentoya/")
+  git_branch_prefix     string (default: "kaitencode/")
   git_auto_pr           boolean
   git_pr_template       text
   git_merge_strategy    enum (squash, merge, rebase)
@@ -1302,7 +1302,7 @@ Settings (global + per-workspace override)
 
 ```
 +----------------------------------------------------------+
-|  Bento-ya (Tauri v2)                                     |
+|  KaitenCode (Tauri v2)                                     |
 |                                                          |
 |  +-------------------+  +-----------------------------+  |
 |  |  React Frontend   |  |  Rust Backend               |  |
@@ -1339,7 +1339,7 @@ Settings (global + per-workspace override)
   +-----+------+ +----+-----+ +-----+------+
         |              |              |
   [branch:         [branch:       [branch:
-   bentoya/         bentoya/       bentoya/
+   kaitencode/         kaitencode/       kaitencode/
    fix-login]       add-api]       refactor]
 ```
 
@@ -1380,9 +1380,9 @@ Single repo checkout
         |
         +-- main (base branch)
         |
-        +-- bentoya/fix-login     (task 1 - agent A)
-        +-- bentoya/add-api       (task 2 - agent B)
-        +-- bentoya/refactor-auth (task 3 - agent C)
+        +-- kaitencode/fix-login     (task 1 - agent A)
+        +-- kaitencode/add-api       (task 2 - agent B)
+        +-- kaitencode/refactor-auth (task 3 - agent C)
 
 Change Tracker:
   task-1: [src/login.ts, src/validation.ts]
@@ -1394,10 +1394,10 @@ Conflict Matrix:
   task-1 vs task-3: POSSIBLE (both touch auth-adjacent) -> warn
 
 Each agent:
-  1. Bento-ya creates branch: git checkout -b bentoya/<slug> from main
+  1. KaitenCode creates branch: git checkout -b kaitencode/<slug> from main
   2. Agent spawns in PTY, working directory = repo root
   3. Agent works normally (reads, edits, runs tests)
-  4. Bento-ya tracks all file changes via git diff
+  4. KaitenCode tracks all file changes via git diff
   5. When done -> diff is clean, PR-ready
   6. If conflict detected with another active task -> flag to user
 ```
@@ -1406,7 +1406,7 @@ Each agent:
 
 ## Drag and Drop Specification
 
-Everything in Bento-ya is draggable. The entire UI is a spatial workspace you arrange.
+Everything in KaitenCode is draggable. The entire UI is a spatial workspace you arrange.
 
 ### What's Draggable
 
@@ -1452,7 +1452,7 @@ When a card is dropped into a new column:
 
 ## Animation Specification
 
-Bento-ya should feel alive. Every state change, transition, and interaction has considered motion. The animation engine is **Motion** (formerly Framer Motion).
+KaitenCode should feel alive. Every state change, transition, and interaction has considered motion. The animation engine is **Motion** (formerly Framer Motion).
 
 ### Animation Principles
 - **Purpose over decoration**: Every animation communicates something (state change, spatial relationship, feedback)
@@ -1598,7 +1598,7 @@ Users can configure in settings:
 ## User Stories
 
 ### First Run
-1. Open Bento-ya, see empty state with "+" tab
+1. Open KaitenCode, see empty state with "+" tab
 2. Click "+" to add workspace, select repo directory
 3. Default pipeline columns appear (Backlog through Archived)
 4. Type in chat: "I need to add user authentication"
@@ -1658,7 +1658,7 @@ Users can configure in settings:
 
 ## What Makes This Different
 
-| Feature | Conductor | Vibe Kanban | Bento-ya |
+| Feature | Conductor | Vibe Kanban | KaitenCode |
 |---------|-----------|-------------|----------|
 | Navigation | Separate workspaces | Single project | Centered tabs + swipe gestures |
 | Task creation | Manual | Issue tracker | Voice/text -> auto-decompose |
@@ -1784,7 +1784,7 @@ Users can configure in settings:
 - Use `tracing` crate with structured JSON output
 - Log levels: ERROR (user-facing failures), WARN (recoverable issues), INFO (key events), DEBUG (development)
 - Key events logged: agent start/stop, column transitions, PTY spawn/exit, git operations, IPC calls
-- Logs written to `~/.bentoya/logs/` with daily rotation (7-day retention default)
+- Logs written to `~/.kaitencode/logs/` with daily rotation (7-day retention default)
 
 ### Frontend Logging
 - Structured console logging with `[module]` prefixes
@@ -1903,9 +1903,9 @@ Users can configure in settings:
 ## Data & Backup
 
 ### Local-First
-- All data in SQLite at `~/.bentoya/data.db`
+- All data in SQLite at `~/.kaitencode/data.db`
 - No cloud sync requirement — works fully offline (except agent API calls)
-- Settings in `~/.bentoya/settings.json` (human-readable, version-controlled)
+- Settings in `~/.kaitencode/settings.json` (human-readable, version-controlled)
 
 ### Backup
 - Auto-backup SQLite on schema migration (before applying changes)
@@ -1923,14 +1923,14 @@ Users can configure in settings:
 ### Data Cleanup
 - Archived tasks auto-purge after configurable days (default: 30)
 - Terminal scrollback not persisted to DB (in-memory only, per session)
-- Agent session logs stored in filesystem (`~/.bentoya/sessions/`), rotated by age
+- Agent session logs stored in filesystem (`~/.kaitencode/sessions/`), rotated by age
 
 ---
 
 ## Onboarding & First Run
 
 ### Setup Wizard (first launch)
-1. **Welcome** — "Welcome to Bento-ya" with product tagline, one screenshot
+1. **Welcome** — "Welcome to KaitenCode" with product tagline, one screenshot
 2. **Agent setup** — Detect installed CLIs (claude-code, codex). If none found, show install instructions. Let user configure API keys
 3. **Workspace** — Select first repo directory, auto-detect project name
 4. **Pipeline** — Show default pipeline columns, explain what each does. "Customize later in settings"
@@ -2116,7 +2116,7 @@ Users can configure in settings:
 - Checklist auto-detect (scan repo for completion signals)
 - Checklist "Fix this" → task creation flow
 
-### v1.0 - "Bento-ya"
+### v1.0 - "KaitenCode"
 - Pipeline templates library
 - History & replay
 - Metrics dashboard
@@ -2128,7 +2128,7 @@ Users can configure in settings:
 ## File Structure
 
 ```
-bento-ya/
+kaitencode/
   src-tauri/                    # Rust backend (Tauri v2)
     src/
       main.rs                   # Tauri entry point

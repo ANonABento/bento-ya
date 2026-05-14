@@ -4,7 +4,7 @@ Spec confirmation (§3): "The chat panel is a window, not a separate process."
 
 ## Existing GC/session infrastructure
 
-- `src-tauri/src/chat/gc.rs:17` runs one GC cycle over `tmux_transport::list_sessions()`, kills orphaned `bentoya_*` sessions when the task row is gone, and marks `agent_status = failed` when a task is still `running` but its tmux session disappeared (`src-tauri/src/chat/gc.rs:114`).
+- `src-tauri/src/chat/gc.rs:17` runs one GC cycle over `tmux_transport::list_sessions()`, kills orphaned `kaitencode_*` sessions when the task row is gone, and marks `agent_status = failed` when a task is still `running` but its tmux session disappeared (`src-tauri/src/chat/gc.rs:114`).
 - `src-tauri/src/chat/gc.rs:152` starts periodic GC using `AppSettings::gc_interval_minutes`; `src-tauri/src/config/mod.rs:37` / `:39` / `:41` already define `gc_interval_minutes`, `idle_sleep_minutes`, and `idle_kill_hours`.
 - `src-tauri/src/chat/registry.rs:232` has `suspend_idle()` and `src-tauri/src/chat/registry.rs:316` has `cleanup_dead_running_agent_sessions()`. The registry path currently skips PTY sessions when sweeping idle sessions (`src-tauri/src/chat/registry.rs:239`), so persistent tmux TTL belongs in existing `gc.rs`, not a new module.
 - `src-tauri/src/chat/log_retention.rs:25` owns trigger log placement and retention; `run_startup_cleanup()` deletes legacy stubs and old trigger logs (`src-tauri/src/chat/log_retention.rs:125`).
@@ -46,5 +46,5 @@ Spec confirmation (§3): "The chat panel is a window, not a separate process."
   - `tmux_transport::kill_session_removes_task_tmux_session`
   - `chat::gc::collect_kills_orphaned_tmux_session`
   - `chat::bridge::concurrent_ensure_trigger_session_coalesces_to_one_tmux_session`
-- The live tmux tests run under a test-only lock because GC intentionally kills orphaned `bentoya_*` sessions, and parallel tmux tests otherwise race each other.
+- The live tmux tests run under a test-only lock because GC intentionally kills orphaned `kaitencode_*` sessions, and parallel tmux tests otherwise race each other.
 - Frontend regression coverage includes card quick-action deletion removal, move/retry action budget, keyboard delete confirmation, workspace suffix rendering, and panel Hold/Stop/Kill controls.

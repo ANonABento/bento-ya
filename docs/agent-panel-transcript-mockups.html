@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Bento-ya Agent Panel Transcript Mockups</title>
+  <title>KaitenCode Agent Panel Transcript Mockups</title>
   <style>
     :root {
       color-scheme: dark;
@@ -722,7 +722,7 @@
       <div class="title">
         <h1>Agent Panel Transcript Mockups</h1>
         <p>
-          A high-level playground for deciding what the Bento-ya agent panel should be.
+          A high-level playground for deciding what the KaitenCode agent panel should be.
           Use the ideas on the left and toggles on the right to compare transcript-first,
           split-view, compact-feed, and terminal-forward designs.
         </p>
@@ -764,18 +764,18 @@
           </button>
         </nav>
         <div class="notes" id="idea-note">
-          Best fit if Bento-ya wants to feel like an agent workbench, not a terminal wrapper.
+          Best fit if KaitenCode wants to feel like an agent workbench, not a terminal wrapper.
           The risk is over-carded layout and too much metadata.
         </div>
       </aside>
 
-      <section class="workspace" aria-label="Mock Bento-ya agent panel">
+      <section class="workspace" aria-label="Mock KaitenCode agent panel">
         <header class="app-header">
           <div class="task-title">
             <div class="chev">&gt;</div>
             <div>
               <strong>write a poem for Taiga from Toradora</strong>
-              <span>agent / /Users/bentomac/bento-ya/.worktrees/bentoya-a3652789-dec5-484d-95a4-70f856befcfc</span>
+              <span>agent / /Users/bentomac/kaitencode/.worktrees/kaitencode-a3652789-dec5-484d-95a4-70f856befcfc</span>
             </div>
           </div>
           <div class="header-actions">
@@ -809,7 +809,7 @@
                   <section class="run">
                     <button class="run-head" style="cursor:pointer" data-collapse="run-1">
                       <span>▼</span>
-                      <span class="meta"><strong>run</strong> · Working · claude · bentoya-a3652789-d...56befcfc</span>
+                      <span class="meta"><strong>run</strong> · Working · claude · kaitencode-a3652789-d...56befcfc</span>
                       <span class="status-pill">agent completed</span>
                       <span>05:39 AM</span>
                     </button>
@@ -826,14 +826,14 @@
                         <summary style="cursor:pointer"><span>▶</span><span>Read task context</span><span class="detail-label">details</span></summary>
                         <pre>Read .task.md
 # write a poem for Taiga from Toradora
-Workspace: bento-ya
-Branch: bentoya/write-a-poem-for-taiga-from-toradora</pre>
+Workspace: kaitencode
+Branch: kaitencode/write-a-poem-for-taiga-from-toradora</pre>
                       </details>
                       <details class="tool" open>
                         <summary style="cursor:pointer"><span>▼</span><span>Write poem-for-taiga.md</span><span class="detail-label">summary</span></summary>
                         <div class="summary-line">File created successfully at <mark>poem-for-taiga.md</mark></div>
                         <pre class="rawish">Write result:
-File created successfully at /Users/bentomac/bento-ya/.worktrees/.../poem-for-taiga.md
+File created successfully at /Users/bentomac/kaitencode/.worktrees/.../poem-for-taiga.md
 31 lines written.</pre>
                       </details>
                       <details class="tool">
@@ -921,7 +921,7 @@ git add poem-for-taiga.md && git commit -m "Add poem for Taiga from Toradora"</p
                     </section>
                     <section class="mini-panel terminal">
                       <header>Terminal, raw tmux session</header>
-                      <pre>bentomac@BentoMac bentoya-a3652789 % bash '/Users/bentomac/.bentoya/trigger_logs/run_7e6c2293.sh'
+                      <pre>bentomac@BentoMac kaitencode-a3652789 % bash '/Users/bentomac/.kaitencode/trigger_logs/run_7e6c2293.sh'
 
 [claude 2.1.133 claude-sonnet-4-6]
 
@@ -932,7 +932,7 @@ The user wants to see the poem that was written for Taiga from Toradora.
 ✓ commit d7ee98082f426bbe6fb45f4e16834933b5e34662
 ✓ 1  # For Taiga
 ✓ [{"type":"text","text":"Found it! Here's the information..."}]
-<span class="tmux">[bentoya_a0:zsh*]                                      05:41 08-May-26</span></pre>
+<span class="tmux">[kaitencode_a0:zsh*]                                      05:41 08-May-26</span></pre>
                     </section>
                   </div>
                 </div>
@@ -1001,26 +1001,26 @@ The user wants to see the poem that was written for Taiga from Toradora.
                     </section>
                     <section class="mini-panel terminal">
                       <header>Primary terminal</header>
-                      <pre>bentomac@BentoMac bentoya-a3652789 % bash '/Users/bentomac/.bentoya/trigger_logs/run_7e6c2293.sh'
+                      <pre>bentomac@BentoMac kaitencode-a3652789 % bash '/Users/bentomac/.kaitencode/trigger_logs/run_7e6c2293.sh'
 
 [claude 2.1.133 claude-sonnet-4-6]
 
 ◆ thinking...
 
 ▶ Read
-✓ 1  # write a poem for Taiga from Toradora 2 3 4 5 ## Context 6 - Workspace: bento-ya
+✓ 1  # write a poem for Taiga from Toradora 2 3 4 5 ## Context 6 - Workspace: kaitencode
 
 The task is a creative writing request. I will create a poem file at the repo root.
 
 ▶ Write
-✓ File created successfully at: /Users/bentomac/bento-ya/.worktrees/.../poem-for-taiga.md
+✓ File created successfully at: /Users/bentomac/kaitencode/.worktrees/.../poem-for-taiga.md
 
 ▶ Bash
-✓ On branch bentoya/write-a-poem-for-taiga-from-toradora Untracked files: poem-for-taiga.md
+✓ On branch kaitencode/write-a-poem-for-taiga-from-toradora Untracked files: poem-for-taiga.md
 Committed as d7ee980.
 
 -- done · 33333ms · $0.423736 --
-<span class="tmux">[bentoya_a0:zsh*]                                      05:39 08-May-26</span></pre>
+<span class="tmux">[kaitencode_a0:zsh*]                                      05:39 08-May-26</span></pre>
                     </section>
                   </div>
                 </div>
@@ -1056,10 +1056,10 @@ Committed as d7ee980.
     const root = document.getElementById('mockup');
     const ideaNote = document.getElementById('idea-note');
     const notes = {
-      orchestrator: 'Best fit if Bento-ya wants to feel like an agent workbench, not a terminal wrapper. The risk is over-carded layout and too much metadata.',
+      orchestrator: 'Best fit if KaitenCode wants to feel like an agent workbench, not a terminal wrapper. The risk is over-carded layout and too much metadata.',
       split: 'Best fit as an advanced debug mode. It makes the Transcript and Terminal distinction obvious, but it costs screen space.',
       feed: 'Best fit for dense scanning and power users. Risk: it feels like logs rather than a humane task transcript.',
-      terminal: 'Best fit if Bento-ya stays terminal-first. Risk: it weakens persistence, readability, and non-terminal review.'
+      terminal: 'Best fit if KaitenCode stays terminal-first. Risk: it weakens persistence, readability, and non-terminal review.'
     };
 
     document.querySelectorAll('.idea-button').forEach((button) => {

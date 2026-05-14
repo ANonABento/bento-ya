@@ -1,9 +1,9 @@
 //! Trigger log retention and cleanup.
 //!
 //! Pipeline triggers spawn CLI agents whose stdout/stderr are captured to log
-//! files in `~/.bentoya/trigger_logs/`. We retain the most recent N logs and
+//! files in `~/.kaitencode/trigger_logs/`. We retain the most recent N logs and
 //! delete the older ones on startup. We also clean up the historical pile of
-//! 58-byte rate-limit stub logs that accumulated in `~/.bentoya/` directly
+//! 58-byte rate-limit stub logs that accumulated in the data directory directly
 //! (before this module existed).
 
 use std::fs;
@@ -12,7 +12,7 @@ use std::time::SystemTime;
 
 use crate::db;
 
-/// Maximum number of trigger logs to keep in `~/.bentoya/trigger_logs/`.
+/// Maximum number of trigger logs to keep in `~/.kaitencode/trigger_logs/`.
 pub const MAX_TRIGGER_LOGS: usize = 100;
 
 /// Exact byte size of the historical rate-limit stub logs (one-line message).
@@ -22,7 +22,7 @@ const STALE_RATE_LIMIT_LOG_SIZE: u64 = 58;
 /// deleting. We only touch logs that match BOTH size and prefix.
 const STALE_RATE_LIMIT_PREFIX: &str = "You've hit your limit";
 
-/// Directory inside `~/.bentoya/` where current trigger logs are retained.
+/// Directory inside `~/.kaitencode/` where current trigger logs are retained.
 pub fn trigger_logs_dir() -> PathBuf {
     db::data_dir().join("trigger_logs")
 }
@@ -36,7 +36,7 @@ pub fn ensure_trigger_logs_dir() -> std::io::Result<PathBuf> {
     Ok(dir)
 }
 
-/// Allocate a new log path under `~/.bentoya/trigger_logs/`.
+/// Allocate a new log path under `~/.kaitencode/trigger_logs/`.
 pub fn new_trigger_log_path(nonce: &str) -> PathBuf {
     let dir = trigger_logs_dir();
     let _ = fs::create_dir_all(&dir);
@@ -230,7 +230,7 @@ mod tests {
     /// best-effort and acceptable for test isolation.
     fn tempdir_named(suffix: &str) -> PathBuf {
         let base = std::env::temp_dir().join(format!(
-            "bentoya_log_retention_{}_{}",
+            "kaitencode_log_retention_{}_{}",
             suffix,
             uuid::Uuid::new_v4()
         ));

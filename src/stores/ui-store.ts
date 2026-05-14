@@ -26,6 +26,16 @@ const MIN_BOARD_WIDTH = 400
 const DEFAULT_AGENT_PANEL_WIDTH = 500
 const MIN_AGENT_PANEL_WIDTH = 300
 const MAX_AGENT_PANEL_WIDTH = 900
+const UI_STORAGE_KEY = 'kaitencode-ui'
+const LEGACY_UI_STORAGE_KEY = 'bento-ya-ui'
+
+if (typeof window !== 'undefined') {
+  const legacyValue = window.localStorage.getItem(LEGACY_UI_STORAGE_KEY)
+  if (legacyValue && !window.localStorage.getItem(UI_STORAGE_KEY)) {
+    window.localStorage.setItem(UI_STORAGE_KEY, legacyValue)
+    window.localStorage.removeItem(LEGACY_UI_STORAGE_KEY)
+  }
+}
 
 function getMaxAgentPanelWidth(): number {
   if (typeof window === 'undefined') return MAX_AGENT_PANEL_WIDTH
@@ -182,7 +192,7 @@ export const useUIStore = create<UIState>()(
         },
       }),
       {
-        name: 'bento-ya-ui',
+        name: UI_STORAGE_KEY,
         partialize: (state) => ({
           panelHeight: state.panelHeight,
           panelWidth: state.panelWidth,

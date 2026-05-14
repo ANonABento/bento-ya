@@ -12,7 +12,7 @@ export type CliType = 'claude' | 'codex' | 'aider'
  * - `'interactive'` runs the CLI in its real TUI (no `-p`) inside the
  *   per-task tmux session. The initial prompt is injected via
  *   `tmux send-keys`, and the user can take over mid-task. Gated by the
- *   `BENTOYA_INTERACTIVE_MODE_ENABLED` dev flag until Phase 6 promotes it.
+ *   `KAITENCODE_INTERACTIVE_MODE_ENABLED` dev flag until Phase 6 promotes it.
  */
 export type AgentRuntimeMode = 'terminal' | 'managed' | 'interactive'
 export type TriggerTaskActionType = 'move_column' | 'start' | 'unblock'

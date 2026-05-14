@@ -22,8 +22,7 @@ pub fn mark_pipeline_complete(
     // was running, not what it's about to become after auto-advance.
     if let Ok(task) = db::get_task(&conn, &task_id) {
         if let Ok(column) = db::get_column(&conn, &task.column_id) {
-            let resolved =
-                crate::pipeline::triggers::resolve_runtime_mode_for_task(&task, &column);
+            let resolved = crate::pipeline::triggers::resolve_runtime_mode_for_task(&task, &column);
             let cli = task
                 .agent_session_id
                 .as_deref()
@@ -35,7 +34,11 @@ pub fn mark_pipeline_complete(
                 .as_deref()
                 .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok());
             let duration_ms = started_at
-                .map(|started| (chrono::Utc::now() - started.with_timezone(&chrono::Utc)).num_milliseconds().max(0))
+                .map(|started| {
+                    (chrono::Utc::now() - started.with_timezone(&chrono::Utc))
+                        .num_milliseconds()
+                        .max(0)
+                })
                 .unwrap_or(0);
             db::completion_events::record_async(
                 task_id.clone(),

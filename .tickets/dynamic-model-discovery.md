@@ -21,7 +21,7 @@ Automatically fetch available models from Anthropic/OpenAI APIs so new models (e
 ## Storage
 
 ```
-~/.bentoya/models-cache.json
+~/.kaitencode/models-cache.json
 {
   "lastFetched": "2024-03-05T12:00:00Z",
   "anthropic": [

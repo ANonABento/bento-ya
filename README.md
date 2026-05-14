@@ -1,8 +1,8 @@
-# bento-ya
+# KaitenCode
 
 Tauri desktop app for orchestrating AI coding agents — an automated kanban board where columns are pipeline stages with trigger-driven automation.
 
-![Bento-ya kanban board](docs/screenshots/board.png)
+![KaitenCode kanban board](docs/screenshots/board.png)
 
 ### Column automation, in natural language
 
@@ -27,7 +27,7 @@ Per-workspace and global settings: concurrency limits, default CLI, default mode
 ## v2.0 Features
 
 - **PR auto-create trigger** — columns can fire a `create_pr` action on exit to open a GitHub pull request when a task completes a stage (requires `gh` CLI installed and authenticated)
-- **Per-task git worktree isolation** — each task can run in its own git worktree (`<repo>/.worktrees/bentoya-<taskId>/`), reducing local branch and worktree collisions between agents
+- **Per-task git worktree isolation** — each task can run in its own git worktree (`<repo>/.worktrees/kaitencode-<taskId>/`), reducing local branch and worktree collisions between agents
 - **DAG dependency UI with hover-reveal lines** — tasks define dependency relationships with cycle detection; bezier lines between cards appear on hover to visualize the dependency graph
 
 ## v2.1 — Embedded Terminal
@@ -54,7 +54,7 @@ pnpm tauri dev
 
 ### Testing modes
 
-Bento-ya has three local test surfaces, each backed by a different runtime:
+KaitenCode has three local test surfaces, each backed by a different runtime:
 
 | Surface | Command | Backend | Use it for |
 |---------|---------|---------|------------|
@@ -66,7 +66,7 @@ Opening `http://localhost:1420` by itself only shows the Vite frontend with mock
 
 ### Native WebDriver E2E
 
-Drives the real Tauri binary via [`tauri-driver`](https://crates.io/crates/tauri-driver). Tests run against a real SQLite DB and real Rust backend, isolated in `/tmp/bentoya-wdio/` via the `BENTOYA_DATA_DIR` env var (your real `~/.bentoya/data.db` is untouched).
+Drives the real Tauri binary via [`tauri-driver`](https://crates.io/crates/tauri-driver). Tests run against a real SQLite DB and real Rust backend, isolated in `/tmp/kaitencode-wdio/` via the `KAITENCODE_DATA_DIR` env var (your real `~/.kaitencode/data.db` is untouched).
 
 **One-time setup**
 
@@ -93,17 +93,17 @@ npm run build:webdriver
 npm run dev
 
 # 3. Start tauri-driver with an isolated data dir (terminal B)
-rm -rf /tmp/bentoya-wdio && mkdir -p /tmp/bentoya-wdio
-BENTOYA_DATA_DIR=/tmp/bentoya-wdio tauri-driver --port 4444
+rm -rf /tmp/kaitencode-wdio && mkdir -p /tmp/kaitencode-wdio
+KAITENCODE_DATA_DIR=/tmp/kaitencode-wdio tauri-driver --port 4444
 
 # 4. Run the test suite (terminal C)
 npm run test:webdriver
 ```
 
-Tests live in `tests/webdriver/*.spec.mjs`; screenshots land in `tests/webdriver/screenshots/`. The binary path defaults to `<repo>/target/debug/bento-ya`; override with `BENTOYA_BINARY=...` (e.g. for a release build).
+Tests live in `tests/webdriver/*.spec.mjs`; screenshots land in `tests/webdriver/screenshots/`. The binary path defaults to `<repo>/target/debug/kaitencode`; override with `KAITENCODE_BINARY=...` (e.g. for a release build).
 
 **Troubleshooting:**
-- `window.__TAURI_INTERNALS__ is undefined` in test output — usually means `tauri-driver` fell back to its default browser (MiniBrowser/Safari). Verify `wdio.conf.mjs` uses `tauri:options.application` (not `binary`) and that `BENTOYA_BINARY` resolves to a binary built with `--features webdriver`.
+- `window.__TAURI_INTERNALS__ is undefined` in test output — usually means `tauri-driver` fell back to its default browser (MiniBrowser/Safari). Verify `wdio.conf.mjs` uses `tauri:options.application` (not `binary`) and that `KAITENCODE_BINARY` resolves to a binary built with `--features webdriver`.
 - "can not find WebKitWebDriver" — install `webkit2gtk-driver` (Linux) or enable `safaridriver` (macOS).
 - Tests fail on the very first IPC call — check that `npm run dev` is actually serving on port 1420.
 
@@ -129,7 +129,7 @@ This runs `beforeBuildCommand` (frontend build via vite) → cargo build → pro
 
 **Fix (if still white after `tauri build`):** clear WebKit cache (sometimes stores stale asset hashes):
 ```bash
-rm -rf ~/Library/WebKit/com.bentoya.desktop ~/Library/Caches/com.bentoya.desktop
+rm -rf ~/Library/WebKit/com.kaitencode.desktop ~/Library/Caches/com.kaitencode.desktop
 ```
 
 **Cheat sheet:**
@@ -139,4 +139,4 @@ rm -rf ~/Library/WebKit/com.bentoya.desktop ~/Library/Caches/com.bentoya.desktop
 
 #### .app bundle Finder launch
 
-The bundled `.app` (`target/release/bundle/macos/Bento-ya.app`) should launch via Finder/Spotlight. The previous `SIGABRT` in `tao::did_finish_launching` was fixed by using the non-`.app` bundle identifier `com.bentoya.desktop` and keeping heavyweight startup recovery off the macOS launch delegate path. See `docs/macos-bundle.md` for verification steps.
+The bundled `.app` (`target/release/bundle/macos/KaitenCode.app`) should launch via Finder/Spotlight. The previous `SIGABRT` in `tao::did_finish_launching` was fixed by using the non-`.app` bundle identifier `com.kaitencode.desktop` and keeping heavyweight startup recovery off the macOS launch delegate path. See `docs/macos-bundle.md` for verification steps.

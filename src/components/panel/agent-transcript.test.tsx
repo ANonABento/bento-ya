@@ -114,7 +114,7 @@ describe('AgentTranscript', () => {
           event('command_output', {
             id: 'tail',
             sequence: 1,
-            content: "bash '/Users/bentomac/.bentoya/trigger_logs/run_abc123.sh'\n\u001b[90mthinking...\u001b[0m\n\u001b[36m▶ Read\u001b[0m\nThe task is complete.\nbentomac@BentoMac bentoya-123 %",
+            content: "bash '/Users/kaiten/.kaitencode/trigger_logs/run_abc123.sh'\n\u001b[90mthinking...\u001b[0m\n\u001b[36m▶ Read\u001b[0m\nThe task is complete.\nkaiten@KaitenMac kaitencode-123 %",
             metadataJson: '{"source":"tmux_log_tail"}',
           }),
           event('command_completed', { id: 'done', sequence: 2, metadataJson: '{"exitCode":0}' }),
@@ -129,7 +129,7 @@ describe('AgentTranscript', () => {
     fireEvent.click(screen.getByRole('button', { name: /Read/ }))
     expect(screen.getByText(/task is complete/)).toBeInTheDocument()
     expect(screen.queryByText(/trigger_logs/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/bentoya-123 %/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/kaitencode-123 %/)).not.toBeInTheDocument()
     expect(screen.queryByText(/completed · exit 0/)).not.toBeInTheDocument()
   })
 
@@ -241,12 +241,12 @@ describe('AgentTranscript', () => {
           event('session_started', {
             id: 's1',
             sequence: 1,
-            metadataJson: '{"cli":"claude","workdir":"/Users/bentomac/bento-ya/.worktrees/bentoya-3d379760-4938-489a-8543-250f6d35f3e1"}',
+            metadataJson: '{"cli":"claude","workdir":"/Users/kaiten/kaitencode/.worktrees/kaitencode-3d379760-4938-489a-8543-250f6d35f3e1"}',
           }),
           event('agent_started', {
             id: 'a1',
             sequence: 2,
-            metadataJson: '{"cli":"claude","workdir":"/Users/bentomac/bento-ya/.worktrees/bentoya-3d379760-4938-489a-8543-250f6d35f3e1"}',
+            metadataJson: '{"cli":"claude","workdir":"/Users/kaiten/kaitencode/.worktrees/kaitencode-3d379760-4938-489a-8543-250f6d35f3e1"}',
           }),
         ]}
       />,
@@ -254,9 +254,9 @@ describe('AgentTranscript', () => {
 
     const runButton = screen.getByRole('button', { name: /run.*claude/ })
     expect(runButton).toHaveTextContent('claude')
-    expect(runButton).toHaveTextContent('bentoya-3d379760-4...6d35f3e1')
+    expect(runButton).toHaveTextContent(/kaitencode-3d37976.*6d35f3e1/)
     expect(screen.queryByText(/agent started/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Users\/bentomac\/bento-ya/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Users\/kaiten\/kaitencode/)).not.toBeInTheDocument()
   })
 
   it('does not split one run when provider emits a nested session_started event', () => {

@@ -25,7 +25,7 @@ async function tauriInvoke(browser, cmd, args = {}) {
   )
 }
 
-describe('Bento-ya Core Flow', () => {
+describe('KaitenCode Core Flow', () => {
   // Seed demo data before any tests — ensures workspace + columns + tasks exist
   before(async () => {
     await browser.pause(2000)
@@ -44,7 +44,7 @@ describe('Bento-ya Core Flow', () => {
   describe('App Launch', () => {
     it('should load and display the app title', async () => {
       const title = await browser.getTitle()
-      expect(title).toBe('Bento-ya')
+      expect(title).toBe('KaitenCode')
     })
 
     it('should show the kanban board with columns', async () => {

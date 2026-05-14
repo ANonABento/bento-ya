@@ -1,4 +1,4 @@
-# Bento-ya Pipeline E2E Audit Report
+# KaitenCode Pipeline E2E Audit Report
 **Date:** 2026-04-03 | **Build:** commit 1e8e3db | **Tests:** 52 Rust + 128 Frontend (all pass)
 
 ---

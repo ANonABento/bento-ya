@@ -4,7 +4,7 @@
 
 Add a model comparison view inside Settings, focused on the existing Agent settings tab. The view should help users compare enabled AI models side by side by provider, cost, context/output limits, capabilities, and current workspace usage, without changing model selection behavior, provider configuration behavior, or the existing Tauri IPC boundary.
 
-This plan is based on the current `bentoya/model-comparison-view-in-settings` worktree, `CLAUDE.md`, and the existing Rust backend + React frontend + Tauri IPC architecture. It is a plan only; it does not implement the feature.
+This plan is based on the current `kaitencode/model-comparison-view-in-settings` worktree, `CLAUDE.md`, and the existing Rust backend + React frontend + Tauri IPC architecture. It is a plan only; it does not implement the feature.
 
 Current codebase observations:
 

@@ -1,4 +1,4 @@
-# Bento-ya Development Notes
+# KaitenCode Development Notes
 
 ## Tauri/macOS Pitfalls
 

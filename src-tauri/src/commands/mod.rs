@@ -30,5 +30,5 @@ pub use crate::models;
 
 #[tauri::command]
 pub fn greet(name: &str) -> String {
-    format!("Hello, {}! Welcome to Bento-ya.", name)
+    format!("Hello, {}! Welcome to KaitenCode.", name)
 }

@@ -1,6 +1,6 @@
 # Pipeline v2 User Guide
 
-Pipeline v2 turns Bento-ya into a guided production line for AI coding tasks. Instead of dragging a card through a few broad states and remembering what to do next, each column has a specific job. Some columns run agents, some columns run local automation, and some columns wait for the rest of the batch before moving forward.
+Pipeline v2 turns KaitenCode into a guided production line for AI coding tasks. Instead of dragging a card through a few broad states and remembering what to do next, each column has a specific job. Some columns run agents, some columns run local automation, and some columns wait for the rest of the batch before moving forward.
 
 ![A task created on the board](../tests/webdriver/screenshots/02-after-task-create.png)
 
@@ -14,7 +14,7 @@ Backlog -> Setup -> Plan -> Implement -> Review -> Verify -> PR -> Staging -> Me
 
 **Backlog** is the holding area. Put rough ideas, bugs, chores, and user requests here before they are ready to run. Nothing happens automatically while a task stays in Backlog.
 
-**Setup** prepares the task for agent work. Bento-ya creates an isolated git branch and worktree, records the task's working directory, and immediately sends the task onward. This keeps concurrent tasks from editing the same checkout.
+**Setup** prepares the task for agent work. KaitenCode creates an isolated git branch and worktree, records the task's working directory, and immediately sends the task onward. This keeps concurrent tasks from editing the same checkout.
 
 **Plan** asks an agent to inspect the task and repository, then write a `.task.md` plan. The Plan agent should not implement. Its job is to make the work explicit enough that the Implement stage can execute without guessing.
 
@@ -26,9 +26,9 @@ Backlog -> Setup -> Plan -> Implement -> Review -> Verify -> PR -> Staging -> Me
 
 **PR** pushes the task branch and opens a pull request against the batch staging branch. If type-checking fails here, the task is marked failed instead of creating a broken PR.
 
-**Staging** waits until every task in the batch has reached the PR/Staging point. Then Bento-ya combines the branches into one staging branch and opens the staging-to-main PR.
+**Staging** waits until every task in the batch has reached the PR/Staging point. Then KaitenCode combines the branches into one staging branch and opens the staging-to-main PR.
 
-**Merge** watches the staging PR. After CI passes, Bento-ya squash merges the staging branch, moves the batch's tasks to Done, cleans up worktrees and branches, and unblocks dependent tasks.
+**Merge** watches the staging PR. After CI passes, KaitenCode squash merges the staging branch, moves the batch's tasks to Done, cleans up worktrees and branches, and unblocks dependent tasks.
 
 **Done** is the terminal state. The task has landed on main or was manually completed outside the automated flow.
 
@@ -36,7 +36,7 @@ Backlog -> Setup -> Plan -> Implement -> Review -> Verify -> PR -> Staging -> Me
 
 ## Batches
 
-A batch is a group of tasks that should land together. Bento-ya assigns a `batch_id` when tasks enter the automated pipeline. Tasks queued together, or tasks that belong to the same dependency chain, usually share a batch.
+A batch is a group of tasks that should land together. KaitenCode assigns a `batch_id` when tasks enter the automated pipeline. Tasks queued together, or tasks that belong to the same dependency chain, usually share a batch.
 
 For example, imagine three related tasks:
 
@@ -44,17 +44,17 @@ For example, imagine three related tasks:
 - Expose the setting in the React preferences panel.
 - Update the onboarding copy to mention the setting.
 
-Each task can be planned, implemented, reviewed, and verified in its own worktree. That keeps agent work parallel and easier to inspect. The tasks do not merge directly into main one by one. Instead, they collect in Staging, where Bento-ya creates a single combined branch. CI then tests the integrated result, which is where cross-task conflicts and missed assumptions are most likely to appear.
+Each task can be planned, implemented, reviewed, and verified in its own worktree. That keeps agent work parallel and easier to inspect. The tasks do not merge directly into main one by one. Instead, they collect in Staging, where KaitenCode creates a single combined branch. CI then tests the integrated result, which is where cross-task conflicts and missed assumptions are most likely to appear.
 
 A smaller batch might contain one task, such as "Fix typo in README." A larger batch might contain a full feature split across backend, frontend, tests, and docs. Prefer smaller batches when tasks are unrelated. Prefer one batch when tasks depend on each other or must ship as one coherent change.
 
 ## Queueing Tasks
 
-Start by writing a task card in Backlog with enough context for planning: the user-visible goal, any known files or features involved, acceptance criteria, and checks that must pass. When the task is ready, move it into the automated flow. Bento-ya will run Setup, then Plan.
+Start by writing a task card in Backlog with enough context for planning: the user-visible goal, any known files or features involved, acceptance criteria, and checks that must pass. When the task is ready, move it into the automated flow. KaitenCode will run Setup, then Plan.
 
 After Plan finishes, open the generated `.task.md` before letting the task continue. A good plan should list the intended changes, the likely files, test strategy, and any risks. If the plan is vague, edit the task or rerun planning before implementation. The quality of Implement depends heavily on the quality of Plan.
 
-Dependencies matter. If Task B depends on Task A, record that relationship instead of relying on memory. When Task A reaches Done through Merge, Bento-ya can automatically unblock Task B and send it to Setup.
+Dependencies matter. If Task B depends on Task A, record that relationship instead of relying on memory. When Task A reaches Done through Merge, KaitenCode can automatically unblock Task B and send it to Setup.
 
 ## Concurrency
 

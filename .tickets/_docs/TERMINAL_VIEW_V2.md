@@ -111,13 +111,13 @@ fn fire_trigger_into_pty(registry, task_id, command, prompt) {
 
 The terminal shows:
 ```
-bentomac@Mac ~/bento-ya % claude --model sonnet -p "Add v2.1 section to README..."
+bentomac@Mac ~/kaitencode % claude --model sonnet -p "Add v2.1 section to README..."
 ╭──────────────────────────────────────╮
 │ Reading README.md...                 │
 │ Editing README.md...                 │
 │ Done.                                │
 ╰──────────────────────────────────────╯
-bentomac@Mac ~/bento-ya %
+bentomac@Mac ~/kaitencode %
 ```
 
 User sees the full agent run live. After it exits, the shell prompt returns and the user can run `git diff`, `npm test`, whatever.
@@ -133,7 +133,7 @@ The trigger needs to know when the agent is done (for auto-advance). Two approac
 After injecting the command, watch the PTY output for the shell prompt to return. When we see the prompt pattern again, the command finished. This is how Warp detects command completion.
 
 **Option C: Wrapper script**
-Inject a wrapper: `claude -p "..." ; echo "___BENTOYA_EXIT_$?___"` — then watch for the sentinel in the PTY output stream. Simple and reliable.
+Inject a wrapper: `claude -p "..." ; echo "___KAITENCODE_EXIT_$?___"` — then watch for the sentinel in the PTY output stream. Simple and reliable.
 
 **Recommendation: Option C.** Sentinel-based. Easy to implement, no false positives, works with any CLI. bridge.rs watches for the sentinel, extracts exit code, calls `mark_complete()`.
 
@@ -205,7 +205,7 @@ Config:
   - If exists → write CLI command into PTY stdin
   - If not → spawn PTY first, then write command
   - Use sentinel wrapper for exit detection
-- Sentinel: `{command} ; echo "___BENTOYA_DONE_$?___"`
+- Sentinel: `{command} ; echo "___KAITENCODE_DONE_$?___"`
 - bridge.rs watches for sentinel → extracts exit code → `mark_complete()`
 
 ### Task 4: LRU eviction + idle timeout
