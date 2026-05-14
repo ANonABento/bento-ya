@@ -95,8 +95,11 @@ export function BatchesTab() {
         </p>
         <button
           onClick={handleRefresh}
-          className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface hover:text-text-primary transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border-default bg-surface px-2.5 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
         >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3" aria-hidden="true">
+            <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H4.598a.75.75 0 0 0-.75.75v3.634a.75.75 0 0 0 1.5 0v-2.033l.312.311a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm-1.449-.39a.75.75 0 0 0-1.45.39 7 7 0 0 1 .001-.002Zm-9.5-2.625a5.5 5.5 0 0 1 9.201-2.466l.312.311h-2.433a.75.75 0 0 0 0 1.5h3.634a.75.75 0 0 0 .75-.75V3.367a.75.75 0 0 0-1.5 0V5.4l-.312-.311A7 7 0 0 0 2.94 8.227a.75.75 0 1 0 1.449.39Z" clipRule="evenodd" />
+          </svg>
           Refresh
         </button>
       </div>
