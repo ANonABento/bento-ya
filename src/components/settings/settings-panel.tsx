@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { useSettingsStore } from '@/stores/settings-store'
 import { WorkspaceTab } from './tabs/workspace-tab'
@@ -144,6 +144,9 @@ export function SettingsPanel() {
   const activeTab = useSettingsStore((s) => s.activeTab)
   const setActiveTab = useSettingsStore((s) => s.setActiveTab)
 
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     if (!isOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -152,6 +155,35 @@ export function SettingsPanel() {
     window.addEventListener('keydown', handleKeyDown)
     return () => { window.removeEventListener('keydown', handleKeyDown) }
   }, [isOpen, closeSettings])
+
+  // Move focus into the panel on open so keyboard / screen-reader users start
+  // inside the modal rather than wherever focus was when Settings opened.
+  useEffect(() => {
+    if (!isOpen) return
+    const id = requestAnimationFrame(() => { closeButtonRef.current?.focus() })
+    return () => { cancelAnimationFrame(id) }
+  }, [isOpen])
+
+  // Trap Tab/Shift+Tab inside the panel.
+  const handlePanelKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Tab') return
+    const panel = panelRef.current
+    if (!panel) return
+    const focusables = panel.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )
+    const first = focusables[0]
+    const last = focusables[focusables.length - 1]
+    if (!first || !last) return
+    const active = document.activeElement as HTMLElement | null
+    if (e.shiftKey && (active === first || !panel.contains(active))) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -214,24 +246,32 @@ export function SettingsPanel() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={closeSettings}
+            aria-hidden="true"
             className="fixed inset-0 z-40 bg-black/50"
           />
 
           {/* Panel — responsive width: wider on large screens, full-width on mobile */}
           <motion.div
+            ref={panelRef}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-title"
+            onKeyDown={handlePanelKeyDown}
             className="fixed right-0 top-0 z-50 flex h-full w-full max-w-full flex-col border-l border-border-default bg-bg shadow-2xl lg:max-w-4xl xl:max-w-5xl"
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border-default px-6 py-4">
-              <h2 className="text-lg font-semibold text-text-primary">Settings</h2>
+              <h2 id="settings-title" className="text-lg font-semibold text-text-primary">Settings</h2>
               <button
+                ref={closeButtonRef}
                 onClick={closeSettings}
                 className="rounded-lg p-2 text-text-secondary transition-colors hover:bg-surface hover:text-text-primary"
                 title="Close settings"
+                aria-label="Close settings"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
                   <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
