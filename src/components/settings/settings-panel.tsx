@@ -223,7 +223,7 @@ export function SettingsPanel() {
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className="fixed right-0 top-0 z-50 flex h-full w-full max-w-full flex-col border-l border-border-default bg-bg shadow-2xl sm:max-w-2xl lg:max-w-4xl xl:max-w-5xl"
+            className="fixed right-0 top-0 z-50 flex h-full w-full max-w-full flex-col border-l border-border-default bg-bg shadow-2xl lg:max-w-4xl xl:max-w-5xl"
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border-default px-6 py-4">
@@ -240,7 +240,7 @@ export function SettingsPanel() {
             </div>
 
             {/* Mobile section picker — only visible on narrow viewports */}
-            <div className="block border-b border-border-default px-4 py-2 sm:hidden">
+            <div className="block border-b border-border-default px-4 py-2 lg:hidden">
               <select
                 value={activeTab}
                 onChange={(e) => { setActiveTab(e.target.value) }}
@@ -260,7 +260,7 @@ export function SettingsPanel() {
             {/* Content */}
             <div className="flex flex-1 overflow-hidden">
               {/* Tab sidebar with groups — hidden on mobile */}
-              <nav className="hidden w-56 shrink-0 overflow-y-auto border-r border-border-default bg-surface/40 p-3 sm:block">
+              <nav className="hidden w-56 shrink-0 overflow-y-auto border-r border-border-default bg-surface/40 p-3 lg:block">
                 {TAB_GROUPS.map((group) => (
                   <div key={group.id} className="mb-4">
                     <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-text-secondary/70">
