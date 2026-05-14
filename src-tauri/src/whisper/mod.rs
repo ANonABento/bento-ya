@@ -3,6 +3,7 @@
 //! Provides on-device speech-to-text using whisper.cpp via whisper-rs.
 //! Models are downloaded on-demand and stored in the app data directory.
 
+mod audio;
 mod manager;
 pub mod recorder;
 mod transcriber;

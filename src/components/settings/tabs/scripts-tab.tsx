@@ -218,7 +218,7 @@ function ScriptCard({
     const triggers = getColumnTriggers(col)
     return (
       triggers.on_entry?.type === 'run_script' &&
-      (triggers.on_entry as RunScriptAction).script_id === script.id
+      triggers.on_entry.script_id === script.id
     )
   })
 
@@ -230,7 +230,7 @@ function ScriptCard({
     const hasExistingEntry = existing.on_entry && existing.on_entry.type !== 'none'
     const isAlreadyAttached =
       existing.on_entry?.type === 'run_script' &&
-      (existing.on_entry as RunScriptAction).script_id === script.id
+      existing.on_entry.script_id === script.id
 
     if (isAlreadyAttached) {
       setAttachStatus(`Already attached to "${columnName}"`)
@@ -340,7 +340,7 @@ function ScriptCard({
                       const triggers = getColumnTriggers(col)
                       const isAttachedHere =
                         triggers.on_entry?.type === 'run_script' &&
-                        (triggers.on_entry as RunScriptAction).script_id === script.id
+                        triggers.on_entry.script_id === script.id
                       const hasOtherEntry =
                         !isAttachedHere &&
                         triggers.on_entry &&
