@@ -271,8 +271,24 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
               )}
             </div>
 
-            {/* Actions */}
+            {/* Actions — DOM order is Cancel, Save, Delete (safe → destructive) so
+                keyboard focus reaches Cancel/Save before the destructive Delete.
+                `order-*` classes restore the visual left-Delete / right-Save layout. */}
             <div className="flex items-center gap-2 border-t border-border-default px-6 py-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="order-2 ml-auto rounded-lg px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!name.trim() || isSubmitting}
+                className="order-3 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg disabled:opacity-50"
+              >
+                {isSubmitting ? 'Saving...' : 'Save'}
+              </button>
               {onDelete && (
                 <button
                   type="button"
@@ -285,7 +301,7 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
                     }
                   }}
                   aria-label={confirmDelete ? 'Confirm delete column (click again to delete)' : 'Delete column'}
-                  className={`rounded-lg px-3 py-2 text-sm transition-colors ${
+                  className={`order-1 rounded-lg px-3 py-2 text-sm transition-colors ${
                     confirmDelete
                       ? 'bg-error/20 text-error font-medium ring-2 ring-error/40'
                       : 'text-error hover:bg-error/10'
@@ -294,22 +310,6 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
                   {confirmDelete ? 'Click again to confirm' : 'Delete column'}
                 </button>
               )}
-              <div className="ml-auto flex gap-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-lg px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!name.trim() || isSubmitting}
-                  className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg disabled:opacity-50"
-                >
-                  {isSubmitting ? 'Saving...' : 'Save'}
-                </button>
-              </div>
             </div>
           </form>
         </motion.div>
