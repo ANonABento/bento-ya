@@ -183,6 +183,16 @@ export function ChatInput({
                   }
                 }}
                 disabled={disabled || isProcessing || state.voice.state === 'processing'}
+                aria-label={
+                  state.voice.state === 'recording'
+                    ? 'Stop recording'
+                    : state.voice.state === 'processing'
+                      ? 'Transcribing voice'
+                      : state.voice.state === 'error'
+                        ? 'Voice input error — retry'
+                        : 'Record voice message'
+                }
+                aria-pressed={state.voice.state === 'recording'}
                 className={`flex h-8 w-8 shrink-0 items-center justify-center rounded border transition-colors ${
                   state.voice.state === 'recording'
                     ? 'border-accent bg-accent/10 text-accent animate-pulse'
@@ -222,6 +232,7 @@ export function ChatInput({
               <button
                 type="button"
                 onClick={onCancel}
+                aria-label={queueCount > 0 ? `Cancel (${String(queueCount)} queued)` : 'Cancel'}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-red-500/30 bg-red-500/10 text-red-500 transition-colors hover:bg-red-500/20"
                 style={{ cursor: 'pointer' }}
               >
@@ -237,6 +248,7 @@ export function ChatInput({
               type="button"
               onClick={showInlineStop ? onCancel : state.handleSubmit}
               disabled={showInlineStop ? disabled : !hasSubmitContent || disabled}
+              aria-label={showInlineStop ? 'Stop agent' : (submitLabel ?? (isProcessing ? 'Queue message' : 'Send message'))}
               className={`flex h-8 w-8 shrink-0 items-center justify-center rounded transition-colors disabled:opacity-50 ${
                 showInlineStop
                   ? 'border border-red-500/40 bg-red-500/12 text-red-400 hover:bg-red-500/20'
