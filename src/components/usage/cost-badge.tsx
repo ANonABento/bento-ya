@@ -26,6 +26,7 @@ export function CostBadge({ workspaceId, onOpenDashboard }: Props) {
             ? 'bg-accent/10 text-accent hover:bg-accent/20'
             : 'bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
         }`}
+        aria-label={`Usage costs: ${totalCost > 0 ? `$${totalCost.toFixed(2)}` : 'less than 1 cent'}`}
         title="Usage costs"
       >
         <svg

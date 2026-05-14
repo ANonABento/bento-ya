@@ -133,6 +133,7 @@ function AddTabButton({ onClick }: { onClick: () => void }) {
     <Tooltip content="New Workspace" side="bottom">
       <motion.button
         onClick={onClick}
+        aria-label="New workspace"
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
@@ -196,6 +197,8 @@ function ShowArchivedButton() {
     <Tooltip content={showArchived ? 'Hide archived' : 'Show archived'} side="bottom">
       <motion.button
         onClick={() => { setShowArchived(!showArchived) }}
+        aria-label={showArchived ? 'Hide archived workspaces' : 'Show archived workspaces'}
+        aria-pressed={showArchived}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
@@ -227,6 +230,7 @@ function ChecklistButton() {
     <Tooltip content="Checklist" side="bottom">
       <motion.button
         onClick={openChecklist}
+        aria-label={hasItems ? `Checklist (${String(total - progress)} of ${String(total)} remaining)` : 'Checklist'}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         className="relative flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
