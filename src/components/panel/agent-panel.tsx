@@ -418,14 +418,17 @@ function PanelHeader({
 }: PanelHeaderProps) {
   return (
     <div className="border-b border-border-default bg-bg">
-      <div className="flex items-center justify-between gap-3 px-3 py-2">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+      {/* Below `lg` the header wraps to two rows so the Transcript/Terminal
+          toggle and Hold/Stop/Kill buttons stay on-screen on narrow viewports. */}
+      <div className="flex flex-col gap-2 px-3 py-2 lg:flex-row lg:items-center lg:justify-between lg:gap-3">
+        <div className="flex min-w-0 items-center gap-3 lg:flex-1">
           {onClose && (
             <button
               type="button"
               onClick={onClose}
               className="rounded p-1 text-text-secondary hover:bg-surface-hover hover:text-text-primary"
               title="Close panel (Esc)"
+              aria-label="Close panel"
             >
               <svg
                 width="14"
@@ -434,6 +437,7 @@ function PanelHeader({
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.5"
+                aria-hidden="true"
               >
                 <path d="M5 3l5 4-5 4" />
               </svg>
@@ -441,23 +445,25 @@ function PanelHeader({
           )}
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs font-medium text-text-primary">{task.title}</div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-text-secondary">
+            <div className="mt-0.5 hidden items-center gap-1.5 text-[10px] text-text-secondary sm:flex">
               <span>{task.model ?? 'agent'}</span>
               <span className="text-text-secondary/40">/</span>
-              <span>{workingDir || 'no workdir'}</span>
+              <span className="truncate">{workingDir || 'no workdir'}</span>
             </div>
           </div>
-          {viewSlot}
         </div>
 
-        <div className="inline-flex shrink-0 items-center gap-1.5 text-xs">
-          {isAgentRunning && (
-            <span className="inline-flex items-center gap-1 rounded bg-running/10 px-1.5 py-0.5 text-[10px] text-running">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-running" />
-              live
-            </span>
-          )}
-          {rightSlot}
+        <div className="flex items-center justify-between gap-2 lg:justify-end">
+          {viewSlot}
+          <div className="inline-flex shrink-0 items-center gap-1.5 text-xs">
+            {isAgentRunning && (
+              <span className="inline-flex items-center gap-1 rounded bg-running/10 px-1.5 py-0.5 text-[10px] text-running">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-running" />
+                <span className="hidden sm:inline">live</span>
+              </span>
+            )}
+            {rightSlot}
+          </div>
         </div>
       </div>
 
