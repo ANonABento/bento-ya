@@ -410,6 +410,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
           <button
             type="button"
             onClick={togglePanel}
+            aria-label={isPanelCollapsed ? 'Expand orchestrator panel' : 'Collapse orchestrator panel'}
+            aria-expanded={!isPanelCollapsed}
             className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
           >
             <svg
