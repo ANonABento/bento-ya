@@ -88,7 +88,7 @@ export function ExitTab({
             />
             <p className="text-xs text-text-secondary">
               {exitCriteria.max_retries
-                ? `Re-fires the on_entry trigger up to ${exitCriteria.max_retries}× on failure`
+                ? `Re-fires the on_entry trigger up to ${String(exitCriteria.max_retries)}× on failure`
                 : 'Leave empty to disable auto-retry'}
             </p>
           </div>
