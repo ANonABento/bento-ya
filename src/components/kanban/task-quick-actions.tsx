@@ -35,7 +35,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       {/* Open in panel */}
       <button
         onClick={onOpen}
-        className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+        className="flex h-7 w-7 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
         title="Open task"
         aria-label="Open task"
       >
@@ -48,7 +48,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       {/* Run/Stop agent */}
       <button
         onClick={onToggleAgent}
-        className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
+        className={`flex h-7 w-7 items-center justify-center rounded transition-colors ${
           isRunning
             ? 'text-running hover:bg-running/20'
             : 'text-text-secondary hover:bg-surface-hover hover:text-success'
@@ -71,7 +71,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       {hasError && (
         <button
           onClick={(e) => { e.stopPropagation(); onRetry(); }}
-          className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-warning/20 hover:text-warning transition-colors"
+          className="flex h-7 w-7 items-center justify-center rounded text-text-secondary hover:bg-warning/20 hover:text-warning transition-colors"
           title="Retry pipeline (R)"
           aria-label="Retry pipeline"
         >
@@ -85,7 +85,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       {hasNextColumn && !hasError && (
         <button
           onClick={(e) => { e.stopPropagation(); onMoveNext(); }}
-          className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-accent transition-colors"
+          className="flex h-7 w-7 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-accent transition-colors"
           title="Move to next column (→)"
           aria-label="Move to next column"
         >
@@ -109,7 +109,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       {/* More options */}
       <button
         onClick={onShowMenu}
-        className="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+        className="flex h-7 w-7 items-center justify-center rounded text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
         title="More actions"
         aria-label="More actions"
         aria-haspopup="menu"
