@@ -109,6 +109,7 @@ export function GithubTab() {
               type="button"
               role="switch"
               aria-checked={config.githubSyncEnabled ?? false}
+              aria-label="Enable GitHub sync"
               onClick={() => {
                 void updateConfig({ githubSyncEnabled: !(config.githubSyncEnabled ?? false) })
               }}

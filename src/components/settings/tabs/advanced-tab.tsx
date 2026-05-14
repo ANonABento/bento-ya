@@ -213,6 +213,7 @@ export function AdvancedTab() {
               checked={gestures.swipeEnabled}
               onChange={(v) => { updateSettings('gestures', { ...gestures, swipeEnabled: v }) }}
               size="md"
+              aria-label="Swipe navigation"
             />
           </SettingRow>
           <div className={gestures.swipeEnabled ? 'space-y-3' : 'pointer-events-none space-y-3 opacity-50'}>
