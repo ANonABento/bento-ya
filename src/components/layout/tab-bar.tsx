@@ -88,9 +88,9 @@ function SortableTab({
         `}
       >
         <span className="flex items-center">
-          <span className="max-w-[120px] truncate text-center">{workspace.name}</span>
+          <span className="max-w-[64px] truncate text-center sm:max-w-[120px]">{workspace.name}</span>
           {activeTaskCount > 0 && (
-            <span className="ml-1 rounded-full bg-primary/20 px-1.5 text-xs text-primary">
+            <span className="ml-1 hidden rounded-full bg-primary/20 px-1.5 text-xs text-primary sm:inline">
               {activeTaskCount}
             </span>
           )}
@@ -357,15 +357,21 @@ export function TabBar() {
           </DndContext>
         </div>
 
-        {/* Right: add workspace + checklist + cost + settings */}
+        {/* Right: add workspace + checklist + cost + settings.
+            Below `sm` only the essentials (Settings + Cost) stay — the rest
+            collapse to keep the centered tab cluster from colliding with the
+            right-side icons. New workspace / checklist / archived view stay
+            reachable via Cmd+T, Cmd+K, and the command palette respectively. */}
         <div className="ml-auto flex items-center gap-1">
-          <AddTabButton
-            onClick={() => {
-              setShowAddDialog(true)
-            }}
-          />
-          <ChecklistButton />
-          <ShowArchivedButton />
+          <span className="hidden sm:contents">
+            <AddTabButton
+              onClick={() => {
+                setShowAddDialog(true)
+              }}
+            />
+            <ChecklistButton />
+            <ShowArchivedButton />
+          </span>
           {activeWorkspaceId && (
             <CostBadge
               workspaceId={activeWorkspaceId}
