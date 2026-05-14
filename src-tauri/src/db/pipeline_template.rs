@@ -65,7 +65,7 @@ pub fn find_pipeline_template_by_name(
         PIPELINE_TEMPLATE_COLUMNS
     ))?;
     let mut rows = stmt.query_map(params![name], map_pipeline_template_row)?;
-    Ok(rows.next().transpose()?)
+    rows.next().transpose()
 }
 
 pub fn update_pipeline_template(

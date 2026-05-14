@@ -2253,10 +2253,7 @@ pub(crate) fn build_interactive_claude_argv(
     let mut argv: Vec<String> = Vec::new();
     argv.push(cli_command.to_string());
     argv.push("--dangerously-skip-permissions".to_string());
-    if let Some(id) = resume_id
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-    {
+    if let Some(id) = resume_id.map(str::trim).filter(|id| !id.is_empty()) {
         argv.push("--resume".to_string());
         argv.push(id.to_string());
     }
@@ -2298,11 +2295,9 @@ pub(crate) fn strip_ansi(s: &str) -> String {
                         if c == '\u{07}' {
                             break;
                         }
-                        if c == '\u{1b}' {
-                            if chars.peek() == Some(&'\\') {
-                                chars.next();
-                                break;
-                            }
+                        if c == '\u{1b}' && chars.peek() == Some(&'\\') {
+                            chars.next();
+                            break;
                         }
                     }
                 }
@@ -2676,16 +2671,13 @@ pub fn spawn_interactive_trigger_task(
                     cli_command
                 );
                 log::error!("[bridge:interactive] {}", err);
-                // Surface as a spawn failure so we route through the
-                // existing failure-handling path below.
-                let spawn_result: Result<(), String> = Err(err);
                 handle_interactive_spawn_failure(
                     &app,
                     &task_id,
                     &task_id_for_log,
                     &cli_command,
                     session_id.as_deref(),
-                    spawn_result.unwrap_err(),
+                    err,
                 );
                 return;
             }
@@ -2981,13 +2973,8 @@ async fn watch_interactive_sentinel(
                     "Interactive agent exceeded 2h timeout without emitting completion sentinel"
                         .to_string()
                 };
-                let _ = pipeline::mark_complete_with_error(
-                    &conn,
-                    &app,
-                    &task_id,
-                    false,
-                    Some(&detail),
-                );
+                let _ =
+                    pipeline::mark_complete_with_error(&conn, &app, &task_id, false, Some(&detail));
             }
         }
     }
@@ -3383,8 +3370,7 @@ mod tests {
 
     #[test]
     fn test_build_interactive_claude_argv_appends_sentinel_when_requested() {
-        let argv =
-            build_interactive_claude_argv("claude", &[], "task-xyz", None, true);
+        let argv = build_interactive_claude_argv("claude", &[], "task-xyz", None, true);
         let pos = argv
             .iter()
             .position(|a| a == "--append-system-prompt")
@@ -3399,24 +3385,21 @@ mod tests {
 
     #[test]
     fn test_build_interactive_claude_argv_threads_resume_id() {
-        let argv = build_interactive_claude_argv(
-            "claude",
-            &[],
-            "task-1",
-            Some("session-42"),
-            false,
-        );
+        let argv =
+            build_interactive_claude_argv("claude", &[], "task-1", Some("session-42"), false);
         let resume_pos = argv
             .iter()
             .position(|a| a == "--resume")
             .expect("--resume should appear when resume_id is set");
-        assert_eq!(argv.get(resume_pos + 1).map(String::as_str), Some("session-42"));
+        assert_eq!(
+            argv.get(resume_pos + 1).map(String::as_str),
+            Some("session-42")
+        );
     }
 
     #[test]
     fn test_build_interactive_claude_argv_ignores_blank_resume_id() {
-        let argv =
-            build_interactive_claude_argv("claude", &[], "task-1", Some("   "), false);
+        let argv = build_interactive_claude_argv("claude", &[], "task-1", Some("   "), false);
         assert!(
             !argv.iter().any(|a| a == "--resume"),
             "blank resume id should be dropped: {:?}",
@@ -3532,7 +3515,11 @@ mod tests {
             "interactive codex must not include `--json`: {:?}",
             argv
         );
-        assert!(argv.iter().any(|a| a == "--model"), "user args missing: {:?}", argv);
+        assert!(
+            argv.iter().any(|a| a == "--model"),
+            "user args missing: {:?}",
+            argv
+        );
         assert!(
             !argv.iter().any(|a| a == "--append-system-prompt"),
             "no sentinel when include_sentinel=false: {:?}",
@@ -3557,12 +3544,18 @@ mod tests {
 
     #[test]
     fn test_interactive_cli_from_cli_name() {
-        assert_eq!(InteractiveCli::from_cli_name("claude"), Some(InteractiveCli::Claude));
+        assert_eq!(
+            InteractiveCli::from_cli_name("claude"),
+            Some(InteractiveCli::Claude)
+        );
         assert_eq!(
             InteractiveCli::from_cli_name("/usr/local/bin/claude"),
             Some(InteractiveCli::Claude)
         );
-        assert_eq!(InteractiveCli::from_cli_name("codex"), Some(InteractiveCli::Codex));
+        assert_eq!(
+            InteractiveCli::from_cli_name("codex"),
+            Some(InteractiveCli::Codex)
+        );
         assert_eq!(
             InteractiveCli::from_cli_name("/opt/openai/bin/codex"),
             Some(InteractiveCli::Codex)
