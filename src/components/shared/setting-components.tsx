@@ -28,16 +28,19 @@ export function SettingSection({ title, description, children, border = false }:
 type SettingRowProps = {
   label: string
   description?: string
+  /** When set, binds the label to the control via htmlFor so click-label-to-focus works.
+      Callers must pass the same id to their child <input>/<select>/<textarea>. */
+  htmlFor?: string
   children: ReactNode
   vertical?: boolean
 }
 
-export function SettingRow({ label, description, children, vertical = false }: SettingRowProps) {
+export function SettingRow({ label, description, children, vertical = false, htmlFor }: SettingRowProps) {
   if (vertical) {
     return (
       <div className="space-y-2">
         <div>
-          <label className="text-sm text-text-primary">{label}</label>
+          <label htmlFor={htmlFor} className="text-sm text-text-primary">{label}</label>
           {description && (
             <p className="mt-0.5 text-xs text-text-secondary">{description}</p>
           )}
@@ -50,7 +53,7 @@ export function SettingRow({ label, description, children, vertical = false }: S
   return (
     <div className="flex items-center justify-between gap-4">
       <div className="flex-1">
-        <label className="text-sm text-text-primary">{label}</label>
+        <label htmlFor={htmlFor} className="text-sm text-text-primary">{label}</label>
         {description && (
           <p className="mt-0.5 text-xs text-text-secondary">{description}</p>
         )}
