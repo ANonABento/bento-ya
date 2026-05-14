@@ -80,6 +80,15 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
   const [color, setColor] = useState(column.color || '#E8A87C')
   const [userPickedIcon, setUserPickedIcon] = useState(false)
   const [userPickedColor, setUserPickedColor] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // Reset the delete-confirm state after 3s if the user doesn't follow through —
+  // prevents a stale "armed" state if focus moves away.
+  useEffect(() => {
+    if (!confirmDelete) return
+    const t = setTimeout(() => { setConfirmDelete(false) }, 3000)
+    return () => { clearTimeout(t) }
+  }, [confirmDelete])
 
   // Reset manual override flags when dialog opens for a different column
   useEffect(() => {
@@ -239,10 +248,22 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
               {onDelete && (
                 <button
                   type="button"
-                  onClick={() => { onClose(); onDelete() }}
-                  className="rounded-lg px-3 py-2 text-sm text-error hover:bg-error/10"
+                  onClick={() => {
+                    if (confirmDelete) {
+                      onClose()
+                      onDelete()
+                    } else {
+                      setConfirmDelete(true)
+                    }
+                  }}
+                  aria-label={confirmDelete ? 'Confirm delete column (click again to delete)' : 'Delete column'}
+                  className={`rounded-lg px-3 py-2 text-sm transition-colors ${
+                    confirmDelete
+                      ? 'bg-error/20 text-error font-medium ring-2 ring-error/40'
+                      : 'text-error hover:bg-error/10'
+                  }`}
                 >
-                  Delete column
+                  {confirmDelete ? 'Click again to confirm' : 'Delete column'}
                 </button>
               )}
               <div className="ml-auto flex gap-2">
