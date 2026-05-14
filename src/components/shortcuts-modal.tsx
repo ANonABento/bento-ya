@@ -6,6 +6,7 @@ type Props = {
 
 type ShortcutItem = {
   keys: readonly string[]
+  altKeys?: readonly string[]
   description: string
 }
 
@@ -18,8 +19,7 @@ const SHORTCUTS = [
   {
     category: 'Global',
     items: [
-      { keys: ['?'], description: 'Open keyboard shortcuts' },
-      { keys: ['Cmd', '/'], description: 'Open keyboard shortcuts' },
+      { keys: ['?'], altKeys: ['Cmd', '/'], description: 'Open keyboard shortcuts' },
       { keys: ['Cmd', 'K'], description: 'Open command palette / search' },
       { keys: ['Cmd', ','], description: 'Open settings' },
       { keys: ['Cmd', 'J'], description: 'Toggle chef panel' },
@@ -47,8 +47,7 @@ const SHORTCUTS = [
       { keys: ['M'], description: 'Open move task menu' },
       { keys: ['L'], description: 'Edit task dependencies' },
       { keys: ['Cmd/Ctrl', 'Drag'], description: 'Link task dependencies' },
-      { keys: ['Del'], description: 'Delete selected task' },
-      { keys: ['Backspace'], description: 'Delete selected task' },
+      { keys: ['Del'], altKeys: ['Backspace'], description: 'Delete selected task' },
     ],
   },
   {
@@ -150,7 +149,15 @@ export function ShortcutsModal({ onClose }: Props) {
                   {section.items.map((item) => (
                     <div key={item.keys.join('+')} className="grid grid-cols-[1fr_auto] items-center gap-3 text-sm">
                       <span className="min-w-0 text-text-secondary">{item.description}</span>
-                      <KbdSequence keys={item.keys} />
+                      <span className="inline-flex items-center gap-1.5">
+                        <KbdSequence keys={item.keys} />
+                        {item.altKeys && (
+                          <>
+                            <span className="text-[10px] uppercase text-text-secondary/60">or</span>
+                            <KbdSequence keys={item.altKeys} />
+                          </>
+                        )}
+                      </span>
                     </div>
                   ))}
                 </div>
