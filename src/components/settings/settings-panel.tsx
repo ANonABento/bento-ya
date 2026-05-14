@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { useSettingsStore } from '@/stores/settings-store'
 import { WorkspaceTab } from './tabs/workspace-tab'
@@ -142,6 +143,15 @@ export function SettingsPanel() {
   const closeSettings = useSettingsStore((s) => s.closeSettings)
   const activeTab = useSettingsStore((s) => s.activeTab)
   const setActiveTab = useSettingsStore((s) => s.setActiveTab)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeSettings()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => { window.removeEventListener('keydown', handleKeyDown) }
+  }, [isOpen, closeSettings])
 
   const renderTabContent = () => {
     switch (activeTab) {
