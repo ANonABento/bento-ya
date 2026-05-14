@@ -6,9 +6,10 @@ import type {
   TriggerAction,
   ExitCriteria,
 } from '@/types'
+import type { ResourceProfile } from '@/types/column'
 import { useColumnStore } from '@/stores/column-store'
 import { getColumnTriggers } from '@/types/column'
-import { COLORS, ICONS, COLUMN_COLORS } from './column-config-constants'
+import { ICONS, COLUMN_COLORS } from './column-config-constants'
 import { TriggersTab } from './column-trigger-editor'
 import { ExitTab } from './column-exit-editor'
 
@@ -58,6 +59,15 @@ type ColumnConfigDialogProps = {
 }
 
 type Tab = 'general' | 'triggers' | 'exit'
+type ResourceProfileOption = ResourceProfile | 'auto'
+
+const RESOURCE_PROFILE_OPTIONS: Array<{ value: ResourceProfileOption; label: string; hint: string }> = [
+  { value: 'auto', label: 'Auto', hint: 'Backend default' },
+  { value: 'light', label: 'Light', hint: 'Small work' },
+  { value: 'standard', label: 'Standard', hint: 'Normal agent work' },
+  { value: 'heavy', label: 'Heavy', hint: 'Prefer one at a time' },
+  { value: 'exclusive', label: 'Exclusive', hint: 'Single lane work' },
+]
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
@@ -99,6 +109,8 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
   const [exitCriteria, setExitCriteria] = useState<ExitCriteria>(
     initialTriggers.exit_criteria || { type: 'manual', auto_advance: false }
   )
+  const [maxConcurrent, setMaxConcurrent] = useState<number | undefined>(initialTriggers.max_concurrent)
+  const [resourceProfile, setResourceProfile] = useState<ResourceProfile | undefined>(initialTriggers.resource_profile)
 
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -116,6 +128,8 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
         on_entry: normalizeAction(onEntry),
         on_exit: normalizeAction(onExit),
         exit_criteria: exitCriteria,
+        ...(resourceProfile ? { resource_profile: resourceProfile } : {}),
+        ...(maxConcurrent != null && maxConcurrent > 0 ? { max_concurrent: maxConcurrent } : {}),
       }
 
       await updateColumnAsync(column.id, {
@@ -196,6 +210,10 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
                   setIcon={(v) => { setUserPickedIcon(true); setIcon(v) }}
                   color={color}
                   setColor={(v) => { setUserPickedColor(true); setColor(v) }}
+                  maxConcurrent={maxConcurrent}
+                  setMaxConcurrent={setMaxConcurrent}
+                  resourceProfile={resourceProfile}
+                  setResourceProfile={setResourceProfile}
                 />
               )}
               {tab === 'triggers' && (
@@ -260,6 +278,10 @@ function GeneralTab({
   setIcon,
   color,
   setColor,
+  maxConcurrent,
+  setMaxConcurrent,
+  resourceProfile,
+  setResourceProfile,
 }: {
   name: string
   setName: (v: string) => void
@@ -267,7 +289,13 @@ function GeneralTab({
   setIcon: (v: string) => void
   color: string
   setColor: (v: string) => void
+  maxConcurrent: number | undefined
+  setMaxConcurrent: (v: number | undefined) => void
+  resourceProfile: ResourceProfile | undefined
+  setResourceProfile: (v: ResourceProfile | undefined) => void
 }) {
+  const shouldSuggestSingleLane = resourceProfile === 'heavy' || resourceProfile === 'exclusive'
+
   return (
     <div className="space-y-5">
       {/* Name */}
@@ -306,11 +334,14 @@ function GeneralTab({
           <label className="mb-1.5 block text-sm font-medium text-text-secondary">
             Color
           </label>
-          <div className="flex flex-wrap gap-2">
-            {COLORS.map((c) => (
+          <div role="radiogroup" aria-label="Column color" className="flex flex-wrap gap-2">
+            {Object.entries(COLUMN_COLORS).map(([name, c]) => (
               <button
                 key={c}
                 type="button"
+                role="radio"
+                aria-checked={color === c}
+                aria-label={`Color: ${name}`}
                 onClick={() => { setColor(c) }}
                 className={`h-6 w-6 rounded-full transition-transform ${
                   color === c ? 'scale-110 ring-2 ring-white/50' : 'hover:scale-105'
@@ -319,6 +350,83 @@ function GeneralTab({
               />
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Capacity */}
+      <div className="border-t border-border-default pt-5">
+        <div className="mb-3">
+          <h3 className="text-sm font-semibold text-text-primary">Capacity</h3>
+          <p className="mt-0.5 text-xs text-text-secondary/70">Column resource profile and concurrency.</p>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-text-secondary">
+              Resource profile
+            </label>
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5">
+              {RESOURCE_PROFILE_OPTIONS.map((option) => {
+                const selected = option.value === (resourceProfile ?? 'auto')
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      setResourceProfile(option.value === 'auto' ? undefined : option.value)
+                    }}
+                    className={`min-h-14 rounded-lg border px-2 py-2 text-left transition-colors ${
+                      selected
+                        ? 'border-accent bg-accent/10 text-text-primary'
+                        : 'border-border-default bg-bg text-text-secondary hover:border-border-hover hover:text-text-primary'
+                    }`}
+                    aria-pressed={selected}
+                  >
+                    <span className="block text-sm font-medium leading-4">{option.label}</span>
+                    <span className="mt-1 block text-[11px] leading-3 text-text-secondary/70">{option.hint}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-text-secondary">
+                Max concurrent agents
+              </label>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                placeholder="Unlimited"
+                value={maxConcurrent ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (v === '') { setMaxConcurrent(undefined); return }
+                  const n = Number.parseInt(v, 10)
+                  setMaxConcurrent(Number.isFinite(n) && n > 0 ? n : undefined)
+                }}
+                className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none sm:max-w-40"
+              />
+            </div>
+
+            {shouldSuggestSingleLane && maxConcurrent !== 1 && (
+              <button
+                type="button"
+                onClick={() => { setMaxConcurrent(1) }}
+                className="rounded-lg border border-border-default px-3 py-2 text-sm font-medium text-text-primary hover:bg-surface-hover"
+              >
+                Set to 1
+              </button>
+            )}
+          </div>
+
+          {shouldSuggestSingleLane && maxConcurrent !== 1 && (
+            <p className="text-xs text-warning">
+              {resourceProfile === 'exclusive' ? 'Exclusive' : 'Heavy'} columns usually run best at 1.
+            </p>
+          )}
         </div>
       </div>
     </div>
