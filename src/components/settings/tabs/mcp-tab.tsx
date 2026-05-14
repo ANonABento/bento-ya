@@ -1,5 +1,34 @@
 import { useState } from 'react'
 
+// Keep in sync with mcp-server/src/main.rs handle_tool_call dispatch.
+const MCP_TOOLS = [
+  'get_workspaces',
+  'get_board',
+  'get_task',
+  'create_task',
+  'update_task',
+  'move_task',
+  'delete_task',
+  'approve_task',
+  'reject_task',
+  'add_dependency',
+  'remove_dependency',
+  'mark_complete',
+  'retry_task',
+  'retry_from_start',
+  'create_workspace',
+  'create_column',
+  'configure_triggers',
+  'list_scripts',
+  'create_script',
+  'run_script',
+  'list_pipeline_templates',
+  'get_pipeline_template',
+  'save_pipeline_template',
+  'apply_pipeline_template',
+  'delete_pipeline_template',
+] as const
+
 export function McpTab() {
   const [copied, setCopied] = useState(false)
 
@@ -51,29 +80,13 @@ export function McpTab() {
         </ol>
       </div>
 
-      {/* Available tools */}
+      {/* Available tools — keep MCP_TOOLS in sync with mcp-server/src/main.rs handle_tool_call */}
       <div className="rounded-lg border border-border-default p-4">
-        <h4 className="text-sm font-medium text-text-primary mb-2">19 Available Tools</h4>
+        <h4 className="text-sm font-medium text-text-primary mb-2">{MCP_TOOLS.length} Available Tools</h4>
         <div className="grid grid-cols-2 gap-1 text-xs text-text-secondary font-mono">
-          <span>get_workspaces</span>
-          <span>get_board</span>
-          <span>get_task</span>
-          <span>create_task</span>
-          <span>update_task</span>
-          <span>move_task</span>
-          <span>delete_task</span>
-          <span>approve_task</span>
-          <span>reject_task</span>
-          <span>add_dependency</span>
-          <span>remove_dependency</span>
-          <span>mark_complete</span>
-          <span>retry_task</span>
-          <span>create_workspace</span>
-          <span>create_column</span>
-          <span>configure_triggers</span>
-          <span>list_scripts</span>
-          <span>create_script</span>
-          <span>run_script</span>
+          {MCP_TOOLS.map((t) => (
+            <span key={t}>{t}</span>
+          ))}
         </div>
       </div>
     </div>
