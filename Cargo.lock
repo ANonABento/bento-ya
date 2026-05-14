@@ -268,56 +268,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
-name = "bento-mcp"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "dirs 5.0.1",
- "rusqlite",
- "serde",
- "serde_json",
- "ureq",
- "uuid",
-]
-
-[[package]]
-name = "bento-ya"
-version = "0.1.0"
-dependencies = [
- "async-stream",
- "axum",
- "chrono",
- "cpal",
- "dirs 5.0.1",
- "futures",
- "git2",
- "glob",
- "hound",
- "libc",
- "log",
- "pty-process",
- "reqwest 0.12.28",
- "rusqlite",
- "serde",
- "serde_json",
- "symphonia",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-shell",
- "tauri-plugin-updater",
- "tauri-plugin-webdriver-automation",
- "tauri-plugin-window-state",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "uuid",
- "whisper-rs",
-]
-
-[[package]]
 name = "bindgen"
 version = "0.71.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2343,6 +2293,56 @@ checksum = "5dea2b27dd239b2556ed7a25ba842fe47fd602e7fc7433c2a8d6106d4d9edd70"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "kaitencode"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "axum",
+ "chrono",
+ "cpal",
+ "dirs 5.0.1",
+ "futures",
+ "git2",
+ "glob",
+ "hound",
+ "libc",
+ "log",
+ "pty-process",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "symphonia",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-shell",
+ "tauri-plugin-updater",
+ "tauri-plugin-webdriver-automation",
+ "tauri-plugin-window-state",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
+ "whisper-rs",
+]
+
+[[package]]
+name = "kaitencode-mcp"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "dirs 5.0.1",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "ureq",
+ "uuid",
 ]
 
 [[package]]

@@ -30,16 +30,16 @@ ALTER TABLE tasks ADD COLUMN recursion_depth INTEGER DEFAULT 0;
 MCP `create_task` payload picks these up from a new env var the running agent sets at spawn time, e.g.:
 
 ```
-BENTOYA_PARENT_TASK_ID=<task_id>
-BENTOYA_PARENT_AGENT_SESSION_ID=<session_id>
-BENTOYA_RECURSION_DEPTH=<n>
+KAITENCODE_PARENT_TASK_ID=<task_id>
+KAITENCODE_PARENT_AGENT_SESSION_ID=<session_id>
+KAITENCODE_RECURSION_DEPTH=<n>
 ```
 
 When `bridge::spawn_cli_trigger_task` spawns the agent, it sets these in the tmux session env. The MCP binary reads them at startup and includes them in every `create_task` payload. The API endpoint copies them onto the new task row and increments depth.
 
 ### Part 2 — depth limit
 
-Add a setting in `~/.bentoya/settings.json`:
+Add a setting in `~/.kaitencode/settings.json`:
 
 ```json
 {
@@ -47,7 +47,7 @@ Add a setting in `~/.bentoya/settings.json`:
 }
 ```
 
-Default 3 (user-created → agent → agent-spawned → child agent, then refuse). When MCP `create_task` is called with `BENTOYA_RECURSION_DEPTH >= max`, the API returns 429-ish error and the MCP returns `{"error": "Recursion depth exceeded (...)"}` instead of creating the task. The agent gets the error in its tool response and can decide what to do.
+Default 3 (user-created → agent → agent-spawned → child agent, then refuse). When MCP `create_task` is called with `KAITENCODE_RECURSION_DEPTH >= max`, the API returns 429-ish error and the MCP returns `{"error": "Recursion depth exceeded (...)"}` instead of creating the task. The agent gets the error in its tool response and can decide what to do.
 
 ### Part 3 — UI affordances
 

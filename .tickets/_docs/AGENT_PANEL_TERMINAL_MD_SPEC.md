@@ -15,7 +15,7 @@ The task agent panel should feel like a polished terminal-native Markdown transc
 
 1. Keep the terminal soul: monospace accents, Markdown density, command affordances, and low-chrome workbench styling.
 2. Do not use chat bubbles. Messages are transcript entries separated by quiet rules and metadata.
-3. Hide shell scaffolding by default. Long command setup such as `BENTOYA_CLAUDE_FILTER=... bash -o pipefail ...` is raw detail, not the main story.
+3. Hide shell scaffolding by default. Long command setup such as `KAITENCODE_CLAUDE_FILTER=... bash -o pipefail ...` is raw detail, not the main story.
 4. Preserve raw access. Users can inspect and interact with the real tmux terminal at any time.
 5. Make steering obvious. The composer should sit under the transcript, support multiline input, and leave room for `/commands`, `@files`, and `!shell`.
 

@@ -14,7 +14,7 @@ The whole run is on `main`. No branches, no PRs. Nothing is pushed.
 Phase 0 — research: 4 parallel `Explore` subagents read the prior audits (`docs/audits/ux-audit-2026-05-12.md`, `.tickets/_docs/UI_AUDIT_2026-05-13.md`), the change hotspots since 2026-05-13, the surface inventory, and the known a11y gaps. Synthesis lives at `docs/audits/2026-05-14/_plan.md`.
 
 Phase 1 — visual capture (parallel):
-- **WDIO** (real Tauri runtime, isolated DB at `/tmp/bentoya-overnight-2026-05-14`): authored `tests/webdriver/audit-2026-05-14.spec.mjs`. 15 passing, 4 failing. The 4 failures **all root-cause to the P1-1 overlay pointer-events bug** — the very first fix in Phase 4. 42 PNGs captured.
+- **WDIO** (real Tauri runtime, isolated DB at `/tmp/kaitencode-overnight-2026-05-14`): authored `tests/webdriver/audit-2026-05-14.spec.mjs`. 15 passing, 4 failing. The 4 failures **all root-cause to the P1-1 overlay pointer-events bug** — the very first fix in Phase 4. 42 PNGs captured.
 - **Playwright MCP** (browser-mock IPC against Vite at `localhost:1420`): walked the same surface list, captured 21 PNGs + 4 accessibility-tree snapshots.
 
 Phase 2 — vision analysis: 4 general-purpose subagents (one per surface bucket) reviewed the screenshots + DOM snapshots and produced 33 raw findings, deduped to **22 finding entries** in `_candidates.json`.
@@ -55,7 +55,7 @@ Phase 4 — fix loop on `main`. 17 surgical commits. Every fix passes `npx tsc -
 **Deferred to human (3 — needs product judgment):**
 
 - **P1-B (expanded card clipping on tablet/mobile)** — Need to decide between auto-collapsing the agent panel on expand vs re-layout strategy. Best guess: auto-collapse — 1-line change in `ui-store.ts.expandTask`.
-- **P1-7 (workspace tab close button)** — Carry-forward from 2026-05-12 P0-5. Some apps deliberately omit tab-close; bento-ya 2026-05-12 flagged its absence as P0. Best guess: add hover-revealed X + two-step confirm.
+- **P1-7 (workspace tab close button)** — Carry-forward from 2026-05-12 P0-5. Some apps deliberately omit tab-close; kaitencode 2026-05-12 flagged its absence as P0. Best guess: add hover-revealed X + two-step confirm.
 - **P2-13 (command palette recents / quick actions)** — IA decision (recents vs pinned vs both).
 
 **Carry-forward from prior audits (not exercised this run):**

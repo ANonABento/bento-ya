@@ -46,7 +46,7 @@ Read app stability data. Have you had any reports of:
 - Performance issues from the watcher tasks?
 
 If clean for 2+ weeks of dogfooding:
-- Remove `BENTOYA_INTERACTIVE_MODE_ENABLED` env flag.
+- Remove `KAITENCODE_INTERACTIVE_MODE_ENABLED` env flag.
 - Replace with a settings toggle "Enable interactive runtime mode" (default ON for new installs, opt-in for upgrades for one release, then default ON).
 
 If not clean: keep the flag, document the issues, defer promotion to a follow-up ticket.
@@ -104,7 +104,7 @@ If no → keep current naming. Document the decision in the plan doc with reason
 4. Dev flag decision documented; settings toggle exists if promoted.
 5. Mode naming decision documented; rename done if chosen.
 6. CLAUDE.md, plan doc, INTERACTIVE_AGENT_TERMINAL.md, UNIVERSAL_AGENT_RUNTIME.md all reflect shipped state.
-7. Manual end-to-end: a user upgrading from pre-Phase-1 bento-ya:
+7. Manual end-to-end: a user upgrading from pre-Phase-1 kaitencode:
    - Sees no breaking change.
    - Can opt into interactive mode via settings UI.
    - Hits no bugs in the happy path of creating an interactive task and running it through to completion.

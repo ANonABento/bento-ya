@@ -2,14 +2,14 @@
 
 ## Finder Launch Crash
 
-Bento-ya previously used `com.bento-ya.app` as the Tauri bundle identifier. Tauri warns against bundle identifiers ending in `.app` because that suffix conflicts with the `.app` package extension used by macOS application bundles. On affected Finder/LaunchServices launches, the app could abort during `tao::did_finish_launching`, producing a crash report with `SIGABRT` on the main thread before the window finished opening.
+KaitenCode originally used `com.bento-ya.app` as the Tauri bundle identifier. Tauri warns against bundle identifiers ending in `.app` because that suffix conflicts with the `.app` package extension used by macOS application bundles. On affected Finder/LaunchServices launches, the app could abort during `tao::did_finish_launching`, producing a crash report with `SIGABRT` on the main thread before the window finished opening.
 
-The bundle identifier is now `com.bentoya.desktop`, which keeps the reverse-DNS shape without using the reserved-looking `.app` suffix. The generated `Info.plist` should contain:
+It was then changed to `com.bentoya.desktop` to keep the reverse-DNS shape without using the reserved-looking `.app` suffix. The renamed app now uses `com.kaitencode.desktop`; macOS treats this as a new app identity, so users re-grant protected permissions after upgrading. The generated `Info.plist` should contain:
 
 ```text
-CFBundleIdentifier = com.bentoya.desktop
+CFBundleIdentifier = com.kaitencode.desktop
 CFBundlePackageType = APPL
-CFBundleExecutable = bento-ya
+CFBundleExecutable = kaitencode
 ```
 
 The app also keeps Tauri `setup()` lightweight during macOS launch. Startup recovery that can touch SQLite, tmux, shell commands, or pipeline resume runs from background tasks after Tauri has returned from `didFinishLaunching`.
@@ -31,13 +31,13 @@ Build and inspect the app bundle:
 
 ```sh
 npm run tauri -- build --bundles app
-plutil -p target/release/bundle/macos/Bento-ya.app/Contents/Info.plist
+plutil -p target/release/bundle/macos/KaitenCode.app/Contents/Info.plist
 ```
 
 Launch through LaunchServices, which matches Finder more closely than running the executable directly:
 
 ```sh
-open -n target/release/bundle/macos/Bento-ya.app
+open -n target/release/bundle/macos/KaitenCode.app
 ```
 
-The app should open without a new `~/Library/Logs/DiagnosticReports/bento-ya-*.ips` report. Terminal launches through `target/release/bento-ya` should continue to work.
+The app should open without a new `~/Library/Logs/DiagnosticReports/kaitencode-*.ips` report. Terminal launches through `target/release/kaitencode` should continue to work.

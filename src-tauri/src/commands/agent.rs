@@ -825,7 +825,7 @@ fn agent_type_from_cli_path(cli_path: &str) -> &str {
 }
 
 fn tmux_session_name_for_task(task_id: &str) -> String {
-    format!("bentoya_{}", task_id)
+    crate::chat::tmux_transport::session_name(task_id)
 }
 
 fn build_task_input_line(
@@ -851,7 +851,7 @@ fn build_task_input_line(
     let adapter_kind = agent_adapter_kind_from_db(agent_type_from_cli_path(cli_path));
     let mut command = crate::chat::bridge::build_trigger_command(cli_path, &args, text, resume_id);
     let nonce = uuid::Uuid::new_v4().to_string().replace('-', "");
-    let wait_channel = format!("bentoya_chat_done_{}", nonce);
+    let wait_channel = format!("kaitencode_chat_done_{}", nonce);
     let dir = crate::chat::log_retention::trigger_logs_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create log dir: {}", e))?;
     let semantic_log_path = match adapter_kind {
@@ -861,11 +861,23 @@ fn build_task_input_line(
                 .display()
                 .to_string();
             let env_name = if adapter_kind == AgentAdapterKind::CodexCli {
+                "KAITENCODE_CODEX_JSON_LOG"
+            } else {
+                "KAITENCODE_CLAUDE_JSON_LOG"
+            };
+            let legacy_env_name = if adapter_kind == AgentAdapterKind::CodexCli {
                 "BENTOYA_CODEX_JSON_LOG"
             } else {
                 "BENTOYA_CLAUDE_JSON_LOG"
             };
-            command = format!("{}={} {}", env_name, shell_quote_arg(&path), command);
+            command = format!(
+                "{}={} {}={} {}",
+                env_name,
+                shell_quote_arg(&path),
+                legacy_env_name,
+                shell_quote_arg(&path),
+                command
+            );
             Some(path)
         }
         _ => None,
@@ -1596,6 +1608,7 @@ mod tests {
         assert!(input.completion.is_some());
         assert!(command.starts_with("bash "));
         let script = std::fs::read_to_string(script_path_from_launcher(&command)).unwrap();
+        assert!(script.contains("KAITENCODE_CLAUDE_JSON_LOG="));
         assert!(script.contains("BENTOYA_CLAUDE_JSON_LOG="));
         assert!(script.contains("claude"));
         assert!(script.contains("--model"));
@@ -1604,7 +1617,7 @@ mod tests {
         assert!(script.contains("session-123"));
         assert!(script.contains("-p"));
         assert!(script.contains("hello agent"));
-        assert!(script.contains("tmux wait-for -S bentoya_chat_done_"));
+        assert!(script.contains("tmux wait-for -S kaitencode_chat_done_"));
         let completion = input.completion.expect("completion");
         assert!(completion
             .semantic_log_path
@@ -1622,7 +1635,8 @@ mod tests {
         assert!(input.completion.is_some());
         assert!(command.starts_with("bash "));
         let script = std::fs::read_to_string(script_path_from_launcher(&command)).unwrap();
-        assert!(!script.contains("BENTOYA_CLAUDE_JSON_LOG="));
+        assert!(!script.contains("KAITENCODE_CLAUDE_JSON_LOG="));
+        assert!(script.contains("KAITENCODE_CODEX_JSON_LOG="));
         assert!(script.contains("BENTOYA_CODEX_JSON_LOG="));
         assert!(script.contains("codex"));
         assert!(script.contains(" exec"));
@@ -1673,7 +1687,10 @@ mod tests {
         assert_eq!(agent_type_from_cli_path("claude"), "claude");
         assert_eq!(agent_type_from_cli_path("/opt/homebrew/bin/codex"), "codex");
         assert_eq!(agent_type_from_cli_path("my-agent"), "generic");
-        assert_eq!(tmux_session_name_for_task("task-123"), "bentoya_task-123");
+        assert_eq!(
+            tmux_session_name_for_task("task-123"),
+            "kaitencode_task-123"
+        );
         assert_eq!(
             agent_adapter_kind_from_db("codex_cli"),
             AgentAdapterKind::CodexCli

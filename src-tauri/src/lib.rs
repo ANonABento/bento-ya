@@ -395,7 +395,7 @@ fn spawn_startup_recovery(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let blocking_app = recovery_app.clone();
         let _ = tauri::async_runtime::spawn_blocking(move || {
-            // Sweep stale `tmux wait-for bentoya_done_*` processes left over
+            // Sweep stale `tmux wait-for kaitencode_done_*` processes left over
             // from a previous app instance. Their channels are nonce-scoped to
             // the run that spawned them, so they'd never be signaled and would
             // otherwise sit forever consuming a PID slot. Must run BEFORE any
@@ -475,7 +475,7 @@ fn warn_stale_worktrees_once(app: &tauri::AppHandle) {
                     .map(|column| !is_terminal_column_for_sweep(column, max_position))
                     .unwrap_or(true)
             })
-            .map(|task| format!("bentoya-{}", task.id))
+            .flat_map(|task| git::branch_manager::task_worktree_names(&task.id))
             .collect();
 
         let worktrees = match git::branch_manager::list_worktrees(&workspace.repo_path) {
@@ -573,7 +573,7 @@ fn run_hygiene_once(app: &tauri::AppHandle) {
 
 /// Recover tmux sessions from a previous app instance.
 ///
-/// On startup, discovers any `bentoya_*` tmux sessions still running.
+/// On startup, discovers any `kaitencode_*` tmux sessions still running.
 /// For sessions whose task_id exists in the DB with agent_status="running",
 /// re-registers them in the SessionRegistry so they can be reattached
 /// when the user opens the terminal panel.
@@ -636,7 +636,7 @@ fn recover_tmux_sessions(app: tauri::AppHandle) {
 
             // Bug-fix #2 (orphan-watcher resume): the watcher that calls
             // `mark_complete` lives in the process that spawned Codex. After
-            // a bento-ya restart, surviving tmux sessions whose Codex already
+            // a KaitenCode restart, surviving tmux sessions whose Codex already
             // exited are silent forever. Detect those here by checking the
             // pane's current foreground command: if it's a shell (bash/zsh/sh),
             // Codex has already returned to the prompt, so we can mark complete.
@@ -735,9 +735,9 @@ fn stale_pipeline_state_filter(column: &str) -> String {
 }
 
 /// Bug-fix #1: probe `tmux ls` once and return the set of task ids whose
-/// `bentoya_<task_id>` session is alive. Used to skip "stale" detection on
+/// `kaitencode_<task_id>` session is alive. Used to skip "stale" detection on
 /// tasks that are actually being run by a sibling process (headless
-/// `bento-mcp`, another Tauri instance, etc.).
+/// `kaitencode-mcp`, another Tauri instance, etc.).
 fn alive_task_session_ids() -> std::collections::HashSet<String> {
     use std::collections::HashSet;
     let mut alive = HashSet::new();
@@ -749,7 +749,9 @@ fn alive_task_session_ids() -> std::collections::HashSet<String> {
         _ => return alive,
     };
     for line in String::from_utf8_lossy(&output.stdout).lines() {
-        if let Some(rest) = line.strip_prefix("bentoya_") {
+        if let Some(rest) = line.strip_prefix("kaitencode_") {
+            alive.insert(rest.to_string());
+        } else if let Some(rest) = line.strip_prefix("bentoya_") {
             alive.insert(rest.to_string());
         }
     }
@@ -783,7 +785,7 @@ fn startup_resume_candidates(
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
     // Bug-fix #1: don't re-fire on_entry triggers for tasks whose tmux session
-    // is still alive — they're being run by another bentoya process.
+    // is still alive — they're being run by another KaitenCode process.
     let alive = alive_task_session_ids();
     let mut candidates = Vec::new();
     for task_id in task_ids {
@@ -805,8 +807,8 @@ fn reset_stale_pipeline_state(conn: &rusqlite::Connection) -> rusqlite::Result<u
     let task_stale_pipeline_filter = stale_pipeline_state_filter("pipeline_state");
 
     // Bug-fix #1: probe live tmux sessions and exclude them from reset.
-    // A task whose `bentoya_<id>` session is alive is either being run by
-    // another bentoya process or actively in-flight — destroying its state
+    // A task whose `kaitencode_<id>` session is alive is either being run by
+    // another KaitenCode process or actively in-flight — destroying its state
     // wastes Codex work and orphans the running agent.
     let alive = alive_task_session_ids();
     let alive_exclusion = build_alive_exclusion_clause(&alive);

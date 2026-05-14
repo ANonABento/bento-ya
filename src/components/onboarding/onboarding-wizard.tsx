@@ -108,7 +108,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       >
         {/* Title */}
         <div className="mb-6 text-center">
-          <h2 className="text-xl font-semibold text-text-primary">Welcome to Bento-ya</h2>
+          <h2 className="text-xl font-semibold text-text-primary">Welcome to KaitenCode</h2>
           <p className="mt-1 text-sm text-text-secondary">
             Set up your first workspace to get started
           </p>

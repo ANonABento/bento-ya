@@ -34,8 +34,8 @@ export function McpTab() {
 
   const mcpConfig = JSON.stringify({
     "mcpServers": {
-      "bento-ya": {
-        "command": "bento-mcp",
+      "kaitencode": {
+        "command": "kaitencode-mcp",
         "args": []
       }
     }

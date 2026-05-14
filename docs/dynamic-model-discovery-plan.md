@@ -33,7 +33,7 @@ When a new model drops (e.g. Opus 4.7), users can't use it until we ship an app 
 ```
 src-tauri/src/models/
 ├── mod.rs          # Public API: get_models(), refresh_models()
-├── cache.rs        # File-based cache (~/.bentoya/models-cache.json)
+├── cache.rs        # File-based cache (~/.kaitencode/models-cache.json)
 ├── fetcher.rs      # API calls to Anthropic/OpenAI
 ├── metadata.rs     # Local metadata overlay (pricing, capabilities)
 └── types.rs        # ModelEntry, ModelCache, ModelMetadata
@@ -70,7 +70,7 @@ struct ModelEntry {
 ```
 
 **Cache strategy:**
-- Startup: load from `~/.bentoya/models-cache.json` (instant, non-blocking)
+- Startup: load from `~/.kaitencode/models-cache.json` (instant, non-blocking)
 - If cache > 24h old: background refresh via `tokio::spawn`
 - On refresh: emit Tauri event `models:updated` so frontend reacts
 - Manual: "Check Now" button in settings triggers `force_refresh`
@@ -313,7 +313,7 @@ Phase 4 (Cost)           ~1 day (future)
 
 ### New
 - `src-tauri/src/models/mod.rs` — registry with get_available_models + refresh_models
-- `src-tauri/src/models/cache.rs` — file cache at ~/.bentoya/models-cache.json
+- `src-tauri/src/models/cache.rs` — file cache at ~/.kaitencode/models-cache.json
 - `src-tauri/src/models/fetcher.rs` — Anthropic + OpenAI API fetchers
 - `src-tauri/src/models/metadata.rs` — local metadata (13 models, pricing, capabilities)
 - `src-tauri/src/models/types.rs` — ModelEntry, ModelsCache, ModelSource, ModelTier

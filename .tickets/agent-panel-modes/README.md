@@ -1,6 +1,6 @@
 # /goal — Agent Panel Modes Rollout (6 Phases)
 
-You're implementing a multi-phase feature: adding **interactive** runtime mode to bento-ya alongside the existing **headless** mode (`claude -p` / `codex exec`). Full design lives in [`.tickets/_docs/AGENT_PANEL_MODES.md`](../_docs/AGENT_PANEL_MODES.md). Each phase has its own handoff prompt in this directory.
+You're implementing a multi-phase feature: adding **interactive** runtime mode to kaitencode alongside the existing **headless** mode (`claude -p` / `codex exec`). Full design lives in [`.tickets/_docs/AGENT_PANEL_MODES.md`](../_docs/AGENT_PANEL_MODES.md). Each phase has its own handoff prompt in this directory.
 
 ## Motivation
 
@@ -29,7 +29,7 @@ Execute phases strictly in order. **Do not start phase N+1 until phase N is:**
 
 ## Critical: do NOT run unattended
 
-This is a 10-day effort touching the agent execution path — the most load-bearing part of bento-ya. **Stop after each phase for the user to:**
+This is a 10-day effort touching the agent execution path — the most load-bearing part of kaitencode. **Stop after each phase for the user to:**
 
 - Review the diff
 - Manually exercise the running app (real `claude`, not just unit tests)
@@ -54,7 +54,7 @@ The next phase's agent reads this section. It's the project's working memory acr
 - **`tmux send-keys` quoting.** Always use `-l` (literal) + separate `Enter`. Never construct keystrokes from unescaped task content.
 - **Mode resolution order.** Trigger > task > column > workspace > global > default (`headless`). Get this right once in Phase 2's resolver helper; every later phase wires more storage tiers into it.
 - **Backward compatibility.** Existing `AgentRuntimeMode = 'terminal' | 'managed'` columns and triggers must keep working. Both are headless-family. The new `'interactive'` is additive. Do NOT rename until Phase 6 (if at all).
-- **Dev flag.** `BENTOYA_INTERACTIVE_MODE_ENABLED=1` gates the entire interactive path through Phase 5. Phase 6 decides if it's promoted to a real setting.
+- **Dev flag.** `KAITENCODE_INTERACTIVE_MODE_ENABLED=1` gates the entire interactive path through Phase 5. Phase 6 decides if it's promoted to a real setting.
 
 ## Start
 

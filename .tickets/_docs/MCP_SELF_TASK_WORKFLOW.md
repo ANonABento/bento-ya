@@ -1,10 +1,10 @@
-# Safe self-task creation via Bentoya MCP
+# Safe self-task creation via KaitenCode MCP
 
 Patterns for letting an agent create tasks on its own board without runaway recursion. Reflects state of the system as of 2026-05-12 — see `MCP_DOGFOOD_REPORT.md` for the underlying audit.
 
 ## The risk
 
-`bento-mcp`'s `create_task` tool, when used from inside a column that fires `spawn_cli`, gives any CLI agent (Claude Code, Cursor agent mode, choomfie) the ability to enqueue more tasks. If those tasks land in another `spawn_cli` column, a new agent spawns. Nothing in the system today caps the total tasks created across a chain — the only ceiling is `DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS = 5` per workspace, which just queues the overflow.
+`kaitencode-mcp`'s `create_task` tool, when used from inside a column that fires `spawn_cli`, gives any CLI agent (Claude Code, Cursor agent mode, choomfie) the ability to enqueue more tasks. If those tasks land in another `spawn_cli` column, a new agent spawns. Nothing in the system today caps the total tasks created across a chain — the only ceiling is `DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS = 5` per workspace, which just queues the overflow.
 
 ## The pattern: "outbox column, human-approved"
 
@@ -44,7 +44,7 @@ Workspace: {workspace.name}
 
 If during this work you find unrelated follow-ups (cleanup, typos, separate
 bugs, doc updates), DO NOT fix them inline. Instead, when you finish your
-current change, call the bento-ya MCP tool ONCE per follow-up:
+current change, call the kaitencode MCP tool ONCE per follow-up:
 
   create_task(
     column = "Agent Outbox",
@@ -85,7 +85,7 @@ To dogfood this yourself once the app is running:
 
 1. Open the app. Create or pick a test workspace. Add columns `Working`, `Agent Outbox`, `Review`, `Done`. Make `Review` `manual_approval`.
 2. Configure `Working`'s `on_entry` to `spawn_cli` with the prompt above.
-3. From a Claude Code session with bento-ya MCP attached:
+3. From a Claude Code session with kaitencode MCP attached:
    - `get_workspaces` — confirm the test workspace shows up.
    - `get_board(workspace: "<test>")` — confirm columns.
    - `create_task(column: "Working", title: "Add a typo fix and file a follow-up about Section A.", description: "Edit FOO.md to fix the typo on line 1. If you notice the unrelated stale TODO in BAR.md, file it to Agent Outbox per the rules.")` — triggers the agent.
@@ -98,5 +98,5 @@ If at any point Agent Outbox grows by more than the prompt allowed, kill the run
 
 Until source attribution lands, the only way to audit a chain is:
 - `get_task(id)` to see the description (which by convention now starts with `Parent: <id>`).
-- `git log` in `<workspace.repo_path>/.worktrees/bentoya-<task_id>/` for what the spawned agent did.
-- The terminal scrollback in the task's tmux session (`bentoya_<task_id>`).
+- `git log` in `<workspace.repo_path>/.worktrees/kaitencode-<task_id>/` for what the spawned agent did.
+- The terminal scrollback in the task's tmux session (`kaitencode_<task_id>`).

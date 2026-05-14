@@ -7,8 +7,8 @@
  *
  * Prereqs:
  *   npm run dev                                                       # vite on :1420
- *   BENTOYA_DATA_DIR=/tmp/bentoya-wdio tauri-driver --port 4444       # webdriver
- *   BENTOYA_INTERACTIVE_MODE_ENABLED=1 npm run test:webdriver         # then this spec
+ *   KAITENCODE_DATA_DIR=/tmp/kaitencode-wdio tauri-driver --port 4444       # webdriver
+ *   KAITENCODE_INTERACTIVE_MODE_ENABLED=1 npm run test:webdriver         # then this spec
  */
 
 async function tauriInvoke(browser, cmd, args = {}) {

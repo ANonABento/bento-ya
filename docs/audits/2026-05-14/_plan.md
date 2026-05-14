@@ -141,7 +141,7 @@ Phase 1 ARIA scan will produce the authoritative list.
 
 ## Phase 1 execution notes
 
-- WDIO env: `BENTOYA_DATA_DIR=/tmp/bentoya-overnight-2026-05-14` (isolated DB)
+- WDIO env: `KAITENCODE_DATA_DIR=/tmp/kaitencode-overnight-2026-05-14` (isolated DB)
 - Playwright: browser-mock IPC at `http://localhost:1420`
 - Author spec at `tests/webdriver/audit-2026-05-14.spec.mjs` extending the `audit-2026-05-13.spec.mjs` pattern.
 - Capture ARIA scan + console dump for each surface.

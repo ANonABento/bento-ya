@@ -48,7 +48,7 @@ export function AboutModal({ onClose }: Props) {
         className="max-h-[85vh] w-full max-w-lg overflow-hidden rounded-2xl border border-border-default bg-surface shadow-2xl"
       >
         <div className="flex items-center justify-between border-b border-border-default px-6 py-4">
-          <h2 className="text-xl font-semibold text-text-primary">About Bento-ya</h2>
+          <h2 className="text-xl font-semibold text-text-primary">About KaitenCode</h2>
           <button
             onClick={onClose}
             className="rounded-lg p-2 text-text-secondary transition-colors hover:bg-bg hover:text-text-primary"
@@ -62,7 +62,7 @@ export function AboutModal({ onClose }: Props) {
         <div className="max-h-[calc(85vh-72px)] overflow-y-auto p-6">
           {/* Version Info */}
           <div className="mb-6 text-center">
-            <h3 className="text-lg font-semibold text-text-primary">Bento-ya</h3>
+            <h3 className="text-lg font-semibold text-text-primary">KaitenCode</h3>
             <p className="text-sm text-text-secondary">Version {VERSION}</p>
             <p className="mt-2 text-sm text-text-secondary">
               AI-powered Kanban for developers

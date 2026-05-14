@@ -208,7 +208,7 @@ npm run type-check
 4. Implement thread archival on task:moved
 5. Implement completion summary on task:completed
 6. Add event queue for offline handling
-7. Test: create task in Bento-ya → thread appears in Discord
+7. Test: create task in KaitenCode → thread appears in Discord
 
 **Files to Create**:
 ```
@@ -388,7 +388,7 @@ npm run type-check
 5. Add offline queue
 6. Implement full state sync on connect
 7. Add conflict detection and notification
-8. Test: rename column in Bento-ya → Discord updates
+8. Test: rename column in KaitenCode → Discord updates
 
 **Files to Create**:
 ```
@@ -408,7 +408,7 @@ sidecars/discord-bot/src/sync/full-sync.ts
 ```bash
 cargo check
 npm run type-check
-# Manual: Column operations in Bento-ya reflect in Discord
+# Manual: Column operations in KaitenCode reflect in Discord
 ```
 
 **Commit**: `feat(discord): implement bidirectional sync with conflict resolution`

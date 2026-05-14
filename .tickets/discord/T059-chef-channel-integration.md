@@ -213,7 +213,7 @@ pub async fn handle_chef_message(
 // sidecars/discord-bot/src/commands/help.ts
 
 const HELP_EMBED = new EmbedBuilder()
-  .setTitle('🍱 Bento-ya Chef')
+  .setTitle('🍱 KaitenCode Chef')
   .setDescription('I can help you manage your Kanban board!')
   .setColor(0x5865F2)
   .addFields(

@@ -2,7 +2,7 @@
 
 ## Summary
 
-Listen to task lifecycle events in Bento-ya and sync them to Discord. When tasks are created, moved, updated, or completed, reflect those changes in Discord threads.
+Listen to task lifecycle events in KaitenCode and sync them to Discord. When tasks are created, moved, updated, or completed, reflect those changes in Discord threads.
 
 ## Acceptance Criteria
 
@@ -152,7 +152,7 @@ export function setupTaskEventHandlers(bridge: Bridge) {
 
     await postToThread(mapping.threadId, {
       embeds: [{
-        description: '🗑️ Task deleted from Bento-ya',
+        description: '🗑️ Task deleted from KaitenCode',
         color: 0xED4245,
       }],
     });

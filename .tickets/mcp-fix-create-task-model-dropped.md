@@ -4,12 +4,12 @@ Found during MCP dogfood audit, 2026-05-12. See `.tickets/_docs/MCP_DOGFOOD_REPO
 
 ## Symptom
 
-A client calls the bento-ya MCP `create_task` tool with `model: "sonnet"`. The tool advertises the parameter in its inputSchema (`mcp-server/src/main.rs:222`) and reads it into a local variable (`mcp-server/src/main.rs:852`). But when the app is running (production path), the value is silently dropped — the resulting task is created with `model = NULL` and the column's default model is used.
+A client calls the kaitencode MCP `create_task` tool with `model: "sonnet"`. The tool advertises the parameter in its inputSchema (`mcp-server/src/main.rs:222`) and reads it into a local variable (`mcp-server/src/main.rs:852`). But when the app is running (production path), the value is silently dropped — the resulting task is created with `model = NULL` and the column's default model is used.
 
 ## Repro
 
-1. Have the Bento-ya app running.
-2. From any MCP client with bento-ya attached, call:
+1. Have the KaitenCode app running.
+2. From any MCP client with kaitencode attached, call:
    ```json
    { "name": "create_task", "arguments": {
        "workspace": "<ws>",
@@ -69,8 +69,8 @@ Two-file change:
 
 ## Validation
 
-- `cargo test -p bento-ya` — the existing `create_task` API tests should still pass.
-- `cargo test -p bento-mcp` — existing direct-DB tests still pass.
+- `cargo test -p kaitencode` — the existing `create_task` API tests should still pass.
+- `cargo test -p kaitencode-mcp` — existing direct-DB tests still pass.
 - Manual: with app running, MCP `create_task` with `model: "sonnet"` → query DB → `model = 'sonnet'`; spawn_cli trigger uses `--model sonnet`.
 
 ## Acceptance

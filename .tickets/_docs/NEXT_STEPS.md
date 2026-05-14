@@ -1,4 +1,4 @@
-# Bento-ya Next Steps
+# KaitenCode Next Steps
 
 > Updated: 2026-05-08.
 
@@ -9,7 +9,7 @@
 **Tests:** 339 total (156 Rust + 17 MCP + 149 frontend + 17 E2E)
 **DB Migrations:** 41 (latest: 041_agent_runtime_input_queue)
 **Codebase:** ~42k lines (18k Rust, 24k TypeScript/React)
-**Cargo workspace:** bento-ya + bento-mcp share rusqlite build (WAL compatible)
+**Cargo workspace:** kaitencode + kaitencode-mcp share rusqlite build (WAL compatible)
 **MCP Server:** 19 tools, standalone binary
 
 ## v1.0 — COMPLETE

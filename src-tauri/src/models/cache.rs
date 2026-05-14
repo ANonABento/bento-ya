@@ -1,4 +1,4 @@
-//! File-based model cache at ~/.bentoya/models-cache.json
+//! File-based model cache at ~/.kaitencode/models-cache.json
 
 use std::fs;
 use std::path::PathBuf;
@@ -6,10 +6,7 @@ use std::path::PathBuf;
 use super::types::ModelsCache;
 
 fn cache_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_default();
-    PathBuf::from(home)
-        .join(".bentoya")
-        .join("models-cache.json")
+    crate::db::data_dir().join("models-cache.json")
 }
 
 pub fn load_cache() -> ModelsCache {

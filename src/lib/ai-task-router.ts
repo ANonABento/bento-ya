@@ -1,13 +1,13 @@
 import { canonicalModelId, canonicalModelUsageKey } from '@/lib/model-metadata'
 import type { Settings } from '@/types/settings'
 
-export type BentoAiTaskId =
-  | 'bento_ya.column_trigger_generation'
-  | 'bento_ya.orchestrator_chat'
-  | 'bento_ya.agent_task_input'
+export type KaitenCodeTaskId =
+  | 'kaitencode.column_trigger_generation'
+  | 'kaitencode.orchestrator_chat'
+  | 'kaitencode.agent_task_input'
 
-export type BentoAiTaskPolicy = {
-  taskId: BentoAiTaskId
+export type KaitenCodeTaskPolicy = {
+  taskId: KaitenCodeTaskId
   providerId: string
   model: string
   fallbackModels: string[]
@@ -17,23 +17,23 @@ export type BentoAiTaskPolicy = {
   budgetKey: string
 }
 
-const DEFAULT_TASK_MODELS: Record<BentoAiTaskId, string> = {
-  'bento_ya.column_trigger_generation': 'haiku',
-  'bento_ya.orchestrator_chat': 'sonnet',
-  'bento_ya.agent_task_input': 'sonnet',
+const DEFAULT_TASK_MODELS: Record<KaitenCodeTaskId, string> = {
+  'kaitencode.column_trigger_generation': 'haiku',
+  'kaitencode.orchestrator_chat': 'sonnet',
+  'kaitencode.agent_task_input': 'sonnet',
 }
 
-const DEFAULT_FALLBACKS: Record<BentoAiTaskId, string[]> = {
-  'bento_ya.column_trigger_generation': ['sonnet'],
-  'bento_ya.orchestrator_chat': ['haiku'],
-  'bento_ya.agent_task_input': ['haiku'],
+const DEFAULT_FALLBACKS: Record<KaitenCodeTaskId, string[]> = {
+  'kaitencode.column_trigger_generation': ['sonnet'],
+  'kaitencode.orchestrator_chat': ['haiku'],
+  'kaitencode.agent_task_input': ['haiku'],
 }
 
-export function resolveBentoAiTaskPolicy(
+export function resolveKaitenCodeTaskPolicy(
   settings: Settings,
-  taskId: BentoAiTaskId,
+  taskId: KaitenCodeTaskId,
   requestedModel?: string,
-): BentoAiTaskPolicy {
+): KaitenCodeTaskPolicy {
   const provider = settings.model.providers.find((candidate) => candidate.enabled)
     ?? settings.model.providers[0]
 

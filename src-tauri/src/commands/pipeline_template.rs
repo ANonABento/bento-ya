@@ -1,8 +1,6 @@
 use crate::db::{self, AppState, PipelineTemplate};
 use crate::error::AppError;
-use crate::pipeline::templates::{
-    self, ApplyOutcome, ColumnTemplateData, CollisionPolicy,
-};
+use crate::pipeline::templates::{self, ApplyOutcome, CollisionPolicy, ColumnTemplateData};
 use crate::pipeline::{self};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -22,9 +20,10 @@ pub struct PipelineTemplateSummary {
 }
 
 fn summarize(template: &PipelineTemplate) -> PipelineTemplateSummary {
-    let column_count: usize = serde_json::from_str::<Vec<serde_json::Value>>(&template.columns_json)
-        .map(|v| v.len())
-        .unwrap_or(0);
+    let column_count: usize =
+        serde_json::from_str::<Vec<serde_json::Value>>(&template.columns_json)
+            .map(|v| v.len())
+            .unwrap_or(0);
     PipelineTemplateSummary {
         id: template.id.clone(),
         name: template.name.clone(),
@@ -157,12 +156,9 @@ pub fn apply_pipeline_template(
             &placeholders,
             &task_mapping,
         )?,
-        CollisionPolicy::Append => templates::apply_template_append(
-            &conn,
-            &template,
-            &target_workspace_id,
-            &placeholders,
-        )?,
+        CollisionPolicy::Append => {
+            templates::apply_template_append(&conn, &template, &target_workspace_id, &placeholders)?
+        }
         CollisionPolicy::Prompt => {
             return Err(AppError::InvalidInput(
                 "collision_policy 'prompt' is not yet supported in v1".to_string(),

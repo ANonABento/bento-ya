@@ -11,7 +11,7 @@ Session dates: 2026-04-07 through 2026-04-09. Implemented terminal-first agent p
 - **Unified Chat Session** (`session.rs`) — lifecycle management, resume ID tracking, transport switching, scrollback buffer. 163 tests pass.
 - **Session Registry** (`registry.rs`) — LRU eviction (max 20), idle sweep (60s interval, skips PTY), scrollback cache, `take()` for mutex-free message sending.
 - **PtyTransport** (`pty_transport.rs`) — PTY spawn, reader thread, exit watcher, broadcast channel support, `resubscribe()`, SIGTERM on kill.
-- **Sentinel detection** (`bridge.rs`) — per-trigger nonce, `___BENTOYA_{nonce}_{exit}___` pattern, extract from base64-decoded PTY output.
+- **Sentinel detection** (`bridge.rs`) — per-trigger nonce, `___KAITENCODE_{nonce}_{exit}___` pattern, extract from base64-decoded PTY output.
 - **`__LAST__` placeholder** (`executor.rs`) — Chef can create + move in one action block.
 - **`ensure_pty_session` command** — bare shell ($SHELL) in task working dir, worktree-aware.
 - **E2E tests** — 17 webdriver tests pass, self-seeding.

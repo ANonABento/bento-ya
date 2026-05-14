@@ -1685,7 +1685,7 @@ mod tests {
         let mut adapter = GenericCliAdapter::new(
             "my-agent",
             Some("/tmp/ws".to_string()),
-            Some("bentoya_task-1".to_string()),
+            Some("kaitencode_task-1".to_string()),
         );
 
         assert_eq!(adapter.adapter_kind(), AgentAdapterKind::GenericCli);

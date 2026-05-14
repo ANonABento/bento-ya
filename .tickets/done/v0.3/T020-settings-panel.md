@@ -18,7 +18,7 @@ Build the full settings panel — a slide-over from the right covering all confi
 - [ ] Appearance tab: theme toggle (dark/light), accent color, font sizes, card density, animation speed
 - [ ] Columns tab: visual pipeline editor with DnD, column templates, import/export
 - [ ] Shortcuts tab: customizable hotkeys with conflict detection
-- [ ] All settings persisted to `~/.bentoya/settings.json` and DB
+- [ ] All settings persisted to `~/.kaitencode/settings.json` and DB
 - [ ] Per-workspace overrides supported (workspace settings override global)
 
 ## Dependencies

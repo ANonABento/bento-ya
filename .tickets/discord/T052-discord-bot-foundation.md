@@ -2,7 +2,7 @@
 
 ## Summary
 
-Set up the Discord bot infrastructure as a Tauri sidecar. The bot connects to Discord, handles basic events, and communicates with Bento-ya via IPC.
+Set up the Discord bot infrastructure as a Tauri sidecar. The bot connects to Discord, handles basic events, and communicates with KaitenCode via IPC.
 
 ## Acceptance Criteria
 

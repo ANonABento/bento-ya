@@ -1,4 +1,4 @@
-# Testing Bento-ya
+# Testing KaitenCode
 
 ## Unit Tests (Vitest)
 

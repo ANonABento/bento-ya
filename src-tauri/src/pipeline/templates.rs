@@ -277,7 +277,7 @@ pub fn apply_template_replace_all(
     let placeholder_col = db::insert_column_with_style(
         conn,
         workspace_id,
-        "__bentoya_template_holding__",
+        "__kaitencode_template_holding__",
         placeholder_pos,
         "list",
         None,
@@ -432,14 +432,18 @@ mod tests {
         let ws = db::insert_workspace(conn, name, "/tmp/repo").unwrap();
         let mut col_ids = Vec::new();
         for (i, n) in ["Backlog", "Working", "Review", "Done"].iter().enumerate() {
-            let col = db::insert_column_with_style(conn, &ws.id, n, i as i64, "list", None)
-                .unwrap();
+            let col =
+                db::insert_column_with_style(conn, &ws.id, n, i as i64, "list", None).unwrap();
             col_ids.push(col.id);
         }
         (ws.id, col_ids)
     }
 
-    fn make_template(conn: &Connection, name: &str, columns: serde_json::Value) -> PipelineTemplate {
+    fn make_template(
+        conn: &Connection,
+        name: &str,
+        columns: serde_json::Value,
+    ) -> PipelineTemplate {
         let json = serde_json::to_string(&columns).unwrap();
         db::insert_pipeline_template(conn, name, name, "", &json, None, false).unwrap()
     }
@@ -533,14 +537,9 @@ mod tests {
                 { "name": "Done", "icon": "list", "color": null, "triggers": "{}" }
             ]),
         );
-        let outcome = apply_template_replace_all(
-            &conn,
-            &template,
-            &ws_id,
-            &HashMap::new(),
-            &HashMap::new(),
-        )
-        .unwrap();
+        let outcome =
+            apply_template_replace_all(&conn, &template, &ws_id, &HashMap::new(), &HashMap::new())
+                .unwrap();
         assert_eq!(outcome.migrated_task_count, 2);
         let cols = db::list_columns(&conn, &ws_id).unwrap();
         let backlog = &cols.iter().find(|c| c.name == "Backlog").unwrap().id;
@@ -584,13 +583,8 @@ mod tests {
                 { "name": "OnlyCol", "icon": "list", "color": null, "triggers": "{}" }
             ]),
         );
-        let result = apply_template_replace_all(
-            &conn,
-            &template,
-            &ws_id,
-            &HashMap::new(),
-            &HashMap::new(),
-        );
+        let result =
+            apply_template_replace_all(&conn, &template, &ws_id, &HashMap::new(), &HashMap::new());
         assert!(matches!(result, Err(AppError::InvalidInput(_))));
         // Original columns unchanged.
         let cols = db::list_columns(&conn, &ws_id).unwrap();

@@ -29,7 +29,7 @@ This doc is the convergence plan: one task → one session → many writers (tri
 | **Vibe Kanban** | Kanban over coding agents. Card = agent process. Click to attach, type to steer. |
 | **Codex (OpenAI)** | Agent runs in a TUI/IDE shell. Same input lane for prompts, follow-ups, approvals. No "two boxes". |
 
-Bento-ya's pitch (PRODUCT.md:13) is literally *"Conductor's parallel agent muscle + Vibe Kanban's board UI"*. We have the board. We need the agent muscle.
+KaitenCode's pitch (PRODUCT.md:13) is literally *"Conductor's parallel agent muscle + Vibe Kanban's board UI"*. We have the board. We need the agent muscle.
 
 ---
 
@@ -39,7 +39,7 @@ Bento-ya's pitch (PRODUCT.md:13) is literally *"Conductor's parallel agent muscl
 ┌─────────────────────────────────────────────────────────┐
 │ Task (DB row)                                           │
 │   ├── worktree            (git worktree per task)        │
-│   ├── tmux session        bentoya_<task_id>             │
+│   ├── tmux session        kaitencode_<task_id>             │
 │   │     └── agent CLI     interactive: `claude` / `codex` │
 │   │           ↑                                          │
 │   │   ┌───────┴────────────────┐                         │
@@ -178,7 +178,7 @@ The agent CLI must handle Ctrl+C gracefully (claude does; codex does; this is th
 ## 8. Crash, resume, recovery
 
 - **Agent crashes (non-zero exit, segfault):** session goes `active → ready` (shell prompt returns). Surface a banner in the panel: *"Agent exited with code N. [Restart] [View log]"*. Don't auto-restart — user steers.
-- **App restart:** on boot, list `tmux ls | grep '^bentoya_'`. For each, look up task in DB. If task exists and is not Done/Archived, mark session `idle`/`sleeping` based on whether a panel is restored. If task is gone, kill the orphan (existing GC logic at bridge.rs:1281).
+- **App restart:** on boot, list `tmux ls | grep '^kaitencode_'`. For each, look up task in DB. If task exists and is not Done/Archived, mark session `idle`/`sleeping` based on whether a panel is restored. If task is gone, kill the orphan (existing GC logic at bridge.rs:1281).
 - **Panel close → reopen:** `pty:<task>:output` events stop being consumed but tmux scrollback persists. On reopen, the bridge does `tmux capture-pane -p -S -10000` to seed the xterm.js scrollback, then resumes live tail. Today's panel already does the live-tail half; the seed-scrollback half is the missing piece.
 - **`claude --resume`:** when an agent exits cleanly mid-task and the user types again, we want a new agent process that *continues the conversation*, not starts over. Use `claude --resume <session_id>`. The existing UnifiedChatSession already tracks `session_id` (UNIFIED_CHAT.md §Core); reuse that field.
 
@@ -325,7 +325,7 @@ There is no "half on" mode — A and B must flip together. C, D can flip indepen
 
 3. **Stop button on idle.** Greyed out, disabled. No input.
 
-4. **`claude-mock`.** Remove. The special branch in `bridge.rs::build_trigger_command` was a one-time dogfood hook, not load-bearing. Strip it during the rebuild. If we need a mock later, put it behind `BENTOYA_DEV=1` then.
+4. **`claude-mock`.** Remove. The special branch in `bridge.rs::build_trigger_command` was a one-time dogfood hook, not load-bearing. Strip it during the rebuild. If we need a mock later, put it behind `KAITENCODE_DEV=1` then.
 
 5. **Mid-trigger Claude failures.** Reuse the existing card-level badge system (research it — don't invent a new one). Wire rate-limit / auth / crash signals into the existing badge rendering. Panel banner stays for detail.
 

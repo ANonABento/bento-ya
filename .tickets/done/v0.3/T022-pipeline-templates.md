@@ -12,7 +12,7 @@ Save and reuse column configurations as pipeline templates. Built-in templates f
 - [ ] Template picker shown when creating new workspace
 - [ ] Export template as JSON file
 - [ ] Import template from JSON file
-- [ ] Templates stored in `~/.bentoya/templates/`
+- [ ] Templates stored in `~/.kaitencode/templates/`
 - [ ] Default pipeline for new workspaces configurable in settings
 
 ## Dependencies

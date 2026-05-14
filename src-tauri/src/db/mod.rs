@@ -15,8 +15,8 @@ pub mod agent_transcript_event;
 pub mod chat_message;
 pub mod chat_session;
 pub mod checklist;
-pub mod completion_events;
 pub mod column;
+pub mod completion_events;
 pub mod github_sync;
 pub mod history;
 pub mod label;
@@ -56,6 +56,7 @@ pub use workspace::*;
 use chrono::Utc;
 use rusqlite::{params, Connection, Result as SqlResult};
 use std::fs;
+use std::io;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use uuid::Uuid;
@@ -65,19 +66,85 @@ pub struct AppState {
     pub db: Mutex<Connection>,
 }
 
-/// Returns the path to the Bento-ya data directory.
+/// Returns the path to the KaitenCode data directory.
 ///
-/// Defaults to `~/.bentoya/`. Override with the `BENTOYA_DATA_DIR` environment
-/// variable — useful for E2E tests (so they don't pollute real data) and
-/// running multiple isolated instances side-by-side.
+/// Defaults to `~/.kaitencode/`. Override with the `KAITENCODE_DATA_DIR`
+/// environment variable. `BENTOYA_DATA_DIR` remains as a deprecated alias for
+/// one release so existing test harnesses and scripts keep working.
 pub fn data_dir() -> PathBuf {
-    if let Ok(override_path) = std::env::var("BENTOYA_DATA_DIR") {
+    if let Ok(override_path) = std::env::var("KAITENCODE_DATA_DIR") {
         if !override_path.is_empty() {
             return PathBuf::from(override_path);
         }
     }
+    if let Ok(override_path) = std::env::var("BENTOYA_DATA_DIR") {
+        if !override_path.is_empty() {
+            log::warn!("BENTOYA_DATA_DIR is deprecated; rename to KAITENCODE_DATA_DIR");
+            return PathBuf::from(override_path);
+        }
+    }
+
     let home = dirs_home();
-    home.join(".bentoya")
+    migrate_default_data_dir(&home);
+
+    let new_dir = home.join(".kaitencode");
+    fs::create_dir_all(&new_dir).expect("Failed to create ~/.kaitencode/ directory");
+    new_dir
+}
+
+fn migrate_default_data_dir(home: &std::path::Path) {
+    #[cfg(test)]
+    if std::env::var("KAITENCODE_ALLOW_TEST_DATA_DIR_MIGRATION")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
+        return;
+    }
+
+    let old_dir = home.join(".bentoya");
+    let new_dir = home.join(".kaitencode");
+    if !old_dir.exists() || new_dir.exists() {
+        return;
+    }
+
+    log::info!(
+        "Migrating data dir: {} -> {}",
+        old_dir.display(),
+        new_dir.display()
+    );
+    let tombstone = home.join(".bentoya.MOVED_TO_KAITENCODE");
+    match fs::rename(&old_dir, &new_dir) {
+        Ok(()) => {
+            let _ = fs::write(&tombstone, format!("Renamed to {}\n", new_dir.display()));
+        }
+        Err(err) => {
+            log::warn!("rename failed ({}), attempting recursive copy", err);
+            copy_dir_recursive(&old_dir, &new_dir).expect("data dir migration failed");
+            let _ = fs::write(
+                &tombstone,
+                format!(
+                    "Data moved to {}\nOriginal location preserved.\n",
+                    new_dir.display()
+                ),
+            );
+        }
+    }
+}
+
+fn copy_dir_recursive(from: &std::path::Path, to: &std::path::Path) -> io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let target = to.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_recursive(&entry.path(), &target)?;
+        } else if file_type.is_file() {
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
 }
 
 fn dirs_home() -> PathBuf {
@@ -96,7 +163,7 @@ pub fn db_path() -> PathBuf {
 pub fn init() -> SqlResult<Connection> {
     let dir = data_dir();
     if !dir.exists() {
-        fs::create_dir_all(&dir).expect("Failed to create ~/.bentoya/ directory");
+        fs::create_dir_all(&dir).expect("Failed to create data directory");
     }
 
     let path = db_path();
@@ -106,7 +173,7 @@ pub fn init() -> SqlResult<Connection> {
     conn.execute_batch("PRAGMA journal_mode=WAL;")?;
     // Enable foreign key constraints
     conn.execute_batch("PRAGMA foreign_keys=ON;")?;
-    // Busy timeout for concurrent access with bento-mcp
+    // Busy timeout for concurrent access with kaitencode-mcp
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
     run_migrations(&conn)?;
@@ -352,6 +419,68 @@ pub fn now() -> String {
 mod tests {
     use super::*;
 
+    fn restore_env(key: &str, value: Option<String>) {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
+
+    #[test]
+    fn test_data_dir_migrates_legacy_dir() {
+        static ENV_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+
+        let temp_home =
+            std::env::temp_dir().join(format!("kaitencode-data-dir-home-{}", Uuid::new_v4()));
+        let old_dir = temp_home.join(".bentoya");
+        let new_dir = temp_home.join(".kaitencode");
+        fs::create_dir_all(old_dir.join("nested")).unwrap();
+        fs::write(old_dir.join("nested").join("state.txt"), "kept").unwrap();
+
+        let prior_home = std::env::var("HOME").ok();
+        let prior_new = std::env::var("KAITENCODE_DATA_DIR").ok();
+        let prior_old = std::env::var("BENTOYA_DATA_DIR").ok();
+        let prior_allow = std::env::var("KAITENCODE_ALLOW_TEST_DATA_DIR_MIGRATION").ok();
+
+        std::env::set_var("HOME", &temp_home);
+        std::env::remove_var("KAITENCODE_DATA_DIR");
+        std::env::remove_var("BENTOYA_DATA_DIR");
+        std::env::set_var("KAITENCODE_ALLOW_TEST_DATA_DIR_MIGRATION", "1");
+
+        let resolved = data_dir();
+
+        assert_eq!(resolved, new_dir);
+        assert!(new_dir.join("nested").join("state.txt").exists());
+        assert!(temp_home.join(".bentoya.MOVED_TO_KAITENCODE").exists());
+        assert!(!old_dir.exists());
+
+        restore_env("HOME", prior_home);
+        restore_env("KAITENCODE_DATA_DIR", prior_new);
+        restore_env("BENTOYA_DATA_DIR", prior_old);
+        restore_env("KAITENCODE_ALLOW_TEST_DATA_DIR_MIGRATION", prior_allow);
+        let _ = fs::remove_dir_all(temp_home);
+    }
+
+    #[test]
+    fn test_data_dir_env_aliases_with_new_key_precedence() {
+        static ENV_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+
+        let prior_new = std::env::var("KAITENCODE_DATA_DIR").ok();
+        let prior_old = std::env::var("BENTOYA_DATA_DIR").ok();
+
+        std::env::set_var("KAITENCODE_DATA_DIR", "/tmp/kaitencode-new");
+        std::env::set_var("BENTOYA_DATA_DIR", "/tmp/kaitencode-old");
+        assert_eq!(data_dir(), PathBuf::from("/tmp/kaitencode-new"));
+
+        std::env::remove_var("KAITENCODE_DATA_DIR");
+        assert_eq!(data_dir(), PathBuf::from("/tmp/kaitencode-old"));
+
+        restore_env("KAITENCODE_DATA_DIR", prior_new);
+        restore_env("BENTOYA_DATA_DIR", prior_old);
+    }
+
     #[test]
     fn test_schema_creation() {
         let conn = init_test().unwrap();
@@ -566,7 +695,7 @@ mod tests {
             Some("api"),
             Some("managed"),
             Some(Some("remote-session-1")),
-            Some(Some("bentoya_task")),
+            Some(Some("kaitencode_task")),
         )
         .unwrap();
         assert_eq!(updated.adapter_kind.as_deref(), Some("api"));
@@ -575,7 +704,10 @@ mod tests {
             updated.provider_session_id.as_deref(),
             Some("remote-session-1")
         );
-        assert_eq!(updated.tmux_session_name.as_deref(), Some("bentoya_task"));
+        assert_eq!(
+            updated.tmux_session_name.as_deref(),
+            Some("kaitencode_task")
+        );
 
         let sessions = list_agent_sessions(&conn, &task.id).unwrap();
         assert_eq!(sessions.len(), 1);

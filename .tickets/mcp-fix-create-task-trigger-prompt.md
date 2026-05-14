@@ -41,7 +41,7 @@ No backend changes needed — `CreateTaskReq` already has the field and the api 
 
 ## Validation
 
-- `cargo test -p bento-mcp` still passes.
+- `cargo test -p kaitencode-mcp` still passes.
 - Manual: MCP `create_task` with `trigger_prompt` → query DB → `trigger_prompt` is set. Spawn_cli trigger uses the task-level override.
 
 ## Acceptance

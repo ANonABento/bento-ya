@@ -185,5 +185,10 @@ export const useAgentStreamingStore = create<AgentStreamingState>((set, get) => 
 // stream events without firing real Tauri events. Lives only when running
 // in browser mock mode (no Tauri runtime present).
 if (typeof window !== 'undefined') {
-  ;(window as unknown as { __bentoyaAgentStreamingStore?: typeof useAgentStreamingStore }).__bentoyaAgentStreamingStore = useAgentStreamingStore
+  const target = window as unknown as {
+    __kaitencodeAgentStreamingStore?: typeof useAgentStreamingStore
+    __bentoyaAgentStreamingStore?: typeof useAgentStreamingStore
+  }
+  target.__kaitencodeAgentStreamingStore = useAgentStreamingStore
+  target.__bentoyaAgentStreamingStore = useAgentStreamingStore
 }

@@ -265,14 +265,14 @@ export function AdvancedTab() {
           </div>
           <SettingRow
             label="Branch prefix"
-            description="Prepended to auto-generated task branches (e.g. bentoya/feat-add-login)."
+            description="Prepended to auto-generated task branches (e.g. kaitencode/feat-add-login)."
           >
             <input
               type="text"
               value={workspaceDefaults.branchPrefix}
               onChange={(e) => { updateSettings('workspaceDefaults', { ...workspaceDefaults, branchPrefix: e.target.value }) }}
               className="w-40 rounded-lg border border-border-default bg-surface px-3 py-1.5 text-sm font-mono text-text-primary focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
-              placeholder="bentoya/"
+              placeholder="kaitencode/"
             />
           </SettingRow>
           <SettingRow
@@ -284,7 +284,7 @@ export function AdvancedTab() {
               value={workspaceDefaults.autoStashPrefix}
               onChange={(e) => { updateSettings('workspaceDefaults', { ...workspaceDefaults, autoStashPrefix: e.target.value }) }}
               className="w-40 rounded-lg border border-border-default bg-surface px-3 py-1.5 text-sm font-mono text-text-primary focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
-              placeholder="bentoya-auto-stash-"
+              placeholder="kaitencode-auto-stash-"
             />
           </SettingRow>
         </div>

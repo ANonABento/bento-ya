@@ -23,8 +23,8 @@ Backlog → Setup → Plan → Implement → Review → Verify → PR → Stagin
 
 ### `auto_setup`
 No agent. Pipeline logic only:
-1. Create branch: `bentoya/<task-slug>` from `main`
-2. Create worktree: `.worktrees/bentoya-<task-id>`
+1. Create branch: `kaitencode/<task-slug>` from `main`
+2. Create worktree: `.worktrees/kaitencode-<task-id>`
 3. Update task: `branch_name`, `worktree_path`
 4. Auto-advance to next column
 

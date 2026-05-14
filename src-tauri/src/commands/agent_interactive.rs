@@ -5,7 +5,7 @@
 //! `agent_interrupt` works in any mode (Ctrl+C to the tmux pane).
 //!
 //! All commands route through the per-task tmux session at
-//! `bentoya_<task_id>`. They never establish a parallel CLI session, which
+//! `kaitencode_<task_id>`. They never establish a parallel CLI session, which
 //! is the whole point of interactive mode — the user is steering the same
 //! live TUI the trigger spawned.
 

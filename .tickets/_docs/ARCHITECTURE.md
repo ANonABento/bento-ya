@@ -1,10 +1,10 @@
-# Bento-ya Architecture Overview
+# KaitenCode Architecture Overview
 
 > Last updated: 2025-03-05
 
 ## Overview
 
-Bento-ya is a Tauri-based kanban board for AI-assisted software development. It combines a Rust backend with a React frontend to provide:
+KaitenCode is a Tauri-based kanban board for AI-assisted software development. It combines a Rust backend with a React frontend to provide:
 
 - **Kanban Board**: Visual task management with columns and cards
 - **AI Agent Integration**: CLI-based agents (Claude, Codex) for automated coding
@@ -27,7 +27,7 @@ Bento-ya is a Tauri-based kanban board for AI-assisted software development. It 
 ## Directory Structure
 
 ```
-bento-ya/
+kaitencode/
 ├── src/                          # Frontend (React)
 │   ├── components/
 │   │   ├── chat/                 # Chat input, voice button

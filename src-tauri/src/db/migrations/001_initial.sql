@@ -1,4 +1,4 @@
--- 001_initial.sql: Full v0.1 schema for Bento-ya
+-- 001_initial.sql: Full v0.1 schema for KaitenCode
 -- Tables: workspaces, columns, tasks, agent_sessions
 
 CREATE TABLE IF NOT EXISTS workspaces (

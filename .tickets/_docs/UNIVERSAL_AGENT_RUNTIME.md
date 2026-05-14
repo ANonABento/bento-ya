@@ -4,7 +4,7 @@
 > interactive-runtime portion of this spec was executed by
 > [`AGENT_PANEL_MODES.md`](AGENT_PANEL_MODES.md) (phases 1–6, May
 > 2026). Interactive mode now exists alongside headless and is gated
-> by `BENTOYA_INTERACTIVE_MODE_ENABLED` until usage data justifies
+> by `KAITENCODE_INTERACTIVE_MODE_ENABLED` until usage data justifies
 > default-on. This doc remains the source of truth for the broader
 > universal-runtime concerns (cloud execution, multi-provider
 > abstraction) that go beyond what AGENT_PANEL_MODES delivered.
@@ -208,9 +208,9 @@ Transcript must never show:
 - launcher scripts
 - tmux status lines
 - ANSI/control garbage
-- `BENTOYA_CLAUDE_FILTER`
+- `KAITENCODE_CLAUDE_FILTER`
 - `quote>`
-- `.bentoya/trigger_logs/run_*.sh`
+- `.kaitencode/trigger_logs/run_*.sh`
 
 ## Terminal UX Rules
 
@@ -304,7 +304,7 @@ The high-level product bet is:
 
 - Transcript run cards are persisted per disclosure key. The newest/running run opens by default; older completed runs may collapse once the user has seen them.
 - Tool and command details are folded by default. The visible row should name the action; expanded details should contain input/output evidence.
-- Claude/Codex managed adapters should emit semantic events directly from provider JSON streams. Terminal-mode tmux output is allowed only as a filtered fallback and should never leak shell launchers, tmux status lines, `BENTOYA_CLAUDE_FILTER`, `quote>`, or provider JSON blobs into Transcript.
+- Claude/Codex managed adapters should emit semantic events directly from provider JSON streams. Terminal-mode tmux output is allowed only as a filtered fallback and should never leak shell launchers, tmux status lines, `KAITENCODE_CLAUDE_FILTER`, `quote>`, or provider JSON blobs into Transcript.
 - Claude terminal-mode triggers tee raw stream-json into a side JSONL log while piping the same stream through the human-readable terminal filter. The side log is parsed into semantic transcript events; the pretty tmux log is only a fallback.
 - Terminal scrollback replay should favor readability over exact pane grid reconstruction. Raw live interaction remains exact through the tmux attach path.
 - Managed follow-up input is backend-owned. The frontend sends immediately; the backend records `user_input`, chooses live/queued/resume/new-turn delivery, and emits final completion only after the last chained turn exits.
@@ -337,7 +337,7 @@ Current implementation notes:
 - Migration `040_agent_runtime_session_fields` adds `adapter_kind`, `runtime_mode`, `provider_session_id`, and `tmux_session_name`.
 - Migration `041_agent_runtime_input_queue` adds a durable per-task/session input queue for adapters that cannot accept live steering.
 - `cli_session_id` is mirrored into `provider_session_id` so existing Claude/Codex resume behavior remains compatible.
-- Terminal-backed sessions currently persist `runtime_mode: terminal` and their `bentoya_<task_id>` tmux session name.
+- Terminal-backed sessions currently persist `runtime_mode: terminal` and their `kaitencode_<task_id>` tmux session name.
 - `agent_sessions.scrollback` remains raw terminal persistence only.
 
 ## Active Goal Todo

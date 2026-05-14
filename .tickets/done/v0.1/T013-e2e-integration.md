@@ -7,12 +7,12 @@ Wire everything together end-to-end: frontend connects to backend, board loads r
 ## Acceptance Criteria
 
 ### Full Flow (Happy Path)
-- [ ] App launches → creates `~/.bentoya/` directory and SQLite DB
+- [ ] App launches → creates `~/.kaitencode/` directory and SQLite DB
 - [ ] First run: prompt to create workspace (select repo directory)
 - [ ] Workspace created → default columns appear (Backlog, Working, Review, Done)
 - [ ] "Create task" button → new task card appears in Backlog
 - [ ] Drag task card from Backlog to Working → triggers agent spawn:
-  - Git branch created (`bentoya/<task-slug>`)
+  - Git branch created (`kaitencode/<task-slug>`)
   - PTY spawned with `claude` CLI
   - Agent session recorded in DB
 - [ ] Task card shows "Running" status with green dot

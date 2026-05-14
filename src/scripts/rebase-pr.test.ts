@@ -28,7 +28,7 @@ function git(cwd: string, args: string[]): string {
 }
 
 function makeTempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'bentoya-rebase-pr-'))
+  const dir = mkdtempSync(join(tmpdir(), 'kaitencode-rebase-pr-'))
   tempDirs.push(dir)
   return dir
 }
@@ -79,7 +79,7 @@ function runScript(repo: string, root: string, extraEnv: Record<string, string> 
       ...env,
       ...extraEnv,
       PATH: `${binDir}:${process.env.PATH ?? ''}`,
-      BENTOYA_DB_PATH: join(root, 'missing.db'),
+      KAITENCODE_DB_PATH: join(root, 'missing.db'),
     },
     encoding: 'utf8',
   })
@@ -135,13 +135,13 @@ describe('scripts/rebase-pr.sh', () => {
     git(repo, ['push', 'origin', 'main'])
     git(repo, ['checkout', 'feature'])
 
-    const result = runScript(repo, root, { BENTOYA_TYPECHECK_CMD: 'false' })
+    const result = runScript(repo, root, { KAITENCODE_TYPECHECK_CMD: 'false' })
 
     expect(result.status).toBe(2)
     expect(result.stdout).toContain('NEEDS MANUAL REVIEW')
     expect(git(repo, ['status', '--porcelain'])).toBe('')
 
-    const marker = join(repo, '.git', 'bentoya', 'needs-manual-review-feature.txt')
+    const marker = join(repo, '.git', 'kaitencode', 'needs-manual-review-feature.txt')
     expect(existsSync(marker)).toBe(true)
     expect(readFileSync(marker, 'utf8')).toContain('file.txt')
     expect(git(repo, ['ls-remote', origin, 'refs/heads/feature']).split(/\s+/)[0]).toBe(remoteBefore)

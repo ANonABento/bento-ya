@@ -2,7 +2,7 @@
 
 ## Overview
 
-Bento-ya has two chat systems:
+KaitenCode has two chat systems:
 1. **Chef (Orchestrator)** - Workspace-level task management chat
 2. **Agent** - Per-task implementation chat
 

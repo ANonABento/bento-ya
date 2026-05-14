@@ -342,7 +342,7 @@ Run all tickets sequentially with teams:
 #!/bin/bash
 # overnight-v1.sh
 
-cd /Users/bentomac/bento-ya
+cd /Users/bentomac/kaitencode
 
 TICKETS=(
   "T047:3:Terminal Voice Integration"

@@ -116,13 +116,13 @@ pub fn seed_built_in_scripts(conn: &Connection) -> SqlResult<()> {
             "discord-notify-success",
             "Discord Notify (Success)",
             "Send a success notification to Discord via webhook",
-            r#"[{"type":"bash","name":"Notify Discord","command":"if [ -n \"$BENTOYA_DISCORD_WEBHOOK\" ]; then curl -s -X POST \"$BENTOYA_DISCORD_WEBHOOK\" -H 'Content-Type: application/json' -d '{\"content\": \"✅ **{task.title}** completed in {column.name}\"}'; fi"}]"#,
+            r#"[{"type":"bash","name":"Notify Discord","command":"webhook=\"${KAITENCODE_DISCORD_WEBHOOK:-$BENTOYA_DISCORD_WEBHOOK}\"; if [ -n \"$webhook\" ]; then curl -s -X POST \"$webhook\" -H 'Content-Type: application/json' -d '{\"content\": \"✅ **{task.title}** completed in {column.name}\"}'; fi"}]"#,
         ),
         (
             "discord-notify-failure",
             "Discord Notify (Failure)",
             "Send a failure notification to Discord via webhook",
-            r#"[{"type":"bash","name":"Notify Discord","command":"if [ -n \"$BENTOYA_DISCORD_WEBHOOK\" ]; then curl -s -X POST \"$BENTOYA_DISCORD_WEBHOOK\" -H 'Content-Type: application/json' -d '{\"content\": \"❌ **{task.title}** failed in {column.name}\"}'; fi"}]"#,
+            r#"[{"type":"bash","name":"Notify Discord","command":"webhook=\"${KAITENCODE_DISCORD_WEBHOOK:-$BENTOYA_DISCORD_WEBHOOK}\"; if [ -n \"$webhook\" ]; then curl -s -X POST \"$webhook\" -H 'Content-Type: application/json' -d '{\"content\": \"❌ **{task.title}** failed in {column.name}\"}'; fi"}]"#,
         ),
     ];
 

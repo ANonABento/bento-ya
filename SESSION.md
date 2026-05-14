@@ -1,4 +1,4 @@
-# Bentoya Session — 2026-04-02
+# KaitenCode Session — 2026-04-02
 
 ## Goal
 Set up autonomous testing + dogfooding for the core pipeline flow. Like Devin's playbook testing — AI finds issues with the app by actually using it.
@@ -30,7 +30,7 @@ Triggers chain → Tasks complete
 **MCP Integration (Claude drives the app):**
 ```bash
 # Terminal 1: Vite dev server (port 1420 — tauri debug binary loads from devUrl)
-cd /Users/bentomac/bento-ya && npm run dev
+cd /Users/bentomac/kaitencode && npm run dev
 
 # Terminal 2: WebDriver server
 tauri-wd --port 4444
@@ -100,28 +100,28 @@ fire_trigger() → check V2 JSON → resolve_trigger() (merge column + task over
 ### Test Commands
 ```bash
 # Frontend unit tests (149 tests)
-cd /Users/bentomac/bento-ya && npm run test:run
+cd /Users/bentomac/kaitencode && npm run test:run
 
-# Backend unit tests — full workspace (167 tests: 150 bento-ya + 17 bento-mcp)
-cd /Users/bentomac/bento-ya && cargo test --workspace
+# Backend unit tests — full workspace (167 tests: 150 kaitencode + 17 kaitencode-mcp)
+cd /Users/bentomac/kaitencode && cargo test --workspace
 
 # Type check
-cd /Users/bentomac/bento-ya && npx tsc --noEmit
+cd /Users/bentomac/kaitencode && npx tsc --noEmit
 
 # Lint
-cd /Users/bentomac/bento-ya && npm run lint
+cd /Users/bentomac/kaitencode && npm run lint
 
 # E2E (WebDriverIO against Tauri WKWebView)
-cd /Users/bentomac/bento-ya && npm run test:e2e
+cd /Users/bentomac/kaitencode && npm run test:e2e
 
 # Rust check (workspace)
-cd /Users/bentomac/bento-ya && cargo check --workspace
+cd /Users/bentomac/kaitencode && cargo check --workspace
 ```
 
 ## Session Log
 
 ### 2026-04-02 — Research + WebDriver Integration
-- Audited bentoya current state: v1.0 complete, 177 tests passing, builds clean
+- Audited kaitencode current state: v1.0 complete, 177 tests passing, builds clean
 - Researched testing options for Tauri 2 on macOS
 - **tauri-webdriver** (danielraffel) is the right path for real WKWebView E2E
 - Integrated `tauri-plugin-webdriver-automation` into Rust backend (feature-gated as `webdriver`)
@@ -132,7 +132,7 @@ cd /Users/bentomac/bento-ya && cargo check --workspace
 - Found env issue: another Tauri app (Clanker Spanker) was squatting port 1420
 - Pipeline trigger auto-advance verified working end-to-end (move_column trigger)
 - Set up mcp-tauri-automation MCP server (cloned to ~/tools/mcp-tauri-automation)
-- Registered as MCP server for bento-ya and choomfie projects (project-scoped, not global)
+- Registered as MCP server for kaitencode and choomfie projects (project-scoped, not global)
 - MCP test drive: launch_app, click_element, capture_screenshot, get_element_text all working
 - Found bug: clicking task card opens blank full-screen detail view with no way back (escape doesn't work)
 - Found `execute_tauri_command` broken — was using sync execute + wrong Tauri API (`__TAURI__` vs `__TAURI_INTERNALS__`)
@@ -141,7 +141,7 @@ cd /Users/bentomac/bento-ya && cargo check --workspace
 - Updated CLAUDE.md with full MCP automation docs
 
 ### Known Issues
-- [ ] **Port 1420 squatting** — other Tauri apps (e.g. Clanker Spanker) can hold port 1420, causing bento-ya to load wrong frontend
+- [ ] **Port 1420 squatting** — other Tauri apps (e.g. Clanker Spanker) can hold port 1420, causing kaitencode to load wrong frontend
 - [x] ~~**Task detail blank screen**~~ — FALSE ALARM. Was screenshotting mid-animation (framer-motion `width: 0` → `240px`). The UI works correctly after animation completes. Lesson: always wait for animations before screenshotting.
 
 ### What's Set Up (summary)
@@ -485,11 +485,11 @@ Remaining legacy (still load-bearing):
 - Migration 026 drops 3 Discord tables
 - Orphaned by MCP server replacement
 
-**bento-mcp MCP Server** — Standalone Rust binary:
+**kaitencode-mcp MCP Server** — Standalone Rust binary:
 - 16 tools: get_workspaces, get_board, get_task, create_task, update_task, move_task, delete_task, approve_task, reject_task, add_dependency, remove_dependency, mark_complete, retry_task, create_workspace, create_column, configure_triggers
 - Fuzzy name/ID resolution for tasks, columns, workspaces
 - Direct SQLite access (WAL mode, concurrent with Tauri app)
-- Auto-detects DB at ~/.bentoya/data.db
+- Auto-detects DB at ~/.kaitencode/data.db
 - E2E verified: all 16 tools tested against real DB
 - Added to choomfie's .mcp.json for native tool access
 
@@ -497,8 +497,8 @@ Remaining legacy (still load-bearing):
 - Workspace, Appearance, Agent, Connect (MCP), Board (cards+templates), Voice, Advanced (pipeline+git+shortcuts)
 - New Connect tab with copy-paste MCP config, setup instructions, tool list
 
-**Self-Maintaining Workspace** — Bento-ya Dev:
-- Workspace pointing at /Users/bentomac/bento-ya
+**Self-Maintaining Workspace** — KaitenCode Dev:
+- Workspace pointing at /Users/bentomac/kaitencode
 - Working: spawn_cli trigger (claude /start-task), agent_complete exit, auto_advance, 2 max retries
 - Review: manual_approval quality gate, auto_advance
 - 6 tasks in backlog (all created via MCP)

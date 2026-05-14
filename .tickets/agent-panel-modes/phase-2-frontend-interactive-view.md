@@ -2,7 +2,7 @@
 
 ## Context
 
-Phase 1 shipped: with `BENTOYA_INTERACTIVE_MODE_ENABLED=1`, a trigger with `runtime_mode: "interactive"` spawns a real `claude` (no `-p`) in the task's tmux session, injects the prompt via `tmux send-keys`, watches for `<<<BENTOYA_DONE:{task_id}>>>` as the completion signal, and marks the task complete.
+Phase 1 shipped: with `KAITENCODE_INTERACTIVE_MODE_ENABLED=1`, a trigger with `runtime_mode: "interactive"` spawns a real `claude` (no `-p`) in the task's tmux session, injects the prompt via `tmux send-keys`, watches for `<<<KAITENCODE_DONE:{task_id}>>>` as the completion signal, and marks the task complete.
 
 But there's no way for a user to *opt into* interactive mode through the UI yet, and the existing chat input box would silently spawn a parallel `claude -p` session if a user typed into it — bypassing the live agent entirely. Phase 2 fixes both: surface the mode toggle on tasks, route the agent panel correctly per mode, add a control bar, and make the input box feed the live TUI.
 
@@ -33,7 +33,7 @@ Settings-panel surfaces (workspace/global defaults) and pause/resume are out of 
    #[tauri::command(rename_all = "camelCase")]
    async fn agent_inject_message(task_id: String, message: String) -> Result<(), AppError>
    ```
-   - Looks up the tmux session `bentoya_<task_id>`. Errors clearly if not found.
+   - Looks up the tmux session `kaitencode_<task_id>`. Errors clearly if not found.
    - Calls `tmux send-keys -t <session> -l -- "<message>"` then `tmux send-keys -t <session> Enter`.
    - Refuses to inject if the task's resolved runtime mode is `headless` (returns a typed error the frontend can surface as a UI hint).
 
@@ -115,7 +115,7 @@ Settings-panel surfaces (workspace/global defaults) and pause/resume are out of 
 2. New Tauri commands tested in `cargo test` (mock tmux interactions via the existing test helpers).
 3. New Vitest tests pass.
 4. New WebDriver test passes.
-5. **Manual verification** with `BENTOYA_INTERACTIVE_MODE_ENABLED=1`:
+5. **Manual verification** with `KAITENCODE_INTERACTIVE_MODE_ENABLED=1`:
    - Create a task, open settings, switch to Interactive.
    - Configure column with interactive trigger.
    - Move task in → agent panel shows Claude Code TUI + control bar.

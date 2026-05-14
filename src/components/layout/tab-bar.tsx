@@ -319,7 +319,7 @@ export function TabBar() {
   if (sortedWorkspaces.length === 0) {
     return (
       <header className="flex h-10 shrink-0 items-center justify-center border-b border-border-default bg-surface">
-        <span className="text-sm font-medium text-text-secondary">Bento-ya</span>
+        <span className="text-sm font-medium text-text-secondary">KaitenCode</span>
       </header>
     )
   }

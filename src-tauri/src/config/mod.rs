@@ -1,6 +1,6 @@
 //! Application settings — global defaults + per-workspace overrides.
 //!
-//! Settings stored in `~/.bentoya/settings.json`. Workspace-level overrides
+//! Settings stored in `~/.kaitencode/settings.json`. Workspace-level overrides
 //! stored in the `config` JSON column on the workspaces table.
 //!
 //! All settings are mutable at runtime via API.
@@ -11,7 +11,8 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
 pub const DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS: i64 = 6;
-pub const DEFAULT_BRANCH_PREFIX: &str = "bentoya/";
+pub const DEFAULT_BRANCH_PREFIX: &str = "kaitencode/";
+pub const LEGACY_BRANCH_PREFIXES: &[&str] = &["bentoya/"];
 pub const DEFAULT_BASE_BRANCH: &str = "main";
 
 /// Dev-gating env var for the Phase 1+ interactive runtime mode. When unset
@@ -19,20 +20,34 @@ pub const DEFAULT_BASE_BRANCH: &str = "main";
 /// is downgraded to the legacy `terminal` path with a one-time warning. Will
 /// be promoted (or removed) in Phase 6 once telemetry on sentinel reliability
 /// supports flipping it on by default.
-pub const INTERACTIVE_MODE_ENV_VAR: &str = "BENTOYA_INTERACTIVE_MODE_ENABLED";
+pub const INTERACTIVE_MODE_ENV_VAR: &str = "KAITENCODE_INTERACTIVE_MODE_ENABLED";
+pub const DEPRECATED_INTERACTIVE_MODE_ENV_VAR: &str = "BENTOYA_INTERACTIVE_MODE_ENABLED";
 
 /// Whether the interactive runtime mode is currently allowed. Reads the env
 /// var on every call (cheap) so the flag responds to test setup and `launchctl
 /// setenv`-style live tweaks without an app restart. Treats `1`, `true`,
 /// `yes`, `on` (case-insensitive) as enabled.
 pub fn interactive_mode_enabled() -> bool {
-    match std::env::var(INTERACTIVE_MODE_ENV_VAR) {
+    match env_var(
+        INTERACTIVE_MODE_ENV_VAR,
+        DEPRECATED_INTERACTIVE_MODE_ENV_VAR,
+    ) {
         Ok(value) => {
             let trimmed = value.trim().to_ascii_lowercase();
             matches!(trimmed.as_str(), "1" | "true" | "yes" | "on")
         }
         Err(_) => false,
     }
+}
+
+pub fn env_var(new_key: &str, deprecated_key: &str) -> Result<String, std::env::VarError> {
+    std::env::var(new_key).or_else(|new_err| match std::env::var(deprecated_key) {
+        Ok(value) => {
+            log::warn!("{} is deprecated; rename to {}", deprecated_key, new_key);
+            Ok(value)
+        }
+        Err(_) => Err(new_err),
+    })
 }
 
 /// Global cached settings instance. Reloaded on save.
@@ -43,10 +58,32 @@ fn cached() -> &'static Mutex<AppSettings> {
         let path = AppSettings::file_path_static();
         let settings = std::fs::read_to_string(&path)
             .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
+            .and_then(|s| AppSettings::from_json_str_with_migrations(&s))
             .unwrap_or_default();
         Mutex::new(settings)
     })
+}
+
+const DEPRECATED_SETTING_KEYS: &[(&str, &str)] = &[
+    (
+        "bento_ya.column_trigger_generation",
+        "kaitencode.column_trigger_generation",
+    ),
+    ("bento_ya.orchestrator_chat", "kaitencode.orchestrator_chat"),
+    ("bento_ya.agent_task_input", "kaitencode.agent_task_input"),
+];
+
+fn migrate_deprecated_setting_keys(raw_json: &mut Value) {
+    let Some(obj) = raw_json.as_object_mut() else {
+        return;
+    };
+
+    for (old, new) in DEPRECATED_SETTING_KEYS {
+        if let Some(val) = obj.remove(*old) {
+            obj.entry((*new).to_string()).or_insert_with(|| val);
+            log::warn!("Migrated deprecated setting key: {} -> {}", old, new);
+        }
+    }
 }
 
 /// Global application settings with defaults.
@@ -124,6 +161,13 @@ pub(crate) fn normalize_branch_prefix(prefix: &str) -> String {
     } else {
         format!("{}/", trimmed)
     }
+}
+
+pub(crate) fn is_task_branch_name(branch_name: &str) -> bool {
+    branch_name.starts_with(DEFAULT_BRANCH_PREFIX)
+        || LEGACY_BRANCH_PREFIXES
+            .iter()
+            .any(|prefix| branch_name.starts_with(prefix))
 }
 
 fn effective_pipeline_settings_with_app_settings(
@@ -233,14 +277,15 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    fn from_json_str_with_migrations(input: &str) -> Option<Self> {
+        let mut raw_json = serde_json::from_str::<Value>(input).ok()?;
+        migrate_deprecated_setting_keys(&mut raw_json);
+        serde_json::from_value(raw_json).ok()
+    }
+
     /// Path to the global settings file (static, no db dependency).
-    /// Note: duplicates db::data_dir() logic intentionally to avoid circular init
-    /// dependency (OnceLock init can't rely on db module being initialized first).
     fn file_path_static() -> PathBuf {
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".bentoya").join("settings.json")
+        crate::db::data_dir().join("settings.json")
     }
 
     /// Path to the global settings file.
@@ -417,6 +462,43 @@ mod tests {
     }
 
     #[test]
+    fn test_migrate_deprecated_setting_keys() {
+        let mut raw = serde_json::json!({
+            "bento_ya.column_trigger_generation": "haiku",
+            "bento_ya.orchestrator_chat": "sonnet"
+        });
+
+        migrate_deprecated_setting_keys(&mut raw);
+
+        assert!(raw.get("bento_ya.column_trigger_generation").is_none());
+        assert!(raw.get("bento_ya.orchestrator_chat").is_none());
+        assert_eq!(
+            raw.get("kaitencode.column_trigger_generation"),
+            Some(&serde_json::json!("haiku"))
+        );
+        assert_eq!(
+            raw.get("kaitencode.orchestrator_chat"),
+            Some(&serde_json::json!("sonnet"))
+        );
+    }
+
+    #[test]
+    fn test_migrate_deprecated_setting_keys_new_wins() {
+        let mut raw = serde_json::json!({
+            "bento_ya.agent_task_input": "old",
+            "kaitencode.agent_task_input": "new"
+        });
+
+        migrate_deprecated_setting_keys(&mut raw);
+
+        assert!(raw.get("bento_ya.agent_task_input").is_none());
+        assert_eq!(
+            raw.get("kaitencode.agent_task_input"),
+            Some(&serde_json::json!("new"))
+        );
+    }
+
+    #[test]
     fn test_effective_pipeline_settings_flat_workspace_config() {
         let cfg = r#"{
             "defaultAgentCli": "claude",
@@ -496,7 +578,9 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
 
         let prior = std::env::var(INTERACTIVE_MODE_ENV_VAR).ok();
+        let prior_deprecated = std::env::var(DEPRECATED_INTERACTIVE_MODE_ENV_VAR).ok();
         std::env::remove_var(INTERACTIVE_MODE_ENV_VAR);
+        std::env::remove_var(DEPRECATED_INTERACTIVE_MODE_ENV_VAR);
         assert!(!interactive_mode_enabled());
 
         for truthy in ["1", "true", "TRUE", "Yes", "on"] {
@@ -516,9 +600,17 @@ mod tests {
             );
         }
 
+        std::env::remove_var(INTERACTIVE_MODE_ENV_VAR);
+        std::env::set_var(DEPRECATED_INTERACTIVE_MODE_ENV_VAR, "1");
+        assert!(interactive_mode_enabled());
+
         match prior {
             Some(v) => std::env::set_var(INTERACTIVE_MODE_ENV_VAR, v),
             None => std::env::remove_var(INTERACTIVE_MODE_ENV_VAR),
+        }
+        match prior_deprecated {
+            Some(v) => std::env::set_var(DEPRECATED_INTERACTIVE_MODE_ENV_VAR, v),
+            None => std::env::remove_var(DEPRECATED_INTERACTIVE_MODE_ENV_VAR),
         }
     }
 

@@ -2,19 +2,19 @@
 
 ## Summary
 
-Ensure Bento-ya remains the source of truth while Discord reflects all changes. Handle edge cases: offline periods, conflicts, reconnection, and workspace changes.
+Ensure KaitenCode remains the source of truth while Discord reflects all changes. Handle edge cases: offline periods, conflicts, reconnection, and workspace changes.
 
 ## Acceptance Criteria
 
-- [ ] Bento-ya changes always propagate to Discord (primary direction)
-- [ ] Discord #chef commands update Bento-ya (secondary direction)
+- [ ] KaitenCode changes always propagate to Discord (primary direction)
+- [ ] Discord #chef commands update KaitenCode (secondary direction)
 - [ ] Offline changes queued and synced on reconnect
 - [ ] Column renames update Discord channels
 - [ ] Column reorder updates Discord channel positions
 - [ ] New columns create new Discord channels
 - [ ] Deleted columns archive Discord channels
 - [ ] Workspace name change updates Discord category
-- [ ] Conflict resolution: Bento-ya wins (with notification)
+- [ ] Conflict resolution: KaitenCode wins (with notification)
 
 ## Technical Design
 
@@ -146,7 +146,7 @@ bridge.on('column:deleted', async (event: ColumnDeletedEvent) => {
         await thread.setArchived(true);
       }
     }
-    await channel.delete('Column deleted in Bento-ya');
+    await channel.delete('Column deleted in KaitenCode');
   }
 
   await bridge.deleteColumnChannel(event.id);
@@ -252,8 +252,8 @@ client.on('ready', async () => {
 ```typescript
 // sidecars/discord-bot/src/sync/conflicts.ts
 
-// Example: User renamed thread in Discord, but Bento-ya has different name
-// Resolution: Bento-ya wins, revert Discord
+// Example: User renamed thread in Discord, but KaitenCode has different name
+// Resolution: KaitenCode wins, revert Discord
 
 async function handleConflict(
   type: 'thread_name' | 'channel_position' | 'thread_location',
@@ -270,19 +270,19 @@ async function handleConflict(
     await notifChannel.send({
       embeds: [{
         title: '⚠️ Sync Conflict Resolved',
-        description: `Discord change was overwritten by Bento-ya.`,
+        description: `Discord change was overwritten by KaitenCode.`,
         fields: [
           { name: 'Type', value: type, inline: true },
           { name: 'Discord Value', value: String(discordValue), inline: true },
-          { name: 'Bento-ya Value', value: String(bentoValue), inline: true },
+          { name: 'KaitenCode Value', value: String(bentoValue), inline: true },
         ],
         color: 0xFEE75C,
-        footer: { text: 'Bento-ya is the source of truth' },
+        footer: { text: 'KaitenCode is the source of truth' },
       }],
     });
   }
 
-  // Revert Discord to match Bento-ya
+  // Revert Discord to match KaitenCode
   await revertToSource(type, context, bentoValue);
 }
 ```
@@ -338,7 +338,7 @@ async function performFullSync(workspaceId: string) {
     }
   }
 
-  // 3. Clean up orphaned threads (tasks deleted in Bento-ya)
+  // 3. Clean up orphaned threads (tasks deleted in KaitenCode)
   await cleanupOrphanedThreads(workspaceId);
 }
 ```
@@ -353,8 +353,8 @@ async function performFullSync(workspaceId: string) {
 6. Implement full state sync on connect
 7. Add conflict detection and resolution
 8. Create #notifications messages for conflicts
-9. Test: rename column in Bento-ya → Discord updates
-10. Test: delete column in Bento-ya → threads archived
+9. Test: rename column in KaitenCode → Discord updates
+10. Test: delete column in KaitenCode → threads archived
 11. Test: offline changes → synced on reconnect
 
 ## Files

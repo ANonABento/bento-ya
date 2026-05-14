@@ -292,7 +292,7 @@ function TriggersTab({
           <option value="terminal">Headless · terminal (tmux)</option>
           <option value="managed">Headless · bubbles (managed)</option>
           <option value="interactive" disabled={interactiveDisabled}>
-            Interactive (live TUI){interactiveDisabled ? ' — set BENTOYA_INTERACTIVE_MODE_ENABLED=1' : ''}
+            Interactive (live TUI){interactiveDisabled ? ' — set KAITENCODE_INTERACTIVE_MODE_ENABLED=1' : ''}
           </option>
         </select>
         <p

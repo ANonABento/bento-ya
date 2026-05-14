@@ -1,4 +1,4 @@
-# Bento-ya Codebase Refactoring Plan
+# KaitenCode Codebase Refactoring Plan
 
 Created: 2026-03-18
 

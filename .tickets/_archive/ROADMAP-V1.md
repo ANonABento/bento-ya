@@ -1,4 +1,4 @@
-# Bento-ya v1.0 Sprint Roadmap
+# KaitenCode v1.0 Sprint Roadmap
 
 > Final sprint to production-ready v1.0
 > Generated: 2025-03-04

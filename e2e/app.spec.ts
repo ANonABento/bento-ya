@@ -1,19 +1,19 @@
 import { test, expect } from '@playwright/test'
 
 /**
- * E2E Tests for Bento-ya
+ * E2E Tests for KaitenCode
  *
  * These tests run against the Vite dev server with browser mocks enabled.
  * The app automatically uses mock data when Tauri is not available.
  */
 
-test.describe('Bento-ya App', () => {
+test.describe('KaitenCode App', () => {
   test.describe('Startup', () => {
     test('should load the app and show the title', async ({ page }) => {
       await page.goto('/')
 
       // App should load with correct title
-      await expect(page).toHaveTitle(/Bento-ya/)
+      await expect(page).toHaveTitle(/KaitenCode/)
     })
 
     test('should show workspace tabs when workspaces exist', async ({ page }) => {
@@ -97,7 +97,7 @@ test.describe('Bento-ya App', () => {
       await page.keyboard.press('Meta+/')
 
       // About modal should appear
-      await expect(page.getByText('About Bento-ya')).toBeVisible({ timeout: 5000 })
+      await expect(page.getByText('About KaitenCode')).toBeVisible({ timeout: 5000 })
     })
   })
 
