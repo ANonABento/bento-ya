@@ -514,7 +514,7 @@ export const TaskCard = memo(function TaskCard({
                   setEditingTitle(true)
                 }
               }}
-              className={`flex-1 pr-24 text-sm font-medium text-text-primary leading-snug line-clamp-2 ${isExpanded ? 'cursor-text hover:text-accent' : ''}`}
+              className={`flex-1 pr-2 text-sm font-medium text-text-primary leading-snug line-clamp-2 transition-[padding] group-hover:pr-24 ${isExpanded ? 'cursor-text hover:text-accent' : ''}`}
               title={isExpanded ? 'Click to edit title' : undefined}
             >
               {displayTitle}
