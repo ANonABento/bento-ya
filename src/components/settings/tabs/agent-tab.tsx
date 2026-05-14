@@ -569,9 +569,14 @@ export function AgentTab() {
           {!comingSoonCollapsed && (
             <div className="mt-2 space-y-2">
               {COMING_SOON.map((item) => (
-                <div key={item.name} className="rounded-lg border border-border-default p-3 opacity-50">
-                  <span className="text-sm font-medium text-text-secondary">{item.name}</span>
-                  <p className="text-xs text-text-secondary">{item.description}</p>
+                <div key={item.name} className="rounded-lg border border-border-default bg-surface/40 p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-text-primary">{item.name}</span>
+                    <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-text-secondary">
+                      Coming soon
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-text-secondary/70">{item.description}</p>
                 </div>
               ))}
             </div>
