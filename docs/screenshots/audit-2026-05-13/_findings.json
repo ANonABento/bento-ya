@@ -1,0 +1,171 @@
+{
+  "shots": [
+    {
+      "name": "01-board",
+      "file": "docs/screenshots/audit-2026-05-13/01-board.png",
+      "note": ""
+    },
+    {
+      "name": "02-card-hover",
+      "file": "docs/screenshots/audit-2026-05-13/02-card-hover.png",
+      "note": "first card hover"
+    },
+    {
+      "name": "03-task-detail-transcript",
+      "file": "docs/screenshots/audit-2026-05-13/03-task-detail-transcript.png",
+      "note": ""
+    },
+    {
+      "name": "04-task-detail-terminal",
+      "file": "docs/screenshots/audit-2026-05-13/04-task-detail-terminal.png",
+      "note": ""
+    },
+    {
+      "name": "05-command-palette",
+      "file": "docs/screenshots/audit-2026-05-13/05-command-palette.png",
+      "note": ""
+    },
+    {
+      "name": "06-settings-workspace",
+      "file": "docs/screenshots/audit-2026-05-13/06-settings-workspace.png",
+      "note": "opens to Workspace by default"
+    },
+    {
+      "name": "07-settings-appearance",
+      "file": "docs/screenshots/audit-2026-05-13/07-settings-appearance.png",
+      "note": ""
+    },
+    {
+      "name": "08-settings-board",
+      "file": "docs/screenshots/audit-2026-05-13/08-settings-board.png",
+      "note": ""
+    },
+    {
+      "name": "09-settings-models-limits",
+      "file": "docs/screenshots/audit-2026-05-13/09-settings-models-limits.png",
+      "note": ""
+    },
+    {
+      "name": "10-settings-voice",
+      "file": "docs/screenshots/audit-2026-05-13/10-settings-voice.png",
+      "note": ""
+    },
+    {
+      "name": "11-settings-github",
+      "file": "docs/screenshots/audit-2026-05-13/11-settings-github.png",
+      "note": ""
+    },
+    {
+      "name": "12-settings-mcp",
+      "file": "docs/screenshots/audit-2026-05-13/12-settings-mcp.png",
+      "note": ""
+    },
+    {
+      "name": "13-settings-batches",
+      "file": "docs/screenshots/audit-2026-05-13/13-settings-batches.png",
+      "note": ""
+    },
+    {
+      "name": "14-settings-advanced",
+      "file": "docs/screenshots/audit-2026-05-13/14-settings-advanced.png",
+      "note": ""
+    },
+    {
+      "name": "15-settings-updates",
+      "file": "docs/screenshots/audit-2026-05-13/15-settings-updates.png",
+      "note": ""
+    },
+    {
+      "name": "16-after-close",
+      "file": "docs/screenshots/audit-2026-05-13/16-after-close.png",
+      "note": ""
+    },
+    {
+      "name": "17-column-config-general",
+      "file": "docs/screenshots/audit-2026-05-13/17-column-config-general.png",
+      "note": ""
+    },
+    {
+      "name": "18-column-config-triggers",
+      "file": "docs/screenshots/audit-2026-05-13/18-column-config-triggers.png",
+      "note": ""
+    },
+    {
+      "name": "19-column-config-exit",
+      "file": "docs/screenshots/audit-2026-05-13/19-column-config-exit.png",
+      "note": ""
+    },
+    {
+      "name": "20-board-narrow-768",
+      "file": "docs/screenshots/audit-2026-05-13/20-board-narrow-768.png",
+      "note": ""
+    },
+    {
+      "name": "21-settings-narrow-768",
+      "file": "docs/screenshots/audit-2026-05-13/21-settings-narrow-768.png",
+      "note": ""
+    },
+    {
+      "name": "22-tab-focus-state",
+      "file": "docs/screenshots/audit-2026-05-13/22-tab-focus-state.png",
+      "note": "after 10 Tabs from board"
+    }
+  ],
+  "ariaIssues": [
+    {
+      "surface": "board",
+      "items": []
+    },
+    {
+      "surface": "task-detail-transcript",
+      "items": []
+    },
+    {
+      "surface": "settings",
+      "items": []
+    },
+    {
+      "surface": "column-config",
+      "items": []
+    }
+  ],
+  "consoleLogs": [
+    {
+      "note": "getLogs not supported by WebKit: browser.getLogs is not a function"
+    },
+    {
+      "total": 0,
+      "errors": []
+    }
+  ],
+  "interactionNotes": [
+    {
+      "surface": "command-palette",
+      "note": "paletteOpen=true"
+    },
+    {
+      "surface": "settings.open",
+      "note": "{\"ok\":true}"
+    },
+    {
+      "surface": "settings.close",
+      "note": "{\"ok\":true}"
+    },
+    {
+      "surface": "settings.escape",
+      "note": "after Escape, settings stillOpen=true (expected false after P1-1 fix)"
+    },
+    {
+      "surface": "column-config.open",
+      "note": "{\"ok\":true}"
+    },
+    {
+      "surface": "settings.narrow",
+      "note": "JS-click on Settings opened=true; native click was intercepted by OS titlebar at 768px width"
+    },
+    {
+      "surface": "focus",
+      "note": "after 10 tabs: {\"ariaLabel\":null,\"outline\":\"5px auto rgba(233, 84, 32, 0.8)\",\"text\":\"Add dark mode toggleImplement theme switching in settingsnow\",\"tag\":\"DIV\"}"
+    }
+  ]
+}
