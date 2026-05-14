@@ -19,6 +19,7 @@ import { getColumnTriggers } from '@/types/column'
 import { useCardPosition } from '@/hooks/use-card-positions'
 import { useDepDragContext } from '@/hooks/use-dep-drag-context'
 import { holdTask } from '@/lib/ipc/agent'
+import { updateTask as updateTaskApi } from '@/lib/ipc/task'
 import { parseDeps } from '@/lib/dependency-utils'
 import { PIPELINE_LABELS, PIPELINE_COLORS, formatRelativeTime } from './task-card-utils'
 import { PrStatusIndicator, SiegeBadge } from './task-card-badges'
@@ -50,6 +51,11 @@ export const TaskCard = memo(function TaskCard({
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState<'triggers' | 'dependencies'>('triggers')
+
+  // Inline title editing — only enabled when the card is expanded
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(task.title)
+  const titleSkipBlurSaveRef = useRef(false)
   const columns = useColumnStore((s) => s.columns)
   const workspaceLabels = useLabelStore((s) => s.labels)
   const workspaceName = useWorkspaceStore((s) => s.workspaces.find((workspace) => workspace.id === task.workspaceId)?.name)
@@ -111,6 +117,28 @@ export const TaskCard = memo(function TaskCard({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+  }
+
+  // Reset title draft when the task changes or edit mode exits
+  useEffect(() => {
+    if (!editingTitle) setTitleDraft(task.title)
+  }, [task.id, task.title, editingTitle])
+
+  async function saveTitle() {
+    const trimmed = titleDraft.trim()
+    if (!trimmed || trimmed === task.title) {
+      setTitleDraft(task.title)
+      setEditingTitle(false)
+      return
+    }
+    try {
+      await updateTaskApi(task.id, { title: trimmed })
+    } catch (err) {
+      console.error('Failed to save task title:', err)
+      setTitleDraft(task.title)
+    } finally {
+      setEditingTitle(false)
+    }
   }
 
   const taskLabels = useMemo(() => {
@@ -447,11 +475,51 @@ export const TaskCard = memo(function TaskCard({
         className="p-3 space-y-2"
         style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
       >
-        {/* Title */}
+        {/* Title — click-to-edit when card is expanded */}
         <div className="flex items-start gap-2">
-          <h4 className="flex-1 pr-24 text-sm font-medium text-text-primary leading-snug line-clamp-2">
-            {displayTitle}
-          </h4>
+          {editingTitle ? (
+            <input
+              type="text"
+              value={titleDraft}
+              autoFocus
+              aria-label="Edit task title"
+              onChange={(e) => { setTitleDraft(e.target.value) }}
+              onPointerDown={(e) => { e.stopPropagation() }}
+              onClick={(e) => { e.stopPropagation() }}
+              onBlur={() => {
+                if (titleSkipBlurSaveRef.current) {
+                  titleSkipBlurSaveRef.current = false
+                  return
+                }
+                void saveTitle()
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  e.currentTarget.blur()
+                } else if (e.key === 'Escape') {
+                  titleSkipBlurSaveRef.current = true
+                  setTitleDraft(task.title)
+                  setEditingTitle(false)
+                  e.currentTarget.blur()
+                }
+              }}
+              className="flex-1 rounded-md border border-accent bg-surface-hover px-2 py-1 text-sm font-medium text-text-primary outline-none focus:ring-2 focus:ring-accent/20"
+            />
+          ) : (
+            <h4
+              onClick={(e) => {
+                if (isExpanded) {
+                  e.stopPropagation()
+                  setEditingTitle(true)
+                }
+              }}
+              className={`flex-1 pr-24 text-sm font-medium text-text-primary leading-snug line-clamp-2 ${isExpanded ? 'cursor-text hover:text-accent' : ''}`}
+              title={isExpanded ? 'Click to edit title' : undefined}
+            >
+              {displayTitle}
+            </h4>
+          )}
           {task.archivedAt && (
             <button
               type="button"

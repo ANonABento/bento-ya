@@ -138,6 +138,35 @@ export function TaskCardExpanded({ task }: { task: Task }) {
     loadDiff,
   } = useTaskDetail(task)
 
+  // Inline description editing — click-to-edit, Cmd/Ctrl+Enter to save, Escape to revert.
+  const [editingDesc, setEditingDesc] = useState(false)
+  const [descDraft, setDescDraft] = useState(task.description)
+  const [savingDesc, setSavingDesc] = useState(false)
+  const descSkipBlurSaveRef = useRef(false)
+
+  useEffect(() => {
+    if (!editingDesc) setDescDraft(task.description)
+  }, [task.id, task.description, editingDesc])
+
+  async function saveDescription() {
+    const next = descDraft.trim()
+    if (next === task.description) {
+      setEditingDesc(false)
+      return
+    }
+    setSavingDesc(true)
+    try {
+      const updated = await ipc.updateTask(task.id, { description: next })
+      updateTask(task.id, updated)
+    } catch (err) {
+      console.error('Failed to save task description:', err)
+      setDescDraft(task.description)
+    } finally {
+      setSavingDesc(false)
+      setEditingDesc(false)
+    }
+  }
+
   return (
     <motion.div
       initial={{ height: 0, opacity: 0 }}
@@ -154,9 +183,46 @@ export function TaskCardExpanded({ task }: { task: Task }) {
           e.stopPropagation()
         }}
       >
-        {/* Full description */}
-        {task.description && (
-          <p className="text-xs leading-relaxed text-text-secondary">{task.description}</p>
+        {/* Full description — click-to-edit. Empty state shows an "Add a description" placeholder. */}
+        {editingDesc ? (
+          <textarea
+            value={descDraft}
+            autoFocus
+            rows={3}
+            disabled={savingDesc}
+            aria-label="Edit task description"
+            placeholder="Add a description"
+            onChange={(e) => { setDescDraft(e.target.value) }}
+            onBlur={() => {
+              if (descSkipBlurSaveRef.current) {
+                descSkipBlurSaveRef.current = false
+                return
+              }
+              void saveDescription()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault()
+                e.currentTarget.blur()
+              } else if (e.key === 'Escape') {
+                descSkipBlurSaveRef.current = true
+                setDescDraft(task.description)
+                setEditingDesc(false)
+                e.currentTarget.blur()
+              }
+            }}
+            className="w-full rounded-md border border-accent bg-surface px-2 py-1.5 text-xs leading-relaxed text-text-primary outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
+          />
+        ) : (
+          <p
+            onClick={() => { setEditingDesc(true) }}
+            title="Click to edit description"
+            className={`cursor-text rounded text-xs leading-relaxed hover:bg-surface-hover/40 px-1 -mx-1 py-0.5 -my-0.5 ${
+              task.description ? 'text-text-secondary' : 'italic text-text-secondary/50'
+            }`}
+          >
+            {task.description || 'Add a description'}
+          </p>
         )}
 
         <TimeTrackingSection task={task} onUpdate={updateTask} />
