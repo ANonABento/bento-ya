@@ -292,11 +292,32 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
         }
       >
 
-      {/* Header - clickable to toggle */}
+      {/* Header - clickable to toggle. When collapsed, render as a visible
+          panel handle: a centered grip bar above the strip + a hover-background
+          on the whole row so the affordance reads as "click to expand". */}
       <div
         onClick={handleHeaderClick}
-        className="relative flex items-center justify-between px-3 py-1.5 select-none cursor-pointer"
+        role="button"
+        aria-label={isPanelCollapsed ? 'Expand orchestrator panel' : 'Collapse orchestrator panel'}
+        aria-expanded={!isPanelCollapsed}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            togglePanel()
+          }
+        }}
+        className={`relative flex items-center justify-between px-3 py-1.5 select-none cursor-pointer transition-colors ${
+          isPanelCollapsed ? 'hover:bg-surface-hover/60' : ''
+        }`}
       >
+        {isPanelCollapsed && (
+          /* Grip — a small pill at the top edge that says "drag me / click me" */
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-1/2 -top-0 h-1 w-10 -translate-x-1/2 rounded-full bg-border-default/80"
+          />
+        )}
         {/* Left: History + Files buttons */}
         <div className="flex items-center gap-1">
           {!isPanelCollapsed && (
