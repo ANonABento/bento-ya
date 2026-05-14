@@ -1,0 +1,9 @@
+{
+  "phase": 3,
+  "completed_at": "2026-05-14T02:05:00Z",
+  "audit_doc_path": "docs/audits/ui-audit-2026-05-14.md",
+  "artifact_commit": "4598993",
+  "p0_count": 1,
+  "p1_count": 8,
+  "p2_count": 13
+}
