@@ -57,10 +57,7 @@ pub fn resolve_runtime_mode(
     Ok(resolve_runtime_mode_for_task(&task, &column))
 }
 
-fn require_interactive_mode(
-    state: &State<AppState>,
-    task_id: &str,
-) -> Result<(), AppError> {
+fn require_interactive_mode(state: &State<AppState>, task_id: &str) -> Result<(), AppError> {
     let conn = state
         .db
         .lock()
@@ -201,9 +198,7 @@ pub async fn agent_restart(
             .trigger_prompt
             .clone()
             .filter(|p| !p.is_empty())
-            .unwrap_or_else(|| {
-                format!("{}\n\nSee .task.md for full spec.", task.title)
-            });
+            .unwrap_or_else(|| format!("{}\n\nSee .task.md for full spec.", task.title));
 
         (cli, working_dir, args, initial_prompt, include_sentinel)
     };
@@ -324,8 +319,8 @@ pub fn list_completion_events(
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     let n = limit.unwrap_or(50).clamp(1, 200);
-    Ok(db::completion_events::list_recent(&conn, &workspace_id, n)
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?)
+    db::completion_events::list_recent(&conn, &workspace_id, n)
+        .map_err(|e| AppError::DatabaseError(e.to_string()))
 }
 
 // Touch a use to silence unused-import warnings in some build configs.

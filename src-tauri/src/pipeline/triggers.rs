@@ -324,14 +324,12 @@ pub fn resolve_runtime_mode_with_workspace_config(
     let column_triggers = parse_column_triggers(column.triggers.as_deref());
 
     // Tier: trigger (on_entry action).
-    if let Some(action) = resolve_trigger(&column_triggers, task, "on_entry") {
-        if let TriggerActionV2::SpawnCli { runtime_mode, .. } = action {
-            if let Some(token) = runtime_mode.as_deref() {
-                if let Some(resolved) =
-                    ResolvedRuntimeMode::from_runtime_mode_token(token, "trigger")
-                {
-                    return resolved;
-                }
+    if let Some(TriggerActionV2::SpawnCli { runtime_mode, .. }) =
+        resolve_trigger(&column_triggers, task, "on_entry")
+    {
+        if let Some(token) = runtime_mode.as_deref() {
+            if let Some(resolved) = ResolvedRuntimeMode::from_runtime_mode_token(token, "trigger") {
+                return resolved;
             }
         }
     }
@@ -355,12 +353,8 @@ pub fn resolve_runtime_mode_with_workspace_config(
     }
 
     // Tier: workspace default (read from supplied JSON).
-    if let Some(token) =
-        workspace_config_json.and_then(extract_workspace_default_runtime_mode)
-    {
-        if let Some(resolved) =
-            ResolvedRuntimeMode::from_runtime_mode_token(&token, "workspace")
-        {
+    if let Some(token) = workspace_config_json.and_then(extract_workspace_default_runtime_mode) {
+        if let Some(resolved) = ResolvedRuntimeMode::from_runtime_mode_token(&token, "workspace") {
             return resolved;
         }
     }
@@ -403,8 +397,16 @@ fn extract_workspace_default_runtime_mode(workspace_config_json: &str) -> Option
     let value = config
         .get("default_runtime_mode")
         .or_else(|| config.get("defaultRuntimeMode"))
-        .or_else(|| config.get("agent").and_then(|a| a.get("default_runtime_mode")))
-        .or_else(|| config.get("agent").and_then(|a| a.get("defaultRuntimeMode")))?;
+        .or_else(|| {
+            config
+                .get("agent")
+                .and_then(|a| a.get("default_runtime_mode"))
+        })
+        .or_else(|| {
+            config
+                .get("agent")
+                .and_then(|a| a.get("defaultRuntimeMode"))
+        })?;
     let token = value.as_str()?.trim();
     if token.is_empty() {
         None
@@ -2143,6 +2145,7 @@ fn remote_branch_ref(branch: &str) -> String {
     format!("refs/remotes/origin/{}", branch)
 }
 
+#[allow(dead_code)]
 fn local_branch_ref(branch: &str) -> String {
     format!("refs/heads/{}", branch)
 }
@@ -2185,6 +2188,7 @@ fn best_base_ref(repo_path: &str, base_branch: &str) -> Result<String, String> {
     Ok(base_branch.to_string())
 }
 
+#[allow(dead_code)]
 fn ensure_staging_branch(
     repo_path: &str,
     staging_branch: &str,
@@ -3413,8 +3417,8 @@ mod tests {
         .unwrap();
         col = db::get_column(&conn, &col.id).unwrap();
         let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
-        let task = db::update_task_runtime_mode_override(&conn, &task.id, Some("interactive"))
-            .unwrap();
+        let task =
+            db::update_task_runtime_mode_override(&conn, &task.id, Some("interactive")).unwrap();
 
         let resolved = resolve_runtime_mode_for_task(&task, &col);
         assert_eq!(resolved.mode, "interactive");
@@ -3508,8 +3512,7 @@ mod tests {
         .unwrap();
         col = db::get_column(&conn, &col.id).unwrap();
         let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
-        let task =
-            db::update_task_runtime_mode_override(&conn, &task.id, Some("managed")).unwrap();
+        let task = db::update_task_runtime_mode_override(&conn, &task.id, Some("managed")).unwrap();
 
         let resolved = resolve_runtime_mode_for_task(&task, &col);
         assert_eq!(resolved.mode, "headless");

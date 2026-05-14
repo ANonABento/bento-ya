@@ -51,6 +51,7 @@ pub struct AgentCompletionEvent {
 
 /// Append a completion event to the local telemetry table. Synchronous;
 /// callers in hot paths should use `record_async` instead.
+#[allow(clippy::too_many_arguments)]
 pub fn record(
     conn: &Connection,
     task_id: &str,
