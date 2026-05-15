@@ -1,5 +1,5 @@
 /**
- * Bento-ya Marketing Site Scripts
+ * KaitenCode Marketing Site Scripts
  * Modular, organized JavaScript with clear responsibilities
  */
 
