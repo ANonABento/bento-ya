@@ -1257,13 +1257,45 @@ fn perform_auto_setup_locked(
     workspace: &Workspace,
     pipeline_settings: &EffectivePipelineSettings,
 ) -> Result<Task, AppError> {
+    let setup_base_branch = match super::dependencies::predecessor_branch_for_chain(conn, task) {
+        Ok(Some(branch))
+            if branch_manager::branch_exists(&workspace.repo_path, &branch).unwrap_or(false) =>
+        {
+            log::info!(
+                "[triggers] Auto-setup for task {} using predecessor branch '{}' as base",
+                task.id,
+                branch
+            );
+            branch
+        }
+        Ok(Some(branch)) => {
+            log::warn!(
+                "[triggers] Chain predecessor branch '{}' for task {} is missing locally; falling back to '{}'",
+                branch,
+                task.id,
+                pipeline_settings.default_base_branch
+            );
+            pipeline_settings.default_base_branch.clone()
+        }
+        Ok(None) => pipeline_settings.default_base_branch.clone(),
+        Err(e) => {
+            log::warn!(
+                "[triggers] Could not resolve chain predecessor branch for task {}: {}; falling back to '{}'",
+                task.id,
+                e,
+                pipeline_settings.default_base_branch
+            );
+            pipeline_settings.default_base_branch.clone()
+        }
+    };
+
     let setup_task = match ensure_task_worktree_with_retry(
         conn,
         app,
         task,
         &workspace.repo_path,
         pipeline_settings,
-        &pipeline_settings.default_base_branch,
+        &setup_base_branch,
     ) {
         Ok(task) => task,
         Err(e) => return fail_auto_setup(conn, app, task, column, e.to_string()),

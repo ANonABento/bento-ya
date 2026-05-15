@@ -23,10 +23,14 @@ Backlog → Setup → Plan → Implement → Review → Verify → PR → Stagin
 
 ### `auto_setup`
 No agent. Pipeline logic only:
-1. Create branch: `kaitencode/<task-slug>` from `main`
-2. Create worktree: `.worktrees/kaitencode-<task-id>`
-3. Update task: `branch_name`, `worktree_path`
-4. Auto-advance to next column
+1. Resolve base branch:
+   - If the task depends on same-batch predecessors and one has a local branch,
+     use the most-progressed predecessor's branch as the base.
+   - Otherwise use the workspace default base branch, normally `main`.
+2. Create branch: `kaitencode/<task-slug>` from the resolved base
+3. Create worktree: `.worktrees/kaitencode-<task-id>`
+4. Update task: `branch_name`, `worktree_path`
+5. Auto-advance to next column
 
 ### `batch_wait`
 No agent. Waits for conditions:
@@ -55,6 +59,18 @@ Tasks queued together (or in the same dependency chain) form a **batch**:
 - All tasks in a batch share one staging branch
 - Staging column waits for the full batch before combining
 - Batch size: configurable per workspace (default: queue everything until user says "go")
+
+## Chains
+
+Tasks in the same `batch_id` can depend on each other. When a task enters
+Setup, `auto_setup` checks its same-batch dependencies. If any predecessor has
+already created a branch, the new task branch is cut from the predecessor that
+has progressed furthest through the board. This keeps serial work from all
+branching off the same old `main` commit and reduces avoidable cascade
+conflicts in shared files.
+
+If no same-batch predecessor has a local branch yet, setup falls back to the
+workspace default base branch.
 
 ## Conditional E2E
 

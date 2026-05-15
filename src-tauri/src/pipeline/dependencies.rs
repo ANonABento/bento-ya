@@ -66,6 +66,71 @@ pub fn find_dependents(
     Ok(results)
 }
 
+/// Return the best predecessor branch for a task in a dependency chain.
+///
+/// If a task has dependencies on other tasks in the same `batch_id`, setup
+/// should base the task branch on the most-progressed predecessor branch
+/// rather than the workspace default base branch. That keeps serial task
+/// chains from all branching off the same old `main` SHA and producing
+/// avoidable cascade conflicts.
+pub fn predecessor_branch_for_chain(
+    conn: &Connection,
+    task: &Task,
+) -> Result<Option<String>, AppError> {
+    let Some(batch_id) = task
+        .batch_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|batch_id| !batch_id.is_empty())
+    else {
+        return Ok(None);
+    };
+
+    let Some(deps_json) = task
+        .dependencies
+        .as_deref()
+        .map(str::trim)
+        .filter(|deps| !deps.is_empty() && *deps != "[]")
+    else {
+        return Ok(None);
+    };
+
+    let deps = match serde_json::from_str::<Vec<TaskDependency>>(deps_json) {
+        Ok(deps) => deps,
+        Err(_) => return Ok(None),
+    };
+
+    let mut best: Option<(i64, String)> = None;
+    for dep in deps {
+        let Ok(predecessor) = db::get_task(conn, &dep.task_id) else {
+            continue;
+        };
+        if predecessor.batch_id.as_deref() != Some(batch_id) {
+            continue;
+        }
+
+        let Some(branch) = predecessor
+            .branch_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|branch| !branch.is_empty())
+        else {
+            continue;
+        };
+
+        let position = db::get_column(conn, &predecessor.column_id)
+            .map(|column| column.position)
+            .unwrap_or(-1);
+
+        match &best {
+            Some((best_position, _)) if *best_position >= position => {}
+            _ => best = Some((position, branch.to_string())),
+        }
+    }
+
+    Ok(best.map(|(_, branch)| branch))
+}
+
 /// Check if a dependency condition is met based on the source task's state.
 pub fn check_condition(
     dep: &TaskDependency,
@@ -573,6 +638,131 @@ mod tests {
 
     fn setup_test_db() -> Connection {
         db::init_test().unwrap()
+    }
+
+    fn set_deps(conn: &Connection, task_id: &str, deps: &[TaskDependency]) {
+        let json = serde_json::to_string(deps).unwrap();
+        conn.execute(
+            "UPDATE tasks SET dependencies = ?1 WHERE id = ?2",
+            rusqlite::params![json, task_id],
+        )
+        .unwrap();
+    }
+
+    fn dep_on(task_id: &str) -> TaskDependency {
+        TaskDependency {
+            task_id: task_id.to_string(),
+            condition: "in_review".to_string(),
+            target_column: None,
+            on_met: TriggerActionV2::None,
+        }
+    }
+
+    #[test]
+    fn test_predecessor_branch_for_chain_requires_batch_id() {
+        let conn = setup_test_db();
+        let ws = db::insert_workspace(&conn, "Test", "/tmp").unwrap();
+        let col = db::insert_column(&conn, &ws.id, "Setup", 0).unwrap();
+        let pred = db::insert_task(&conn, &ws.id, &col.id, "Pred", None).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+
+        db::update_task_branch(&conn, &pred.id, Some("kaitencode/pred")).unwrap();
+        db::update_task_batch_id(&conn, &pred.id, Some("batch-1")).unwrap();
+        set_deps(&conn, &task.id, &[dep_on(&pred.id)]);
+
+        let task = db::get_task(&conn, &task.id).unwrap();
+        assert_eq!(predecessor_branch_for_chain(&conn, &task).unwrap(), None);
+    }
+
+    #[test]
+    fn test_predecessor_branch_for_chain_ignores_other_batches() {
+        let conn = setup_test_db();
+        let ws = db::insert_workspace(&conn, "Test", "/tmp").unwrap();
+        let col = db::insert_column(&conn, &ws.id, "Setup", 0).unwrap();
+        let pred = db::insert_task(&conn, &ws.id, &col.id, "Pred", None).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+
+        db::update_task_branch(&conn, &pred.id, Some("kaitencode/pred")).unwrap();
+        db::update_task_batch_id(&conn, &pred.id, Some("batch-A")).unwrap();
+        db::update_task_batch_id(&conn, &task.id, Some("batch-B")).unwrap();
+        set_deps(&conn, &task.id, &[dep_on(&pred.id)]);
+
+        let task = db::get_task(&conn, &task.id).unwrap();
+        assert_eq!(predecessor_branch_for_chain(&conn, &task).unwrap(), None);
+    }
+
+    #[test]
+    fn test_predecessor_branch_for_chain_returns_same_batch_branch() {
+        let conn = setup_test_db();
+        let ws = db::insert_workspace(&conn, "Test", "/tmp").unwrap();
+        let col = db::insert_column(&conn, &ws.id, "Setup", 0).unwrap();
+        let pred = db::insert_task(&conn, &ws.id, &col.id, "Pred", None).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &col.id, "Task", None).unwrap();
+
+        db::update_task_branch(&conn, &pred.id, Some("kaitencode/pred")).unwrap();
+        db::update_task_batch_id(&conn, &pred.id, Some("batch-1")).unwrap();
+        db::update_task_batch_id(&conn, &task.id, Some("batch-1")).unwrap();
+        set_deps(&conn, &task.id, &[dep_on(&pred.id)]);
+
+        let task = db::get_task(&conn, &task.id).unwrap();
+        assert_eq!(
+            predecessor_branch_for_chain(&conn, &task).unwrap(),
+            Some("kaitencode/pred".to_string())
+        );
+    }
+
+    #[test]
+    fn test_predecessor_branch_for_chain_prefers_furthest_column() {
+        let conn = setup_test_db();
+        let ws = db::insert_workspace(&conn, "Test", "/tmp").unwrap();
+        let setup = db::insert_column(&conn, &ws.id, "Setup", 0).unwrap();
+        let implement = db::insert_column(&conn, &ws.id, "Implement", 1).unwrap();
+        let review = db::insert_column(&conn, &ws.id, "Review", 2).unwrap();
+
+        let early = db::insert_task(&conn, &ws.id, &implement.id, "Early", None).unwrap();
+        let later = db::insert_task(&conn, &ws.id, &review.id, "Later", None).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &setup.id, "Task", None).unwrap();
+
+        db::update_task_branch(&conn, &early.id, Some("kaitencode/early")).unwrap();
+        db::update_task_branch(&conn, &later.id, Some("kaitencode/later")).unwrap();
+        for id in [&early.id, &later.id, &task.id] {
+            db::update_task_batch_id(&conn, id, Some("batch-1")).unwrap();
+        }
+        set_deps(&conn, &task.id, &[dep_on(&early.id), dep_on(&later.id)]);
+
+        let task = db::get_task(&conn, &task.id).unwrap();
+        assert_eq!(
+            predecessor_branch_for_chain(&conn, &task).unwrap(),
+            Some("kaitencode/later".to_string())
+        );
+    }
+
+    #[test]
+    fn test_predecessor_branch_for_chain_skips_unbranched_predecessors() {
+        let conn = setup_test_db();
+        let ws = db::insert_workspace(&conn, "Test", "/tmp").unwrap();
+        let setup = db::insert_column(&conn, &ws.id, "Setup", 0).unwrap();
+        let review = db::insert_column(&conn, &ws.id, "Review", 2).unwrap();
+
+        let unbranched = db::insert_task(&conn, &ws.id, &review.id, "Unbranched", None).unwrap();
+        let branched = db::insert_task(&conn, &ws.id, &setup.id, "Branched", None).unwrap();
+        let task = db::insert_task(&conn, &ws.id, &setup.id, "Task", None).unwrap();
+
+        db::update_task_branch(&conn, &branched.id, Some("kaitencode/branched")).unwrap();
+        for id in [&unbranched.id, &branched.id, &task.id] {
+            db::update_task_batch_id(&conn, id, Some("batch-1")).unwrap();
+        }
+        set_deps(
+            &conn,
+            &task.id,
+            &[dep_on(&unbranched.id), dep_on(&branched.id)],
+        );
+
+        let task = db::get_task(&conn, &task.id).unwrap();
+        assert_eq!(
+            predecessor_branch_for_chain(&conn, &task).unwrap(),
+            Some("kaitencode/branched".to_string())
+        );
     }
 
     #[test]
