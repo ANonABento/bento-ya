@@ -47,6 +47,75 @@ type TaskState = {
   setLabels: (taskId: string, labelIds: string[]) => Promise<void>
 }
 
+let optimisticTaskCounter = 0
+
+function createOptimisticTask(
+  existingTasks: Task[],
+  workspaceId: string,
+  columnId: string,
+  title: string,
+  description: string,
+): Task {
+  const now = new Date().toISOString()
+  const columnPositions = existingTasks
+    .filter((task) => task.columnId === columnId)
+    .map((task) => task.position)
+
+  return {
+    id: `optimistic-task-${String(++optimisticTaskCounter)}`,
+    workspaceId,
+    columnId,
+    title,
+    description,
+    branch: null,
+    agentType: null,
+    agentMode: null,
+    agentStatus: null,
+    pipelineState: 'idle',
+    pipelineTriggeredAt: null,
+    pipelineError: null,
+    retryCount: 0,
+    model: null,
+    lastScriptExitCode: null,
+    reviewStatus: null,
+    prNumber: null,
+    prUrl: null,
+    siegeIteration: 0,
+    siegeActive: false,
+    siegeMaxIterations: 5,
+    siegeLastChecked: null,
+    prMergeable: null,
+    prCiStatus: null,
+    prReviewDecision: null,
+    prCommentCount: 0,
+    prIsDraft: false,
+    prLabels: '[]',
+    labels: [],
+    prLastFetched: null,
+    prHeadSha: null,
+    checklist: null,
+    estimatedHours: null,
+    actualHours: 0,
+    notifyStakeholders: null,
+    notificationSentAt: null,
+    triggerOverrides: null,
+    triggerPrompt: null,
+    lastOutput: null,
+    dependencies: null,
+    blocked: false,
+    worktreePath: null,
+    archivedAt: null,
+    lastUserInputAt: null,
+    heldByUser: false,
+    runtimeModeOverride: null,
+    agentPausedAt: null,
+    queuedAt: null,
+    position: columnPositions.length > 0 ? Math.max(...columnPositions) + 1 : 0,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
 export const useTaskStore = create<TaskState>()(
   devtools(
     (set, get) => ({
@@ -60,10 +129,23 @@ export const useTaskStore = create<TaskState>()(
       },
 
       add: async (workspaceId, columnId, title, description) => {
-        const task = await ipc.createTask(workspaceId, columnId, title, description)
-        set((s) => ({ tasks: [...s.tasks, task] }))
-        await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
-        return task
+        const prev = get().tasks
+        const optimisticTask = createOptimisticTask(prev, workspaceId, columnId, title, description)
+        set((s) => ({ tasks: [...s.tasks, optimisticTask] }))
+
+        try {
+          const task = await ipc.createTask(workspaceId, columnId, title, description)
+          set((s) => ({
+            tasks: s.tasks.map((current) =>
+              current.id === optimisticTask.id ? task : current,
+            ),
+          }))
+          await useWorkspaceStore.getState().refreshWorkspace(workspaceId)
+          return task
+        } catch (err) {
+          set({ tasks: prev })
+          throw err
+        }
       },
 
       remove: async (id) => {

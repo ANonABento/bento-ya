@@ -32,9 +32,9 @@ type TaskContextMenuProps = {
   onArchiveTask: () => void
   onUnarchiveTask: () => void
   onDeleteTask: () => void
-  onSaveAsTemplate: () => void
   onRunAgent: () => void
   onStopAgent: () => void
+  onRetryPipeline?: () => void
   onToggleHold: () => void
   onStartSiege: () => void
   onStopSiege: () => void
@@ -65,8 +65,11 @@ const Icons = {
     </svg>
   ),
   siege: (
-    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M10 2a4 4 0 0 0-4 4c0 1.8.86 2.76 1.72 3.22V10h.86v2.57H7v1.72h1.58V18h2.84v-3.71H13v-1.72h-1.58V10h.86v-.78c.86-.46 1.72-1.42 1.72-3.22a4 4 0 0 0-4-4Zm0 1.72a2.28 2.28 0 0 0-2.28 2.28c0 1.08.57 1.72 1.14 2V9h2.28V8c.57-.28 1.14-.92 1.14-2A2.28 2.28 0 0 0 10 3.72Z" clipRule="evenodd" />
+    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16.5 7.25A6 6 0 0 0 5.2 5.7L3.5 8.25" />
+      <path d="M3.5 4.75v3.5H7" />
+      <path d="M3.5 12.75a6 6 0 0 0 11.3 1.55l1.7-2.55" />
+      <path d="M16.5 15.25v-3.5H13" />
     </svg>
   ),
   move: (
@@ -78,15 +81,6 @@ const Icons = {
     <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
       <path d="M7 3.5A1.5 1.5 0 0 1 8.5 2h3.879a1.5 1.5 0 0 1 1.06.44l3.122 3.12A1.5 1.5 0 0 1 17 6.622V12.5a1.5 1.5 0 0 1-1.5 1.5h-1v-3.379a3 3 0 0 0-.879-2.121L10.5 5.379A3 3 0 0 0 8.379 4.5H7v-1Z" />
       <path d="M4.5 6A1.5 1.5 0 0 0 3 7.5v9A1.5 1.5 0 0 0 4.5 18h7a1.5 1.5 0 0 0 1.5-1.5v-5.879a1.5 1.5 0 0 0-.44-1.06L9.44 6.44A1.5 1.5 0 0 0 8.378 6H4.5Z" />
-    </svg>
-  ),
-  template: (
-    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M4.5 3A1.5 1.5 0 0 0 3 4.5v12a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-12A1.5 1.5 0 0 0 15.5 3h-11Zm.75 1.5h9.5a.25.25 0 0 1 .25.25v1a.25.25 0 0 1-.25.25H5.25A.25.25 0 0 1 5 4.5v-1A.25.25 0 0 1 5.25 4.5Zm.5 3h8a.5.5 0 0 1 0 1h-8a.5.5 0 0 1 0-1Zm0 3h10a.5.5 0 0 1 0 1h-10a.5.5 0 0 1 0-1Zm0 3h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1 0-1Z"
-      />
     </svg>
   ),
   archive: (
@@ -200,9 +194,9 @@ export function TaskContextMenu({
   onArchiveTask,
   onUnarchiveTask,
   onDeleteTask,
-  onSaveAsTemplate,
   onRunAgent,
   onStopAgent,
+  onRetryPipeline,
   onToggleHold,
   onStartSiege,
   onStopSiege,
@@ -253,12 +247,16 @@ export function TaskContextMenu({
   const isRunning = task.agentStatus === 'running'
   const hasPr = !!task.prNumber
   const isArchived = !!task.archivedAt
+  const hasPipelineError = !!task.pipelineError
   const otherColumns = columns.filter((c) => c.id !== task.columnId && c.visible)
 
   const menuItems: MenuItemType[] = [
     { label: 'Open task', icon: Icons.open, shortcut: '↵', onClick: onOpenTask },
     ...(onConfigureTask ? [{ label: 'Configure triggers', icon: Icons.configure, onClick: onConfigureTask }] : []),
     { type: 'divider' },
+    ...(hasPipelineError && onRetryPipeline
+      ? [{ label: 'Retry pipeline', icon: Icons.play, shortcut: 'R', onClick: onRetryPipeline }]
+      : []),
     isRunning
       ? { label: 'Stop agent', icon: Icons.stop, onClick: onStopAgent }
       : { label: 'Run agent', icon: Icons.play, shortcut: 'Space', onClick: onRunAgent },
@@ -282,7 +280,6 @@ export function TaskContextMenu({
         onClick: () => { onMoveToColumn(col.id); },
       })),
     },
-    { label: 'Save as template', icon: Icons.template, onClick: onSaveAsTemplate },
     { label: 'Duplicate', icon: Icons.duplicate, shortcut: 'D', onClick: onDuplicateTask },
     { type: 'divider' },
     isArchived

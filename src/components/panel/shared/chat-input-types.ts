@@ -33,6 +33,7 @@ export type ChatInputProps = {
   onCancel?: () => void
   onInputChange?: () => void
   onAttachmentError?: (error: { file: string; message: string }) => void
+  draftInsertion?: { id: number; content: string } | null
   deliveryHint?: string
   submitLabel?: string
   isProcessing?: boolean

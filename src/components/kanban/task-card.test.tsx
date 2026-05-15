@@ -36,7 +36,7 @@ function resetStores(task: Task) {
     loaded: true,
   })
   useTaskStore.setState({ tasks: [task], loaded: true })
-  useUIStore.setState({ viewMode: 'board', activeTaskId: null, modal: null })
+  useUIStore.setState({ viewMode: 'board', activeTaskId: null, expandedTaskId: null, modal: null })
   useWorkspaceStore.setState({
     workspaces: [mockWorkspace({ id: task.workspaceId, name: 'Test Workspace' })],
     activeWorkspaceId: task.workspaceId,
@@ -188,5 +188,30 @@ describe('TaskCard quick-action keyboard behavior', () => {
     expect(screen.getByRole('heading', { name: 'Migrate Clerk to NextAuth.js' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /Slothing/ })).not.toBeInTheDocument()
     expect(screen.getByText('Slothing')).toBeInTheDocument()
+  })
+
+  it('collapses an expanded card from non-interactive expanded body clicks', () => {
+    const task = mockKanbanTask()
+    resetStores(task)
+    render(<TaskCard task={task} />)
+
+    fireEvent.click(screen.getByText('Test task'))
+    expect(useUIStore.getState().expandedTaskId).toBe('t1')
+
+    fireEvent.click(screen.getByText('No branch on this task.'))
+
+    expect(useUIStore.getState().expandedTaskId).toBeNull()
+  })
+
+  it('keeps expanded card open when clicking interactive description controls', () => {
+    const task = mockKanbanTask({ description: 'Editable **description**' })
+    resetStores(task)
+    render(<TaskCard task={task} />)
+
+    fireEvent.click(screen.getByText('Test task'))
+    fireEvent.click(screen.getByRole('button', { name: /editable description/i }))
+
+    expect(useUIStore.getState().expandedTaskId).toBe('t1')
+    expect(screen.getByLabelText('Edit task description')).toBeInTheDocument()
   })
 })

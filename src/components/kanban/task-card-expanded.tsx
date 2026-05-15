@@ -1,127 +1,71 @@
 import { motion } from 'motion/react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import type { Task } from '@/types'
 import { useTaskDetail } from '@/hooks/use-task-detail'
+import type { ChangeSummary, FileChange } from '@/hooks/use-git'
 import * as ipc from '@/lib/ipc'
-import { DiffSection } from '@/components/task-detail/diff-section'
-import { CommitsSection } from '@/components/task-detail/commits-section'
 import { SiegeStatus } from '@/components/task-detail/siege-status'
+import { CommitsSection } from '@/components/task-detail/commits-section'
 
 const EXPANDED_MAX_HEIGHT = 560
+const TOUCHED_FILES_LIMIT = 5
 
-function formatHours(hours: number) {
-  if (hours === 0) return '0h'
-  if (hours < 0.1) return '<0.1h'
-  return `${hours.toFixed(hours < 10 ? 1 : 0)}h`
+function getSaveShortcutLabel() {
+  if (typeof navigator === 'undefined') return 'Ctrl+Enter'
+  const userAgent = navigator.userAgent.toLowerCase()
+  return userAgent.includes('mac os') || userAgent.includes('macintosh') ? 'Cmd+Enter' : 'Ctrl+Enter'
 }
 
-function formatEstimateInput(estimatedHours: number | null) {
-  return estimatedHours == null ? '' : String(estimatedHours)
-}
-
-function TimeTrackingSection({
-  task,
-  onUpdate,
-}: {
-  task: Task
-  onUpdate: (id: string, updates: Partial<Task>) => void
-}) {
-  const [estimateInput, setEstimateInput] = useState(formatEstimateInput(task.estimatedHours))
-  const [saving, setSaving] = useState(false)
-  const skipNextBlurSave = useRef(false)
-
-  useEffect(() => {
-    setEstimateInput(formatEstimateInput(task.estimatedHours))
-  }, [task.id, task.estimatedHours])
-
-  const estimatedHours = task.estimatedHours
-  const actualHours = task.actualHours
-  const estimateInputId = `task-${task.id}-estimated-hours`
-  const overEstimate =
-    estimatedHours != null && estimatedHours > 0 && actualHours > estimatedHours * 2
-
-  async function saveEstimate() {
-    const trimmed = estimateInput.trim()
-    const parsedEstimate = trimmed === '' ? null : Number(trimmed)
-    if (parsedEstimate != null && (!Number.isFinite(parsedEstimate) || parsedEstimate < 0)) {
-      setEstimateInput(formatEstimateInput(task.estimatedHours))
-      return
-    }
-    const nextEstimate: number | null = parsedEstimate
-    if (nextEstimate === task.estimatedHours) return
-
-    setSaving(true)
-    try {
-      const updated = await ipc.updateTask(task.id, { estimatedHours: nextEstimate })
-      onUpdate(task.id, updated)
-    } catch (err) {
-      console.error('Failed to save task estimate:', err)
-      setEstimateInput(formatEstimateInput(task.estimatedHours))
-    } finally {
-      setSaving(false)
-    }
-  }
-
+function DescriptionMarkdown({ description }: { description: string }) {
   return (
-    <div className="rounded-md border border-border-default bg-surface px-2.5 py-2">
-      <div className="grid grid-cols-2 gap-2">
-        <label htmlFor={estimateInputId} className="flex min-w-0 flex-col gap-1">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-text-secondary">
-            Estimate
-          </span>
-          <div className="flex items-center gap-1">
-            <input
-              id={estimateInputId}
-              aria-label="Estimate"
-              type="number"
-              min="0"
-              step="0.25"
-              value={estimateInput}
-              disabled={saving}
-              onChange={(e) => {
-                setEstimateInput(e.target.value)
-              }}
-              onBlur={() => {
-                if (skipNextBlurSave.current) {
-                  skipNextBlurSave.current = false
-                  return
-                }
-                void saveEstimate()
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur()
-                if (e.key === 'Escape') {
-                  skipNextBlurSave.current = true
-                  setEstimateInput(formatEstimateInput(task.estimatedHours))
-                  e.currentTarget.blur()
-                }
-              }}
-              className="h-7 w-full rounded-md border border-border-default bg-surface-hover px-2 text-xs text-text-primary outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
-              placeholder="0"
-            />
-            <span className="text-xs text-text-secondary">h</span>
-          </div>
-        </label>
-        <div className="flex min-w-0 flex-col gap-1">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-text-secondary">
-            Actual
-          </span>
-          <div
-            className={`flex h-7 items-center rounded-md border px-2 text-xs font-medium ${
-              overEstimate
-                ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
-                : 'border-border-default bg-surface-hover text-text-primary'
-            }`}
-          >
-            {formatHours(actualHours)}
-          </div>
-        </div>
-      </div>
-      {overEstimate && (
-        <div className="mt-2 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300">
-          Actual time is more than 2x the estimate.
-        </div>
-      )}
+    <div className="max-h-48 overflow-y-auto rounded px-1 py-0.5 text-xs leading-relaxed text-text-secondary">
+      <ReactMarkdown
+        components={{
+          p: ({ children }) => <p className="my-1 break-words">{children}</p>,
+          strong: ({ children }) => <strong className="font-semibold text-text-primary">{children}</strong>,
+          em: ({ children }) => <em className="italic">{children}</em>,
+          ul: ({ children }) => <ul className="my-1 ml-4 list-disc space-y-0.5">{children}</ul>,
+          ol: ({ children }) => <ol className="my-1 ml-4 list-decimal space-y-0.5">{children}</ol>,
+          li: ({ children }) => <li className="break-words">{children}</li>,
+          h1: ({ children }) => <h1 className="my-1 text-sm font-semibold text-text-primary">{children}</h1>,
+          h2: ({ children }) => <h2 className="my-1 text-sm font-semibold text-text-primary">{children}</h2>,
+          h3: ({ children }) => <h3 className="my-1 text-xs font-semibold text-text-primary">{children}</h3>,
+          code: ({ className, children }) => {
+            const isInline = !className
+            return isInline ? (
+              <code className="rounded bg-surface-hover px-1 py-0.5 font-mono text-[0.9em] text-accent">
+                {children}
+              </code>
+            ) : (
+              <code className={className}>{children}</code>
+            )
+          },
+          pre: ({ children }) => (
+            <pre className="my-2 overflow-x-auto rounded border border-border-default bg-surface p-2 text-[11px]">
+              {children}
+            </pre>
+          ),
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              className="text-accent underline underline-offset-2"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ cursor: 'pointer' }}
+            >
+              {children}
+            </a>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote className="my-2 border-l-2 border-border-default pl-2 text-text-secondary/80">
+              {children}
+            </blockquote>
+          ),
+        }}
+      >
+        {description}
+      </ReactMarkdown>
     </div>
   )
 }
@@ -132,10 +76,6 @@ export function TaskCardExpanded({ task }: { task: Task }) {
     changes,
     commits,
     loading,
-    diffByFile,
-    diffLoading,
-    diffError,
-    loadDiff,
   } = useTaskDetail(task)
 
   // Inline description editing — click-to-edit, Cmd/Ctrl+Enter to save, Escape to revert.
@@ -143,10 +83,36 @@ export function TaskCardExpanded({ task }: { task: Task }) {
   const [descDraft, setDescDraft] = useState(task.description)
   const [savingDesc, setSavingDesc] = useState(false)
   const descSkipBlurSaveRef = useRef(false)
+  const saveShortcutLabel = getSaveShortcutLabel()
+  const contentRef = useRef<HTMLDivElement>(null)
+  const [contentHeight, setContentHeight] = useState(0)
 
   useEffect(() => {
     if (!editingDesc) setDescDraft(task.description)
   }, [task.id, task.description, editingDesc])
+
+  useLayoutEffect(() => {
+    const element = contentRef.current
+    if (!element) return
+
+    const measure = () => {
+      const nextHeight = element.getBoundingClientRect().height || element.scrollHeight
+      setContentHeight((currentHeight) => (
+        Math.abs(currentHeight - nextHeight) < 1 ? currentHeight : nextHeight
+      ))
+    }
+
+    measure()
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => { window.removeEventListener('resize', measure) }
+    }
+
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => { observer.disconnect() }
+  }, [task.id])
 
   async function saveDescription() {
     const next = descDraft.trim()
@@ -170,62 +136,76 @@ export function TaskCardExpanded({ task }: { task: Task }) {
   return (
     <motion.div
       initial={{ height: 0, opacity: 0 }}
-      animate={{ height: 'auto', opacity: 1 }}
+      animate={{ height: contentHeight, opacity: 1 }}
       exit={{ height: 0, opacity: 0 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+      transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1], opacity: { duration: 0.12 } }}
       className="overflow-hidden"
     >
-      {/* Stop propagation so clicks inside don't collapse the card */}
       <div
+        ref={contentRef}
         className="border-t border-border-default bg-surface-hover/30 px-3 py-2 space-y-2 overflow-y-auto"
         style={{ maxHeight: EXPANDED_MAX_HEIGHT }}
-        onClick={(e) => {
-          e.stopPropagation()
-        }}
       >
-        {/* Full description — click-to-edit. Empty state shows an "Add a description" placeholder. */}
+        {/* Full description — markdown preview with an explicit edit path. */}
         {editingDesc ? (
-          <textarea
-            value={descDraft}
-            autoFocus
-            rows={3}
-            disabled={savingDesc}
-            aria-label="Edit task description"
-            placeholder="Add a description"
-            onChange={(e) => { setDescDraft(e.target.value) }}
-            onBlur={() => {
-              if (descSkipBlurSaveRef.current) {
-                descSkipBlurSaveRef.current = false
-                return
-              }
-              void saveDescription()
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault()
-                e.currentTarget.blur()
-              } else if (e.key === 'Escape') {
-                descSkipBlurSaveRef.current = true
-                setDescDraft(task.description)
-                setEditingDesc(false)
-                e.currentTarget.blur()
-              }
-            }}
-            className="w-full rounded-md border border-accent bg-surface px-2 py-1.5 text-xs leading-relaxed text-text-primary outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
-          />
+          <div className="space-y-1" data-card-click-interactive="true">
+            <textarea
+              value={descDraft}
+              autoFocus
+              rows={5}
+              disabled={savingDesc}
+              aria-label="Edit task description"
+              placeholder="Add a description"
+              onChange={(e) => { setDescDraft(e.target.value) }}
+              onBlur={() => {
+                if (descSkipBlurSaveRef.current) {
+                  descSkipBlurSaveRef.current = false
+                  return
+                }
+                void saveDescription()
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  e.currentTarget.blur()
+                } else if (e.key === 'Escape') {
+                  descSkipBlurSaveRef.current = true
+                  setDescDraft(task.description)
+                  setEditingDesc(false)
+                  e.currentTarget.blur()
+                }
+              }}
+              className="max-h-56 w-full resize-y rounded-md border border-accent bg-surface px-2 py-1.5 text-xs leading-relaxed text-text-primary outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
+            />
+            <div className="px-1 text-[10px] text-text-secondary">
+              {saveShortcutLabel} to save, Escape to cancel
+            </div>
+          </div>
         ) : (
-          <p
+          <div
+            role="button"
+            tabIndex={0}
+            data-card-click-interactive="true"
             onClick={() => { setEditingDesc(true) }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                setEditingDesc(true)
+              }
+            }}
             title="Click to edit description"
-            className={`cursor-text rounded text-xs leading-relaxed hover:bg-surface-hover/40 px-1 -mx-1 py-0.5 -my-0.5 ${
-              task.description ? 'text-text-secondary' : 'italic text-text-secondary/50'
+            className={`rounded hover:bg-surface-hover/40 -mx-1 -my-0.5 ${
+              task.description ? '' : 'px-1 py-0.5 text-xs italic text-text-secondary/50'
             }`}
+            style={{ cursor: 'text' }}
           >
-            {task.description || 'Add a description'}
-          </p>
+            {task.description ? (
+              <DescriptionMarkdown description={task.description} />
+            ) : (
+              'Add a description'
+            )}
+          </div>
         )}
-
-        <TimeTrackingSection task={task} onUpdate={updateTask} />
 
         {/* Branch & status */}
         <div className="flex items-center gap-2 flex-wrap">
@@ -274,30 +254,128 @@ export function TaskCardExpanded({ task }: { task: Task }) {
           </div>
         )}
 
-        {/* Changes + Diff viewer */}
+        {/* Touched files only; full diffs live in the agent panel. */}
         <div>
           <h4 className="text-[11px] font-medium uppercase tracking-wider text-text-secondary mb-1">
-            Changes
+            Touched Files
           </h4>
-          <DiffSection
+          <TouchedFilesSummary
             branch={task.branch ?? null}
             changes={changes}
             loading={loading}
-            diffLoading={diffLoading}
-            diffError={diffError}
-            diffByFile={diffByFile}
-            loadDiff={loadDiff}
           />
         </div>
 
-        {/* Commits */}
         <div>
           <h4 className="text-[11px] font-medium uppercase tracking-wider text-text-secondary mb-1">
             Commits
           </h4>
-          <CommitsSection commits={commits} />
+          <div className="rounded-md border border-border-default bg-surface">
+            <CommitsSection commits={commits} />
+          </div>
         </div>
       </div>
     </motion.div>
+  )
+}
+
+function TouchedFilesSummary({
+  branch,
+  changes,
+  loading,
+}: {
+  branch: string | null
+  changes: ChangeSummary | null
+  loading: boolean
+}) {
+  const [expanded, setExpanded] = useState(false)
+
+  useEffect(() => {
+    setExpanded(false)
+  }, [branch])
+
+  if (!branch) {
+    return (
+      <div className="rounded-md border border-border-default bg-surface px-2 py-2 text-xs text-text-secondary">
+        No branch on this task.
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-md border border-border-default bg-surface px-2 py-2 text-xs text-text-secondary">
+        Loading files...
+      </div>
+    )
+  }
+
+  if (!changes || changes.totalFiles === 0) {
+    return (
+      <div className="rounded-md border border-border-default bg-surface px-2 py-2 text-xs text-text-secondary">
+        No files changed.
+      </div>
+    )
+  }
+
+  const hiddenCount = Math.max(0, changes.files.length - TOUCHED_FILES_LIMIT)
+  const visibleFiles = expanded ? changes.files : changes.files.slice(0, TOUCHED_FILES_LIMIT)
+
+  return (
+    <div className="rounded-md border border-border-default bg-surface" data-testid="touched-files-summary">
+      <div className="flex items-center gap-2 border-b border-border-default px-2 py-1.5">
+        <span className="text-xs font-medium text-text-primary">
+          {changes.totalFiles} file{changes.totalFiles !== 1 ? 's' : ''}
+        </span>
+        <span className="text-xs text-success">+{changes.totalAdditions}</span>
+        <span className="text-xs text-error">-{changes.totalDeletions}</span>
+      </div>
+      <div className="px-1 py-1">
+        {visibleFiles.map((file) => (
+          <TouchedFileRow key={file.path} file={file} />
+        ))}
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => { setExpanded((current) => !current) }}
+            className="mt-1 flex w-full items-center justify-center rounded px-2 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+            style={{ cursor: 'pointer' }}
+          >
+            {expanded ? 'Show less' : `Show ${String(hiddenCount)} more`}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TouchedFileRow({ file }: { file: FileChange }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-xs">
+      <StatusBadge status={file.status} />
+      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-secondary" title={file.path}>
+        {file.path}
+      </span>
+      <span className="shrink-0 text-[11px] text-success">+{file.additions}</span>
+      <span className="shrink-0 text-[11px] text-error">-{file.deletions}</span>
+    </div>
+  )
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const color =
+    status === 'added'
+      ? 'text-success'
+      : status === 'deleted'
+        ? 'text-error'
+        : status === 'modified'
+          ? 'text-warning'
+          : 'text-text-secondary'
+  const letter = status[0]?.toUpperCase() ?? '?'
+
+  return (
+    <span className={`w-3 shrink-0 text-center font-mono text-[10px] font-bold ${color}`}>
+      {letter}
+    </span>
   )
 }

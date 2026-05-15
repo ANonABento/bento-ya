@@ -126,6 +126,46 @@ describe('task-store', () => {
       expect(mockIpc.createTask).toHaveBeenCalledWith('ws-1', 'col-1', 'New Task', 'Description')
       expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
     })
+
+    it('should add an optimistic task before IPC resolves and replace it with the created task', async () => {
+      let resolveCreate: (task: Task) => void = () => {}
+      const createPromise = new Promise<Task>((resolve) => {
+        resolveCreate = resolve
+      })
+      const newTask = createMockTask({ id: 'task-new', title: 'New Task' })
+      mockIpc.createTask.mockReturnValueOnce(createPromise)
+      refreshWorkspace.mockResolvedValueOnce(undefined)
+
+      const pending = useTaskStore.getState().add('ws-1', 'col-1', 'New Task', 'Description')
+
+      let state = useTaskStore.getState()
+      expect(state.tasks).toHaveLength(1)
+      expect(state.tasks[0]?.id).toMatch(/^optimistic-task-/)
+      expect(state.tasks[0]).toMatchObject({
+        title: 'New Task',
+        description: 'Description',
+        workspaceId: 'ws-1',
+        columnId: 'col-1',
+      })
+
+      resolveCreate(newTask)
+      await pending
+
+      state = useTaskStore.getState()
+      expect(state.tasks).toEqual([newTask])
+    })
+
+    it('should roll back the optimistic task when IPC creation fails', async () => {
+      const existingTask = createMockTask({ id: 'task-existing' })
+      useTaskStore.setState({ tasks: [existingTask], loaded: true })
+      mockIpc.createTask.mockRejectedValueOnce(new Error('Failed'))
+
+      await expect(
+        useTaskStore.getState().add('ws-1', 'col-1', 'New Task', ''),
+      ).rejects.toThrow('Failed')
+
+      expect(useTaskStore.getState().tasks).toEqual([existingTask])
+    })
   })
 
   describe('createFromTemplate', () => {

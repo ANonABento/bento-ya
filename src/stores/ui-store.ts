@@ -25,7 +25,8 @@ const MIN_BOARD_WIDTH = 400
 // Agent panel constants
 const DEFAULT_AGENT_PANEL_WIDTH = 500
 const MIN_AGENT_PANEL_WIDTH = 300
-const MAX_AGENT_PANEL_WIDTH = 900
+const MAX_AGENT_PANEL_WIDTH = 2400
+const MIN_BOARD_WIDTH_WITH_AGENT_PANEL = 300
 const UI_STORAGE_KEY = 'kaitencode-ui'
 const LEGACY_UI_STORAGE_KEY = 'bento-ya-ui'
 
@@ -39,7 +40,7 @@ if (typeof window !== 'undefined') {
 
 function getMaxAgentPanelWidth(): number {
   if (typeof window === 'undefined') return MAX_AGENT_PANEL_WIDTH
-  const viewportMax = Math.floor(window.innerWidth - MIN_BOARD_WIDTH)
+  const viewportMax = Math.floor(window.innerWidth - MIN_BOARD_WIDTH_WITH_AGENT_PANEL)
   return Math.min(MAX_AGENT_PANEL_WIDTH, viewportMax)
 }
 
@@ -134,7 +135,11 @@ export const useUIStore = create<UIState>()(
 
         // Chat panel (right slide-in)
         openChat: (taskId) => {
-          set({ viewMode: 'chat', activeTaskId: taskId })
+          set((state) => ({
+            viewMode: 'chat',
+            activeTaskId: taskId,
+            agentPanelWidth: Math.min(state.agentPanelWidth, getMaxAgentPanelWidth()),
+          }))
         },
 
         closeChat: () => {
@@ -142,7 +147,13 @@ export const useUIStore = create<UIState>()(
         },
 
         // Deprecated aliases
-        openTask: (taskId) => { set({ viewMode: 'chat', activeTaskId: taskId }) },
+        openTask: (taskId) => {
+          set((state) => ({
+            viewMode: 'chat',
+            activeTaskId: taskId,
+            agentPanelWidth: Math.min(state.agentPanelWidth, getMaxAgentPanelWidth()),
+          }))
+        },
         closeTask: () => { set({ viewMode: 'board', activeTaskId: null }) },
 
         openModal: (type, props) => {

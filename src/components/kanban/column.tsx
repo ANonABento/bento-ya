@@ -211,10 +211,17 @@ export const Column = memo(function Column({
   }, [])
 
   const handleSubmitTask = useCallback(async () => {
-    if (!newTaskTitle.trim() || !activeWorkspaceId) return
-    await addTask(activeWorkspaceId, column.id, newTaskTitle.trim(), '')
+    const title = newTaskTitle.trim()
+    if (!title || !activeWorkspaceId) return
     setNewTaskTitle('')
     setShowAddTask(false)
+    try {
+      await addTask(activeWorkspaceId, column.id, title, '')
+    } catch (err) {
+      console.error('[Column] Failed to add task:', err)
+      setNewTaskTitle(title)
+      setShowAddTask(true)
+    }
   }, [newTaskTitle, activeWorkspaceId, column.id, addTask])
 
   const handleCancelAddTask = useCallback(() => {

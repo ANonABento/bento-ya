@@ -86,8 +86,11 @@ export function SiegeBadge({ task }: { task: Task }) {
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
         <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
       </span>
-      <svg className="h-3 w-3" viewBox="0 0 16 16" fill="currentColor">
-        <path fillRule="evenodd" d="M8 1a3.5 3.5 0 0 0-3.5 3.5c0 1.57.75 2.4 1.5 2.8V8h.75v2.25H5v1.5h1.75V15h2.5v-3.25H11v-1.5H9.25V8h.75v-.7c.75-.4 1.5-1.23 1.5-2.8A3.5 3.5 0 0 0 8 1Zm0 1.5a2 2 0 0 0-2 2c0 .94.5 1.5 1 1.75V7h2v-.75c.5-.25 1-.81 1-1.75a2 2 0 0 0-2-2Z" clipRule="evenodd" />
+      <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M13.2 6A4.7 4.7 0 0 0 4.4 4.8L3 6.8" />
+        <path d="M3 4v2.8h2.8" />
+        <path d="M2.8 10A4.7 4.7 0 0 0 11.6 11.2L13 9.2" />
+        <path d="M13 12V9.2h-2.8" />
       </svg>
       <span className="text-[11px] font-medium">
         {task.siegeIteration}/{task.siegeMaxIterations}

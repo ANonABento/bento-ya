@@ -34,6 +34,63 @@ type TaskCardProps = {
   onSelectionChange?: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void
 }
 
+const CARD_INTERACTIVE_SELECTOR = [
+  'a',
+  'button',
+  'input',
+  'select',
+  'textarea',
+  '[contenteditable="true"]',
+  '[role="button"]',
+  '[data-card-click-interactive="true"]',
+].join(',')
+
+function isInteractiveCardTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  return target.closest(CARD_INTERACTIVE_SELECTOR) !== null
+}
+
+const BOARD_CENTER_SCROLL_MS = 280
+
+function easeOutCubic(progress: number) {
+  return 1 - Math.pow(1 - progress, 3)
+}
+
+function getColumnCenteredScrollLeft(scrollContainer: HTMLElement, column: HTMLElement) {
+  const colCenter = column.offsetLeft + column.offsetWidth / 2
+  const maxScrollLeft = Math.max(0, scrollContainer.scrollWidth - scrollContainer.clientWidth)
+  const centered = colCenter - scrollContainer.clientWidth / 2
+  return Math.min(Math.max(centered, 0), maxScrollLeft)
+}
+
+function centerColumnDuringPanelOpen(scrollContainer: HTMLElement, column: HTMLElement) {
+  const reduceMotion =
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (reduceMotion) {
+    scrollContainer.scrollLeft = getColumnCenteredScrollLeft(scrollContainer, column)
+    return
+  }
+
+  const startScrollLeft = scrollContainer.scrollLeft
+  const startTime = performance.now()
+
+  const step = (now: number) => {
+    const progress = Math.min(1, (now - startTime) / BOARD_CENTER_SCROLL_MS)
+    const targetScrollLeft = getColumnCenteredScrollLeft(scrollContainer, column)
+    scrollContainer.scrollLeft = startScrollLeft + (targetScrollLeft - startScrollLeft) * easeOutCubic(progress)
+
+    if (progress < 1) {
+      requestAnimationFrame(step)
+      return
+    }
+
+    scrollContainer.scrollLeft = getColumnCenteredScrollLeft(scrollContainer, column)
+  }
+
+  requestAnimationFrame(step)
+}
+
 export const TaskCard = memo(function TaskCard({
   task,
   isSelected = false,
@@ -184,27 +241,10 @@ export const TaskCard = memo(function TaskCard({
       expandTask(task.id)
       openChat(task.id)
 
-      // Center the column in the visible board area.
-      // rAF loop locks the column at center every frame — handles both
-      // panel opening (board shrinks) and card switching (layout shifts).
       const scrollContainer = document.querySelector('[data-board-scroll]')
       const column = cardElRef.current?.closest('[data-column-id]') as HTMLElement | null
       if (scrollContainer && column) {
-        const colCenter = column.offsetLeft + column.offsetWidth / 2
-        let lastWidth = scrollContainer.clientWidth
-        let stableFrames = 0
-        const lockScroll = () => {
-          scrollContainer.scrollLeft = colCenter - scrollContainer.clientWidth / 2
-          if (scrollContainer.clientWidth === lastWidth) {
-            stableFrames++
-            if (stableFrames > 10) return
-          } else {
-            stableFrames = 0
-            lastWidth = scrollContainer.clientWidth
-          }
-          requestAnimationFrame(lockScroll)
-        }
-        requestAnimationFrame(lockScroll)
+        centerColumnDuringPanelOpen(scrollContainer as HTMLElement, column)
       }
     }
   }
@@ -214,6 +254,10 @@ export const TaskCard = memo(function TaskCard({
       e.preventDefault()
       e.stopPropagation()
       onSelectionChange(task.id, e)
+      return
+    }
+
+    if (isExpanded && isInteractiveCardTarget(e.target)) {
       return
     }
 
@@ -430,11 +474,11 @@ export const TaskCard = memo(function TaskCard({
         }
       }}
       tabIndex={0}
-      className={`group relative rounded-lg border bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+      className={`group relative overflow-hidden rounded-lg border bg-surface/95 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
         isSelected ? 'border-accent ring-2 ring-accent/40 z-20' :
         isConnectedToHovered ? 'border-amber-400 ring-1 ring-amber-400/50 z-10' :
         isHovered ? 'border-accent ring-1 ring-accent/50 z-10' :
-        'border-border-default hover:border-accent/50 hover:bg-surface-hover'
+        'border-border-default hover:border-accent/50 hover:bg-surface'
       } ${isDragging ? 'z-0' : !isConnectedToHovered && !isHovered ? 'hover:z-10' : ''} ${
         hasPipelineError ? 'border-l-4 border-l-error' : isPipelineActive ? `border-l-4 ${PIPELINE_COLORS[task.pipelineState]}` : ''
       }`}
@@ -457,12 +501,6 @@ export const TaskCard = memo(function TaskCard({
       {/* Quick actions on hover */}
       {!isDragging && (
         <TaskQuickActions
-          task={task}
-          hasNextColumn={!!nextColumnId}
-          onOpen={openTaskDetail}
-          onToggleAgent={actions.handleToggleAgent}
-          onRetry={handleRetry}
-          onMoveNext={handleMoveNext}
           onDelete={actions.handleDeleteTask}
           onShowMenu={handleShowMenu}
           confirmDeletePending={deleteConfirmPending}
@@ -472,11 +510,11 @@ export const TaskCard = memo(function TaskCard({
       <div
         {...attributes}
         {...listeners}
-        className="p-3 space-y-2"
+        className="space-y-2.5 p-3"
         style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
       >
         {/* Title — click-to-edit when card is expanded */}
-        <div className="flex items-start gap-2">
+        <div className="flex items-start gap-2 pb-0.5">
           {editingTitle ? (
             <input
               type="text"
@@ -514,7 +552,8 @@ export const TaskCard = memo(function TaskCard({
                   setEditingTitle(true)
                 }
               }}
-              className={`flex-1 pr-2 text-sm font-medium text-text-primary leading-snug line-clamp-2 transition-[padding] group-hover:pr-24 ${isExpanded ? 'cursor-text hover:text-accent' : ''}`}
+              className={`min-w-0 flex-1 pr-7 text-[13px] font-medium leading-snug text-text-primary line-clamp-2 ${isExpanded ? 'hover:text-accent' : ''}`}
+              style={isExpanded ? { cursor: 'text' } : undefined}
               title={isExpanded ? 'Click to edit title' : undefined}
             >
               {displayTitle}
@@ -537,7 +576,7 @@ export const TaskCard = memo(function TaskCard({
 
         {/* Description — hidden when expanded (expanded view shows full description) */}
         {!isExpanded && cardSettings.showDescription && task.description && (
-          <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed">
+          <p className="text-xs leading-relaxed text-text-secondary line-clamp-2 break-words">
             {task.description}
           </p>
         )}
@@ -551,14 +590,9 @@ export const TaskCard = memo(function TaskCard({
         {isQualityGate && !hasPipelineError && <QualityGateBanner reviewStatus={reviewStatus} />}
         {hasPipelineError && <PipelineErrorBanner task={task} onRetry={() => { void actions.handleRetryPipeline() }} />}
 
-        {/* Agent activity preview — hidden when expanded or queued (queued has its own banner) */}
-        {!isExpanded && !needsAttention && !hasPipelineError && task.agentStatus !== 'queued' && (
-          <AgentActivityPreview task={task} agentStream={agentStream} />
-        )}
-
         {/* Compact metadata row — hidden when expanded (expanded view has its own) */}
         {!isExpanded && hasMetadata && (
-          <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px] text-text-secondary">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-text-secondary">
             {isPipelineActive && !hasPipelineError && task.pipelineState !== 'running' && (
               <span className="inline-flex items-center gap-1 text-running">
                 <span className="relative flex h-1.5 w-1.5">
@@ -601,7 +635,7 @@ export const TaskCard = memo(function TaskCard({
               </span>
             )}
             {cardSettings.showBranch && task.branch && (
-              <span className="font-mono truncate max-w-[100px] flex items-center gap-1" title={task.worktreePath ? `Worktree: ${task.worktreePath}` : task.branch}>
+              <span className="flex max-w-[130px] items-center gap-1 truncate font-mono text-[11px]" title={task.worktreePath ? `Worktree: ${task.worktreePath}` : task.branch}>
                 {task.worktreePath && (
                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0" />
                 )}
@@ -642,6 +676,11 @@ export const TaskCard = memo(function TaskCard({
             )}
           </div>
         )}
+
+        {/* Agent activity preview sits at the bottom of the closed card. */}
+        {!isExpanded && !needsAttention && !hasPipelineError && task.agentStatus !== 'queued' && (
+          <AgentActivityPreview task={task} agentStream={agentStream} />
+        )}
       </div>
 
       {/* Expanded card detail */}
@@ -660,12 +699,12 @@ export const TaskCard = memo(function TaskCard({
         onMoveToColumn={actions.handleMoveToColumn}
         onOpenTask={openTaskDetail}
         onDuplicateTask={actions.handleDuplicateTask}
-        onSaveAsTemplate={() => { void actions.handleSaveAsTemplate() }}
         onArchiveTask={actions.handleArchiveTask}
         onUnarchiveTask={actions.handleUnarchiveTask}
         onDeleteTask={actions.handleDeleteTask}
         onRunAgent={actions.handleRunAgent}
         onStopAgent={actions.handleStopAgent}
+        onRetryPipeline={handleRetry}
         onToggleHold={handleToggleHold}
         onStartSiege={() => { void actions.handleStartSiege(); }}
         onStopSiege={() => { void actions.handleStopSiege(); }}

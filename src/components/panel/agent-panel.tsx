@@ -6,18 +6,21 @@ import { holdTask, killTaskSession } from '@/lib/ipc/agent'
 import { agentInjectMessage } from '@/lib/ipc/agent-interactive'
 import { signalPtyInterrupt } from '@/lib/ipc/terminal'
 import { useResolvedRuntimeMode } from '@/hooks/use-resolved-runtime-mode'
+import { useTaskDetail } from '@/hooks/use-task-detail'
 import { TerminalView } from './terminal-view'
 import { InteractiveAgentView } from './interactive-agent-view'
 import { ChatInput, type ChatInputMessage } from './shared'
 import { AgentTranscript } from './agent-transcript'
 import { useAgentPanelSession } from './use-agent-panel-session'
+import { DiffSection } from '@/components/task-detail/diff-section'
+import { CommitsSection } from '@/components/task-detail/commits-section'
 
 type AgentPanelProps = {
   task: Task
   onClose?: () => void
 }
 
-type PanelView = 'transcript' | 'terminal'
+type PanelView = 'activity' | 'terminal' | 'changes'
 
 /**
  * Dispatch the agent panel by resolved runtime mode.
@@ -59,14 +62,24 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
   )
   const workingDir = task.worktreePath ?? workspace?.repoPath ?? ''
   const session = useAgentPanelSession(task)
+  const {
+    changes,
+    loading,
+    diffByFile,
+    diffLoading,
+    diffError,
+    commits,
+    loadDiff,
+  } = useTaskDetail(task)
   const transcriptState = useAgentTranscriptStore((s) => s.getTaskState(task.id))
   const loadTranscript = useAgentTranscriptStore((s) => s.load)
   const subscribeTranscript = useAgentTranscriptStore((s) => s.subscribe)
   const unsubscribeTranscript = useAgentTranscriptStore((s) => s.unsubscribe)
-  const [activeView, setActiveView] = useState<PanelView>('transcript')
+  const [activeView, setActiveView] = useState<PanelView>('activity')
   const [stopBusy, setStopBusy] = useState(false)
   const [holdBusy, setHoldBusy] = useState(false)
   const [killBusy, setKillBusy] = useState(false)
+  const [draftInsertion, setDraftInsertion] = useState<{ id: number; content: string } | null>(null)
 
   const isAgentRunning = task.agentStatus === 'running'
   const stopDisabled = stopBusy || !isAgentRunning
@@ -91,7 +104,6 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
     : hasResumeContext
       ? 'Resume agent'
       : 'Start agent'
-
   useEffect(() => {
     void loadTranscript(task.id)
     void subscribeTranscript(task.id)
@@ -142,12 +154,25 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
     }
   }
 
+  const handleSendDiffToAgent = useCallback((content: string) => {
+    const trimmed = content.trim()
+    if (!trimmed) return
+    setDraftInsertion({
+      id: Date.now(),
+      content: [
+        'Selected diff context:',
+        '',
+        '```diff',
+        trimmed,
+        '```',
+      ].join('\n'),
+    })
+    setActiveView('activity')
+  }, [])
+
   return (
     <div data-testid="agent-panel" className="flex h-full flex-col">
       <PanelHeader
-        task={task}
-        workingDir={workingDir}
-        isAgentRunning={isAgentRunning}
         onClose={onClose}
         rightSlot={
           <>
@@ -157,47 +182,30 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
               disabled={holdBusy}
               data-testid="agent-panel-hold-button"
               title={task.heldByUser ? 'Release auto-advance hold' : 'Hold auto-advance for this task'}
-              className={`rounded border px-2 py-0.5 text-[11px] font-medium disabled:opacity-50 ${
+              className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11px] font-medium transition-colors disabled:opacity-50 ${
                 task.heldByUser
                   ? 'border-warning/40 bg-warning/10 text-warning'
                   : 'border-border-default bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
               }`}
               style={{ cursor: holdBusy ? 'wait' : 'pointer' }}
             >
+              <HoldIcon />
               {task.heldByUser ? 'Held' : 'Hold'}
             </button>
-            <button
-              type="button"
-              onClick={() => { void handleStop() }}
-              disabled={stopDisabled}
-              data-testid="agent-panel-stop-button"
-              title="Send Ctrl+C to the agent (does not kill the session)"
-              className="rounded border border-border-default bg-surface px-2 py-0.5 text-[11px] font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
-              style={{ cursor: stopBusy ? 'wait' : stopDisabled ? 'not-allowed' : 'pointer' }}
-            >
-              Stop
-            </button>
-            <button
-              type="button"
-              onClick={() => { void handleKill() }}
-              disabled={killBusy}
-              data-testid="agent-panel-kill-button"
-              title="Kill the tmux session"
-              className="rounded border border-error/30 bg-surface px-2 py-0.5 text-[11px] font-medium text-error hover:bg-error/10 disabled:opacity-50"
-              style={{ cursor: killBusy ? 'wait' : 'pointer' }}
-            >
-              Kill
-            </button>
+            <PanelOverflowMenu
+              killBusy={killBusy}
+              onKill={() => { void handleKill() }}
+            />
           </>
         }
         viewSlot={
-          <div className="inline-flex shrink-0 rounded-md border border-border-default bg-surface p-0.5">
+          <div className="inline-flex min-w-0 shrink-0 items-center gap-1">
             <ViewButton
-              active={activeView === 'transcript'}
-              onClick={() => { setActiveView('transcript') }}
+              active={activeView === 'activity'}
+              onClick={() => { setActiveView('activity') }}
               testId="agent-panel-tab-transcript"
             >
-              Transcript
+              Activity
             </ViewButton>
             <ViewButton
               active={activeView === 'terminal'}
@@ -205,6 +213,13 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
               testId="agent-panel-tab-terminal"
             >
               Terminal
+            </ViewButton>
+            <ViewButton
+              active={activeView === 'changes'}
+              onClick={() => { setActiveView('changes') }}
+              testId="agent-panel-tab-changes"
+            >
+              Changes
             </ViewButton>
           </div>
         }
@@ -223,14 +238,20 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
       />
 
       <div className="relative min-h-0 flex-1">
-        {activeView === 'transcript' ? (
+        {activeView === 'activity' ? (
           <div className="flex h-full flex-col">
             <AgentTranscript
               events={transcriptState.events}
               isLoading={session.chat.isLoading || transcriptState.isLoading}
               processingStartTime={session.chat.streaming.startTime}
               queuedMessages={session.chat.queue}
-              onCancel={() => { void session.chat.cancel() }}
+              onCancel={() => {
+                if (isAgentRunning) {
+                  void handleStop()
+                } else {
+                  void session.chat.cancel()
+                }
+              }}
             />
             <ChatInput
               config={{
@@ -245,6 +266,7 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
               onCancel={() => { void session.chat.cancel() }}
               onInputChange={session.handleInputChange}
               onAttachmentError={session.handleAttachmentError}
+              draftInsertion={draftInsertion}
               deliveryHint={inputDelivery}
               submitLabel={submitLabel}
               isProcessing={session.chat.streaming.isStreaming || isAgentRunning}
@@ -252,8 +274,31 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
               queueCount={session.chat.queue.length}
             />
           </div>
-        ) : (
+        ) : activeView === 'terminal' ? (
           <TerminalView taskId={task.id} workingDir={workingDir} />
+        ) : (
+          <div className="h-full overflow-auto bg-bg p-2" data-testid="agent-panel-changes-view">
+            <div className="space-y-2">
+              <DiffSection
+                branch={task.branch ?? null}
+                changes={changes}
+                loading={loading}
+                diffLoading={diffLoading}
+                diffError={diffError}
+                diffByFile={diffByFile}
+                loadDiff={loadDiff}
+                compact
+                maxDiffHeight="none"
+                onSendToAgent={handleSendDiffToAgent}
+              />
+              <div className="rounded-md border border-border-default bg-surface" data-testid="agent-panel-commits">
+                <div className="border-b border-border-default px-3 py-2">
+                  <h3 className="text-xs font-medium text-text-primary">Commits</h3>
+                </div>
+                <CommitsSection commits={commits} />
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -271,8 +316,6 @@ function InteractivePanel({ task, onClose }: AgentPanelProps) {
   const [injectError, setInjectError] = useState<string | null>(null)
   const [killBusy, setKillBusy] = useState(false)
   const [holdBusy, setHoldBusy] = useState(false)
-
-  const isAgentRunning = task.agentStatus === 'running'
 
   const handleSend = useCallback(async (message: ChatInputMessage) => {
     const content = message.content.trim()
@@ -318,9 +361,6 @@ function InteractivePanel({ task, onClose }: AgentPanelProps) {
   return (
     <div data-testid="agent-panel" data-mode="interactive" className="flex h-full flex-col">
       <PanelHeader
-        task={task}
-        workingDir={workingDir}
-        isAgentRunning={isAgentRunning}
         onClose={onClose}
         rightSlot={
           <>
@@ -330,26 +370,20 @@ function InteractivePanel({ task, onClose }: AgentPanelProps) {
               disabled={holdBusy}
               data-testid="agent-panel-hold-button"
               title={task.heldByUser ? 'Release auto-advance hold' : 'Hold auto-advance for this task'}
-              className={`rounded border px-2 py-0.5 text-[11px] font-medium disabled:opacity-50 ${
+              className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11px] font-medium transition-colors disabled:opacity-50 ${
                 task.heldByUser
                   ? 'border-warning/40 bg-warning/10 text-warning'
                   : 'border-border-default bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
               }`}
               style={{ cursor: holdBusy ? 'wait' : 'pointer' }}
             >
+              <HoldIcon />
               {task.heldByUser ? 'Held' : 'Hold'}
             </button>
-            <button
-              type="button"
-              onClick={() => { void handleKill() }}
-              disabled={killBusy}
-              data-testid="agent-panel-kill-button"
-              title="Kill the tmux session"
-              className="rounded border border-error/30 bg-surface px-2 py-0.5 text-[11px] font-medium text-error hover:bg-error/10 disabled:opacity-50"
-              style={{ cursor: killBusy ? 'wait' : 'pointer' }}
-            >
-              Kill
-            </button>
+            <PanelOverflowMenu
+              killBusy={killBusy}
+              onKill={() => { void handleKill() }}
+            />
           </>
         }
         errorSlot={
@@ -398,9 +432,6 @@ function InteractivePanel({ task, onClose }: AgentPanelProps) {
 // ─── Shared header ───────────────────────────────────────────────────────
 
 type PanelHeaderProps = {
-  task: Task
-  workingDir: string
-  isAgentRunning: boolean
   onClose?: () => void
   rightSlot?: ReactNode
   viewSlot?: ReactNode
@@ -408,9 +439,6 @@ type PanelHeaderProps = {
 }
 
 function PanelHeader({
-  task,
-  workingDir,
-  isAgentRunning,
   onClose,
   rightSlot,
   viewSlot,
@@ -418,53 +446,37 @@ function PanelHeader({
 }: PanelHeaderProps) {
   return (
     <div className="border-b border-border-default bg-bg">
-      {/* Below `lg` the header wraps to two rows so the Transcript/Terminal
-          toggle and Hold/Stop/Kill buttons stay on-screen on narrow viewports. */}
-      <div className="flex flex-col gap-2 px-3 py-2 lg:flex-row lg:items-center lg:justify-between lg:gap-3">
-        <div className="flex min-w-0 items-center gap-3 lg:flex-1">
+      <div className="flex min-w-0 items-center gap-2 px-3 py-2">
           {onClose && (
             <button
               type="button"
               onClick={onClose}
-              className="rounded p-1 text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-text-secondary transition-colors hover:border-border-default hover:bg-surface-hover hover:text-text-primary"
               title="Close panel (Esc)"
               aria-label="Close panel"
+              style={{ cursor: 'pointer' }}
             >
               <svg
-                width="14"
-                height="14"
-                viewBox="0 0 14 14"
+                width="15"
+                height="15"
+                viewBox="0 0 15 15"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="1.5"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
                 aria-hidden="true"
               >
-                <path d="M5 3l5 4-5 4" />
+                <path d="M5.25 3.75 9 7.5l-3.75 3.75" />
               </svg>
             </button>
           )}
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-xs font-medium text-text-primary">{task.title}</div>
-            <div className="mt-0.5 hidden items-center gap-1.5 text-[10px] text-text-secondary sm:flex">
-              <span>{task.model ?? 'agent'}</span>
-              <span className="text-text-secondary/40">/</span>
-              <span className="truncate">{workingDir || 'no workdir'}</span>
-            </div>
-          </div>
-        </div>
 
-        <div className="flex items-center justify-between gap-2 lg:justify-end">
-          {viewSlot}
-          <div className="inline-flex shrink-0 items-center gap-1.5 text-xs">
-            {isAgentRunning && (
-              <span className="inline-flex items-center gap-1 rounded bg-running/10 px-1.5 py-0.5 text-[10px] text-running">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-running" />
-                <span className="hidden sm:inline">live</span>
-              </span>
-            )}
+          <div className="min-w-0 flex-1">{viewSlot}</div>
+
+          <div className="inline-flex shrink-0 items-center gap-1 text-xs">
             {rightSlot}
           </div>
-        </div>
       </div>
 
       {errorSlot && <div className="px-3 pb-2">{errorSlot}</div>}
@@ -488,13 +500,70 @@ function ViewButton({
       type="button"
       onClick={onClick}
       data-testid={testId}
-      className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+      className={`relative inline-flex min-w-0 items-center gap-1.5 px-2 py-1.5 text-[11px] font-medium transition-colors ${
         active
-          ? 'bg-bg text-text-primary shadow-sm'
+          ? 'text-text-primary'
           : 'text-text-secondary hover:text-text-primary'
       }`}
+      style={{ cursor: 'pointer' }}
     >
-      {children}
+      <span className="truncate">{children}</span>
+      {active && (
+        <span className="absolute inset-x-2 bottom-0 h-px rounded-full bg-accent" aria-hidden="true" />
+      )}
     </button>
+  )
+}
+
+function HoldIcon() {
+  return (
+    <svg className="h-3 w-3" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <path d="M5.25 2.5A1.75 1.75 0 0 0 3.5 4.25v7.5a1.75 1.75 0 0 0 3.5 0v-7.5A1.75 1.75 0 0 0 5.25 2.5Zm5.5 0A1.75 1.75 0 0 0 9 4.25v7.5a1.75 1.75 0 0 0 3.5 0v-7.5a1.75 1.75 0 0 0-1.75-1.75Z" />
+    </svg>
+  )
+}
+
+function PanelOverflowMenu({
+  killBusy,
+  onKill,
+}: {
+  killBusy: boolean
+  onKill: () => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => { setOpen((current) => !current) }}
+        aria-expanded={open}
+        aria-label="Agent actions"
+        title="Agent actions"
+        className="flex h-7 w-7 items-center justify-center rounded-md border border-border-default bg-surface text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+        style={{ cursor: 'pointer' }}
+      >
+        <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M4 8a1.25 1.25 0 1 1-2.5 0A1.25 1.25 0 0 1 4 8Zm5.25 0a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0ZM13.25 9.25a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Z" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-md border border-border-default bg-bg p-1 shadow-lg">
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false)
+              onKill()
+            }}
+            disabled={killBusy}
+            data-testid="agent-panel-kill-button"
+            className="flex w-full items-center rounded px-2 py-1.5 text-left text-[11px] font-medium text-error hover:bg-error/10 disabled:opacity-50"
+            style={{ cursor: killBusy ? 'wait' : 'pointer' }}
+          >
+            Kill session
+          </button>
+        </div>
+      )}
+    </div>
   )
 }

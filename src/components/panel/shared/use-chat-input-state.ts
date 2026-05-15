@@ -16,6 +16,7 @@ type UseChatInputStateArgs = {
   onSend: (message: ChatInputMessage) => void
   onInputChange?: () => void
   onAttachmentError?: (error: { file: string; message: string }) => void
+  draftInsertion?: { id: number; content: string } | null
   disabled: boolean
 }
 
@@ -24,6 +25,7 @@ export function useChatInputState({
   onSend,
   onInputChange,
   onAttachmentError,
+  draftInsertion,
   disabled,
 }: UseChatInputStateArgs) {
   const defaultPermissionMode = useSettingsStore((s) => s.global.agent.defaultPermissionMode)
@@ -37,6 +39,7 @@ export function useChatInputState({
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const appliedDraftInsertionIdRef = useRef<number | null>(null)
 
   const { models, getCapabilities } = useModelCapabilities()
   const caps = getCapabilities(model)
@@ -70,6 +73,23 @@ export function useChatInputState({
   }, [])
 
   const voice = useVoiceInput(handleTranscript)
+
+  useEffect(() => {
+    if (!draftInsertion || appliedDraftInsertionIdRef.current === draftInsertion.id) return
+    appliedDraftInsertionIdRef.current = draftInsertion.id
+    setMessage((prev) => {
+      const separator = prev.trim() ? '\n\n' : ''
+      return `${prev.trimEnd()}${separator}${draftInsertion.content}`
+    })
+    onInputChange?.()
+    window.requestAnimationFrame(() => {
+      const el = inputRef.current
+      if (!el) return
+      el.focus()
+      el.style.height = 'auto'
+      el.style.height = `${String(Math.min(el.scrollHeight, 120))}px`
+    })
+  }, [draftInsertion, onInputChange])
 
   const handleModelChange = useCallback((modelId: ModelId) => {
     setModel(modelId)

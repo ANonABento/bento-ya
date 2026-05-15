@@ -1,7 +1,7 @@
 /** Hook for git operations: change tracking, branch info, and diff viewing. */
 
 import { useState, useCallback, useRef } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke } from '@/lib/ipc/invoke'
 
 export type FileChange = {
   path: string

@@ -8,10 +8,9 @@ import { useGit } from '@/hooks/use-git'
 
 export function useTaskDetail(task: Task) {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const updateTask = useTaskStore((s) => s.updateTask)
 
-  const workspace = workspaces.find((w) => w.id === activeWorkspaceId)
+  const workspace = workspaces.find((w) => w.id === task.workspaceId)
   const repoPath = workspace?.repoPath ?? null
 
   const {

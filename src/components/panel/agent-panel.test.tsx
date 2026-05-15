@@ -1,14 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { invoke } from '@tauri-apps/api/core'
 import type { Task } from '@/types'
 import { mockKanbanTask } from '@/test/mocks/tauri'
 import { AgentPanel } from './agent-panel'
 import { holdTask, killTaskSession } from '@/lib/ipc/agent'
-import { signalPtyInterrupt } from '@/lib/ipc/terminal'
 import { useAgentPanelSession } from './use-agent-panel-session'
 
 const sendMessageMock = vi.fn()
 const cancelMock = vi.fn()
+const mockInvoke = vi.mocked(invoke)
 
 vi.mock('@/stores/workspace-store', () => ({
   useWorkspaceStore: (selector: (state: { workspaces: Array<{ id: string; repoPath: string }> }) => unknown) =>
@@ -110,16 +111,20 @@ vi.mock('./use-agent-panel-session', () => ({
 vi.mock('./shared', () => ({
   ChatInput: ({
     onSend,
+    onCancel,
     disabled,
     isProcessing,
     deliveryHint,
     submitLabel,
+    draftInsertion,
   }: {
     onSend: (message: { content: string; model: 'claude-opus-4-7' }) => void
+    onCancel?: () => void
     disabled?: boolean
     isProcessing?: boolean
     deliveryHint?: string
     submitLabel?: string
+    draftInsertion?: { id: number; content: string } | null
   }) => (
     <div
       data-testid="chat-input"
@@ -127,6 +132,7 @@ vi.mock('./shared', () => ({
       data-processing={String(!!isProcessing)}
       data-delivery-hint={deliveryHint}
       data-submit-label={submitLabel}
+      data-draft={draftInsertion?.content ?? ''}
     >
       <button
         type="button"
@@ -134,6 +140,14 @@ vi.mock('./shared', () => ({
       >
         Send transcript message
       </button>
+      {isProcessing && onCancel && (
+        <button
+          type="button"
+          onClick={() => { onCancel() }}
+        >
+          Stop agent
+        </button>
+      )}
     </div>
   ),
   ToolCallItem: ({ toolCall }: { toolCall: { toolName: string } }) => (
@@ -201,20 +215,38 @@ function defaultPanelSession() {
 }
 
 function renderPanel(overrides: Partial<Task> = {}) {
-  render(<AgentPanel task={mockKanbanTask(overrides)} />)
+  return render(<AgentPanel task={mockKanbanTask(overrides)} />)
 }
 
 describe('AgentPanel session controls', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'get_changes') {
+        return Promise.resolve({ files: [], totalAdditions: 0, totalDeletions: 0, totalFiles: 0 })
+      }
+      if (cmd === 'get_commits') {
+        return Promise.resolve([
+          {
+            hash: 'abc123',
+            shortHash: 'abc123',
+            message: 'Keep commits visible in the changes panel',
+            author: 'Agent',
+            timestamp: 1,
+          },
+        ])
+      }
+      if (cmd === 'get_diff') return Promise.resolve('')
+      return Promise.reject(new Error(`Unmocked command: ${cmd}`))
+    })
     mockPanelSession()
   })
 
-  it('opens to the terminal Markdown transcript by default', () => {
+  it('opens to activity by default', () => {
     renderPanel()
 
     expect(screen.getByTestId('agent-transcript')).toBeInTheDocument()
-    expect(screen.getByText('Just a test')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-panel-changes-view')).not.toBeInTheDocument()
     expect(screen.queryByTestId('terminal-view')).not.toBeInTheDocument()
   })
 
@@ -228,9 +260,143 @@ describe('AgentPanel session controls', () => {
     expect(terminal).toHaveAttribute('data-working-dir', '/tmp/worktree')
   })
 
+  it('shows Activity, Terminal, and Changes tabs in headless mode without tab badges', () => {
+    renderPanel()
+
+    const tabs = [
+      screen.getByRole('button', { name: 'Activity' }),
+      screen.getByRole('button', { name: 'Terminal' }),
+      screen.getByRole('button', { name: 'Changes' }),
+    ]
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Activity', 'Terminal', 'Changes'])
+    expect(screen.queryByRole('button', { name: 'Context' })).not.toBeInTheDocument()
+    expect(screen.queryByText('live')).not.toBeInTheDocument()
+    expect(screen.queryByText(/\+\d+/)).not.toBeInTheDocument()
+  })
+
+  it('loads branch changes in the Changes tab and fetches file diffs', async () => {
+    mockInvoke.mockImplementation((cmd, args) => {
+      if (cmd === 'get_changes') {
+        return Promise.resolve({
+          files: [{ path: 'src/app.ts', status: 'modified', additions: 2, deletions: 1 }],
+          totalAdditions: 2,
+          totalDeletions: 1,
+          totalFiles: 1,
+        })
+      }
+      if (cmd === 'get_commits') {
+        return Promise.resolve([
+          {
+            hash: 'abc123',
+            shortHash: 'abc123',
+            message: 'Keep commits visible in the changes panel',
+            author: 'Agent',
+            timestamp: 1,
+          },
+        ])
+      }
+      if (cmd === 'get_diff') {
+        expect(args).toMatchObject({
+          repoPath: '/tmp/ws',
+          branch: 'task/test',
+          filePath: 'src/app.ts',
+        })
+        return Promise.resolve('diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n-old\n+new')
+      }
+      return Promise.reject(new Error(`Unmocked command: ${cmd}`))
+    })
+
+    renderPanel({ branch: 'task/test' })
+    fireEvent.click(screen.getByTestId('agent-panel-tab-changes'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('changes-panel')).toBeInTheDocument()
+      expect(screen.getByTestId('agent-panel-commits')).toBeInTheDocument()
+      expect(screen.getByText('src/app.ts')).toBeInTheDocument()
+      expect(screen.getByText('Keep commits visible in the changes panel')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('src/app.ts').closest('button') as HTMLButtonElement)
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('get_diff', {
+        repoPath: '/tmp/ws',
+        branch: 'task/test',
+        filePath: 'src/app.ts',
+      })
+    })
+  })
+
+  it('loads the combined diff from View all', async () => {
+    mockInvoke.mockImplementation((cmd, args) => {
+      if (cmd === 'get_changes') {
+        return Promise.resolve({
+          files: [{ path: 'src/app.ts', status: 'modified', additions: 1, deletions: 0 }],
+          totalAdditions: 1,
+          totalDeletions: 0,
+          totalFiles: 1,
+        })
+      }
+      if (cmd === 'get_commits') return Promise.resolve([])
+      if (cmd === 'get_diff') {
+        expect(args).toMatchObject({ repoPath: '/tmp/ws', branch: 'task/test' })
+        return Promise.resolve('diff --git a/src/app.ts b/src/app.ts\n@@ -1,0 +1 @@\n+new')
+      }
+      return Promise.reject(new Error(`Unmocked command: ${cmd}`))
+    })
+
+    renderPanel({ branch: 'task/test' })
+    fireEvent.click(screen.getByTestId('agent-panel-tab-changes'))
+    await screen.findByText('src/app.ts')
+
+    fireEvent.click(screen.getByRole('button', { name: 'View all' }))
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('get_diff', {
+        repoPath: '/tmp/ws',
+        branch: 'task/test',
+        filePath: undefined,
+      })
+    })
+  })
+
+  it('adds sent diff snippets to the transcript composer draft', async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'get_changes') {
+        return Promise.resolve({
+          files: [{ path: 'src/app.ts', status: 'modified', additions: 1, deletions: 1 }],
+          totalAdditions: 1,
+          totalDeletions: 1,
+          totalFiles: 1,
+        })
+      }
+      if (cmd === 'get_commits') return Promise.resolve([])
+      if (cmd === 'get_diff') {
+        return Promise.resolve('diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n-old\n+new')
+      }
+      return Promise.reject(new Error(`Unmocked command: ${cmd}`))
+    })
+
+    renderPanel({ branch: 'task/test' })
+    fireEvent.click(screen.getByTestId('agent-panel-tab-changes'))
+    await screen.findByText('src/app.ts')
+    fireEvent.click(screen.getByText('src/app.ts').closest('button') as HTMLButtonElement)
+    await screen.findByText('Send')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-transcript')).toBeInTheDocument()
+      const draft = screen.getByTestId('chat-input').getAttribute('data-draft') ?? ''
+      expect(draft).toContain('Selected diff context:')
+      expect(draft).toContain('+new')
+    })
+  })
+
   it('sends transcript composer messages through the agent panel session', async () => {
     renderPanel()
 
+    fireEvent.click(screen.getByRole('button', { name: 'Activity' }))
     fireEvent.click(screen.getByRole('button', { name: 'Send transcript message' }))
 
     await waitFor(() => {
@@ -241,25 +407,23 @@ describe('AgentPanel session controls', () => {
   it('marks the composer as processing when the task is running even after reload', () => {
     renderPanel({ agentStatus: 'running', agentMode: 'managed' })
 
+    fireEvent.click(screen.getByRole('button', { name: 'Activity' }))
     const input = screen.getByTestId('chat-input')
     expect(input).toHaveAttribute('data-processing', 'true')
     expect(input).toHaveAttribute('data-delivery-hint', 'Running · message will queue for the next managed turn')
     expect(input).toHaveAttribute('data-submit-label', 'Queue next turn')
   })
 
-  it('disables Stop while idle and sends Ctrl+C while running', async () => {
-    renderPanel({ agentStatus: 'idle' })
+  it('moves Stop to the composer while running', () => {
+    const idle = renderPanel({ agentStatus: 'idle' })
 
-    expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Stop agent' })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('agent-panel-stop-button')).not.toBeInTheDocument()
+    idle.unmount()
 
-    render(<AgentPanel task={mockKanbanTask({ agentStatus: 'running' })} />)
-    const runningStop = screen.getAllByRole('button', { name: 'Stop' }).at(1)
-    expect(runningStop).toBeDefined()
-    fireEvent.click(runningStop as HTMLElement)
-
-    await waitFor(() => {
-      expect(signalPtyInterrupt).toHaveBeenCalledWith('t1')
-    })
+    renderPanel({ agentStatus: 'running' })
+    fireEvent.click(screen.getByRole('button', { name: 'Activity' }))
+    expect(screen.getByRole('button', { name: 'Stop agent' })).toBeInTheDocument()
   })
 
   it('toggles hold through the shared task hold IPC', async () => {
@@ -276,7 +440,8 @@ describe('AgentPanel session controls', () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderPanel()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Kill' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Agent actions' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kill session' }))
 
     await waitFor(() => {
       expect(confirmSpy).toHaveBeenCalled()

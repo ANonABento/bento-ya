@@ -38,9 +38,8 @@ import { AgentPanel } from '@/components/panel/agent-panel'
  * an element to animate.
  */
 
-// Animation timing matches the previous Framer Motion spring's
-// perceived duration; tuned to feel snappy without overshoot.
-const PANEL_ANIM_MS = 200
+// Keep panel width transition aligned with the board scroll centering in TaskCard.
+const PANEL_ANIM_MS = 280
 
 export function TaskSidePanel({
   taskId,

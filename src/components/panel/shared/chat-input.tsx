@@ -23,6 +23,7 @@ export function ChatInput({
   onCancel,
   onInputChange,
   onAttachmentError,
+  draftInsertion,
   deliveryHint,
   submitLabel,
   isProcessing = false,
@@ -35,6 +36,7 @@ export function ChatInput({
     onSend,
     onInputChange,
     onAttachmentError,
+    draftInsertion,
     disabled,
   })
   const hasSubmitContent = state.canSend
@@ -227,22 +229,6 @@ export function ChatInput({
             </Tooltip>
           )}
 
-          {isProcessing && onCancel && !showInlineStop && (
-            <Tooltip content={queueCount > 0 ? `Cancel (${String(queueCount)} queued)` : 'Cancel'} side="top" delay={200}>
-              <button
-                type="button"
-                onClick={onCancel}
-                aria-label={queueCount > 0 ? `Cancel (${String(queueCount)} queued)` : 'Cancel'}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-red-500/30 bg-red-500/10 text-red-500 transition-colors hover:bg-red-500/20"
-                style={{ cursor: 'pointer' }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
-                  <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm2.78-4.22a.75.75 0 0 1-1.06 0L8 9.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L6.94 8 5.22 6.28a.75.75 0 0 1 1.06-1.06L8 6.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L9.06 8l1.72 1.72a.75.75 0 0 1 0 1.06Z" clipRule="evenodd" />
-                </svg>
-              </button>
-            </Tooltip>
-          )}
-
           <Tooltip content={showInlineStop ? 'Stop agent' : submitLabel ?? (isProcessing ? 'Queue message' : 'Send')} side="top" delay={200}>
             <button
               type="button"
@@ -251,14 +237,14 @@ export function ChatInput({
               aria-label={showInlineStop ? 'Stop agent' : (submitLabel ?? (isProcessing ? 'Queue message' : 'Send message'))}
               className={`flex h-8 w-8 shrink-0 items-center justify-center rounded transition-colors disabled:opacity-50 ${
                 showInlineStop
-                  ? 'border border-red-500/40 bg-red-500/12 text-red-400 hover:bg-red-500/20'
+                  ? 'border border-error/40 bg-error/10 text-error shadow-[inset_0_0_0_1px_rgba(239,68,68,0.08)] hover:bg-error/20'
                   : 'bg-accent text-bg hover:bg-accent/90'
               }`}
               style={{ cursor: (!showInlineStop && !hasSubmitContent) || disabled ? 'not-allowed' : 'pointer' }}
             >
               {showInlineStop ? (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
-                  <path d="M5 4.75A1.75 1.75 0 0 1 6.75 3h2.5A1.75 1.75 0 0 1 11 4.75v6.5A1.75 1.75 0 0 1 9.25 13h-2.5A1.75 1.75 0 0 1 5 11.25v-6.5Z" />
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path d="M6.5 5.5A1.5 1.5 0 0 0 5 7v6a1.5 1.5 0 0 0 1.5 1.5h7A1.5 1.5 0 0 0 15 13V7a1.5 1.5 0 0 0-1.5-1.5h-7Z" />
                 </svg>
               ) : (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">

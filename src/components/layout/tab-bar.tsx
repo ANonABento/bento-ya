@@ -326,7 +326,7 @@ export function TabBar() {
 
   return (
     <>
-      <header className="relative flex h-10 shrink-0 items-center bg-surface px-2 shadow-sm">
+      <header className="relative z-20 flex h-10 shrink-0 items-center border-b border-border-default bg-surface px-2">
         {/* Center: tabs - absolutely positioned for true centering */}
         <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1">
           <DndContext
@@ -400,4 +400,3 @@ export function TabBar() {
     </>
   )
 }
-

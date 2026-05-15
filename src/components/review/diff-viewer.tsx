@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import type { BundledLanguage, Highlighter, ThemedToken } from 'shiki'
 
 // --- Types ---
@@ -23,11 +24,25 @@ interface DiffFile {
   hunks: DiffHunk[]
 }
 
+type LineSelection = {
+  fileIndex: number
+  hunkIndex: number
+  lineIndex: number
+}
+
+type ShikiTheme = 'github-dark' | 'github-light'
+
 export interface DiffViewerProps {
   /** Raw unified diff string */
   diff: string
   /** Default collapsed state per file (default: false) */
   defaultCollapsed?: boolean
+  /** Use denser gutters and headers for the side panel */
+  compact?: boolean
+  /** Enables line selection and copy/send actions */
+  selectable?: boolean
+  /** Called with selected diff text or a hunk snippet */
+  onSendToAgent?: (content: string) => void
 }
 
 // --- Diff Parser ---
@@ -136,7 +151,7 @@ const loadedLangs = new Set<string>()
 async function getHighlighter(): Promise<Highlighter> {
   if (!highlighterPromise) {
     highlighterPromise = import('shiki').then((mod) =>
-      mod.createHighlighter({ themes: ['github-dark'], langs: [] })
+      mod.createHighlighter({ themes: ['github-dark', 'github-light'], langs: [] })
     )
   }
   return highlighterPromise
@@ -144,7 +159,8 @@ async function getHighlighter(): Promise<Highlighter> {
 
 async function tokenizeCode(
   code: string,
-  lang: BundledLanguage
+  lang: BundledLanguage,
+  theme: ShikiTheme,
 ): Promise<ThemedToken[][] | null> {
   try {
     const hl = await getHighlighter()
@@ -152,28 +168,148 @@ async function tokenizeCode(
       await hl.loadLanguage(lang)
       loadedLangs.add(lang)
     }
-    const result = hl.codeToTokens(code, { lang, theme: 'github-dark' })
+    const result = hl.codeToTokens(code, { lang, theme })
     return result.tokens
   } catch {
     return null
   }
 }
 
-// --- Styles ---
+// --- Helpers ---
 
 const LINE_BG = {
-  add: 'rgba(74, 222, 128, 0.1)',
-  remove: 'rgba(248, 113, 113, 0.1)',
+  add: 'color-mix(in srgb, var(--success) 10%, transparent)',
+  remove: 'color-mix(in srgb, var(--error) 10%, transparent)',
   context: 'transparent',
 } as const
 
 const GUTTER_COLOR = {
-  add: '#4ADE80',
-  remove: '#F87171',
+  add: 'var(--success)',
+  remove: 'var(--error)',
   context: 'var(--text-muted)',
 } as const
 
+const SELECTED_LINE_BG = 'color-mix(in srgb, var(--running) 18%, transparent)'
+const HUNK_BG = 'color-mix(in srgb, var(--running) 8%, transparent)'
+
+function linePrefix(line: DiffLine) {
+  if (line.type === 'add') return '+'
+  if (line.type === 'remove') return '-'
+  return ' '
+}
+
+function formatDiffLine(line: DiffLine) {
+  return `${linePrefix(line)}${line.content}`
+}
+
+function selectionKey(selection: LineSelection) {
+  return `${String(selection.fileIndex)}:${String(selection.hunkIndex)}:${String(selection.lineIndex)}`
+}
+
+function getCurrentShikiTheme(): ShikiTheme {
+  if (typeof document === 'undefined') return 'github-dark'
+  return document.documentElement.dataset.theme === 'light' ? 'github-light' : 'github-dark'
+}
+
+function getSelectionRange(files: DiffFile[], start: LineSelection, end: LineSelection) {
+  const ordered: string[] = []
+  let startIndex = -1
+  let endIndex = -1
+  let cursor = 0
+
+  files.forEach((file, fileIndex) => {
+    file.hunks.forEach((hunk, hunkIndex) => {
+      hunk.lines.forEach((_, lineIndex) => {
+        const key = selectionKey({ fileIndex, hunkIndex, lineIndex })
+        ordered.push(key)
+        if (
+          fileIndex === start.fileIndex &&
+          hunkIndex === start.hunkIndex &&
+          lineIndex === start.lineIndex
+        ) {
+          startIndex = cursor
+        }
+        if (
+          fileIndex === end.fileIndex &&
+          hunkIndex === end.hunkIndex &&
+          lineIndex === end.lineIndex
+        ) {
+          endIndex = cursor
+        }
+        cursor++
+      })
+    })
+  })
+
+  if (startIndex === -1 || endIndex === -1) return []
+  const from = Math.min(startIndex, endIndex)
+  const to = Math.max(startIndex, endIndex)
+  return ordered.slice(from, to + 1)
+}
+
+function getSelectedText(files: DiffFile[], selectedLineKeys: Set<string>) {
+  const chunks: string[] = []
+
+  files.forEach((file, fileIndex) => {
+    const fileLines: string[] = []
+    file.hunks.forEach((hunk, hunkIndex) => {
+      const hunkLines = hunk.lines.filter((_, lineIndex) =>
+        selectedLineKeys.has(selectionKey({ fileIndex, hunkIndex, lineIndex }))
+      )
+      if (hunkLines.length > 0) {
+        fileLines.push(hunk.header, ...hunkLines.map(formatDiffLine))
+      }
+    })
+    if (fileLines.length > 0) {
+      chunks.push(`diff --git a/${file.oldPath} b/${file.newPath}`, ...fileLines)
+    }
+  })
+
+  return chunks.join('\n')
+}
+
+function getHunkText(file: DiffFile, hunk: DiffHunk) {
+  return [
+    `diff --git a/${file.oldPath} b/${file.newPath}`,
+    hunk.header,
+    ...hunk.lines.map(formatDiffLine),
+  ].join('\n')
+}
+
+async function copyText(text: string) {
+  await navigator.clipboard.writeText(text)
+}
+
 // --- Components ---
+
+function ActionButton({
+  children,
+  onClick,
+  title,
+  disabled = false,
+}: {
+  children: ReactNode
+  onClick: () => void
+  title?: string
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation()
+        onClick()
+      }}
+      disabled={disabled}
+      title={title}
+      data-diff-action="true"
+      style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
+      className="rounded border border-border-default/80 bg-surface px-1.5 py-0.5 text-[10px] font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+    >
+      {children}
+    </button>
+  )
+}
 
 function TokenizedLine({ tokens }: { tokens: ThemedToken[] }) {
   return (
@@ -190,23 +326,37 @@ function TokenizedLine({ tokens }: { tokens: ThemedToken[] }) {
 function DiffLineRow({
   line,
   tokens,
+  compact,
+  selectable,
+  selected,
+  onPointerDownLine,
+  onPointerEnterLine,
 }: {
   line: DiffLine
   tokens: ThemedToken[] | null
+  compact: boolean
+  selectable: boolean
+  selected: boolean
+  onPointerDownLine: (event: ReactPointerEvent<HTMLButtonElement>) => void
+  onPointerEnterLine: () => void
 }) {
-  const gutterWidth = 48
-
-  return (
-    <div
-      style={{
-        display: 'flex',
-        background: LINE_BG[line.type],
-        fontFamily: 'var(--font-mono)',
-        fontSize: 13,
-        lineHeight: '20px',
-      }}
-    >
-      {/* Old line number */}
+  const gutterWidth = compact ? 36 : 48
+  const markerWidth = compact ? 18 : 20
+  const rowStyle = {
+    display: 'flex',
+    width: '100%',
+    minWidth: 'max-content',
+    background: selected ? SELECTED_LINE_BG : LINE_BG[line.type],
+    border: 'none',
+    padding: 0,
+    fontFamily: 'var(--font-mono)',
+    fontSize: compact ? 12 : 13,
+    lineHeight: compact ? '18px' : '20px',
+    textAlign: 'left',
+    cursor: selectable ? 'pointer' : 'text',
+  } as const
+  const content = (
+    <>
       <span
         style={{
           width: gutterWidth,
@@ -217,11 +367,11 @@ function DiffLineRow({
           opacity: 0.6,
           userSelect: 'none',
           flexShrink: 0,
+          cursor: 'inherit',
         }}
       >
         {line.oldLineNumber ?? ''}
       </span>
-      {/* New line number */}
       <span
         style={{
           width: gutterWidth,
@@ -232,115 +382,213 @@ function DiffLineRow({
           opacity: 0.6,
           userSelect: 'none',
           flexShrink: 0,
+          cursor: 'inherit',
         }}
       >
         {line.newLineNumber ?? ''}
       </span>
-      {/* +/- indicator */}
       <span
         style={{
-          width: 20,
-          minWidth: 20,
+          width: markerWidth,
+          minWidth: markerWidth,
           textAlign: 'center',
           color: GUTTER_COLOR[line.type],
           userSelect: 'none',
           flexShrink: 0,
+          cursor: 'inherit',
         }}
       >
-        {line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' '}
+        {linePrefix(line)}
       </span>
-      {/* Content */}
       <span
         style={{
           flex: 1,
+          minWidth: 0,
           whiteSpace: 'pre',
-          overflowX: 'auto',
           paddingRight: 16,
+          color: 'var(--text-primary)',
+          cursor: 'inherit',
         }}
       >
         {tokens ? <TokenizedLine tokens={tokens} /> : line.content}
       </span>
-    </div>
+    </>
+  )
+
+  if (!selectable) {
+    return (
+      <div data-testid="diff-line-row" style={rowStyle}>
+        {content}
+      </div>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onPointerDown={onPointerDownLine}
+      onPointerEnter={onPointerEnterLine}
+      aria-pressed={selected}
+      data-testid="diff-line-row"
+      data-diff-code-area="true"
+      style={rowStyle}
+      className="hover:bg-accent/10"
+    >
+      {content}
+    </button>
   )
 }
 
 function FileSection({
   file,
+  fileIndex,
   defaultCollapsed,
   tokensByLine,
+  compact,
+  selectable,
+  selectedLineKeys,
+  onSelectLine,
+  onDragSelectLine,
+  onClearFileSelection,
+  onSendToAgent,
 }: {
   file: DiffFile
+  fileIndex: number
   defaultCollapsed: boolean
   tokensByLine: Map<number, ThemedToken[]> | null
+  compact: boolean
+  selectable: boolean
+  selectedLineKeys: Set<string>
+  onSelectLine: (selection: LineSelection, event: ReactPointerEvent<HTMLButtonElement>) => void
+  onDragSelectLine: (selection: LineSelection) => void
+  onClearFileSelection: (fileIndex: number) => void
+  onSendToAgent?: (content: string) => void
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed)
 
-  const toggle = useCallback(() => { setCollapsed((c) => !c) }, [])
+  const toggle = useCallback(() => {
+    setCollapsed((current) => {
+      const next = !current
+      if (next) onClearFileSelection(fileIndex)
+      return next
+    })
+  }, [fileIndex, onClearFileSelection])
 
-  // Compute a global line index across all hunks for token lookup
+  // Compute a global line index across all hunks for token lookup.
   let globalLineIdx = 0
 
   return (
     <div
       style={{
-        borderRadius: 6,
+        borderRadius: compact ? 4 : 6,
         border: '1px solid var(--border-default)',
         overflow: 'hidden',
-        marginBottom: 8,
+        marginBottom: compact ? 6 : 8,
       }}
     >
-      {/* File header */}
-      <button
-        onClick={toggle}
-        type="button"
+      <div
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 8,
           width: '100%',
-          padding: '8px 12px',
+          padding: compact ? '6px 8px' : '8px 12px',
           background: 'var(--bg-tertiary)',
-          border: 'none',
           color: 'var(--text-primary)',
           fontFamily: 'var(--font-mono)',
-          fontSize: 13,
-          cursor: 'pointer',
-          textAlign: 'left',
+          fontSize: compact ? 12 : 13,
         }}
       >
-        <span style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
-          ▼
-        </span>
-        <span style={{ flex: 1 }}>{file.newPath}</span>
-        <span style={{ color: '#4ADE80', fontSize: 12 }}>+{file.additions}</span>
-        <span style={{ color: '#F87171', fontSize: 12 }}>-{file.deletions}</span>
-      </button>
+        <button
+          onClick={toggle}
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left"
+          style={{
+            color: 'var(--text-primary)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: compact ? 12 : 13,
+            cursor: 'pointer',
+          }}
+        >
+          <span
+            style={{
+              transform: collapsed ? 'rotate(-90deg)' : 'rotate(0)',
+              transition: 'transform 0.15s',
+              cursor: 'inherit',
+            }}
+          >
+            ▼
+          </span>
+          <span className="min-w-0 flex-1 truncate" title={file.newPath} style={{ cursor: 'inherit' }}>
+            {file.newPath}
+          </span>
+          <span style={{ color: '#4ADE80', fontSize: 12, cursor: 'inherit' }}>+{file.additions}</span>
+          <span style={{ color: '#F87171', fontSize: 12, cursor: 'inherit' }}>-{file.deletions}</span>
+        </button>
+        {selectable && (
+          <ActionButton
+            title="Copy file path"
+            onClick={() => { void copyText(file.newPath) }}
+          >
+            Copy path
+          </ActionButton>
+        )}
+      </div>
 
-      {/* Diff content */}
       {!collapsed && (
         <div style={{ background: 'var(--bg-secondary)', overflowX: 'auto' }}>
-          {file.hunks.map((hunk, hi) => (
-            <div key={hi}>
-              {/* Hunk header */}
+          {file.hunks.map((hunk, hunkIndex) => (
+            <div key={hunkIndex}>
               <div
                 style={{
-                  padding: '4px 12px 4px 116px',
-                  background: 'rgba(59, 130, 246, 0.08)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  minWidth: 'max-content',
+                  padding: compact ? '3px 8px 3px 90px' : '4px 12px 4px 116px',
+                  background: HUNK_BG,
                   color: 'var(--text-muted)',
                   fontFamily: 'var(--font-mono)',
-                  fontSize: 12,
+                  fontSize: compact ? 11 : 12,
                 }}
               >
-                {hunk.header}
+                <span className="flex-1 whitespace-pre">{hunk.header}</span>
+                {selectable && (
+                  <>
+                    <ActionButton
+                      title="Copy hunk"
+                      onClick={() => { void copyText(getHunkText(file, hunk)) }}
+                    >
+                      Copy hunk
+                    </ActionButton>
+                    {onSendToAgent && (
+                      <ActionButton
+                        title="Send hunk to agent"
+                        onClick={() => { onSendToAgent(getHunkText(file, hunk)) }}
+                      >
+                        Send
+                      </ActionButton>
+                    )}
+                  </>
+                )}
               </div>
-              {/* Lines */}
-              {hunk.lines.map((line, li) => {
+              {hunk.lines.map((line, lineIndex) => {
                 const idx = globalLineIdx++
+                const key = selectionKey({ fileIndex, hunkIndex, lineIndex })
                 return (
                   <DiffLineRow
-                    key={`${String(hi)}-${String(li)}`}
+                    key={`${String(hunkIndex)}-${String(lineIndex)}`}
                     line={line}
                     tokens={tokensByLine?.get(idx) ?? null}
+                    compact={compact}
+                    selectable={selectable}
+                    selected={selectedLineKeys.has(key)}
+                    onPointerDownLine={(event) => {
+                      onSelectLine({ fileIndex, hunkIndex, lineIndex }, event)
+                    }}
+                    onPointerEnterLine={() => {
+                      onDragSelectLine({ fileIndex, hunkIndex, lineIndex })
+                    }}
                   />
                 )
               })}
@@ -354,11 +602,115 @@ function FileSection({
 
 // --- Main Component ---
 
-export function DiffViewer({ diff, defaultCollapsed = false }: DiffViewerProps) {
+export function DiffViewer({
+  diff,
+  defaultCollapsed = false,
+  compact = false,
+  selectable = false,
+  onSendToAgent,
+}: DiffViewerProps) {
   const files = useMemo(() => parseDiff(diff), [diff])
   const [tokenMap, setTokenMap] = useState<Map<string, Map<number, ThemedToken[]>>>(new Map())
+  const [selectedLineKeys, setSelectedLineKeys] = useState<Set<string>>(new Set())
+  const [shikiTheme, setShikiTheme] = useState<ShikiTheme>(() => getCurrentShikiTheme())
+  const selectionAnchorRef = useRef<LineSelection | null>(null)
+  const draggingSelectionRef = useRef(false)
+  const selectedText = useMemo(
+    () => getSelectedText(files, selectedLineKeys),
+    [files, selectedLineKeys],
+  )
 
-  // Lazy-load Shiki and tokenize each file's content
+  const clearSelection = useCallback(() => {
+    setSelectedLineKeys(new Set())
+    selectionAnchorRef.current = null
+    draggingSelectionRef.current = false
+  }, [])
+
+  const selectRange = useCallback((from: LineSelection, to: LineSelection) => {
+    setSelectedLineKeys(new Set(getSelectionRange(files, from, to)))
+  }, [files])
+
+  const handleSelectLine = useCallback((selection: LineSelection, event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!selectable || event.button !== 0) return
+    event.preventDefault()
+
+    if (event.shiftKey && selectionAnchorRef.current) {
+      draggingSelectionRef.current = true
+      selectRange(selectionAnchorRef.current, selection)
+      return
+    }
+
+    selectionAnchorRef.current = selection
+    draggingSelectionRef.current = true
+    setSelectedLineKeys((prev) => {
+      const key = selectionKey(selection)
+      if (prev.has(key) && prev.size === 1) {
+        return new Set()
+      }
+      return new Set([key])
+    })
+  }, [selectRange, selectable])
+
+  const handleDragSelectLine = useCallback((selection: LineSelection) => {
+    if (!draggingSelectionRef.current || !selectionAnchorRef.current) return
+    selectRange(selectionAnchorRef.current, selection)
+  }, [selectRange])
+
+  const clearFileSelection = useCallback((fileIndex: number) => {
+    const prefix = `${String(fileIndex)}:`
+    if (selectionAnchorRef.current?.fileIndex === fileIndex) {
+      selectionAnchorRef.current = null
+      draggingSelectionRef.current = false
+    }
+    setSelectedLineKeys((prev) => {
+      if (![...prev].some((key) => key.startsWith(prefix))) return prev
+      return new Set([...prev].filter((key) => !key.startsWith(prefix)))
+    })
+  }, [])
+
+  useEffect(() => {
+    clearSelection()
+  }, [clearSelection, diff])
+
+  useEffect(() => {
+    if (!selectable) return
+    const stopDragging = () => {
+      draggingSelectionRef.current = false
+    }
+    window.addEventListener('pointerup', stopDragging)
+    window.addEventListener('pointercancel', stopDragging)
+    return () => {
+      window.removeEventListener('pointerup', stopDragging)
+      window.removeEventListener('pointercancel', stopDragging)
+    }
+  }, [selectable])
+
+  useEffect(() => {
+    if (!selectable || selectedLineKeys.size === 0) return
+
+    const clearFromOutsideCode = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof HTMLElement)) return
+      if (target.closest('[data-diff-code-area="true"], [data-diff-action="true"]')) return
+
+      clearSelection()
+    }
+
+    document.addEventListener('pointerdown', clearFromOutsideCode, true)
+    return () => {
+      document.removeEventListener('pointerdown', clearFromOutsideCode, true)
+    }
+  }, [clearSelection, selectable, selectedLineKeys.size])
+
+  useEffect(() => {
+    if (typeof MutationObserver === 'undefined') return
+    const updateTheme = () => { setShikiTheme(getCurrentShikiTheme()) }
+    const observer = new MutationObserver(updateTheme)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    updateTheme()
+    return () => { observer.disconnect() }
+  }, [])
+
   useEffect(() => {
     let cancelled = false
 
@@ -369,7 +721,6 @@ export function DiffViewer({ diff, defaultCollapsed = false }: DiffViewerProps) 
         const lang = detectLanguage(file.newPath)
         if (!lang) continue
 
-        // Combine all line contents for the file (preserves cross-line token state)
         const allLines: string[] = []
         for (const hunk of file.hunks) {
           for (const line of hunk.lines) {
@@ -380,7 +731,7 @@ export function DiffViewer({ diff, defaultCollapsed = false }: DiffViewerProps) 
         if (allLines.length === 0) continue
 
         const code = allLines.join('\n')
-        const tokens = await tokenizeCode(code, lang)
+        const tokens = await tokenizeCode(code, lang, shikiTheme)
         if (cancelled) return
 
         if (tokens) {
@@ -397,17 +748,17 @@ export function DiffViewer({ diff, defaultCollapsed = false }: DiffViewerProps) 
 
     void highlight()
     return () => { cancelled = true }
-  }, [files])
+  }, [files, shikiTheme])
 
   if (!diff.trim()) {
     return (
       <div
         style={{
-          padding: 24,
+          padding: compact ? 16 : 24,
           color: 'var(--text-muted)',
           textAlign: 'center',
           fontFamily: 'var(--font-mono)',
-          fontSize: 13,
+          fontSize: compact ? 12 : 13,
         }}
       >
         No changes to display
@@ -417,12 +768,43 @@ export function DiffViewer({ diff, defaultCollapsed = false }: DiffViewerProps) 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-      {files.map((file) => (
+      {selectable && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded border border-border-default bg-surface px-2 py-1.5">
+          <span className="mr-auto text-[11px] text-text-secondary">
+            {selectedLineKeys.size > 0
+              ? `${String(selectedLineKeys.size)} line${selectedLineKeys.size === 1 ? '' : 's'} selected`
+              : 'Select diff lines to copy or send context'}
+          </span>
+          <ActionButton
+            disabled={selectedLineKeys.size === 0}
+            onClick={() => { void copyText(selectedText) }}
+          >
+            Copy selected
+          </ActionButton>
+          {onSendToAgent && (
+            <ActionButton
+              disabled={selectedLineKeys.size === 0}
+              onClick={() => { onSendToAgent(selectedText) }}
+            >
+              Send to agent
+            </ActionButton>
+          )}
+        </div>
+      )}
+      {files.map((file, fileIndex) => (
         <FileSection
-          key={file.newPath}
+          key={`${file.oldPath}->${file.newPath}`}
           file={file}
+          fileIndex={fileIndex}
           defaultCollapsed={defaultCollapsed}
           tokensByLine={tokenMap.get(file.newPath) ?? null}
+          compact={compact}
+          selectable={selectable}
+          selectedLineKeys={selectedLineKeys}
+          onSelectLine={handleSelectLine}
+          onDragSelectLine={handleDragSelectLine}
+          onClearFileSelection={clearFileSelection}
+          onSendToAgent={onSendToAgent}
         />
       ))}
     </div>
