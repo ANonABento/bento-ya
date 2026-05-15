@@ -67,11 +67,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'Bento-ya ${{ github.ref_name }}'
+          releaseName: 'KaitenCode ${{ github.ref_name }}'
           releaseBody: |
             ## What's New
 
             See the [commit history](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}) for changes.
+
+            ## Rename Notes
+
+            This release renames Bento-ya to KaitenCode.
+
+            - The desktop bundle identifier changes to `com.kaitencode.desktop`; macOS may ask for permissions again.
+            - The app data directory migrates from `~/.bentoya` to `~/.kaitencode`.
+            - `BENTOYA_*` environment variables, `bento_ya.*` settings keys, `bentoya/` branch prefixes, and `bentoya_` tmux sessions remain readable for this migration window.
+            - The MCP binary is now `kaitencode-mcp`; update MCP client configs from `bento-mcp`.
 
             ## Downloads
 
