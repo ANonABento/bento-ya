@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { checkForUpdate, installUpdate, type UpdateInfo } from '@/lib/ipc/updater'
+import { checkForUpdate, getUpdateStatus, installUpdate, type UpdateInfo } from '@/lib/ipc/updater'
 
 export type UseUpdaterResult = {
   pendingUpdate: UpdateInfo | null
@@ -17,7 +17,11 @@ export function useUpdater(): UseUpdaterResult {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    checkForUpdate()
+    getUpdateStatus()
+      .then((status) => {
+        if (!status.configured) return null
+        return checkForUpdate()
+      })
       .then((info) => { if (info) setPendingUpdate(info) })
       .catch(() => { /* ignore update check failures silently */ })
   }, [])
