@@ -46,6 +46,8 @@ describe('my-store', () => {
 
 Frontend tests using Playwright. Tests run against the Vite dev server with mocked Tauri APIs.
 
+This is browser coverage, not native app coverage. It is good for UI rendering, interaction, responsive layout, and deterministic mocked-data flows. It does not prove that real agents, tmux sessions, shell commands, filesystem access, updater behavior, SQLite migrations, or native WebView styling work.
+
 ```bash
 # Run E2E tests
 npm run test:e2e
@@ -81,6 +83,11 @@ npx playwright show-report
 | Keyboard shortcuts | Yes | Cmd+, etc. |
 | File system ops | Mocked | Not real filesystem |
 | Shell commands | Mocked | Not real shell |
+| Agent execution | Mocked | Use Tauri dev or WebDriverIO for real runs |
+| Terminal/tmux/PTY | No | Requires native Tauri runtime |
+| Native scrollbars/forms | Partial | Browser engine differs from app WebView |
+
+For the complete runtime matrix, see `docs/testing-and-runtime-modes.md`.
 
 ## Native E2E Tests (WebDriverIO + Tauri)
 
