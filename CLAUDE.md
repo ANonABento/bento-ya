@@ -229,11 +229,9 @@ mcp-server/
 
 **Config:** `{ "command": "kaitencode-mcp" }` — auto-detects DB at `~/.kaitencode/data.db` with platform-specific Tauri data dir fallbacks.
 
-**App requirement:** Most mutation tools route through the Tauri app's HTTP API (port discovered via `~/.kaitencode/api.port`) so triggers fire and `tasks:changed` events flow to the UI. If the app isn't running, those tools error out (production builds disable direct-DB fallback; only `cfg!(test)` allows it). Read-only tools work without the app.
+**App requirement:** Most mutation tools route through the Tauri app's HTTP API (port and bearer token discovered via `~/.kaitencode/api.port`) so triggers fire and `tasks:changed` events flow to the UI. If the app isn't running, those tools error out (production builds disable direct-DB fallback; only `cfg!(test)` allows it). Read-only tools work without the app.
 
 **Known gaps (see `.tickets/_docs/MCP_DOGFOOD_REPORT.md`):**
-- `create_task` accepts a `model` parameter but silently drops it — the `/api/create_task` payload doesn't include it.
-- `create_task` does not expose `trigger_prompt` even though the API accepts it.
 - `mark_complete`, `add_dependency`, `remove_dependency` bypass the API and write the DB directly — no `tasks:changed` event, so the UI doesn't refresh in real-time.
 - No recursion guard / source attribution on MCP-created tasks. See `.tickets/_docs/MCP_SELF_TASK_WORKFLOW.md` for a safe self-task pattern.
 

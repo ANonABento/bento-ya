@@ -218,11 +218,17 @@ nav {
   color: var(--color-text);
 }
 
-.logo-placeholder {
+.logo-mark {
   width: 28px;
   height: 28px;
-  background: var(--color-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-text);
+  color: var(--color-bg);
   border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .nav-right {

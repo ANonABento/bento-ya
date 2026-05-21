@@ -1085,7 +1085,7 @@ Tauri is confirmed. Reasons:
 - Tiny bundles (~5-10MB vs Electron's 150MB+)
 - Rust backend handles PTY management, git operations, process lifecycle
 - Built-in updater, system tray, native dialogs
-- Cross-platform (macOS, Windows, Linux)
+- Launch platforms: macOS and Linux
 - portable-pty crate for terminal management
 - Security model (sandboxed webview, explicit API surface)
 
@@ -1146,7 +1146,7 @@ Tauri is confirmed. Reasons:
 - **pnpm** for frontend dependencies
 - **Vite** for frontend bundling
 - **Cargo** for Rust backend
-- Tauri bundler for .dmg / .app / .msi / .AppImage
+- Tauri bundler for `.dmg`, `.app`, `.deb`, and `.AppImage`
 
 ---
 
@@ -1793,7 +1793,7 @@ Users can configure in settings:
 - IPC call timing (warn if >500ms)
 
 ### Diagnostics
-- **"Export diagnostics" button** in settings: bundles logs, system info, config (no secrets) into a zip
+- Planned **"Export diagnostics" button** in settings: bundles logs, system info, config (no secrets) into a zip
 - System info: OS version, Tauri version, app version, available memory, GPU info
 - Agent info: CLI version, model in use, session duration
 - Useful for bug reports

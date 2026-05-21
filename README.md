@@ -22,7 +22,7 @@ Per-workspace and global settings: concurrency limits, default CLI, default mode
 
 ![Settings panel](docs/screenshots/settings.png)
 
-> Regenerate these screenshots: `npm run test:webdriver -- --spec ./tests/webdriver/screenshots.spec.mjs` (see [Native WebDriver E2E](#native-webdriver-e2e) below for one-time setup).
+> Regenerate these screenshots: `pnpm test:webdriver -- --spec ./tests/webdriver/screenshots.spec.mjs` (see [Native WebDriver E2E](#native-webdriver-e2e) below for one-time setup).
 
 ## v2.0 Features
 
@@ -34,35 +34,66 @@ Per-workspace and global settings: concurrency limits, default CLI, default mode
 
 - **Per-task embedded terminal** — each task gets a full xterm.js terminal (lazy PTY, bare shell in working dir). Click a task card to open its terminal.
 - **xterm.js integration** — WebGL renderer, 10k line scrollback, fit-addon for responsive resizing, theme-reactive (dark/light), Unicode 11 support
-- **Lazy PTY sessions** — shell spawned on first panel open via `ensure_pty_session`, killed on panel close. Triggers will inject CLI commands directly into the shell.
+- **Persistent tmux sessions** — running task terminals attach to per-task tmux sessions and keep scrollback across panel reopens. Completed tasks open in attach-only mode so viewing history does not spawn a fresh shell.
 - **Unified chat session layer** — `UnifiedChatSession` manages lifecycle (idle/running/suspended), resume ID tracking, transport switching (pipe ↔ PTY)
 - **Legacy process layer removed** — deleted `pty_manager.rs`, `agent_runner.rs`. All PTY/agent management through unified `SessionRegistry`
 
 ## Development
 
+### Runtime prerequisites
+
+Packaged macOS and Linux builds expect these tools to be available on `PATH` for the corresponding features:
+
+| Tool | Required for | Install |
+|------|--------------|---------|
+| `tmux` | Agent sessions, embedded terminals, pipeline triggers | macOS: `brew install tmux`; Linux: distro package manager |
+| `git` | Workspace validation, branches, diffs, task worktrees | macOS command line tools or distro package manager |
+| `gh` | PR creation and GitHub status sync | `brew install gh` or GitHub CLI packages |
+| `claude` / `codex` | Running the selected agent CLI | Install and authenticate the CLI you plan to use |
+
+Desktop-launched apps on macOS/Linux may not inherit your shell dotfiles. First-run onboarding shows a system check for required tools. If a CLI is not detected, set its path in Settings > Agents & Models.
+
+The local HTTP API used by external automation is disabled by default in packaged apps. Start KaitenCode with `KAITENCODE_LOCAL_API=1` only when you intentionally want a local MCP/automation client to control the running app; the app writes a user-readable-only JSON discovery file with the selected port and a per-run bearer token to `~/.kaitencode/api.port` while enabled.
+
 ### Building
 
-**Always use `pnpm tauri build` (or `bun tauri build`) for production rebuilds.** Don't run `cargo build --release` standalone unless you are 100% sure no frontend changes are involved.
+**Always use `pnpm tauri build` for production rebuilds.** Don't run `cargo build --release` standalone unless you are 100% sure no frontend changes are involved.
 
 ```bash
 # Full production build (frontend + binary + .app + .dmg)
 pnpm tauri build
 
+# Linux packages
+pnpm tauri build --bundles deb,appimage
+
 # Dev mode (vite dev server + hot reload)
 pnpm tauri dev
 ```
 
-### Testing modes
+In-app updates are disabled unless the build has a Tauri updater public key, update endpoint, and generated updater artifacts. The release workflow enforces `TAURI_UPDATER_PUBKEY`; local ad-hoc builds show the disabled state in Settings > Updates instead of failing a check with a generic updater error. Linux updater artifacts target AppImage builds; `.deb` users should upgrade by installing the newer `.deb` from a published release.
+
+### Testing and runtime modes
+
+KaitenCode is a Tauri desktop app. The Vite dev server is still useful, but it is not the full app by itself.
 
 KaitenCode has three local test surfaces, each backed by a different runtime:
 
 | Surface | Command | Backend | Use it for |
 |---------|---------|---------|------------|
-| Browser/Vite | `npm run dev`, then `npm run test:e2e` | Mocked Tauri IPC | Fast React UI/layout/interaction checks |
+| Browser/Vite | `pnpm dev`, then open `http://localhost:1420` or run `pnpm test:e2e` | Mocked Tauri IPC | Fast React UI/layout/interaction checks |
 | Native Tauri | `pnpm tauri dev` | Real Rust backend, tmux, filesystem, WebView | Manual end-to-end agent and terminal testing |
 | Native WebDriver | See below | Real Tauri app under automation | Automated UI/IPC regression + screenshots |
 
-Opening `http://localhost:1420` by itself only shows the Vite frontend with mocked Tauri IPC — agent execution, tmux sessions, filesystem, and Rust-backed features need `pnpm tauri dev` or the WebDriver setup below.
+Opening `http://localhost:1420` by itself only shows the Vite frontend with browser mocks from `src/lib/browser-mock.ts`. That mode can render the board, settings, panels, dialogs, drag/drop, responsive layout, and most pure React state. It cannot run the real Rust commands: agent execution, tmux/PTY terminal sessions, local filesystem work, shell commands, native dialogs, updater behavior, and real SQLite persistence require `pnpm tauri dev`, `pnpm tauri build`, or the WebDriver setup below.
+
+Use this rule of thumb:
+
+- UI/layout/copy/regression check: `pnpm dev` or `pnpm test:e2e`
+- Real agent, terminal, git, filesystem, MCP, updater, or app dark-mode/WebView behavior: `pnpm tauri dev`
+- Release verification: `pnpm tauri build`, then launch the packaged app/binary
+- Automated native regression/screenshots: `pnpm build:webdriver`, `pnpm dev`, `tauri-driver`, then `pnpm test:webdriver`
+
+More detail: [Testing and Runtime Modes](docs/testing-and-runtime-modes.md).
 
 ### Native WebDriver E2E
 
@@ -87,17 +118,17 @@ safaridriver --enable        # one-time, requires admin
 
 ```bash
 # 1. Build the webdriver-enabled binary (one-time per Rust change)
-npm run build:webdriver
+pnpm build:webdriver
 
 # 2. Start Vite dev server on port 1420 (terminal A)
-npm run dev
+pnpm dev
 
 # 3. Start tauri-driver with an isolated data dir (terminal B)
 rm -rf /tmp/kaitencode-wdio && mkdir -p /tmp/kaitencode-wdio
 KAITENCODE_DATA_DIR=/tmp/kaitencode-wdio tauri-driver --port 4444
 
 # 4. Run the test suite (terminal C)
-npm run test:webdriver
+pnpm test:webdriver
 ```
 
 Tests live in `tests/webdriver/*.spec.mjs`; screenshots land in `tests/webdriver/screenshots/`. The binary path defaults to `<repo>/target/debug/kaitencode`; override with `KAITENCODE_BINARY=...` (e.g. for a release build).
@@ -105,7 +136,7 @@ Tests live in `tests/webdriver/*.spec.mjs`; screenshots land in `tests/webdriver
 **Troubleshooting:**
 - `window.__TAURI_INTERNALS__ is undefined` in test output — usually means `tauri-driver` fell back to its default browser (MiniBrowser/Safari). Verify `wdio.conf.mjs` uses `tauri:options.application` (not `binary`) and that `KAITENCODE_BINARY` resolves to a binary built with `--features webdriver`.
 - "can not find WebKitWebDriver" — install `webkit2gtk-driver` (Linux) or enable `safaridriver` (macOS).
-- Tests fail on the very first IPC call — check that `npm run dev` is actually serving on port 1420.
+- Tests fail on the very first IPC call — check that `pnpm dev` is actually serving on port 1420.
 
 ### Troubleshooting
 
