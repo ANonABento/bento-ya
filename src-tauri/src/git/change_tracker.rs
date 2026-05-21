@@ -1,7 +1,10 @@
+use std::collections::HashSet;
+
 use git2::{BranchType, Diff, DiffFormat, DiffOptions, Patch, Repository};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileChange {
     pub path: String,
     pub status: String,
@@ -10,6 +13,7 @@ pub struct FileChange {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChangeSummary {
     pub files: Vec<FileChange>,
     pub total_additions: usize,
@@ -28,14 +32,77 @@ fn find_base_branch(repo: &Repository) -> Result<String, git2::Error> {
     Ok(head.shorthand().unwrap_or("HEAD").to_string())
 }
 
+fn resolve_base_branch(repo: &Repository, base_branch: Option<&str>) -> Result<String, String> {
+    match base_branch.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => Ok(value.to_string()),
+        None => find_base_branch(repo).map_err(|e| e.to_string()),
+    }
+}
+
+fn get_branch_tree<'a>(repo: &'a Repository, branch: &str) -> Result<git2::Tree<'a>, String> {
+    let task_branch = repo
+        .find_branch(branch, BranchType::Local)
+        .map_err(|e| format!("Branch '{}' not found: {}", branch, e))?;
+
+    task_branch
+        .get()
+        .peel_to_commit()
+        .map_err(|e| e.to_string())?
+        .tree()
+        .map_err(|e| e.to_string())
+}
+
+fn get_commit<'a>(repo: &'a Repository, commit_hash: &str) -> Result<git2::Commit<'a>, String> {
+    repo.revparse_single(commit_hash)
+        .map_err(|e| format!("Commit '{}' not found: {}", commit_hash, e))?
+        .peel_to_commit()
+        .map_err(|e| format!("Reference '{}' is not a commit: {}", commit_hash, e))
+}
+
+fn get_commit_diff<'a>(
+    repo: &'a Repository,
+    commit_hash: &str,
+    file_path: Option<&str>,
+) -> Result<Diff<'a>, String> {
+    let commit = get_commit(repo, commit_hash)?;
+    let new_tree = commit.tree().map_err(|e| e.to_string())?;
+    let old_tree = if commit.parent_count() > 0 {
+        Some(
+            commit
+                .parent(0)
+                .map_err(|e| e.to_string())?
+                .tree()
+                .map_err(|e| e.to_string())?,
+        )
+    } else {
+        None
+    };
+
+    let mut opts = DiffOptions::new();
+    if let Some(path) = file_path {
+        opts.pathspec(path);
+    }
+
+    repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut opts))
+        .map_err(|e| e.to_string())
+}
+
+fn head_matches_branch(repo: &Repository, branch: &str) -> bool {
+    repo.head()
+        .ok()
+        .and_then(|head| head.shorthand().map(|value| value == branch))
+        .unwrap_or(false)
+}
+
 /// Compute a tree-to-tree diff between the base branch and a task branch,
 /// optionally filtered to a single file path.
 fn get_branch_diff<'a>(
     repo: &'a Repository,
     branch: &str,
+    base_branch: Option<&str>,
     file_path: Option<&str>,
 ) -> Result<Diff<'a>, String> {
-    let base_name = find_base_branch(repo).map_err(|e| e.to_string())?;
+    let base_name = resolve_base_branch(repo, base_branch)?;
 
     let base_branch = repo
         .find_branch(&base_name, BranchType::Local)
@@ -47,15 +114,7 @@ fn get_branch_diff<'a>(
         .tree()
         .map_err(|e| e.to_string())?;
 
-    let task_branch = repo
-        .find_branch(branch, BranchType::Local)
-        .map_err(|e| format!("Branch '{}' not found: {}", branch, e))?;
-    let task_tree = task_branch
-        .get()
-        .peel_to_commit()
-        .map_err(|e| e.to_string())?
-        .tree()
-        .map_err(|e| e.to_string())?;
+    let task_tree = get_branch_tree(repo, branch)?;
 
     let mut opts = DiffOptions::new();
     if let Some(path) = file_path {
@@ -66,9 +125,33 @@ fn get_branch_diff<'a>(
         .map_err(|e| e.to_string())
 }
 
+fn get_workdir_diff<'a>(
+    repo: &'a Repository,
+    branch: &str,
+    file_path: Option<&str>,
+) -> Result<Option<Diff<'a>>, String> {
+    if !head_matches_branch(repo, branch) {
+        return Ok(None);
+    }
+
+    let task_tree = get_branch_tree(repo, branch)?;
+    let mut opts = DiffOptions::new();
+    opts.include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .include_typechange(true);
+    if let Some(path) = file_path {
+        opts.pathspec(path);
+    }
+
+    repo.diff_tree_to_workdir_with_index(Some(&task_tree), Some(&mut opts))
+        .map(Some)
+        .map_err(|e| e.to_string())
+}
+
 fn status_label(status: git2::Delta) -> String {
     match status {
         git2::Delta::Added => "added",
+        git2::Delta::Untracked => "added",
         git2::Delta::Deleted => "deleted",
         git2::Delta::Modified => "modified",
         git2::Delta::Renamed => "renamed",
@@ -78,31 +161,29 @@ fn status_label(status: git2::Delta) -> String {
     .to_string()
 }
 
-/// Return a summary of all changed files on a branch vs its base,
-/// including per-file addition/deletion counts.
-pub fn get_changes(repo_path: &str, branch: &str) -> Result<ChangeSummary, String> {
-    let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
-    let diff = get_branch_diff(&repo, branch, None)?;
-
-    let stats = diff.stats().map_err(|e| e.to_string())?;
+fn collect_file_changes(
+    diff: &Diff<'_>,
+    files: &mut Vec<FileChange>,
+    seen_paths: &mut HashSet<String>,
+) {
     let num_deltas = diff.deltas().len();
+    let mut file_infos: Vec<(usize, String, String)> = Vec::with_capacity(num_deltas);
 
-    // First pass: collect owned file info from deltas
-    let mut file_infos: Vec<(String, String)> = Vec::with_capacity(num_deltas);
-    for delta in diff.deltas() {
+    for (i, delta) in diff.deltas().enumerate() {
         let path = delta
             .new_file()
             .path()
             .or_else(|| delta.old_file().path())
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
-        file_infos.push((path, status_label(delta.status())));
+        if path.is_empty() || !seen_paths.insert(path.clone()) {
+            continue;
+        }
+        file_infos.push((i, path, status_label(delta.status())));
     }
 
-    // Second pass: get per-file line stats from patches
-    let mut files = Vec::with_capacity(num_deltas);
-    for (i, (path, status)) in file_infos.into_iter().enumerate() {
-        let (additions, deletions) = Patch::from_diff(&diff, i)
+    for (i, path, status) in file_infos {
+        let (additions, deletions) = Patch::from_diff(diff, i)
             .ok()
             .flatten()
             .and_then(|patch| {
@@ -118,22 +199,9 @@ pub fn get_changes(repo_path: &str, branch: &str) -> Result<ChangeSummary, Strin
             deletions,
         });
     }
-
-    Ok(ChangeSummary {
-        total_additions: stats.insertions(),
-        total_deletions: stats.deletions(),
-        total_files: stats.files_changed(),
-        files,
-    })
 }
 
-/// Return a unified diff string for a branch vs its base.
-/// If `file_path` is provided, only that file's diff is returned.
-pub fn get_diff(repo_path: &str, branch: &str, file_path: Option<&str>) -> Result<String, String> {
-    let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
-    let diff = get_branch_diff(&repo, branch, file_path)?;
-
-    let mut output = String::new();
+fn print_diff(diff: &Diff<'_>, output: &mut String) -> Result<(), String> {
     diff.print(DiffFormat::Patch, |_delta, _hunk, line| {
         match line.origin() {
             '+' | '-' | ' ' => {
@@ -147,32 +215,132 @@ pub fn get_diff(repo_path: &str, branch: &str, file_path: Option<&str>) -> Resul
         }
         true
     })
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())
+}
+
+/// Return a summary of all changed files on a branch vs its base,
+/// including dirty worktree and untracked files when the task branch is checked out.
+pub fn get_changes(
+    repo_path: &str,
+    branch: &str,
+    base_branch: Option<&str>,
+) -> Result<ChangeSummary, String> {
+    let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
+    let branch_diff = get_branch_diff(&repo, branch, base_branch, None)?;
+    let workdir_diff = get_workdir_diff(&repo, branch, None)?;
+
+    let branch_stats = branch_diff.stats().map_err(|e| e.to_string())?;
+    let mut total_additions = branch_stats.insertions();
+    let mut total_deletions = branch_stats.deletions();
+
+    let mut files = Vec::new();
+    let mut seen_paths = HashSet::new();
+    collect_file_changes(&branch_diff, &mut files, &mut seen_paths);
+
+    if let Some(workdir_diff) = workdir_diff {
+        let workdir_stats = workdir_diff.stats().map_err(|e| e.to_string())?;
+        total_additions += workdir_stats.insertions();
+        total_deletions += workdir_stats.deletions();
+        collect_file_changes(&workdir_diff, &mut files, &mut seen_paths);
+    }
+
+    Ok(ChangeSummary {
+        total_additions,
+        total_deletions,
+        total_files: files.len(),
+        files,
+    })
+}
+
+/// Return a unified diff string for a branch vs its base.
+/// If `file_path` is provided, only that file's diff is returned. Dirty
+/// worktree changes are appended when the task branch is checked out.
+pub fn get_diff(
+    repo_path: &str,
+    branch: &str,
+    base_branch: Option<&str>,
+    file_path: Option<&str>,
+) -> Result<String, String> {
+    let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
+    let branch_diff = get_branch_diff(&repo, branch, base_branch, file_path)?;
+    let workdir_diff = get_workdir_diff(&repo, branch, file_path)?;
+
+    let mut output = String::new();
+    print_diff(&branch_diff, &mut output)?;
+    if let Some(workdir_diff) = workdir_diff {
+        if !output.is_empty() && workdir_diff.deltas().len() > 0 {
+            output.push('\n');
+        }
+        print_diff(&workdir_diff, &mut output)?;
+    }
 
     Ok(output)
 }
 
-/// Return the list of file paths touched on a branch vs its base.
-pub fn get_files_touched(repo_path: &str, branch: &str) -> Result<Vec<String>, String> {
+pub fn get_commit_changes(repo_path: &str, commit_hash: &str) -> Result<ChangeSummary, String> {
     let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
-    let diff = get_branch_diff(&repo, branch, None)?;
+    let diff = get_commit_diff(&repo, commit_hash, None)?;
+    let stats = diff.stats().map_err(|e| e.to_string())?;
+    let mut files = Vec::new();
+    let mut seen_paths = HashSet::new();
+    collect_file_changes(&diff, &mut files, &mut seen_paths);
 
-    let files: Vec<String> = diff
-        .deltas()
-        .filter_map(|delta| {
-            delta
+    Ok(ChangeSummary {
+        total_additions: stats.insertions(),
+        total_deletions: stats.deletions(),
+        total_files: files.len(),
+        files,
+    })
+}
+
+pub fn get_commit_diff_text(
+    repo_path: &str,
+    commit_hash: &str,
+    file_path: Option<&str>,
+) -> Result<String, String> {
+    let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
+    let diff = get_commit_diff(&repo, commit_hash, file_path)?;
+    let mut output = String::new();
+    print_diff(&diff, &mut output)?;
+    Ok(output)
+}
+
+/// Return the list of file paths touched on a branch vs its base, plus dirty
+/// worktree paths when the task branch is checked out.
+pub fn get_files_touched(
+    repo_path: &str,
+    branch: &str,
+    base_branch: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
+    let branch_diff = get_branch_diff(&repo, branch, base_branch, None)?;
+    let workdir_diff = get_workdir_diff(&repo, branch, None)?;
+
+    let mut seen_paths = HashSet::new();
+    let mut collect_paths = |diff: &Diff<'_>| {
+        for delta in diff.deltas() {
+            if let Some(path) = delta
                 .new_file()
                 .path()
                 .or_else(|| delta.old_file().path())
                 .map(|p| p.to_string_lossy().to_string())
-        })
-        .collect();
+            {
+                seen_paths.insert(path);
+            }
+        }
+    };
 
-    Ok(files)
+    collect_paths(&branch_diff);
+    if let Some(workdir_diff) = &workdir_diff {
+        collect_paths(workdir_diff);
+    }
+
+    Ok(seen_paths.into_iter().collect())
 }
 
 /// A single commit on a task branch.
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CommitInfo {
     pub hash: String,
     pub short_hash: String,
@@ -182,10 +350,14 @@ pub struct CommitInfo {
 }
 
 /// Return the list of commits on a task branch that are not on the base branch.
-pub fn get_commits(repo_path: &str, branch: &str) -> Result<Vec<CommitInfo>, String> {
+pub fn get_commits(
+    repo_path: &str,
+    branch: &str,
+    base_branch: Option<&str>,
+) -> Result<Vec<CommitInfo>, String> {
     let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
 
-    let base_name = find_base_branch(&repo).map_err(|e| e.to_string())?;
+    let base_name = resolve_base_branch(&repo, base_branch)?;
 
     let base_branch = repo
         .find_branch(&base_name, BranchType::Local)
@@ -234,4 +406,88 @@ pub fn get_commits(repo_path: &str, branch: &str) -> Result<Vec<CommitInfo>, Str
     }
 
     Ok(commits)
+}
+
+pub fn get_commit_info(repo_path: &str, commit_hash: &str) -> Result<CommitInfo, String> {
+    let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
+    let commit = get_commit(&repo, commit_hash)?;
+    let hash = commit.id().to_string();
+    let short_hash = hash[..7.min(hash.len())].to_string();
+    let message = commit.summary().unwrap_or("").to_string();
+    let author = commit.author().name().unwrap_or("").to_string();
+    let timestamp = commit.time().seconds();
+
+    Ok(CommitInfo {
+        hash,
+        short_hash,
+        message,
+        author,
+        timestamp,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{fs, path::Path, process::Command};
+
+    fn git(repo: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .current_dir(repo)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git {:?} failed\nstdout:\n{}\nstderr:\n{}",
+            args,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn commit_file(repo: &Path, path: &str, contents: &str, message: &str) {
+        fs::write(repo.join(path), contents).expect("write test file");
+        git(repo, &["add", path]);
+        git(repo, &["commit", "-q", "-m", message]);
+    }
+
+    #[test]
+    fn branch_views_honor_explicit_base_branch() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let repo = tmp.path();
+
+        git(repo, &["init", "-q", "-b", "main"]);
+        git(repo, &["config", "user.email", "test@example.com"]);
+        git(repo, &["config", "user.name", "Test User"]);
+
+        commit_file(repo, "base.txt", "base\n", "base");
+        git(repo, &["checkout", "-q", "-b", "develop"]);
+        commit_file(repo, "develop-only.txt", "develop\n", "develop only");
+        git(repo, &["checkout", "-q", "-b", "feature/custom-base"]);
+        commit_file(repo, "feature.txt", "feature\n", "feature");
+
+        let repo_path = repo.to_str().expect("utf8 path");
+        let changes = get_changes(repo_path, "feature/custom-base", Some("develop"))
+            .expect("custom-base changes");
+        let files: Vec<&str> = changes
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect();
+        assert_eq!(files, vec!["feature.txt"]);
+
+        let diff = get_diff(repo_path, "feature/custom-base", Some("develop"), None)
+            .expect("custom-base diff");
+        assert!(diff.contains("feature.txt"));
+        assert!(!diff.contains("develop-only.txt"));
+
+        let commits = get_commits(repo_path, "feature/custom-base", Some("develop"))
+            .expect("custom-base commits");
+        let messages: Vec<&str> = commits
+            .iter()
+            .map(|commit| commit.message.as_str())
+            .collect();
+        assert_eq!(messages, vec!["feature"]);
+    }
 }

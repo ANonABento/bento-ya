@@ -8,6 +8,7 @@ const WORKTREE_PREFIX: &str = "kaitencode-";
 const LEGACY_WORKTREE_PREFIXES: &[&str] = &["bentoya-"];
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BranchInfo {
     pub name: String,
     pub is_head: bool,
@@ -588,16 +589,19 @@ pub fn worktree_is_dirty(worktree_path: &str) -> Result<bool, String> {
 }
 
 /// If the worktree is dirty, stage everything and create a single commit
-/// with the supplied message. Returns `Ok(true)` if a commit was made,
-/// `Ok(false)` if there was nothing to commit.
+/// with the supplied message. Returns the new commit hash if a commit was
+/// made, or `None` if there was nothing to commit.
 ///
 /// Used as the "auto-commit safety net" after a Working-stage agent exits
 /// successfully but forgot to commit its own output. We disable gpg signing
 /// (`-c commit.gpgsign=false`) since this is an automated commit and the
 /// host's signing config may prompt interactively.
-pub fn auto_commit_dirty_worktree(worktree_path: &str, message: &str) -> Result<bool, String> {
+pub fn auto_commit_dirty_worktree(
+    worktree_path: &str,
+    message: &str,
+) -> Result<Option<String>, String> {
     if !worktree_is_dirty(worktree_path)? {
-        return Ok(false);
+        return Ok(None);
     }
     let add = std::process::Command::new("git")
         .args(["add", "-A"])
@@ -628,11 +632,26 @@ pub fn auto_commit_dirty_worktree(worktree_path: &str, message: &str) -> Result<
         // `add -A` (e.g. only untracked-and-ignored files). Treat that
         // exact case as "no commit made" rather than an error.
         if stderr.contains("nothing to commit") || stderr.contains("nothing added to commit") {
-            return Ok(false);
+            return Ok(None);
         }
         return Err(format!("git commit failed: {}", stderr.trim()));
     }
-    Ok(true)
+    let rev_parse = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(worktree_path)
+        .output()
+        .map_err(|e| format!("git rev-parse spawn failed: {}", e))?;
+    if !rev_parse.status.success() {
+        return Err(format!(
+            "git rev-parse HEAD failed: {}",
+            String::from_utf8_lossy(&rev_parse.stderr).trim()
+        ));
+    }
+    Ok(Some(
+        String::from_utf8_lossy(&rev_parse.stdout)
+            .trim()
+            .to_string(),
+    ))
 }
 
 /// List all KaitenCode worktrees in a repo, including legacy names.
@@ -1237,7 +1256,7 @@ mod tests {
 
         let committed =
             auto_commit_dirty_worktree(tmp.to_str().unwrap(), "auto").expect("auto-commit");
-        assert!(!committed);
+        assert!(committed.is_none());
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -1259,7 +1278,10 @@ mod tests {
         let committed =
             auto_commit_dirty_worktree(tmp.to_str().unwrap(), "auto: rescued agent output")
                 .expect("auto-commit");
-        assert!(committed, "expected a commit when worktree is dirty");
+        assert!(
+            committed.is_some(),
+            "expected a commit when worktree is dirty"
+        );
 
         // Worktree must now be clean.
         assert!(!worktree_is_dirty(tmp.to_str().unwrap()).unwrap());

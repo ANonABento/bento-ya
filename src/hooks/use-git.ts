@@ -27,7 +27,7 @@ export type CommitInfo = {
 
 const ALL_FILES = '__all__'
 
-export function useGit(repoPath: string | null) {
+export function useGit(repoPath: string | null, baseBranch?: string) {
   const [changes, setChanges] = useState<ChangeSummary | null>(null)
   const [commits, setCommits] = useState<CommitInfo[]>([])
   const [loading, setLoading] = useState(false)
@@ -44,6 +44,7 @@ export function useGit(repoPath: string | null) {
         const result = await invoke<ChangeSummary>('get_changes', {
           repoPath,
           branch,
+          baseBranch,
         })
         setChanges(result)
       } catch {
@@ -52,7 +53,7 @@ export function useGit(repoPath: string | null) {
         setLoading(false)
       }
     },
-    [repoPath],
+    [baseBranch, repoPath],
   )
 
   const fetchCommits = useCallback(
@@ -62,19 +63,20 @@ export function useGit(repoPath: string | null) {
         const result = await invoke<CommitInfo[]>('get_commits', {
           repoPath,
           branch,
+          baseBranch,
         })
         setCommits(result)
       } catch {
         setCommits([])
       }
     },
-    [repoPath],
+    [baseBranch, repoPath],
   )
 
   const fetchDiff = useCallback(
     async (branch: string, filePath: string | null) => {
       if (!repoPath) return ''
-      const cacheKey = `${repoPath}::${branch}`
+      const cacheKey = `${repoPath}::${baseBranch ?? ''}::${branch}`
       if (diffCacheKeyRef.current !== cacheKey) {
         diffCacheKeyRef.current = cacheKey
         setDiffByFile({})
@@ -86,6 +88,65 @@ export function useGit(repoPath: string | null) {
         const result = await invoke<string>('get_diff', {
           repoPath,
           branch,
+          baseBranch,
+          filePath: filePath ?? undefined,
+        })
+        setDiffByFile((prev) => ({ ...prev, [key]: result }))
+        return result
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        setDiffError(message)
+        return ''
+      } finally {
+        setDiffLoading(false)
+      }
+    },
+    [baseBranch, repoPath],
+  )
+
+  const fetchAll = useCallback(
+    async (branch: string) => {
+      await Promise.all([fetchChanges(branch), fetchCommits(branch)])
+    },
+    [fetchChanges, fetchCommits],
+  )
+
+  const fetchCommitAll = useCallback(
+    async (commitHash: string) => {
+      if (!repoPath) return
+      try {
+        setLoading(true)
+        const [changeResult, commitResult] = await Promise.all([
+          invoke<ChangeSummary>('get_commit_changes', { repoPath, commitHash }),
+          invoke<CommitInfo>('get_commit_info', { repoPath, commitHash }),
+        ])
+        setChanges(changeResult)
+        setCommits([commitResult])
+      } catch {
+        setChanges(null)
+        setCommits([])
+      } finally {
+        setLoading(false)
+      }
+    },
+    [repoPath],
+  )
+
+  const fetchCommitDiff = useCallback(
+    async (commitHash: string, filePath: string | null) => {
+      if (!repoPath) return ''
+      const cacheKey = `${repoPath}::commit::${commitHash}`
+      if (diffCacheKeyRef.current !== cacheKey) {
+        diffCacheKeyRef.current = cacheKey
+        setDiffByFile({})
+      }
+      const key = filePath ?? ALL_FILES
+      try {
+        setDiffLoading(true)
+        setDiffError(null)
+        const result = await invoke<string>('get_commit_diff', {
+          repoPath,
+          commitHash,
           filePath: filePath ?? undefined,
         })
         setDiffByFile((prev) => ({ ...prev, [key]: result }))
@@ -101,13 +162,6 @@ export function useGit(repoPath: string | null) {
     [repoPath],
   )
 
-  const fetchAll = useCallback(
-    async (branch: string) => {
-      await Promise.all([fetchChanges(branch), fetchCommits(branch)])
-    },
-    [fetchChanges, fetchCommits],
-  )
-
   return {
     changes,
     commits,
@@ -119,5 +173,7 @@ export function useGit(repoPath: string | null) {
     fetchCommits,
     fetchDiff,
     fetchAll,
+    fetchCommitAll,
+    fetchCommitDiff,
   }
 }

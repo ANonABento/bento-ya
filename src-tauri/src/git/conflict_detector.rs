@@ -21,7 +21,10 @@ pub struct ConflictMatrix {
 
 /// Compare all active task branches and return files that are modified
 /// by more than one branch (potential merge conflicts).
-pub fn get_conflict_matrix(repo_path: &str) -> Result<ConflictMatrix, String> {
+pub fn get_conflict_matrix(
+    repo_path: &str,
+    base_branch: Option<&str>,
+) -> Result<ConflictMatrix, String> {
     let repo = Repository::open(repo_path).map_err(|e| e.to_string())?;
     let branches = repo
         .branches(Some(BranchType::Local))
@@ -45,7 +48,7 @@ pub fn get_conflict_matrix(repo_path: &str) -> Result<ConflictMatrix, String> {
     let mut file_map: HashMap<String, HashSet<String>> = HashMap::new();
 
     for branch_name in &task_branches {
-        match get_files_touched(repo_path, branch_name) {
+        match get_files_touched(repo_path, branch_name, base_branch) {
             Ok(files) => {
                 for file in files {
                     file_map
