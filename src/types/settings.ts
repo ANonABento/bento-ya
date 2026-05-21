@@ -184,7 +184,6 @@ export const DEFAULT_SETTINGS: Settings = {
         apiKeyEnvVar: 'ANTHROPIC_API_KEY',
         enabled: true,
         connectionMode: 'cli',
-        cliPath: 'claude',
         defaultModel: 'claude-sonnet-4-6-20260217',
       },
       {
@@ -193,7 +192,6 @@ export const DEFAULT_SETTINGS: Settings = {
         apiKeyEnvVar: 'OPENAI_API_KEY',
         enabled: false,
         connectionMode: 'cli',
-        cliPath: 'codex',
         defaultModel: 'codex-5.3',
       },
     ],

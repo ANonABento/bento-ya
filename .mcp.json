@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "kaitencode": {
+      "command": "/home/anonabento/.cargo/bin/kaitencode-mcp"
+    }
+  }
+}

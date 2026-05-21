@@ -9,18 +9,36 @@ export type FileEntry = {
   modifiedAt: number
 }
 
-export async function scanWorkspaceFiles(repoPath: string): Promise<FileEntry[]> {
-  return invoke<FileEntry[]>('scan_workspace_files', { repoPath })
+export type AttachmentFile = {
+  path: string
+  name: string
+  bytes: Uint8Array
 }
 
-export async function readFileContent(filePath: string): Promise<string> {
-  return invoke<string>('read_file_content', { filePath })
+type RawAttachmentFile = Omit<AttachmentFile, 'bytes'> & {
+  bytes: number[]
+}
+
+export async function scanWorkspaceFiles(workspaceId: string): Promise<FileEntry[]> {
+  return invoke<FileEntry[]>('scan_workspace_files', { workspaceId })
+}
+
+export async function readFileContent(workspaceId: string, filePath: string): Promise<string> {
+  return invoke<string>('read_file_content', { workspaceId, filePath })
 }
 
 export async function createNoteFile(
-  repoPath: string,
+  workspaceId: string,
   filename: string,
   content: string,
 ): Promise<FileEntry> {
-  return invoke<FileEntry>('create_note_file', { repoPath, filename, content })
+  return invoke<FileEntry>('create_note_file', { workspaceId, filename, content })
+}
+
+export async function pickAttachmentFiles(): Promise<AttachmentFile[]> {
+  const files = await invoke<RawAttachmentFile[]>('pick_attachment_files')
+  return files.map(file => ({
+    ...file,
+    bytes: new Uint8Array(file.bytes),
+  }))
 }

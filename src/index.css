@@ -37,6 +37,8 @@
 
 /* Default values (dark theme fallback) - MUST come before theme selectors */
 :root {
+  color-scheme: dark;
+
   --bg: #0D0D0D;
   --surface: #1A1A1A;
   --surface-hover: #242424;
@@ -49,6 +51,9 @@
   --error: #F87171;
   --running: #60A5FA;
   --attention: #F59E0B;
+  --scrollbar-track: #141414;
+  --scrollbar-thumb: #3A3A3A;
+  --scrollbar-thumb-hover: #4A4A4A;
 
   /* Appearance defaults */
   --base-font-size: 14px;
@@ -58,6 +63,8 @@
 }
 
 [data-theme='dark'] {
+  color-scheme: dark;
+
   --bg: #0D0D0D;
   --surface: #1A1A1A;
   --surface-hover: #242424;
@@ -70,9 +77,14 @@
   --error: #F87171;
   --running: #60A5FA;
   --attention: #F59E0B;
+  --scrollbar-track: #141414;
+  --scrollbar-thumb: #3A3A3A;
+  --scrollbar-thumb-hover: #4A4A4A;
 }
 
 [data-theme='light'] {
+  color-scheme: light;
+
   --bg: #FAFAF9;
   --surface: #FFFFFF;
   --surface-hover: #F5F5F4;
@@ -85,6 +97,9 @@
   --error: #DC2626;
   --running: #2563EB;
   --attention: #D97706;
+  --scrollbar-track: #F1F0EF;
+  --scrollbar-thumb: #C9C5C0;
+  --scrollbar-thumb-hover: #AFA9A2;
 }
 
 /* Attention pulse animation */
@@ -155,6 +170,55 @@ body,
   font-family: var(--font-sans);
   font-size: var(--base-font-size);
   line-height: 1.5;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  color-scheme: inherit;
+}
+
+select,
+option,
+optgroup {
+  background-color: var(--surface);
+  color: var(--text-primary);
+}
+
+* {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 2px solid var(--scrollbar-track);
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
 }
 
 /* Card styles using appearance variables */
