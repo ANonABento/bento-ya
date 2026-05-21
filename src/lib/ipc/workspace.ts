@@ -5,8 +5,22 @@ import type { Workspace } from '@/types'
 
 export const getWorkspaces = () => invoke<Workspace[]>('list_workspaces')
 
-export async function createWorkspace(name: string, repoPath: string): Promise<Workspace> {
-  return invoke<Workspace>('create_workspace', { name, repoPath })
+export type CreateWorkspaceOptions = {
+  templateId?: string
+  defaultAgentCli?: string
+}
+
+export async function createWorkspace(
+  name: string,
+  repoPath: string,
+  options: CreateWorkspaceOptions = {},
+): Promise<Workspace> {
+  return invoke<Workspace>('create_workspace', {
+    name,
+    repoPath,
+    ...(options.templateId ? { templateId: options.templateId } : {}),
+    ...(options.defaultAgentCli ? { defaultAgentCli: options.defaultAgentCli } : {}),
+  })
 }
 
 export async function getWorkspace(id: string): Promise<Workspace> {

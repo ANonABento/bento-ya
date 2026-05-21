@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'motion/react'
-import { getCurrentBranch, detectClis } from '@/lib/ipc'
+import { getCurrentBranch, detectClis, checkRuntimePrerequisites } from '@/lib/ipc'
 import type { DetectedCli } from '@/lib/ipc/cli'
+import type { RuntimePrerequisite } from '@/lib/ipc/system'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { PathPicker } from '@/components/shared/path-picker'
 import { BUILT_IN_TEMPLATES } from '@/types/templates'
 import { useNativeInput } from '@/hooks/use-native-input'
+import { getErrorMessage } from '@/lib/errors'
 
 type OnboardingWizardProps = {
   onComplete: () => void
@@ -22,6 +24,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [gitStatus, setGitStatus] = useState<GitStatus>(null)
   const [error, setError] = useState<string | null>(null)
   const [detectedClis, setDetectedClis] = useState<DetectedCli[]>([])
+  const [prerequisites, setPrerequisites] = useState<RuntimePrerequisite[]>([])
+  const [checkingPrereqs, setCheckingPrereqs] = useState(false)
 
   const addWorkspace = useWorkspaceStore((s) => s.add)
   const setActive = useWorkspaceStore((s) => s.setActive)
@@ -42,6 +46,21 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         // CLI detection is non-critical
       })
   }, [])
+
+  const refreshPrerequisites = useCallback(async () => {
+    setCheckingPrereqs(true)
+    try {
+      setPrerequisites(await checkRuntimePrerequisites())
+    } catch {
+      setPrerequisites([])
+    } finally {
+      setCheckingPrereqs(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshPrerequisites()
+  }, [refreshPrerequisites])
 
   // Validate git repo when path changes
   useEffect(() => {
@@ -78,22 +97,23 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     setError(null)
 
     try {
-      await addWorkspace(trimmedName, trimmedPath)
-      const workspaces = useWorkspaceStore.getState().workspaces
-      const created = workspaces[workspaces.length - 1]
-      if (created) {
-        setActive(created.id)
-      }
+      const defaultAgentCli = Array.from(selectedClis)[0]
+      const created = await addWorkspace(trimmedName, trimmedPath, {
+        templateId: template,
+        ...(defaultAgentCli ? { defaultAgentCli } : {}),
+      })
+      setActive(created.id)
       onComplete()
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = getErrorMessage(err)
       setError(message)
     } finally {
       setIsCreating(false)
     }
-  }, [name, repoPath, addWorkspace, setActive, onComplete])
+  }, [name, repoPath, selectedClis, template, addWorkspace, setActive, onComplete])
 
-  const canCreate = repoPath.trim().length > 0 && !isCreating
+  const canCreate = repoPath.trim().length > 0 && gitStatus === 'valid' && !isCreating
+  const missingRequiredPrereqs = prerequisites.filter((item) => item.required && !item.available)
 
   return (
     <motion.div
@@ -140,6 +160,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             <PathPicker
               value={repoPath}
               onChange={(path) => { setRepoPath(path); setError(null) }}
+              onError={setError}
               placeholder="/Users/you/project"
             />
             {/* Git status */}
@@ -153,7 +174,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               <div className="mt-1">
                 <p className="text-xs text-error">Not a git repository</p>
                 <p className="text-xs text-text-secondary">
-                  The workspace will be created without git integration.
+                  Select a folder inside a local git repository.
                 </p>
               </div>
             )}
@@ -161,6 +182,47 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
           {/* Template & Agent — grouped */}
           <div className="space-y-3 rounded-lg border border-border-default bg-bg p-3">
+            <div>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <label className="block text-xs font-medium text-text-secondary">
+                  System check
+                </label>
+                <button
+                  type="button"
+                  onClick={() => { void refreshPrerequisites() }}
+                  disabled={checkingPrereqs}
+                  style={{ cursor: checkingPrereqs ? 'not-allowed' : 'pointer' }}
+                  className="rounded border border-border-default px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover disabled:opacity-50"
+                >
+                  {checkingPrereqs ? 'Checking...' : 'Recheck'}
+                </button>
+              </div>
+              <div className="space-y-1">
+                {prerequisites.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between gap-3 rounded-md border border-border-default bg-surface px-3 py-1.5 text-xs"
+                    title={item.available ? (item.version ?? item.name) : item.installHint}
+                  >
+                    <span className="text-text-primary">{item.name}</span>
+                    <span className={item.available ? 'text-success' : item.required ? 'text-error' : 'text-yellow-500'}>
+                      {item.available ? (item.version ?? 'Available') : item.required ? 'Required' : 'Optional'}
+                    </span>
+                  </div>
+                ))}
+                {!checkingPrereqs && prerequisites.length === 0 && (
+                  <p className="rounded-md border border-border-default bg-surface px-3 py-1.5 text-xs text-text-secondary">
+                    System check unavailable. You can continue and configure tools later.
+                  </p>
+                )}
+              </div>
+              {missingRequiredPrereqs.length > 0 && (
+                <p className="mt-1 text-xs text-error">
+                  Install {missingRequiredPrereqs.map((item) => item.name).join(', ')} before running agents or terminals.
+                </p>
+              )}
+            </div>
+
             <div>
               <label htmlFor="onboard-template" className="mb-1 block text-xs font-medium text-text-secondary">
                 Template
@@ -188,7 +250,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   {detectedClis.map((cli) => (
                     <label
                       key={cli.id}
-                      className="flex items-center gap-3 rounded-md border border-border-default bg-surface px-3 py-1.5 cursor-pointer hover:bg-surface-hover transition-colors"
+                      className="flex items-center gap-3 rounded-md border border-border-default bg-surface px-3 py-1.5 transition-colors hover:bg-surface-hover"
+                      style={{ cursor: 'pointer' }}
                     >
                       <input
                         type="checkbox"
@@ -225,7 +288,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             type="button"
             onClick={() => { void handleCreate() }}
             disabled={!canCreate}
-            className="mt-2 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ cursor: canCreate ? undefined : 'not-allowed' }}
+            className="mt-2 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
           >
             {isCreating ? 'Creating workspace...' : 'Create Workspace'}
           </button>

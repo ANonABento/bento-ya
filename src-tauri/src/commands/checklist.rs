@@ -1,6 +1,7 @@
 use crate::db::{self, AppState, Checklist, ChecklistCategory, ChecklistItem};
 use crate::error::AppError;
 use serde::{Deserialize, Serialize};
+use std::path::{Component, Path, PathBuf};
 use tauri::State;
 
 /// Response containing the full checklist with categories and items
@@ -25,12 +26,76 @@ fn validate_detect_type(detect_type: Option<&str>) -> Result<(), AppError> {
     }
 }
 
-fn validate_detect_config(detect_config: Option<&str>) -> Result<(), AppError> {
+fn validate_detect_config(
+    detect_type: Option<&str>,
+    detect_config: Option<&str>,
+) -> Result<(), AppError> {
     if let Some(config) = detect_config {
-        serde_json::from_str::<serde_json::Value>(config)
+        let value = serde_json::from_str::<serde_json::Value>(config)
             .map_err(|e| AppError::InvalidInput(format!("Invalid detection config JSON: {}", e)))?;
+        if matches!(detect_type, Some("command-succeeds")) {
+            let command = value
+                .get("command")
+                .and_then(|command| command.as_str())
+                .map(str::trim)
+                .unwrap_or("");
+            if command.is_empty() {
+                return Err(AppError::InvalidInput(
+                    "command-succeeds detection requires a command".to_string(),
+                ));
+            }
+            if value
+                .get("allowUnsafeCommand")
+                .and_then(|enabled| enabled.as_bool())
+                != Some(true)
+            {
+                return Err(AppError::InvalidInput(
+                    "command-succeeds detection requires allowUnsafeCommand=true".to_string(),
+                ));
+            }
+        }
     }
     Ok(())
+}
+
+fn validate_detection_pattern(pattern: &str) -> Result<(), AppError> {
+    let path = Path::new(pattern);
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir | Component::Prefix(_)))
+    {
+        return Err(AppError::InvalidInput(format!(
+            "Checklist detection pattern must stay inside the workspace: {}",
+            pattern
+        )));
+    }
+    Ok(())
+}
+
+fn detection_glob_pattern(repo_root: &Path, pattern: &str) -> Result<String, AppError> {
+    validate_detection_pattern(pattern)?;
+    Ok(repo_root.join(pattern).to_string_lossy().to_string())
+}
+
+fn first_glob_match_inside(repo_root: &Path, full_pattern: &str) -> bool {
+    let Ok(paths) = glob::glob(full_pattern) else {
+        return false;
+    };
+    paths.filter_map(Result::ok).any(|path| {
+        path.canonicalize()
+            .map(|canonical| canonical.starts_with(repo_root))
+            .unwrap_or(false)
+    })
+}
+
+fn first_glob_file_inside(repo_root: &Path, full_pattern: &str) -> Option<PathBuf> {
+    let paths = glob::glob(full_pattern).ok()?;
+    paths.filter_map(Result::ok).find(|path| {
+        path.canonicalize()
+            .map(|canonical| canonical.starts_with(repo_root) && canonical.is_file())
+            .unwrap_or(false)
+    })
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -182,17 +247,21 @@ pub fn update_checklist_item(
             "Position must be non-negative".to_string(),
         ));
     }
-    if let Some(Some(ref value)) = updates.detect_type {
-        validate_detect_type(Some(value))?;
-    }
-    if let Some(Some(ref value)) = updates.detect_config {
-        validate_detect_config(Some(value))?;
-    }
-
     let conn = state
         .db
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let current = db::get_checklist_item(&conn, &item_id)?;
+    let effective_detect_type = match updates.detect_type.as_ref() {
+        Some(value) => value.as_deref(),
+        None => current.detect_type.as_deref(),
+    };
+    let effective_detect_config = match updates.detect_config.as_ref() {
+        Some(value) => value.as_deref(),
+        None => current.detect_config.as_deref(),
+    };
+    validate_detect_type(effective_detect_type)?;
+    validate_detect_config(effective_detect_type, effective_detect_config)?;
 
     Ok(db::update_checklist_item_details(
         &conn,
@@ -338,7 +407,7 @@ pub fn create_checklist_item(
         ));
     }
     validate_detect_type(detect_type.as_deref())?;
-    validate_detect_config(detect_config.as_deref())?;
+    validate_detect_config(detect_type.as_deref(), detect_config.as_deref())?;
 
     let conn = state
         .db
@@ -419,6 +488,11 @@ pub fn create_workspace_checklist(
             for (item_idx, item) in cat.items.iter().enumerate() {
                 // Use create_checklist_item_with_detect if detection config is provided
                 if item.detect_type.is_some() || item.detect_config.is_some() {
+                    validate_detect_type(item.detect_type.as_deref())?;
+                    validate_detect_config(
+                        item.detect_type.as_deref(),
+                        item.detect_config.as_deref(),
+                    )?;
                     db::create_checklist_item_with_detect(
                         &conn,
                         &category.id,
@@ -530,17 +604,17 @@ pub struct DetectionResult {
 pub async fn run_checklist_detection(
     state: State<'_, AppState>,
     workspace_id: String,
-    repo_path: String,
+    _repo_path: String,
 ) -> Result<Vec<DetectionResult>, AppError> {
-    use glob::glob;
     use std::process::Command;
 
     // Get all checklist items with detection configured
-    let items = {
+    let (items, repo_path) = {
         let conn = state
             .db
             .lock()
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let workspace = db::get_workspace(&conn, &workspace_id)?;
 
         // Get the workspace's checklist
         let checklist = db::get_workspace_checklist(&conn, &workspace_id)?;
@@ -555,8 +629,11 @@ pub async fn run_checklist_detection(
             let items = db::list_checklist_items(&conn, &cat.id)?;
             all_items.extend(items);
         }
-        all_items
+        (all_items, workspace.repo_path)
     };
+    let repo_root = PathBuf::from(&repo_path)
+        .canonicalize()
+        .map_err(|e| AppError::InvalidInput(format!("Workspace repo path is invalid: {}", e)))?;
 
     // Filter to items with detection configured
     let detectable: Vec<_> = items
@@ -585,10 +662,8 @@ pub async fn run_checklist_detection(
                     .and_then(|p| p.as_str())
                     .unwrap_or("*");
 
-                let full_pattern = format!("{}/{}", repo_path, pattern);
-                let found = glob(&full_pattern)
-                    .map(|mut paths: glob::Paths| paths.next().is_some())
-                    .unwrap_or(false);
+                let full_pattern = detection_glob_pattern(&repo_root, pattern)?;
+                let found = first_glob_match_inside(&repo_root, &full_pattern);
 
                 (
                     found,
@@ -606,10 +681,8 @@ pub async fn run_checklist_detection(
                     .and_then(|p| p.as_str())
                     .unwrap_or("*");
 
-                let full_pattern = format!("{}/{}", repo_path, pattern);
-                let found = glob(&full_pattern)
-                    .map(|mut paths: glob::Paths| paths.next().is_some())
-                    .unwrap_or(false);
+                let full_pattern = detection_glob_pattern(&repo_root, pattern)?;
+                let found = first_glob_match_inside(&repo_root, &full_pattern);
 
                 (
                     !found,
@@ -633,11 +706,8 @@ pub async fn run_checklist_detection(
                     .unwrap_or("");
 
                 // Find first matching file and check content
-                let full_pattern = format!("{}/{}", repo_path, pattern);
-                let file_path = glob(&full_pattern)
-                    .ok()
-                    .and_then(|mut paths| paths.next())
-                    .and_then(|p| p.ok());
+                let full_pattern = detection_glob_pattern(&repo_root, pattern)?;
+                let file_path = first_glob_file_inside(&repo_root, &full_pattern);
 
                 let found = if let Some(path) = file_path {
                     std::fs::read_to_string(&path)
@@ -657,36 +727,52 @@ pub async fn run_checklist_detection(
                 )
             }
             "command-succeeds" => {
+                let allow_unsafe_command = detect_config
+                    .as_ref()
+                    .and_then(|c| c.get("allowUnsafeCommand"))
+                    .and_then(|p| p.as_bool())
+                    .unwrap_or(false);
                 let command = detect_config
                     .as_ref()
                     .and_then(|c| c.get("command"))
                     .and_then(|p| p.as_str())
-                    .unwrap_or("true");
+                    .unwrap_or("")
+                    .trim();
 
-                // Run command in a blocking thread
-                let repo_path_clone = repo_path.clone();
-                let command_clone = command.to_string();
-                let result = tokio::task::spawn_blocking(move || {
-                    Command::new("sh")
-                        .args(["-c", &command_clone])
-                        .current_dir(&repo_path_clone)
-                        .output()
-                })
-                .await;
+                if !allow_unsafe_command || command.is_empty() {
+                    (
+                        false,
+                        Some(
+                            "Command detection requires explicit allowUnsafeCommand=true"
+                                .to_string(),
+                        ),
+                    )
+                } else {
+                    // Run command in a blocking thread
+                    let repo_path_clone = repo_path.clone();
+                    let command_clone = command.to_string();
+                    let result = tokio::task::spawn_blocking(move || {
+                        Command::new("sh")
+                            .args(["-c", &command_clone])
+                            .current_dir(&repo_path_clone)
+                            .output()
+                    })
+                    .await;
 
-                match result {
-                    Ok(Ok(output)) => {
-                        let success = output.status.success();
-                        (
-                            success,
-                            if success {
-                                Some(format!("Command succeeded: {}", command))
-                            } else {
-                                Some(format!("Command failed: {}", command))
-                            },
-                        )
+                    match result {
+                        Ok(Ok(output)) => {
+                            let success = output.status.success();
+                            (
+                                success,
+                                if success {
+                                    Some(format!("Command succeeded: {}", command))
+                                } else {
+                                    Some(format!("Command failed: {}", command))
+                                },
+                            )
+                        }
+                        _ => (false, Some(format!("Command error: {}", command))),
                     }
-                    _ => (false, Some(format!("Command error: {}", command))),
                 }
             }
             _ => (false, Some("Unknown detection type".to_string())),
@@ -709,4 +795,58 @@ pub async fn run_checklist_detection(
     }
 
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        detection_glob_pattern, first_glob_match_inside, validate_detect_config,
+        validate_detection_pattern,
+    };
+
+    #[test]
+    fn detection_pattern_rejects_absolute_and_parent_paths() {
+        assert!(validate_detection_pattern("/etc/passwd").is_err());
+        assert!(validate_detection_pattern("../secret").is_err());
+        assert!(validate_detection_pattern("src/../../secret").is_err());
+    }
+
+    #[test]
+    fn detection_pattern_allows_relative_globs() {
+        assert!(validate_detection_pattern("src/**/*.rs").is_ok());
+        assert!(validate_detection_pattern("package.json").is_ok());
+    }
+
+    #[test]
+    fn detection_glob_only_counts_matches_inside_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        std::fs::write(repo.join("src/lib.rs"), "test").unwrap();
+
+        let repo_root = repo.canonicalize().unwrap();
+        let pattern = detection_glob_pattern(&repo_root, "src/*.rs").unwrap();
+
+        assert!(first_glob_match_inside(&repo_root, &pattern));
+    }
+
+    #[test]
+    fn command_detection_config_requires_explicit_unsafe_opt_in() {
+        let err =
+            validate_detect_config(Some("command-succeeds"), Some(r#"{"command":"npm test"}"#))
+                .expect_err("command checks must be explicit");
+        assert!(err.to_string().contains("allowUnsafeCommand=true"));
+
+        validate_detect_config(
+            Some("command-succeeds"),
+            Some(r#"{"command":"npm test","allowUnsafeCommand":true}"#),
+        )
+        .expect("explicit command check should be allowed");
+    }
+
+    #[test]
+    fn non_command_detection_config_does_not_require_unsafe_opt_in() {
+        validate_detect_config(Some("file-exists"), Some(r#"{"pattern":"README.md"}"#))
+            .expect("file checks should not require command opt-in");
+    }
 }

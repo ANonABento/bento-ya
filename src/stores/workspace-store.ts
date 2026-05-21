@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { Workspace } from '@/types'
 import * as ipc from '@/lib/ipc'
+import type { CreateWorkspaceOptions } from '@/lib/ipc/workspace'
 
 type WorkspaceState = {
   workspaces: Workspace[]
@@ -11,7 +12,7 @@ type WorkspaceState = {
   load: () => Promise<void>
   refreshWorkspace: (id: string) => Promise<void>
   setActive: (id: string) => void
-  add: (name: string, repoPath: string) => Promise<void>
+  add: (name: string, repoPath: string, options?: CreateWorkspaceOptions) => Promise<Workspace>
   clone: (sourceId: string, newName: string) => Promise<void>
   remove: (id: string) => Promise<void>
   update: (id: string, updates: Partial<Workspace>) => Promise<void>
@@ -42,9 +43,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ activeWorkspaceId: id })
       },
 
-      add: async (name, repoPath) => {
-        const workspace = await ipc.createWorkspace(name, repoPath)
+      add: async (name, repoPath, options) => {
+        const workspace = await ipc.createWorkspace(name, repoPath, options)
         set((s) => ({ workspaces: [...s.workspaces, workspace] }))
+        return workspace
       },
 
       clone: async (sourceId, newName) => {

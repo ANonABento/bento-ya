@@ -1,8 +1,10 @@
 import { useState, useCallback } from 'react'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { seedDemoData } from '@/lib/ipc'
+import { getErrorMessage } from '@/lib/errors'
 
 export function WorkspaceSetup() {
+  const showSampleWorkspace = import.meta.env.DEV
   const [name, setName] = useState('')
   const [repoPath, setRepoPath] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -25,15 +27,10 @@ export function WorkspaceSetup() {
     setError(null)
 
     try {
-      await addWorkspace(trimmedName, trimmedPath)
-      // The workspace store will update, and App will re-render showing the board
-      const workspaces = useWorkspaceStore.getState().workspaces
-      const created = workspaces[workspaces.length - 1]
-      if (created) {
-        setActive(created.id)
-      }
+      const created = await addWorkspace(trimmedName, trimmedPath)
+      setActive(created.id)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = getErrorMessage(err)
       if (message.includes('repo') || message.includes('git')) {
         setError('Invalid repo path — make sure it points to a git repository')
       } else {
@@ -63,7 +60,7 @@ export function WorkspaceSetup() {
       await loadWorkspaces()
       setActive(workspace.id)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = getErrorMessage(err)
       setError(message)
     } finally {
       setSeeding(false)
@@ -125,28 +122,34 @@ export function WorkspaceSetup() {
           type="button"
           onClick={() => { void handleCreate() }}
           disabled={creating || seeding}
-          className="w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+          style={{ cursor: creating || seeding ? 'not-allowed' : undefined }}
+          className="w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
         >
           {creating ? 'Creating...' : 'Create workspace'}
         </button>
 
-        <div className="relative flex items-center py-2">
-          <div className="flex-grow border-t border-border-default" />
-          <span className="mx-3 text-xs text-text-secondary">or</span>
-          <div className="flex-grow border-t border-border-default" />
-        </div>
+        {showSampleWorkspace && (
+          <>
+            <div className="relative flex items-center py-2">
+              <div className="flex-grow border-t border-border-default" />
+              <span className="mx-3 text-xs text-text-secondary">or</span>
+              <div className="flex-grow border-t border-border-default" />
+            </div>
 
-        <button
-          type="button"
-          onClick={() => { void handleSeedDemo() }}
-          disabled={creating || seeding}
-          className="w-full rounded-lg border border-border-default bg-surface px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {seeding ? 'Seeding...' : 'Load Demo Workspace'}
-        </button>
-        <p className="text-center text-xs text-text-secondary">
-          Load sample tasks with PR statuses for testing
-        </p>
+            <button
+              type="button"
+              onClick={() => { void handleSeedDemo() }}
+              disabled={creating || seeding}
+              style={{ cursor: creating || seeding ? 'not-allowed' : undefined }}
+              className="w-full rounded-lg border border-border-default bg-surface px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-50"
+            >
+              {seeding ? 'Creating sample...' : 'Explore sample workspace'}
+            </button>
+            <p className="text-center text-xs text-text-secondary">
+              Creates a local sample board for development previews.
+            </p>
+          </>
+        )}
       </div>
     </div>
   )
