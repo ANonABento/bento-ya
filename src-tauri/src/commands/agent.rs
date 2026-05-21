@@ -1,4 +1,7 @@
 use serde::Serialize;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Mutex,
@@ -14,6 +17,7 @@ use crate::chat::runtime::{
     ManagedRuntimeTurnResult, ProviderRuntimeLine,
 };
 use crate::chat::session::{SessionConfig, SessionState, TransportType};
+use crate::chat::tmux_transport::{capture_scrollback, default_user_shell};
 use crate::db::{self, AgentMessage, AppState};
 use crate::error::AppError;
 
@@ -55,10 +59,140 @@ struct TaskInputCompletion {
 
 const TASK_INPUT_COMPLETION_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 2);
 
+pub(crate) fn validate_agent_cli_path(cli_path: &str) -> Result<String, AppError> {
+    let cli = cli_path.trim();
+    if cli.is_empty() {
+        return Err(AppError::InvalidInput(
+            "Agent CLI path cannot be empty".to_string(),
+        ));
+    }
+
+    if !cli.contains('/') && !cli.contains('\\') {
+        return match cli {
+            "claude" | "codex" => Ok(cli.to_string()),
+            other => Err(AppError::InvalidInput(format!(
+                "Unsupported agent CLI binary: {}",
+                other
+            ))),
+        };
+    }
+
+    let path = Path::new(cli);
+    if !path.exists() || !path.is_file() {
+        return Err(AppError::InvalidInput(format!(
+            "Agent CLI path is not an executable file: {}",
+            cli
+        )));
+    }
+
+    #[cfg(unix)]
+    {
+        let executable = path
+            .metadata()
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false);
+        if !executable {
+            return Err(AppError::InvalidInput(format!(
+                "Agent CLI path is not executable: {}",
+                cli
+            )));
+        }
+    }
+
+    let binary_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    if !matches!(binary_name, "claude" | "codex") {
+        return Err(AppError::InvalidInput(format!(
+            "Unsupported agent CLI executable: {}",
+            binary_name
+        )));
+    }
+
+    path.canonicalize()
+        .map(|path| path.to_string_lossy().to_string())
+        .map_err(|e| AppError::InvalidInput(format!("Invalid agent CLI path: {}", e)))
+}
+
+fn canonical_existing_dir(path: &str) -> Result<PathBuf, AppError> {
+    let path_ref = Path::new(path.trim());
+    if path.trim().is_empty() {
+        return Err(AppError::InvalidInput(
+            "Working directory cannot be empty".to_string(),
+        ));
+    }
+    let canonical = path_ref.canonicalize().map_err(|e| {
+        AppError::InvalidInput(format!(
+            "Working directory does not exist: {} ({})",
+            path, e
+        ))
+    })?;
+    if !canonical.is_dir() {
+        return Err(AppError::InvalidInput(format!(
+            "Working directory is not a directory: {}",
+            path
+        )));
+    }
+    Ok(canonical)
+}
+
+fn resolve_task_working_dir(
+    task: &db::Task,
+    workspace: &db::Workspace,
+    requested_working_dir: &str,
+) -> Result<String, AppError> {
+    let requested = canonical_existing_dir(requested_working_dir)?;
+    let workspace_root = canonical_existing_dir(&workspace.repo_path)?;
+    if requested == workspace_root {
+        return Ok(requested.to_string_lossy().to_string());
+    }
+
+    if let Some(worktree_path) = task.worktree_path.as_deref() {
+        let worktree_root = canonical_existing_dir(worktree_path)?;
+        if requested == worktree_root {
+            return Ok(requested.to_string_lossy().to_string());
+        }
+    }
+
+    Err(AppError::InvalidInput(format!(
+        "Working directory must match the task's workspace or worktree: {}",
+        requested_working_dir
+    )))
+}
+
+fn validate_task_launch_inputs(
+    state: &State<'_, AppState>,
+    task_id: &str,
+    working_dir: &str,
+    cli_path: Option<&str>,
+) -> Result<(String, String), AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let task = db::get_task(&conn, task_id)?;
+    let workspace = db::get_workspace(&conn, &task.workspace_id)?;
+    let working_dir = resolve_task_working_dir(&task, &workspace, working_dir)?;
+    let cli = validate_agent_cli_path(cli_path.unwrap_or("claude"))?;
+    Ok((working_dir, cli))
+}
+
+fn validate_task_exists(state: &State<'_, AppState>, task_id: &str) -> Result<(), AppError> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let _ = db::get_task(&conn, task_id)?;
+    Ok(())
+}
+
 // ─── PTY Agent Commands (via SessionRegistry) ──────────────────────────────
 
 #[tauri::command(rename_all = "camelCase")]
+#[allow(clippy::too_many_arguments)]
 pub async fn start_agent(
+    state: State<'_, AppState>,
     task_id: String,
     _agent_type: String,
     working_dir: String,
@@ -67,7 +201,9 @@ pub async fn start_agent(
     app_handle: AppHandle,
     session_registry: State<'_, SharedSessionRegistry>,
 ) -> Result<AgentInfo, String> {
-    let cli = cli_path.unwrap_or_else(|| "claude".to_string());
+    let (working_dir, cli) =
+        validate_task_launch_inputs(&state, &task_id, &working_dir, cli_path.as_deref())
+            .map_err(|e| e.to_string())?;
 
     let mut registry = session_registry.lock().await;
 
@@ -262,7 +398,10 @@ pub async fn send_task_input(
     model: Option<String>,
     effort_level: Option<String>,
 ) -> Result<(), AppError> {
-    let model = model.unwrap_or_else(|| "sonnet".to_string());
+    let (working_dir, cli_path) =
+        validate_task_launch_inputs(&state, &task_id, &working_dir, Some(&cli_path))?;
+    let requested_model = model;
+    let requested_effort_level = effort_level;
     let is_user_input = matches!(source.as_str(), "chat" | "voice" | "command");
 
     let (
@@ -275,6 +414,8 @@ pub async fn send_task_input(
         adapter_kind,
         column_name,
         pipeline_state,
+        model,
+        effort_level,
     ) = {
         let conn = state
             .db
@@ -284,6 +425,22 @@ pub async fn send_task_input(
         let column_name = db::get_column(&conn, &previous_task.column_id)
             .ok()
             .map(|column| column.name);
+
+        let agent_type = agent_type_from_cli_path(&cli_path);
+        let agent_session = db::get_or_create_agent_session_for_task(
+            &conn,
+            &task_id,
+            agent_type,
+            Some(&working_dir),
+        )?;
+        let model = requested_model
+            .clone()
+            .or_else(|| agent_session.model.clone())
+            .or_else(|| previous_task.model.clone())
+            .unwrap_or_else(|| "sonnet".to_string());
+        let effort_level = requested_effort_level
+            .clone()
+            .or_else(|| agent_session.effort_level.clone());
 
         db::insert_agent_message(
             &conn,
@@ -301,13 +458,6 @@ pub async fn send_task_input(
             crate::pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_user_input");
         }
 
-        let agent_type = agent_type_from_cli_path(&cli_path);
-        let agent_session = db::get_or_create_agent_session_for_task(
-            &conn,
-            &task_id,
-            agent_type,
-            Some(&working_dir),
-        )?;
         let tmux_name = tmux_session_name_for_task(&task_id);
         let runtime_mode = normalize_agent_runtime_mode(
             previous_task
@@ -324,6 +474,12 @@ pub async fn send_task_input(
             Some(&runtime_mode),
             None,
             Some(Some(&tmux_name)),
+        )?;
+        let _ = db::update_agent_session_model(
+            &conn,
+            &agent_session.id,
+            Some(&model),
+            effort_level.as_deref(),
         )?;
         let should_launch_prompt_command = matches!(source.as_str(), "chat" | "voice")
             && previous_task.agent_status.as_deref() != Some("running");
@@ -386,6 +542,8 @@ pub async fn send_task_input(
             adapter_kind,
             column_name,
             previous_task.pipeline_state,
+            model,
+            effort_level,
         )
     };
 
@@ -542,6 +700,7 @@ pub async fn send_task_input(
             task_id.clone(),
             session_id,
             completion,
+            working_dir.clone(),
             pre_command_scrollback.unwrap_or_default(),
         );
     }
@@ -641,6 +800,7 @@ fn spawn_managed_task_turn(
     let model_for_queue = model.clone();
     let effort_level_for_queue = effort_level.clone();
     let working_dir_for_queue = working_dir.clone();
+    let working_dir_for_auto_commit = working_dir.clone();
 
     tokio::spawn(async move {
         let result = run_managed_runtime_turn(
@@ -656,7 +816,8 @@ fn spawn_managed_task_turn(
                 let session_id = session_id.clone();
                 move |event| {
                     if let AgentRuntimeEvent::SessionStarted {
-                        provider_session_id: Some(provider_session_id),
+                        provider_session_id,
+                        model,
                         ..
                     } = &event
                     {
@@ -667,7 +828,13 @@ fn spawn_managed_task_turn(
                                 &session_id,
                                 None,
                                 Some("managed"),
-                                Some(Some(provider_session_id)),
+                                provider_session_id.as_deref().map(Some),
+                                None,
+                            );
+                            let _ = db::update_agent_session_model(
+                                &conn,
+                                &session_id,
+                                model.as_deref(),
                                 None,
                             );
                         }
@@ -683,9 +850,26 @@ fn spawn_managed_task_turn(
         )
         .await;
 
-        let should_replay_queue = managed_turn_completed_successfully(&result);
-        let success = should_replay_queue;
-        let spawned_queued_turn = if should_replay_queue {
+        let mut success = managed_turn_completed_successfully(&result);
+        if success {
+            match auto_commit_completed_worktree(
+                &app,
+                &task_id,
+                Some(&session_id),
+                &working_dir_for_auto_commit,
+            ) {
+                Ok(_) => {}
+                Err(err) => {
+                    eprintln!(
+                        "[agent] auto-commit FAILED for managed task turn {}: {}",
+                        task_id, err
+                    );
+                    success = false;
+                }
+            }
+        }
+
+        let spawned_queued_turn = if success {
             spawn_next_queued_managed_turn(
                 app_for_queue,
                 task_id_for_queue,
@@ -704,10 +888,14 @@ fn spawn_managed_task_turn(
             let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
             if !spawned_queued_turn {
                 let (session_status, task_status, exit_code) = match &result {
-                    Ok(turn) if turn.exit_code == Some(0) => {
-                        ("completed", "completed", Some(0_i64))
+                    Ok(turn) if success => {
+                        ("completed", "completed", turn.exit_code.map(i64::from))
                     }
-                    Ok(turn) => ("failed", "failed", turn.exit_code.map(i64::from)),
+                    Ok(turn) => (
+                        "failed",
+                        "failed",
+                        Some(i64::from(turn.exit_code.unwrap_or(1).max(1))),
+                    ),
                     Err(_) => ("failed", "failed", Some(1_i64)),
                 };
                 let _ = db::update_agent_session(
@@ -750,6 +938,47 @@ fn managed_turn_completed_successfully(
     result: &Result<ManagedRuntimeTurnResult, AgentRuntimeError>,
 ) -> bool {
     matches!(result, Ok(turn) if turn.exit_code == Some(0))
+}
+
+fn auto_commit_completed_worktree(
+    app: &AppHandle,
+    task_id: &str,
+    session_id: Option<&str>,
+    worktree_path: &str,
+) -> Result<Option<String>, String> {
+    if !crate::git::branch_manager::worktree_is_dirty(worktree_path)? {
+        return Ok(None);
+    }
+
+    let msg = format!(
+        "auto-commit: kaitencode rescued uncommitted work for task {} (agent exited 0 without committing)",
+        task_id
+    );
+    let commit_hash = crate::git::branch_manager::auto_commit_dirty_worktree(worktree_path, &msg)?;
+    if let Some(hash) = commit_hash.as_deref() {
+        let short_hash: String = hash.chars().take(7).collect();
+        eprintln!(
+            "[agent] auto-committed dirty managed turn worktree for task {} at {}",
+            task_id, hash
+        );
+        let message = format!("Auto-committed dirty worktree at {}", short_hash);
+        let _ = crate::events::persist_and_emit_agent_transcript_event(
+            app,
+            task_id,
+            session_id,
+            db::EVENT_COMMAND_OUTPUT,
+            Some(&message),
+            Some(
+                &serde_json::json!({
+                    "source": "auto_commit",
+                    "command": "git commit",
+                    "commit": hash,
+                })
+                .to_string(),
+            ),
+        );
+    }
+    Ok(commit_hash)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -909,6 +1138,7 @@ fn spawn_task_input_completion_watcher(
     task_id: String,
     session_id: String,
     completion: TaskInputCompletion,
+    working_dir: String,
     pre_command_scrollback: String,
 ) {
     tokio::spawn(async move {
@@ -969,7 +1199,7 @@ fn spawn_task_input_completion_watcher(
         if let Some(handle) = semantic_flusher {
             handle.abort();
         }
-        let exit_code = if timed_out {
+        let mut exit_code = if timed_out {
             124
         } else {
             std::fs::read_to_string(&exit_path)
@@ -978,7 +1208,23 @@ fn spawn_task_input_completion_watcher(
                 .unwrap_or(1)
         };
         let _ = std::fs::remove_file(&exit_path);
-        let success = exit_code == 0;
+        let mut success = exit_code == 0;
+        let mut auto_commit_hash: Option<String> = None;
+        if success {
+            match auto_commit_completed_worktree(&app, &task_id, Some(&session_id), &working_dir) {
+                Ok(hash) => {
+                    auto_commit_hash = hash;
+                }
+                Err(err) => {
+                    eprintln!(
+                        "[agent] auto-commit FAILED for terminal task turn {}: {}",
+                        task_id, err
+                    );
+                    success = false;
+                    exit_code = 1;
+                }
+            }
+        }
         let final_semantic_emitted = completion
             .semantic_log_path
             .as_deref()
@@ -1020,6 +1266,7 @@ fn spawn_task_input_completion_watcher(
         let metadata = serde_json::json!({
             "exitCode": exit_code,
             "timedOut": timed_out,
+            "autoCommitHash": auto_commit_hash,
         })
         .to_string();
 
@@ -1277,6 +1524,7 @@ pub async fn kill_task_session(
 #[allow(clippy::too_many_arguments)]
 pub async fn switch_agent_transport(
     app: AppHandle,
+    state: State<'_, AppState>,
     session_registry: State<'_, SharedSessionRegistry>,
     task_id: String,
     transport_type: String,
@@ -1327,12 +1575,22 @@ pub async fn switch_agent_transport(
             }
         }
     } else if target_type == TransportType::Pty {
-        let cli = cli_path.unwrap_or_else(|| "claude".to_string());
+        let requested_working_dir = working_dir.as_deref().ok_or_else(|| {
+            AppError::InvalidInput(
+                "Working directory is required to start PTY transport".to_string(),
+            )
+        })?;
+        let (validated_working_dir, cli) = validate_task_launch_inputs(
+            &state,
+            &task_id,
+            requested_working_dir,
+            cli_path.as_deref(),
+        )?;
         let config = SessionConfig {
             cli_path: cli,
             model: "sonnet".to_string(),
             system_prompt: String::new(),
-            working_dir,
+            working_dir: Some(validated_working_dir),
             effort_level: None,
         };
 
@@ -1351,22 +1609,29 @@ pub async fn switch_agent_transport(
     Ok(())
 }
 
-/// Ensure a PTY session exists for a task. Spawns a bare shell if none exists.
+/// Ensure a PTY session exists for a task. Spawns a bare shell if none exists
+/// unless `allow_spawn` is false.
 ///
 /// Called by the terminal view on mount. Uses a single managed bridge per task:
 /// - Session alive + bridge alive → return scrollback (no new bridge)
 /// - Session alive + bridge dead → start new managed bridge
-/// - Session dead or missing → spawn fresh shell + managed bridge
+/// - Session dead or missing + allow_spawn=true → spawn fresh shell + managed bridge
+/// - Session dead or missing + allow_spawn=false → return cached/tmux scrollback only
 #[tauri::command(rename_all = "camelCase")]
+#[allow(clippy::too_many_arguments)]
 pub async fn ensure_pty_session(
     app: AppHandle,
+    state: State<'_, AppState>,
     session_registry: State<'_, SharedSessionRegistry>,
     task_id: String,
     working_dir: String,
     cols: u16,
     rows: u16,
+    allow_spawn: Option<bool>,
 ) -> Result<AgentInfo, String> {
+    validate_task_exists(&state, &task_id).map_err(|e| e.to_string())?;
     let mut registry = session_registry.lock().await;
+    let allow_spawn = allow_spawn.unwrap_or(true);
 
     // Case 1: Session is alive
     let session_alive = registry
@@ -1418,12 +1683,43 @@ pub async fn ensure_pty_session(
         });
     }
 
-    // Case 2: Session dead or missing — spawn fresh
+    // Case 2: Session dead or missing, but caller only wants to attach.
+    // Clean up a dead registry entry so future attach-only views can restore
+    // the last cached terminal contents without reviving the task.
+    if !allow_spawn {
+        registry.remove(&task_id);
+        let cached_scrollback = registry.take_scrollback(&task_id);
+        let tmux_scrollback = capture_scrollback(&task_id);
+        let scrollback = if !tmux_scrollback.is_empty() {
+            tmux_scrollback
+        } else {
+            cached_scrollback
+        };
+
+        return Ok(AgentInfo {
+            task_id,
+            agent_type: "shell".to_string(),
+            status: "Missing".to_string(),
+            pid: None,
+            working_dir,
+            scrollback: if scrollback.is_empty() {
+                None
+            } else {
+                Some(scrollback)
+            },
+        });
+    }
+
+    // Case 3: Session dead or missing — spawn fresh
+    let (working_dir, _) =
+        validate_task_launch_inputs(&state, &task_id, &working_dir, Some("claude"))
+            .map_err(|e| e.to_string())?;
+
     // Remove dead session (caches scrollback + cancels old bridge)
     registry.remove(&task_id);
     let cached_scrollback = registry.take_scrollback(&task_id);
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let shell = default_user_shell();
     let config = SessionConfig {
         cli_path: shell,
         model: String::new(),
@@ -1702,6 +1998,26 @@ mod tests {
         assert_eq!(normalize_agent_runtime_mode(Some("managed")), "managed");
         assert_eq!(normalize_agent_runtime_mode(Some("terminal")), "terminal");
         assert_eq!(normalize_agent_runtime_mode(Some("surprise")), "terminal");
+    }
+
+    #[test]
+    fn validate_agent_cli_path_accepts_known_bare_binaries() {
+        assert_eq!(validate_agent_cli_path("claude").unwrap(), "claude");
+        assert_eq!(validate_agent_cli_path(" codex ").unwrap(), "codex");
+    }
+
+    #[test]
+    fn validate_agent_cli_path_rejects_unknown_bare_binary() {
+        let err = validate_agent_cli_path("sh").expect_err("unknown binary should fail");
+        assert!(err.to_string().contains("Unsupported agent CLI binary"));
+    }
+
+    #[test]
+    fn validate_agent_cli_path_rejects_non_file_paths() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = validate_agent_cli_path(tmp.path().to_str().unwrap())
+            .expect_err("directory should fail");
+        assert!(err.to_string().contains("not an executable file"));
     }
 
     fn script_path_from_launcher(command: &str) -> String {
