@@ -6,7 +6,6 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import * as ipc from '@/lib/ipc'
 import type {
   StreamChunkEvent,
@@ -17,6 +16,7 @@ import type {
   AgentThinkingEvent,
   AgentToolCallEvent,
   AgentCompleteEvent,
+  UnlistenFn,
 } from '@/lib/ipc'
 import type {
   ToolCall,
@@ -204,34 +204,34 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
           return payload.sessionId === sessionId
         }
 
-        const unlistenProcessing = await listen<OrchestratorEvent>('orchestrator:processing', (event) => {
-          if (!isCurrentOrchestratorSession(event.payload)) return
+        const unlistenProcessing = await ipc.listen<OrchestratorEvent>('orchestrator:processing', (payload) => {
+          if (!isCurrentOrchestratorSession(payload)) return
           setStreaming((prev) => ({ ...prev, isStreaming: true, startTime: Date.now() }))
           setError(null)
         })
         listeners.push(unlistenProcessing)
 
-        const unlistenStream = await listen<StreamChunkEvent>('orchestrator:stream', (event) => {
-          if (!isCurrentOrchestratorSession(event.payload)) return
-          if (event.payload.finishReason) return
-          if (event.payload.delta) {
-            setStreaming((prev) => ({ ...prev, content: prev.content + event.payload.delta }))
+        const unlistenStream = await ipc.listen<StreamChunkEvent>('orchestrator:stream', (payload) => {
+          if (!isCurrentOrchestratorSession(payload)) return
+          if (payload.finishReason) return
+          if (payload.delta) {
+            setStreaming((prev) => ({ ...prev, content: prev.content + payload.delta }))
           }
         })
         listeners.push(unlistenStream)
 
-        const unlistenThinking = await listen<ThinkingEvent>('orchestrator:thinking', (event) => {
-          if (!isCurrentOrchestratorSession(event.payload)) return
-          if (event.payload.isComplete) return
-          if (event.payload.content) {
-            setStreaming((prev) => ({ ...prev, thinkingContent: prev.thinkingContent + event.payload.content }))
+        const unlistenThinking = await ipc.listen<ThinkingEvent>('orchestrator:thinking', (payload) => {
+          if (!isCurrentOrchestratorSession(payload)) return
+          if (payload.isComplete) return
+          if (payload.content) {
+            setStreaming((prev) => ({ ...prev, thinkingContent: prev.thinkingContent + payload.content }))
           }
         })
         listeners.push(unlistenThinking)
 
-        const unlistenToolCall = await listen<ToolCallEvent>('orchestrator:tool_call', (event) => {
-          if (!isCurrentOrchestratorSession(event.payload)) return
-          const { toolId, toolName, status, input } = event.payload
+        const unlistenToolCall = await ipc.listen<ToolCallEvent>('orchestrator:tool_call', (payload) => {
+          if (!isCurrentOrchestratorSession(payload)) return
+          const { toolId, toolName, status, input } = payload
           const nextStatus = toStreamingToolCallStatus(status)
           setStreaming((prev) => {
             const existing = prev.toolCalls.find((t) => t.id === toolId)
@@ -244,16 +244,16 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         })
         listeners.push(unlistenToolCall)
 
-        const unlistenToolResult = await listen<{ workspaceId: string; sessionId: string; isError: boolean }>('orchestrator:tool_result', (event) => {
-          if (!isCurrentOrchestratorSession(event.payload)) return
-          if (!event.payload.isError) {
+        const unlistenToolResult = await ipc.listen<{ workspaceId: string; sessionId: string; isError: boolean }>('orchestrator:tool_result', (payload) => {
+          if (!isCurrentOrchestratorSession(payload)) return
+          if (!payload.isError) {
             onToolResultRef.current?.()
           }
         })
         listeners.push(unlistenToolResult)
 
-        const unlistenComplete = await listen<OrchestratorEvent>('orchestrator:complete', (event) => {
-          if (!isCurrentOrchestratorSession(event.payload)) return
+        const unlistenComplete = await ipc.listen<OrchestratorEvent>('orchestrator:complete', (payload) => {
+          if (!isCurrentOrchestratorSession(payload)) return
           isProcessingRef.current = false
           setStreaming(INITIAL_STREAMING_STATE)
           void loadMessagesRef.current().then(() => {
@@ -262,11 +262,11 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         })
         listeners.push(unlistenComplete)
 
-        const unlistenError = await listen<OrchestratorEvent>('orchestrator:error', (event) => {
-          if (!isCurrentOrchestratorSession(event.payload)) return
+        const unlistenError = await ipc.listen<OrchestratorEvent>('orchestrator:error', (payload) => {
+          if (!isCurrentOrchestratorSession(payload)) return
           isProcessingRef.current = false
           setStreaming(INITIAL_STREAMING_STATE)
-          setError(event.payload.message ?? 'An error occurred')
+          setError(payload.message ?? 'An error occurred')
         })
         listeners.push(unlistenError)
       }

@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import type { ChatSession, FileEntry } from '@/lib/ipc'
-import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useWorkspaceFiles } from '@/hooks/use-workspace-files'
 import { FilesTree } from './files-tree'
 import { FilePreview } from './file-preview'
@@ -177,7 +176,8 @@ function HistoryContent({
           type="button"
           onClick={onNewChat}
           disabled={isCurrentChatEmpty}
-          className="w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+          style={{ cursor: isCurrentChatEmpty ? 'not-allowed' : undefined }}
+          className="w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
             <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
@@ -236,13 +236,8 @@ function HistoryContent({
 function FilesContent({ workspaceId }: { workspaceId: string }) {
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null)
 
-  // Get the workspace to access repoPath
-  const workspaces = useWorkspaceStore((s) => s.workspaces)
-  const workspace = workspaces.find((w) => w.id === workspaceId)
-  const repoPath = workspace?.repoPath ?? null
-
   // Fetch files for the workspace
-  const { groupedFiles, loading } = useWorkspaceFiles(repoPath)
+  const { groupedFiles, loading } = useWorkspaceFiles(workspaceId)
 
   const handleSelectFile = useCallback((file: FileEntry) => {
     setSelectedFile(file)
@@ -256,7 +251,7 @@ function FilesContent({ workspaceId }: { workspaceId: string }) {
   if (selectedFile) {
     return (
       <div className="flex-1 overflow-hidden">
-        <FilePreview file={selectedFile} onClose={handleClosePreview} />
+        <FilePreview workspaceId={workspaceId} file={selectedFile} onClose={handleClosePreview} />
       </div>
     )
   }

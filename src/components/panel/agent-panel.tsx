@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Task } from '@/types'
+import type { AgentTranscriptEvent } from '@/types/events'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useSettingsStore } from '@/stores/settings-store'
+import { parseWorkspaceConfig } from '@/types/workspace'
 import { useAgentTranscriptStore } from '@/stores/agent-transcript-store'
 import { holdTask, killTaskSession } from '@/lib/ipc/agent'
 import { agentInjectMessage } from '@/lib/ipc/agent-interactive'
@@ -10,6 +13,8 @@ import { useTaskDetail } from '@/hooks/use-task-detail'
 import { TerminalView } from './terminal-view'
 import { InteractiveAgentView } from './interactive-agent-view'
 import { ChatInput, type ChatInputMessage } from './shared'
+import type { ModelId } from './shared/chat-input-types'
+import type { ThinkingLevel } from '@/components/shared/thinking-utils'
 import { AgentTranscript } from './agent-transcript'
 import { useAgentPanelSession } from './use-agent-panel-session'
 import { DiffSection } from '@/components/task-detail/diff-section'
@@ -60,9 +65,29 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
   const workspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === task.workspaceId)
   )
+  const globalSettings = useSettingsStore((s) => s.global)
+  const workspaceConfig = useMemo(
+    () => parseWorkspaceConfig(workspace?.config ?? '{}'),
+    [workspace?.config],
+  )
+  const configuredDefaultModel = useMemo(
+    () => resolveConfiguredDefaultModel(
+      workspaceConfig.defaultModel,
+      globalSettings.agent.modelSelection,
+      globalSettings.model.providers.find((provider) => provider.id === 'anthropic')?.defaultModel,
+    ),
+    [globalSettings.agent.modelSelection, globalSettings.model.providers, workspaceConfig.defaultModel],
+  )
   const workingDir = task.worktreePath ?? workspace?.repoPath ?? ''
   const session = useAgentPanelSession(task)
+  const transcriptState = useAgentTranscriptStore((s) => s.getTaskState(task.id))
+  const latestTranscriptCommit = useMemo(
+    () => inferLatestCommitHash(transcriptState.events),
+    [transcriptState.events],
+  )
   const {
+    changeReference,
+    changeReferenceKind,
     changes,
     loading,
     diffByFile,
@@ -70,8 +95,7 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
     diffError,
     commits,
     loadDiff,
-  } = useTaskDetail(task)
-  const transcriptState = useAgentTranscriptStore((s) => s.getTaskState(task.id))
+  } = useTaskDetail(task, { fallbackCommitHash: latestTranscriptCommit })
   const loadTranscript = useAgentTranscriptStore((s) => s.load)
   const subscribeTranscript = useAgentTranscriptStore((s) => s.subscribe)
   const unsubscribeTranscript = useAgentTranscriptStore((s) => s.unsubscribe)
@@ -80,6 +104,10 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
   const [holdBusy, setHoldBusy] = useState(false)
   const [killBusy, setKillBusy] = useState(false)
   const [draftInsertion, setDraftInsertion] = useState<{ id: number; content: string } | null>(null)
+  const inputDefaults = useMemo(
+    () => inferAgentInputDefaults(task, transcriptState.events, configuredDefaultModel),
+    [configuredDefaultModel, task, transcriptState.events],
+  )
 
   const isAgentRunning = task.agentStatus === 'running'
   const stopDisabled = stopBusy || !isAgentRunning
@@ -255,6 +283,8 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
             />
             <ChatInput
               config={{
+                defaultModel: inputDefaults.model,
+                defaultThinkingLevel: inputDefaults.thinkingLevel,
                 placeholder: 'Steer the agent... /commands, @files, !shell',
                 showModelSelector: true,
                 showThinkingSelector: true,
@@ -275,12 +305,17 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
             />
           </div>
         ) : activeView === 'terminal' ? (
-          <TerminalView taskId={task.id} workingDir={workingDir} />
+          <TerminalView
+            taskId={task.id}
+            workingDir={workingDir}
+            allowSpawn={isAgentRunning}
+          />
         ) : (
           <div className="h-full overflow-auto bg-bg p-2" data-testid="agent-panel-changes-view">
             <div className="space-y-2">
               <DiffSection
-                branch={task.branch ?? null}
+                branch={changeReference}
+                referenceKind={changeReferenceKind}
                 changes={changes}
                 loading={loading}
                 diffLoading={diffLoading}
@@ -303,6 +338,87 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
       </div>
     </div>
   )
+}
+
+function inferLatestCommitHash(events: AgentTranscriptEvent[]): string | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const content = events[i]?.content
+    if (!content) continue
+    const matches = Array.from(content.matchAll(/\b[0-9a-f]{7,40}\b/gi))
+      .map((match) => match[0])
+      .filter((hash) => !/^[0-9]+$/.test(hash))
+    if (matches.length > 0) return matches[matches.length - 1] ?? null
+  }
+  return null
+}
+
+function inferAgentInputDefaults(
+  task: Task,
+  events: AgentTranscriptEvent[],
+  configuredDefaultModel: string,
+): { model: ModelId; thinkingLevel: ThinkingLevel } {
+  let model = task.model?.trim()
+  let effortLevel: string | undefined
+
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]
+    if (!event) continue
+    if (event.eventType !== 'agent_started' && event.eventType !== 'session_started') continue
+    const metadata = parseEventMetadata(event.metadataJson)
+    if (!model) {
+      const metadataModel = metadata.model
+      if (typeof metadataModel === 'string' && metadataModel.trim()) {
+        model = metadataModel.trim()
+      }
+    }
+    if (!effortLevel) {
+      const metadataEffort = metadata.effortLevel ?? metadata.effort_level
+      if (typeof metadataEffort === 'string' && metadataEffort.trim()) {
+        effortLevel = metadataEffort.trim()
+      }
+    }
+    if (model && effortLevel) break
+  }
+
+  return {
+    model: normalizeModelId(model, configuredDefaultModel),
+    thinkingLevel: normalizeThinkingLevel(effortLevel),
+  }
+}
+
+function parseEventMetadata(metadataJson: string | null): Record<string, unknown> {
+  if (!metadataJson) return {}
+  try {
+    const parsed = JSON.parse(metadataJson) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+function resolveConfiguredDefaultModel(
+  workspaceDefault: string | undefined,
+  agentModelSelection: string | undefined,
+  providerDefault: string | undefined,
+): string {
+  const workspaceModel = workspaceDefault?.trim()
+  if (workspaceModel) return workspaceModel
+  const agentModel = agentModelSelection?.trim()
+  if (agentModel && agentModel !== 'auto') return agentModel
+  return providerDefault?.trim() || 'sonnet'
+}
+
+function normalizeModelId(model: string | undefined, configuredDefaultModel: string): ModelId {
+  return model?.trim() || configuredDefaultModel
+}
+
+function normalizeThinkingLevel(effortLevel: string | undefined): ThinkingLevel {
+  if (effortLevel === 'none' || effortLevel === 'low' || effortLevel === 'high') {
+    return effortLevel
+  }
+  return 'medium'
 }
 
 // ─── Interactive panel (Phase 2) ────────────────────────────────────────

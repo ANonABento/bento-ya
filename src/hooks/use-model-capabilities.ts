@@ -7,11 +7,13 @@
 import { useCallback, useMemo } from 'react'
 import { useModels, type ModelEntry } from './use-models'
 
-export type ModelId = 'opus' | 'sonnet' | 'haiku'
+export type ModelId = string
 
 /** Legacy capability shape used by model-selector and chat-input */
 export type ModelCapability = {
   id: string
+  fullId?: string
+  aliases?: string[]
   name: string
   description: string
   supportsExtendedContext: boolean
@@ -41,6 +43,8 @@ function toCapability(entry: ModelEntry): ModelCapability {
 
   return {
     id: entry.alias ?? entry.id,
+    fullId: entry.id,
+    aliases: entry.alias ? [entry.alias] : [],
     name: entry.displayName,
     description,
     supportsExtendedContext: entry.supportsExtendedContext,
@@ -52,6 +56,8 @@ function toCapability(entry: ModelEntry): ModelCapability {
 
 const FALLBACK: ModelCapability = {
   id: 'sonnet',
+  fullId: 'claude-sonnet-4-6-20260217',
+  aliases: ['sonnet'],
   name: 'Sonnet',
   description: 'Fast & capable',
   supportsExtendedContext: false,
@@ -70,7 +76,7 @@ export function useModelCapabilities(
 
   const getCapabilities = useCallback(
     (modelId: string): ModelCapability =>
-      models.find((m) => m.id === modelId) ?? FALLBACK,
+      models.find((m) => m.id === modelId || m.fullId === modelId || m.aliases?.includes(modelId)) ?? FALLBACK,
     [models],
   )
 

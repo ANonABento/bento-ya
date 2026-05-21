@@ -23,8 +23,18 @@ vi.mock('@/lib/ipc', () => ({
 }))
 
 vi.mock('./terminal-view', () => ({
-  TerminalView: ({ taskId }: { taskId: string }) => (
-    <div data-testid="terminal-view" data-task-id={taskId} />
+  TerminalView: ({
+    taskId,
+    allowSpawn,
+  }: {
+    taskId: string
+    allowSpawn?: boolean
+  }) => (
+    <div
+      data-testid="terminal-view"
+      data-task-id={taskId}
+      data-allow-spawn={String(!!allowSpawn)}
+    />
   ),
 }))
 
@@ -50,6 +60,7 @@ describe('InteractiveAgentView', () => {
     expect(screen.getByTestId('interactive-agent-control-bar')).toBeInTheDocument()
     expect(screen.getByTestId('interactive-agent-status')).toBeInTheDocument()
     expect(screen.getByTestId('terminal-view').getAttribute('data-task-id')).toBe('task-1')
+    expect(screen.getByTestId('terminal-view')).toHaveAttribute('data-allow-spawn', 'true')
   })
 
   it('Interrupt button calls agentInterrupt', async () => {
@@ -104,6 +115,7 @@ describe('InteractiveAgentView', () => {
       />,
     )
     expect(screen.getByTestId('interactive-agent-status')).toHaveTextContent(/Stopped/)
+    expect(screen.getByTestId('terminal-view')).toHaveAttribute('data-allow-spawn', 'false')
   })
 
   // ─── Phase 5: pause / resume ────────────────────────────────────────
@@ -163,14 +175,27 @@ describe('InteractiveAgentView', () => {
       <InteractiveAgentView
         taskId="task-1"
         workingDir="/tmp"
-        agentStatus="completed"
+        agentStatus="idle"
       />,
     )
-    // Force "stopped" status so the dropdown is enabled (modelLocked = status === 'running').
     const select = screen.getByTestId('interactive-agent-model')
     fireEvent.change(select, { target: { value: 'sonnet' } })
     await waitFor(() => {
       expect(interactiveMocks.agentSwitchModel).toHaveBeenCalledWith('task-1', 'sonnet')
     })
+  })
+
+  it('disables live controls when the agent is stopped', () => {
+    render(
+      <InteractiveAgentView
+        taskId="task-1"
+        workingDir="/tmp"
+        agentStatus="completed"
+      />,
+    )
+
+    expect(screen.getByTestId('interactive-agent-model')).toBeDisabled()
+    expect(screen.getByTestId('interactive-agent-pause')).toBeDisabled()
+    expect(screen.getByTestId('interactive-agent-interrupt')).toBeDisabled()
   })
 })

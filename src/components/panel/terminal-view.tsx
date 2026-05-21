@@ -1,6 +1,6 @@
 /**
  * Terminal View — Embedded xterm.js terminal backed by a lazy PTY session.
- * On mount: ensures a PTY session exists (bare shell in working dir).
+ * On mount: attaches to a PTY session, optionally spawning a bare shell.
  * Listens for pty:{taskId}:output events and renders raw terminal output.
  * Sends user input via write_to_pty, resizes via resize_pty.
  */
@@ -23,14 +23,16 @@ import { useSettingsStore } from '@/stores/settings-store'
 type TerminalViewProps = {
   taskId: string
   workingDir: string
+  allowSpawn?: boolean
 }
 
-export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
+export function TerminalView({ taskId, workingDir, allowSpawn = true }: TerminalViewProps) {
   const terminalHostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const shouldStickToBottomRef = useRef(true)
   const [hasOutput, setHasOutput] = useState(false)
+  const [missingSession, setMissingSession] = useState(false)
   const terminalSettings = useSettingsStore((s) => s.global.terminal)
   const fontSize = sanitizeNumber(terminalSettings.fontSize, 12, 10, 24)
   const lineHeight = lineHeightRatio(terminalSettings.lineHeight, fontSize)
@@ -42,6 +44,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
 
     // Reset empty-state flag when (re)mounting for a new task
     setHasOutput(false)
+    setMissingSession(false)
 
     let disposed = false
 
@@ -99,6 +102,9 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
       if (disposed) return
       try {
         fitAddon.fit()
+        if (term.rows > 0) {
+          term.refresh(0, term.rows - 1)
+        }
         if (term.cols > 0 && term.rows > 0) {
           void resizePty(taskId, term.cols, term.rows)
         }
@@ -109,7 +115,14 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
 
     const scheduleFit = (delay = 0) => {
       const run = () => {
-        requestAnimationFrame(() => {
+        if (disposed) return
+        const requestFrame = Reflect.get(window, 'requestAnimationFrame') as
+          | ((callback: FrameRequestCallback) => number)
+          | undefined
+        const raf = requestFrame ?? ((callback: FrameRequestCallback) => {
+          return window.setTimeout(() => { callback(performance.now()) }, 0)
+        })
+        raf(() => {
           if (!disposed) fitAndResize()
         })
       }
@@ -192,7 +205,8 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
           // Ensure minimum sensible dimensions
           const cols = Math.max(term.cols, 80)
           const rows = Math.max(term.rows, 24)
-          ensurePtySession(taskId, workingDir, cols, rows)
+          void resizePty(taskId, cols, rows)
+          ensurePtySession(taskId, workingDir, cols, rows, allowSpawn)
             .then((info) => {
               // Re-check `disposed` AFTER the await: a fast task-switch can
               // tear down this effect while ensure_pty_session is in flight.
@@ -201,6 +215,9 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
               // by the user as stale content during a brief window before
               // the new task's effect starts.
               if (disposed) { resolve(); return }
+              if (info.status === 'Missing') {
+                setMissingSession(true)
+              }
               // Restore cached scrollback from previous session
               if (info.scrollback) {
                 try {
@@ -219,8 +236,12 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
             })
             .catch((err: unknown) => {
               if (!disposed) {
-                const msg = err instanceof Error ? err.message : String(err)
-                term.write(`\x1b[31mFailed to start terminal: ${msg}\x1b[0m\r\n`)
+                if (allowSpawn) {
+                  const msg = err instanceof Error ? err.message : String(err)
+                  term.write(`\x1b[31mFailed to start terminal: ${msg}\x1b[0m\r\n`)
+                } else {
+                  setMissingSession(true)
+                }
               }
               resolve()
             })
@@ -231,8 +252,29 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
     // Observe container resize
     const resizeObserver = new ResizeObserver(() => {
       scheduleFit()
+      scheduleFit(120)
+      scheduleFit(320)
     })
     resizeObserver.observe(container)
+    let parent: HTMLElement | null = container.parentElement
+    while (parent) {
+      resizeObserver.observe(parent)
+      parent = parent.parentElement
+    }
+
+    const handleWindowResize = () => {
+      scheduleFit()
+      scheduleFit(150)
+    }
+    window.addEventListener('resize', handleWindowResize)
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        scheduleFit()
+        scheduleFit(150)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     // Theme observer — react to data-theme changes on <html>
     const themeObserver = new MutationObserver(() => {
@@ -252,6 +294,8 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
       binaryDisposable.dispose()
       viewport?.removeEventListener('scroll', syncStickToBottom)
       viewport?.removeEventListener('wheel', handleViewportWheel)
+      window.removeEventListener('resize', handleWindowResize)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       resizeObserver.disconnect()
       themeObserver.disconnect()
       void Promise.all(listenerPromises).then((unlisteners) => {
@@ -261,7 +305,7 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
       if (termRef.current === term) termRef.current = null
       if (fitAddonRef.current === fitAddon) fitAddonRef.current = null
     }
-  }, [fontSize, lineHeight, scrollback, taskId, workingDir])
+  }, [allowSpawn, fontSize, lineHeight, scrollback, taskId, workingDir])
 
   return (
     <div
@@ -278,8 +322,10 @@ export function TerminalView({ taskId, workingDir }: TerminalViewProps) {
           <div className="pointer-events-auto max-w-sm">
             <EmptyState
               size="md"
-              title="Spawning terminal"
-              description="A shell is starting in this task's tmux session. Output will appear here as soon as it's ready."
+              title={missingSession ? 'No live terminal session' : 'Spawning terminal'}
+              description={missingSession
+                ? 'This task does not currently have a running terminal. Start or resume the agent from Activity to create one.'
+                : "A shell is starting in this task's tmux session. Output will appear here as soon as it's ready."}
               icon={
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-full w-full">
                   <path d="M4 6h16M4 6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2M6 11l3 3-3 3M12 17h6" strokeLinecap="round" strokeLinejoin="round" />

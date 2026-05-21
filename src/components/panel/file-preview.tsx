@@ -3,11 +3,12 @@ import ReactMarkdown from 'react-markdown'
 import { readFileContent, type FileEntry } from '@/lib/ipc'
 
 type FilePreviewProps = {
+  workspaceId: string
   file: FileEntry
   onClose: () => void
 }
 
-export function FilePreview({ file, onClose }: FilePreviewProps) {
+export function FilePreview({ workspaceId, file, onClose }: FilePreviewProps) {
   const [content, setContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -19,7 +20,7 @@ export function FilePreview({ file, onClose }: FilePreviewProps) {
       try {
         setLoading(true)
         setError(null)
-        const text = await readFileContent(file.path)
+        const text = await readFileContent(workspaceId, file.path)
         if (!cancelled) {
           setContent(text)
         }
@@ -40,7 +41,7 @@ export function FilePreview({ file, onClose }: FilePreviewProps) {
     return () => {
       cancelled = true
     }
-  }, [file.path])
+  }, [workspaceId, file.path])
 
   return (
     <div className="flex flex-col h-full">

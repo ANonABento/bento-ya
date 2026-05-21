@@ -964,6 +964,45 @@ fn emit_semantic_events_from_provider_json_delta(
     let mut emitted = false;
     for line in delta.lines().filter(|line| !line.trim().is_empty()) {
         for event in runtime_events_from_provider_json_line(adapter, line) {
+            if let Some(session_id) = session_id {
+                match &event {
+                    AgentRuntimeEvent::SessionStarted {
+                        provider_session_id,
+                        model,
+                        ..
+                    } => {
+                        if let Ok(conn) = Connection::open(db::db_path()) {
+                            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                            let _ = db::update_agent_session_runtime(
+                                &conn,
+                                session_id,
+                                Some(adapter_kind_db_key(adapter)),
+                                None,
+                                provider_session_id.as_deref().map(Some),
+                                None,
+                            );
+                            let _ = db::update_agent_session_model(
+                                &conn,
+                                session_id,
+                                model.as_deref(),
+                                None,
+                            );
+                        }
+                    }
+                    AgentRuntimeEvent::AgentStarted { model, .. } if model.is_some() => {
+                        if let Ok(conn) = Connection::open(db::db_path()) {
+                            let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                            let _ = db::update_agent_session_model(
+                                &conn,
+                                session_id,
+                                model.as_deref(),
+                                None,
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
             if matches!(
                 event,
                 AgentRuntimeEvent::AgentCompleted { .. }
@@ -1002,6 +1041,20 @@ fn tail_bytes(s: &str, n: usize) -> String {
         i += 1;
     }
     s[i..].to_string()
+}
+
+fn short_commit_hash(hash: &str) -> String {
+    hash.chars().take(7).collect()
+}
+
+fn adapter_kind_db_key(adapter: AgentAdapterKind) -> &'static str {
+    match adapter {
+        AgentAdapterKind::ClaudeCli => "claude_cli",
+        AgentAdapterKind::CodexCli => "codex_cli",
+        AgentAdapterKind::GenericCli => "generic_cli",
+        AgentAdapterKind::Api => "api",
+        AgentAdapterKind::Remote => "remote",
+    }
 }
 
 /// Truncate the log to the trailing SCROLLBACK_MAX_BYTES on a char boundary.
@@ -1248,6 +1301,14 @@ pub fn spawn_cli_trigger_task(
                         None,
                         Some(Some(&tmux_name)),
                     );
+                    let _ = db::update_agent_session_model(
+                        &conn,
+                        &session.id,
+                        task_snapshot
+                            .as_ref()
+                            .and_then(|task| task.model.as_deref()),
+                        None,
+                    );
                     let _ = db::update_task_agent_status(&conn, &task_id, Some("running"), None);
                     let ts = db::now();
                     let _ = conn.execute(
@@ -1289,6 +1350,7 @@ pub fn spawn_cli_trigger_task(
                     };
                     let metadata = serde_json::json!({
                         "cli": cli_command,
+                        "model": task_snapshot.as_ref().and_then(|task| task.model.as_deref()),
                         "workdir": working_dir,
                         "persistentLifecycle": persistent_lifecycle,
                         "resumeAvailable": resume_id.is_some(),
@@ -1840,6 +1902,7 @@ async fn run_trigger_in_tmux(
         (false, false, None) => 1,
     };
     let mut success = effective_exit == 0;
+    let mut auto_commit_hash: Option<String> = None;
 
     // Auto-commit safety net: an agent can exit 0 yet leave its work
     // uncommitted in the worktree — typically because its sandbox blocks
@@ -1861,13 +1924,33 @@ async fn run_trigger_in_tmux(
                                 task_id
                             );
                             match branch_manager::auto_commit_dirty_worktree(worktree_path, &msg) {
-                                Ok(true) => {
+                                Ok(Some(hash)) => {
                                     eprintln!(
-                                        "[bridge] auto-committed dirty worktree for task {} (agent exit 0 but didn't commit)",
-                                        task_id
+                                        "[bridge] auto-committed dirty worktree for task {} at {} (agent exit 0 but didn't commit)",
+                                        task_id, hash
                                     );
+                                    let message = format!(
+                                        "Auto-committed dirty worktree at {}",
+                                        short_commit_hash(&hash)
+                                    );
+                                    let _ = crate::events::persist_and_emit_agent_transcript_event(
+                                        app,
+                                        task_id,
+                                        session_id,
+                                        db::EVENT_COMMAND_OUTPUT,
+                                        Some(&message),
+                                        Some(
+                                            &serde_json::json!({
+                                                "source": "auto_commit",
+                                                "command": "git commit",
+                                                "commit": hash,
+                                            })
+                                            .to_string(),
+                                        ),
+                                    );
+                                    auto_commit_hash = Some(hash);
                                 }
-                                Ok(false) => {
+                                Ok(None) => {
                                     // Dirty was all gitignored — fine, no rescue needed.
                                 }
                                 Err(e) => {
@@ -1914,6 +1997,7 @@ async fn run_trigger_in_tmux(
     let completion_metadata = serde_json::json!({
         "exitCode": effective_exit,
         "timedOut": timed_out,
+        "autoCommitHash": auto_commit_hash,
     })
     .to_string();
     let _ = crate::events::persist_and_emit_agent_transcript_event(

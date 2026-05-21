@@ -156,8 +156,21 @@ vi.mock('./shared', () => ({
 }))
 
 vi.mock('./terminal-view', () => ({
-  TerminalView: ({ taskId, workingDir }: { taskId: string; workingDir: string }) => (
-    <div data-testid="terminal-view" data-task-id={taskId} data-working-dir={workingDir} />
+  TerminalView: ({
+    taskId,
+    workingDir,
+    allowSpawn,
+  }: {
+    taskId: string
+    workingDir: string
+    allowSpawn?: boolean
+  }) => (
+    <div
+      data-testid="terminal-view"
+      data-task-id={taskId}
+      data-working-dir={workingDir}
+      data-allow-spawn={String(!!allowSpawn)}
+    />
   ),
 }))
 
@@ -251,13 +264,22 @@ describe('AgentPanel session controls', () => {
   })
 
   it('switches to the raw terminal tab without losing task session wiring', () => {
-    renderPanel({ worktreePath: '/tmp/worktree' })
+    renderPanel({ agentStatus: 'running', worktreePath: '/tmp/worktree' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
 
     const terminal = screen.getByTestId('terminal-view')
     expect(terminal).toHaveAttribute('data-task-id', 't1')
     expect(terminal).toHaveAttribute('data-working-dir', '/tmp/worktree')
+    expect(terminal).toHaveAttribute('data-allow-spawn', 'true')
+  })
+
+  it('does not spawn a terminal session for stopped tasks', () => {
+    renderPanel({ agentStatus: 'completed', worktreePath: '/tmp/worktree' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
+
+    expect(screen.getByTestId('terminal-view')).toHaveAttribute('data-allow-spawn', 'false')
   })
 
   it('shows Activity, Terminal, and Changes tabs in headless mode without tab badges', () => {
