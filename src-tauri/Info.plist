@@ -4,7 +4,5 @@
 <dict>
     <key>NSMicrophoneUsageDescription</key>
     <string>KaitenCode needs microphone access for voice input transcription.</string>
-    <key>NSCameraUsageDescription</key>
-    <string>KaitenCode may use camera for future features.</string>
 </dict>
 </plist>

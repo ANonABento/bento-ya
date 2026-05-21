@@ -1,6 +1,5 @@
 [env]
-# Required for whisper-rs and ggml which use C++17 std::filesystem
+# Required for macOS packaging and native dependencies that respect the
+# deployment target. Do not set CFLAGS/CXXFLAGS globally here: Linux builds
+# will pass those flags into cc-rs build scripts and fail.
 MACOSX_DEPLOYMENT_TARGET = "10.15"
-# Pass to C++ compiler for cmake builds
-CXXFLAGS = "-mmacosx-version-min=10.15"
-CFLAGS = "-mmacosx-version-min=10.15"
