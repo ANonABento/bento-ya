@@ -198,7 +198,8 @@ export function NotificationSection({
             type="button"
             onClick={() => void handleMarkNotified()}
             disabled={isLoading || stakeholderList.length === 0}
-            className="w-full rounded bg-surface-hover py-1.5 text-xs font-medium text-text-primary hover:bg-border-default disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ cursor: isLoading || stakeholderList.length === 0 ? 'not-allowed' : undefined }}
+            className="w-full rounded bg-surface-hover py-1.5 text-xs font-medium text-text-primary hover:bg-border-default disabled:opacity-50"
           >
             {stakeholderList.length === 0
               ? 'Add stakeholders to notify'

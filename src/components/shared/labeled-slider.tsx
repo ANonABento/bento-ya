@@ -59,7 +59,8 @@ export function LabeledSlider<T extends string>({
       <div
         ref={trackRef}
         onMouseDown={handleMouseDown}
-        className="relative h-2 cursor-pointer rounded-full bg-surface"
+        className="relative h-2 rounded-full bg-surface"
+        style={{ cursor: 'pointer' }}
       >
         {/* Fill */}
         <div

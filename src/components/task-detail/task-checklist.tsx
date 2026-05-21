@@ -211,7 +211,8 @@ export function TaskChecklist({ task, onUpdate, repoPath }: TaskChecklistProps) 
             ) : (
               <span
                 onClick={() => { handleStartEdit(item) }}
-                className={`flex-1 text-xs leading-relaxed cursor-text ${
+                style={{ cursor: 'text' }}
+                className={`flex-1 text-xs leading-relaxed ${
                   item.checked ? 'text-text-secondary line-through' : 'text-text-primary'
                 }`}
               >

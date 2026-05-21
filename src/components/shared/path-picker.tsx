@@ -1,15 +1,17 @@
 import { useCallback } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useNativeInput } from '@/hooks/use-native-input'
+import { getErrorMessage } from '@/lib/errors'
 
 type PathPickerProps = {
   value: string
   onChange: (path: string) => void
+  onError?: (message: string) => void
   readOnly?: boolean
   placeholder?: string
 }
 
-export function PathPicker({ value, onChange, readOnly, placeholder = '/path/to/repo' }: PathPickerProps) {
+export function PathPicker({ value, onChange, onError, readOnly, placeholder = '/path/to/repo' }: PathPickerProps) {
   const { ref, handleChange } = useNativeInput(onChange)
 
   const handleBrowse = useCallback(async () => {
@@ -18,10 +20,10 @@ export function PathPicker({ value, onChange, readOnly, placeholder = '/path/to/
       if (selected) {
         onChange(selected)
       }
-    } catch {
-      // User cancelled or dialog error — ignore
+    } catch (err) {
+      onError?.(`Could not open folder picker: ${getErrorMessage(err)}`)
     }
-  }, [onChange])
+  }, [onChange, onError])
 
   return (
     <div className="flex gap-2">
@@ -38,6 +40,7 @@ export function PathPicker({ value, onChange, readOnly, placeholder = '/path/to/
       <button
         type="button"
         onClick={() => { void handleBrowse() }}
+        style={{ cursor: 'pointer' }}
         className="shrink-0 rounded-lg border border-border-default bg-bg px-3 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover"
       >
         Browse

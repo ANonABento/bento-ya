@@ -124,7 +124,8 @@ export function Dropdown({
           isOpen
             ? 'border-accent ring-2 ring-accent/20'
             : 'border-border-default hover:border-accent/50'
-        } ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+        } ${disabled ? 'opacity-50' : ''}`}
+        style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
       >
         <span className={selected ? 'text-text-primary' : 'text-text-secondary/50'}>
           {selected?.label ?? placeholder}

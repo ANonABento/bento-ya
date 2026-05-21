@@ -8,6 +8,7 @@ import {
   listWhisperModels,
   downloadWhisperModel,
   deleteWhisperModel,
+  isVoiceAvailable,
   onWhisperDownloadProgress,
   onWhisperDownloadComplete,
   type WhisperModelInfo,
@@ -134,6 +135,7 @@ export function VoiceTab() {
   const [downloadingModel, setDownloadingModel] = useState<string | null>(null)
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
+  const [voiceAvailable, setVoiceAvailable] = useState<boolean | null>(null)
 
   const updateVoice = (updates: Partial<VoiceConfig>) => {
     updateGlobal('voice', { ...voice, ...updates })
@@ -152,6 +154,9 @@ export function VoiceTab() {
   }, [])
 
   useEffect(() => {
+    isVoiceAvailable()
+      .then(setVoiceAvailable)
+      .catch(() => { setVoiceAvailable(false) })
     void loadModels()
   }, [loadModels])
 
@@ -205,17 +210,24 @@ export function VoiceTab() {
   }
 
   const hasDownloadedModel = models.some((m) => m.status === 'downloaded')
+  const voiceUnavailable = voiceAvailable === false
 
   return (
     <div className="space-y-6">
       <SettingSection title="Voice Input">
+        {voiceUnavailable && (
+          <p className="mb-3 rounded bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300">
+            Voice input is not included in this build.
+          </p>
+        )}
         <SettingRow
           label="Enable voice input"
           description="Use local Whisper for speech-to-text (no API key needed)"
         >
           <Toggle
             checked={voice.enabled}
-            onChange={(checked) => { updateVoice({ enabled: checked }) }}
+            onChange={(checked) => { updateVoice({ enabled: voiceUnavailable ? false : checked }) }}
+            disabled={voiceUnavailable}
             aria-label="Enable voice input"
           />
         </SettingRow>
@@ -243,7 +255,7 @@ export function VoiceTab() {
                 model={model}
                 isSelected={voice.model === model.model}
                 onSelect={() => { updateVoice({ model: model.model as WhisperModelId }) }}
-                disabled={!voice.enabled || downloadingModel !== null}
+                disabled={voiceUnavailable || !voice.enabled || downloadingModel !== null}
                 onDownload={() => void handleDownload(model.model)}
                 onDelete={() => void handleDelete(model.model)}
                 downloadProgress={downloadProgress[model.model] ?? null}
@@ -259,7 +271,7 @@ export function VoiceTab() {
           options={LANGUAGES}
           value={voice.language}
           onChange={(value) => { updateVoice({ language: value }); }}
-          disabled={!voice.enabled}
+          disabled={voiceUnavailable || !voice.enabled}
         />
       </SettingSection>
 
@@ -268,7 +280,7 @@ export function VoiceTab() {
           value={voice.hotkey}
           onChange={(value) => { updateVoice({ hotkey: value }) }}
           placeholder="Click to record shortcut"
-          disabled={!voice.enabled}
+          disabled={voiceUnavailable || !voice.enabled}
         />
       </SettingSection>
 
@@ -280,7 +292,7 @@ export function VoiceTab() {
           <Toggle
             checked={voice.pushToTalk}
             onChange={(checked) => { updateVoice({ pushToTalk: checked }); }}
-            disabled={!voice.enabled}
+            disabled={voiceUnavailable || !voice.enabled}
             aria-label="Push-to-talk"
           />
         </SettingRow>
@@ -296,7 +308,7 @@ export function VoiceTab() {
           min={0}
           max={1}
           step={0.1}
-          disabled={!voice.enabled}
+          disabled={voiceUnavailable || !voice.enabled}
           formatValue={(v) => `${String(Math.round(v * 100))}%`}
         />
       </SettingSection>

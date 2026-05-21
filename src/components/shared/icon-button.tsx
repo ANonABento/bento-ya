@@ -42,7 +42,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         onClick={onClick}
         disabled={disabled}
         aria-label={tooltip}
-        className={`flex items-center justify-center rounded transition-colors ${sizeClasses[size]} ${variantClasses[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
+        style={{ cursor: disabled ? 'not-allowed' : undefined }}
+        className={`flex items-center justify-center rounded transition-colors ${sizeClasses[size]} ${variantClasses[variant]} ${disabled ? 'opacity-50' : ''} ${className}`}
       >
         {icon}
       </button>

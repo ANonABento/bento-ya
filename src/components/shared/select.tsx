@@ -18,7 +18,8 @@ export function Select({ options, value, onChange, disabled, className = '', ...
         value={value}
         onChange={(e) => { onChange(e.target.value); }}
         disabled={disabled}
-        className={`w-full appearance-none rounded-lg border border-border-default bg-surface px-3 py-2 pr-10 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
+        style={{ cursor: disabled ? 'not-allowed' : undefined }}
+        className={`w-full appearance-none rounded-lg border border-border-default bg-surface px-3 py-2 pr-10 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50 ${className}`}
         {...props}
       >
         {options.map((option) => (

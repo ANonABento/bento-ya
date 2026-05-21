@@ -42,7 +42,7 @@ export function QueuedBanner({
 
   return (
     <Tooltip content={tooltipText} side="top" wrap delay={200}>
-      <div role="status" className="flex items-center gap-1.5 rounded bg-warning/10 px-2 py-1 text-[11px] text-warning cursor-default">
+      <div role="status" style={{ cursor: 'default' }} className="flex items-center gap-1.5 rounded bg-warning/10 px-2 py-1 text-[11px] text-warning">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0" aria-hidden="true">
           <path fillRule="evenodd" d="M1 8a7 7 0 1 1 14 0A7 7 0 0 1 1 8Zm7.75-4.25a.75.75 0 0 0-1.5 0V8c0 .414.336.75.75.75h3.25a.75.75 0 0 0 0-1.5h-2.5V3.75Z" clipRule="evenodd" />
         </svg>
@@ -122,7 +122,7 @@ export function PipelineErrorBanner({
           <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm.75-8.25a.75.75 0 0 0-1.5 0v3.5a.75.75 0 0 0 1.5 0v-3.5ZM8 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
         </svg>
         <Tooltip content={rawError || parsed.friendlyMessage} side="top" wrap delay={400}>
-          <span className="truncate flex-1 cursor-default">
+          <span style={{ cursor: 'default' }} className="truncate flex-1">
             {parsed.friendlyMessage}
             {task.retryCount > 0 && ` (${String(task.retryCount)} retries)`}
           </span>
@@ -164,7 +164,10 @@ export function PipelineErrorBanner({
           </ul>
           {rawError && (
             <details className="mt-1">
-              <summary className="cursor-pointer text-error/50 hover:text-error/70 transition-colors">
+              <summary
+                className="text-error/50 transition-colors hover:text-error/70"
+                style={{ cursor: 'pointer' }}
+              >
                 Raw error
               </summary>
               <p className="mt-1 break-all text-error/50 font-mono text-[10px] leading-relaxed">

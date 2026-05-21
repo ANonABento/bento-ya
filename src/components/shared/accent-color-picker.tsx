@@ -69,7 +69,8 @@ export function AccentColorPicker({ value, onChange }: AccentColorPickerProps) {
           type="color"
           value={value}
           onChange={(e) => { onChange(e.target.value); }}
-          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          className="absolute inset-0 h-full w-full opacity-0"
+          style={{ cursor: 'pointer' }}
         />
       </button>
     </div>

@@ -97,7 +97,8 @@ export function TemplatesTab() {
           >
             <div className="flex items-start justify-between">
               <div
-                className="flex-1 cursor-pointer"
+                className="flex-1"
+                style={{ cursor: 'pointer' }}
                 onClick={() => { setSelectedTemplate(selectedTemplate?.id === template.id ? null : template); }}
               >
                 <div className="flex items-center gap-2">

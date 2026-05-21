@@ -7,16 +7,18 @@ import { SettingSection, SettingRow, SettingInput, SettingSlider } from '@/compo
 import { Dropdown } from '@/components/shared/dropdown'
 import { getModelBudgetKey } from '@/lib/usage-budget'
 
-const PROVIDER_INFO: Record<string, { name: string; description: string; cliId: string }> = {
+const PROVIDER_INFO: Record<string, { name: string; description: string; cliId: string; supportsApi: boolean }> = {
   anthropic: {
     name: 'Anthropic',
-    description: 'Claude models via CLI or API',
+    description: 'Claude models via CLI or ANTHROPIC_API_KEY',
     cliId: 'claude',
+    supportsApi: true,
   },
   openai: {
     name: 'OpenAI',
-    description: 'Codex models via CLI or API',
+    description: 'Codex models via CLI',
     cliId: 'codex',
+    supportsApi: false,
   },
 }
 
@@ -136,9 +138,10 @@ export function AgentTab() {
     // Set mode first
     updateProvider(providerId, { connectionMode: 'cli' })
 
-    // Check if we already have a path set
+    // Keep manually-entered absolute/custom paths, but verify default binary
+    // names such as "claude" or "codex" instead of treating them as detected.
     const provider = model.providers.find((p) => p.id === providerId)
-    if (provider?.cliPath) return
+    if (provider?.cliPath && provider.cliPath !== cliId) return
 
     // Check if already detected
     if (detectedClis[cliId]?.isAvailable) {
@@ -153,6 +156,8 @@ export function AgentTab() {
       setDetectedClis((prev) => ({ ...prev, [cliId]: detected }))
       if (detected.isAvailable) {
         updateProvider(providerId, { cliPath: detected.path })
+      } else {
+        updateProvider(providerId, { cliPath: undefined })
       }
     } catch (err) {
       console.error('Failed to detect CLI:', err)
@@ -185,7 +190,7 @@ export function AgentTab() {
       {/* ── 1. PROVIDERS ─────────────────────────────────────── */}
       <SettingSection
         title="Providers"
-        description="Connect AI providers via their CLI (recommended for auth) or direct API key."
+        description="Connect AI providers via their CLI. Direct API mode is available for Anthropic when ANTHROPIC_API_KEY is set in the app environment."
       >
         <div className="mb-3 flex items-center justify-between gap-3">
           <span className="text-xs text-text-secondary">
@@ -250,6 +255,15 @@ export function AgentTab() {
             const isExpanded = expanded[provider.id] && provider.enabled
             const providerModels = allModels.filter((m) => m.provider === provider.id)
             const providerModelCount = providerModels.length
+            const cliId = info.cliId
+            const supportsApi = info.supportsApi
+            const connectionMode = supportsApi ? provider.connectionMode : 'cli'
+            const detectedCli = detectedClis[cliId]
+            const isDetectedCli = Boolean(
+              provider.cliPath &&
+              detectedCli?.isAvailable &&
+              detectedCli.path === provider.cliPath,
+            )
 
             return (
               <div
@@ -327,7 +341,7 @@ export function AgentTab() {
                           onClick={() => { void handleCliModeSelect(provider.id) }}
                           disabled={detecting[provider.id]}
                           className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
-                            provider.connectionMode === 'cli'
+                            connectionMode === 'cli'
                               ? 'border-accent bg-accent/10 text-text-primary'
                               : 'border-border-default text-text-secondary hover:border-accent/50'
                           } disabled:opacity-50`}
@@ -345,35 +359,43 @@ export function AgentTab() {
                           )}
                         </button>
                         <button
-                          onClick={() => { updateProvider(provider.id, { connectionMode: 'api' }) }}
+                          onClick={() => {
+                            if (supportsApi) updateProvider(provider.id, { connectionMode: 'api' })
+                          }}
+                          disabled={!supportsApi}
                           className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
-                            provider.connectionMode === 'api'
+                            connectionMode === 'api'
                               ? 'border-accent bg-accent/10 text-text-primary'
                               : 'border-border-default text-text-secondary hover:border-accent/50'
-                          }`}
+                          } disabled:opacity-40 disabled:hover:border-border-default`}
                         >
-                          API
+                          {supportsApi ? 'API' : 'API unavailable'}
                         </button>
                       </div>
                       <p className="mt-1.5 text-[11px] text-text-secondary/80">
-                        {provider.connectionMode === 'cli'
+                        {connectionMode === 'cli'
                           ? 'Uses the installed CLI (auth and billing handled by the CLI).'
-                          : 'Direct API key. Requests bill to your provider account.'}
+                          : supportsApi
+                            ? `Uses ${provider.apiKeyEnvVar} from the app environment. Requests bill to your provider account.`
+                            : 'Direct API streaming is not wired for this provider yet; use the CLI connection.'}
                       </p>
                     </div>
 
                     {/* CLI Path */}
-                    {provider.connectionMode === 'cli' && (
+                    {connectionMode === 'cli' && (
                       <div>
                         <label className="mb-1.5 flex items-center gap-2 text-xs font-medium text-text-secondary">
                           CLI Path
-                          {provider.cliPath && (
+                          {isDetectedCli && (
                             <span className="flex items-center gap-1 text-green-500">
                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
                                 <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
                               </svg>
                               Auto-detected
                             </span>
+                          )}
+                          {provider.cliPath && !isDetectedCli && (
+                            <span className="text-text-secondary/80">Configured manually</span>
                           )}
                         </label>
                         <SettingInput
@@ -436,21 +458,14 @@ export function AgentTab() {
                     )}
 
                     {/* API Key */}
-                    {provider.connectionMode === 'api' && (
+                    {connectionMode === 'api' && supportsApi && (
                       <div>
                         <label className="mb-1.5 block text-xs font-medium text-text-secondary">
-                          API Key <span className="text-text-secondary/60">(env var: {provider.apiKeyEnvVar})</span>
+                          API Key Source
                         </label>
-                        <SettingInput
-                          value={agent.envVars[provider.apiKeyEnvVar] ?? ''}
-                          onChange={(value) => {
-                            updateAgent({
-                              envVars: { ...agent.envVars, [provider.apiKeyEnvVar]: value },
-                            })
-                          }}
-                          placeholder="sk-..."
-                          type="password"
-                        />
+                        <div className="rounded border border-border bg-bg-tertiary px-3 py-2 font-mono text-xs text-text-secondary">
+                          Environment variable required: {provider.apiKeyEnvVar}
+                        </div>
                       </div>
                     )}
 

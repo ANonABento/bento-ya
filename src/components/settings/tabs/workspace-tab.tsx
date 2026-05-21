@@ -160,6 +160,7 @@ export function WorkspaceTab() {
                 <PathPicker
                   value={workspace.repoPath}
                   onChange={(path) => { void handleRepoPathChange(path) }}
+                  onError={(text) => { setMessage({ type: 'error', text }) }}
                   readOnly
                 />
               </div>
@@ -413,7 +414,8 @@ export function WorkspaceTab() {
                 <button
                   onClick={() => { void handleDeleteWorkspace() }}
                   disabled={isDeleting || confirmName !== workspace.name}
-                  className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  style={{ cursor: isDeleting || confirmName !== workspace.name ? 'not-allowed' : undefined }}
+                  className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-40"
                 >
                   {isDeleting ? 'Deleting...' : 'Delete permanently'}
                 </button>

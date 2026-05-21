@@ -474,7 +474,7 @@ export const TaskCard = memo(function TaskCard({
         }
       }}
       tabIndex={0}
-      className={`group relative overflow-hidden rounded-lg border bg-surface/95 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+      className={`group relative shrink-0 overflow-hidden rounded-lg border bg-surface/95 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
         isSelected ? 'border-accent ring-2 ring-accent/40 z-20' :
         isConnectedToHovered ? 'border-amber-400 ring-1 ring-amber-400/50 z-10' :
         isHovered ? 'border-accent ring-1 ring-accent/50 z-10' :
