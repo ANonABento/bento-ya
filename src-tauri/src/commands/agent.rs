@@ -946,6 +946,16 @@ fn auto_commit_completed_worktree(
     session_id: Option<&str>,
     worktree_path: &str,
 ) -> Result<Option<String>, String> {
+    // SAFETY: only auto-commit when the path is an actual git worktree
+    // (where `.git` is a file containing `gitdir: …`), not the user's
+    // primary checkout. A task without worktree_path runs in the workspace
+    // repo root; staging+committing there would mix the user's WIP with
+    // agent output on whatever branch HEAD currently points at.
+    let git_marker = std::path::Path::new(worktree_path).join(".git");
+    if !git_marker.is_file() {
+        return Ok(None);
+    }
+
     if !crate::git::branch_manager::worktree_is_dirty(worktree_path)? {
         return Ok(None);
     }
