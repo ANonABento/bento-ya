@@ -4,19 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>KaitenCode</title>
-    <script>
-      // Apply theme immediately to prevent flash
-      (function() {
-        const stored = localStorage.getItem('bento-theme-preference');
-        let theme = 'dark';
-        if (stored === 'light') {
-          theme = 'light';
-        } else if (stored === 'system' || !stored) {
-          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        }
-        document.documentElement.dataset.theme = theme;
-      })();
-    </script>
+    <!-- Theme preload lives in /public so the bundled-app CSP
+         (script-src 'self') can serve it without an unsafe-inline relax. -->
+    <script src="/theme-preload.js"></script>
     <style>
       /* Minimal reset - only what's needed before React loads */
       html, body, #root { margin: 0; padding: 0; height: 100%; }
