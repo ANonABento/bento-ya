@@ -27,8 +27,9 @@ export async function ensurePtySession(
   workingDir: string,
   cols: number,
   rows: number,
+  allowSpawn = true,
 ): Promise<{ taskId: string; pid: number | null; status: string; scrollback?: string }> {
-  return invoke('ensure_pty_session', { taskId, workingDir, cols, rows })
+  return invoke('ensure_pty_session', { taskId, workingDir, cols, rows, allowSpawn })
 }
 
 export type TransportType = 'pipe' | 'pty'

@@ -21,22 +21,31 @@ export function useSettingsSync() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSavedRef = useRef<string | null>(null)
+  const loadedWorkspaceRef = useRef<string | null>(null)
 
   // Load workspace settings from backend when workspace changes
   useEffect(() => {
     if (!activeWorkspaceId) return
+    loadedWorkspaceRef.current = null
+    lastSavedRef.current = null
 
     const loadSettings = async () => {
       try {
         const workspace = await getWorkspace(activeWorkspaceId)
+        const config = workspace.config || '{}'
+        lastSavedRef.current = config
         if (workspace.config && workspace.config !== '{}') {
           const parsed = JSON.parse(workspace.config) as WorkspaceSettings
           // Only update if we have actual settings
           if (Object.keys(parsed).length > 0) {
             loadWorkspaceSettings(activeWorkspaceId, parsed)
-            lastSavedRef.current = workspace.config
+          } else if (Object.keys(useSettingsStore.getState().workspaceOverrides[activeWorkspaceId] ?? {}).length > 0) {
+            loadWorkspaceSettings(activeWorkspaceId, {})
           }
+        } else if (Object.keys(useSettingsStore.getState().workspaceOverrides[activeWorkspaceId] ?? {}).length > 0) {
+          loadWorkspaceSettings(activeWorkspaceId, {})
         }
+        loadedWorkspaceRef.current = activeWorkspaceId
       } catch (error) {
         console.error('[settings-sync] Failed to load workspace settings:', error)
       }
@@ -50,7 +59,7 @@ export function useSettingsSync() {
     // Filter to only workspace-specific settings
     const workspaceSpecificSettings: WorkspaceSettings = {}
 
-    if (settings.agent) workspaceSpecificSettings.agent = settings.agent
+    if (settings.agent) workspaceSpecificSettings.agent = { ...settings.agent, envVars: {} }
     if (settings.git) workspaceSpecificSettings.git = settings.git
     if (settings.voice) workspaceSpecificSettings.voice = settings.voice
     if (settings.model) workspaceSpecificSettings.model = settings.model
@@ -74,6 +83,7 @@ export function useSettingsSync() {
   // Watch for changes and save with debounce
   useEffect(() => {
     if (!activeWorkspaceId) return
+    if (loadedWorkspaceRef.current !== activeWorkspaceId) return
 
     const currentOverrides = workspaceOverrides[activeWorkspaceId]
     if (!currentOverrides) return

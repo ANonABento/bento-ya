@@ -88,14 +88,36 @@ fn checkpoint_wal(conn: &Connection) {
     let _ = conn.execute_batch("PRAGMA wal_checkpoint(FULL);");
 }
 
-/// Read the API port from ~/.kaitencode/api.port, falling back to the legacy
-/// ~/.bentoya/api.port during the migration window.
-fn read_api_port() -> Option<u16> {
+#[derive(Debug)]
+struct ApiDiscovery {
+    port: u16,
+    token: Option<String>,
+}
+
+/// Read API discovery from ~/.kaitencode/api.port, falling back to the legacy
+/// ~/.bentoya/api.port during the migration window. Newer app versions write
+/// JSON with both port and bearer token; older versions wrote just the port.
+fn read_api_discovery() -> Option<ApiDiscovery> {
     let home = dirs::home_dir()?;
-    let port_str = std::fs::read_to_string(home.join(".kaitencode").join("api.port"))
+    let raw = std::fs::read_to_string(home.join(".kaitencode").join("api.port"))
         .or_else(|_| std::fs::read_to_string(home.join(".bentoya").join("api.port")))
         .ok()?;
-    port_str.trim().parse().ok()
+    let trimmed = raw.trim();
+    if let Ok(port) = trimmed.parse::<u16>() {
+        return Some(ApiDiscovery { port, token: None });
+    }
+
+    let value = serde_json::from_str::<Value>(trimmed).ok()?;
+    let port = value.get("port")?.as_u64()?;
+    let port = u16::try_from(port).ok()?;
+    let token = value
+        .get("token")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(str::to_string);
+
+    Some(ApiDiscovery { port, token })
 }
 
 /// Check if the KaitenCode app is running and its API is reachable.
@@ -103,11 +125,11 @@ fn read_api_port() -> Option<u16> {
 /// from a different process on a stale port.
 #[cfg(not(test))]
 fn is_app_running() -> bool {
-    let port = match read_api_port() {
-        Some(p) => p,
+    let discovery = match read_api_discovery() {
+        Some(discovery) => discovery,
         None => return false,
     };
-    let url = format!("http://127.0.0.1:{}/api/health", port);
+    let url = format!("http://127.0.0.1:{}/api/health", discovery.port);
     match ureq::get(&url).call() {
         Ok(resp) => resp
             .into_body()
@@ -135,9 +157,13 @@ fn require_app() -> Result<(), Value> {
 
 /// Call the Tauri app's HTTP API. Returns the response JSON or None if app isn't running.
 fn api_call(endpoint: &str, body: &Value) -> Option<Value> {
-    let port = read_api_port()?;
-    let url = format!("http://127.0.0.1:{}{}", port, endpoint);
-    let resp = ureq::post(&url).send_json(body).ok()?;
+    let discovery = read_api_discovery()?;
+    let token = discovery.token?;
+    let url = format!("http://127.0.0.1:{}{}", discovery.port, endpoint);
+    let resp = ureq::post(&url)
+        .header("Authorization", &format!("Bearer {token}"))
+        .send_json(body)
+        .ok()?;
     resp.into_body().read_json().ok()
 }
 
@@ -871,6 +897,7 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
     };
 
     let model = args.get("model").and_then(|v| v.as_str());
+    let trigger_prompt = args.get("trigger_prompt").and_then(|v| v.as_str());
 
     // Route through app API (triggers pipeline + updates UI)
     if let Some(resp) = api_call(
@@ -880,6 +907,8 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
             "column_id": col_id,
             "title": title,
             "description": description,
+            "model": model,
+            "trigger_prompt": trigger_prompt,
         }),
     ) {
         if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {

@@ -391,7 +391,10 @@ function StepEditor({
             />
           )}
           {step.type === 'bash' && (
-            <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text-secondary">
+            <label
+              className="flex items-center gap-1.5 text-[11px] text-text-secondary"
+              style={{ cursor: 'pointer' }}
+            >
               <input
                 type="checkbox"
                 checked={step.continueOnError ?? false}

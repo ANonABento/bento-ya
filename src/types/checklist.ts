@@ -7,6 +7,7 @@ export type DetectConfig = {
   pattern?: string      // File glob pattern or regex
   content?: string      // Content to search for (file-contains)
   command?: string      // Command to run (command-succeeds)
+  allowUnsafeCommand?: boolean // Required for command-succeeds auto-detection
 }
 
 export type ChecklistItem = {
@@ -100,7 +101,7 @@ export const BUILT_IN_CHECKLIST_TEMPLATES: ChecklistTemplate[] = [
           {
             text: 'Unit tests pass',
             detectType: 'command-succeeds',
-            detectConfig: { command: 'npm test' },
+            detectConfig: { command: 'npm test', allowUnsafeCommand: true },
           },
           { text: 'Integration tests pass' },
           { text: 'E2E tests pass' },
@@ -116,12 +117,12 @@ export const BUILT_IN_CHECKLIST_TEMPLATES: ChecklistTemplate[] = [
           {
             text: 'No lint errors or warnings',
             detectType: 'command-succeeds',
-            detectConfig: { command: 'npm run lint' },
+            detectConfig: { command: 'npm run lint', allowUnsafeCommand: true },
           },
           {
             text: 'Type checking passes',
             detectType: 'command-succeeds',
-            detectConfig: { command: 'npm run type-check' },
+            detectConfig: { command: 'npm run type-check', allowUnsafeCommand: true },
           },
           { text: 'Code reviewed and approved' },
           { text: 'No TODO/FIXME comments in production code' },

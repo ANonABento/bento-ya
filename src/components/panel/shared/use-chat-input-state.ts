@@ -31,21 +31,37 @@ export function useChatInputState({
   const defaultPermissionMode = useSettingsStore((s) => s.global.agent.defaultPermissionMode)
 
   const [message, setMessage] = useState('')
-  const [model, setModel] = useState<ModelId>('sonnet')
+  const [model, setModel] = useState<ModelId>(config.defaultModel ?? 'sonnet')
   const [extendedContext, setExtendedContext] = useState(false)
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('medium')
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(config.defaultThinkingLevel ?? 'medium')
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(defaultPermissionMode)
   const [isDragOver, setIsDragOver] = useState(false)
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const appliedDraftInsertionIdRef = useRef<number | null>(null)
+  const appliedDefaultModelRef = useRef<ModelId>(config.defaultModel ?? 'sonnet')
+  const appliedDefaultThinkingRef = useRef<ThinkingLevel>(config.defaultThinkingLevel ?? 'medium')
 
   const { models, getCapabilities } = useModelCapabilities()
   const caps = getCapabilities(model)
   const supportsExtendedContext = caps.supportsExtendedContext
   const maxEffort = caps.maxEffort as ThinkingLevel
   const maxThinkingIdx = THINKING_LEVEL_ORDER.indexOf(maxEffort)
+
+  useEffect(() => {
+    const nextDefault = config.defaultModel
+    if (!nextDefault || nextDefault === appliedDefaultModelRef.current) return
+    setModel((current) => current === appliedDefaultModelRef.current ? nextDefault : current)
+    appliedDefaultModelRef.current = nextDefault
+  }, [config.defaultModel])
+
+  useEffect(() => {
+    const nextDefault = config.defaultThinkingLevel
+    if (!nextDefault || nextDefault === appliedDefaultThinkingRef.current) return
+    setThinkingLevel((current) => current === appliedDefaultThinkingRef.current ? nextDefault : current)
+    appliedDefaultThinkingRef.current = nextDefault
+  }, [config.defaultThinkingLevel])
 
   useEffect(() => {
     const currentIdx = THINKING_LEVEL_ORDER.indexOf(thinkingLevel)

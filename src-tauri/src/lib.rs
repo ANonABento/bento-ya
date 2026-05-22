@@ -91,9 +91,7 @@ pub fn run() {
 
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
         .manage(session_registry);
@@ -132,7 +130,6 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            commands::greet,
             // Workspace CRUD
             commands::workspace::create_workspace,
             commands::workspace::get_workspace,
@@ -141,6 +138,7 @@ pub fn run() {
             commands::workspace::delete_workspace,
             commands::workspace::clone_workspace,
             commands::workspace::reorder_workspaces,
+            #[cfg(debug_assertions)]
             commands::workspace::seed_demo_data,
             // Column CRUD
             commands::column::create_column,
@@ -198,8 +196,11 @@ pub fn run() {
             commands::git::delete_task_branch,
             commands::git::get_changes,
             commands::git::get_diff,
+            commands::git::get_commit_changes,
+            commands::git::get_commit_diff,
             commands::git::get_conflict_matrix,
             commands::git::get_commits,
+            commands::git::get_commit_info,
             // PTY / Agent commands
             commands::terminal::write_to_pty,
             commands::terminal::resize_pty,
@@ -304,10 +305,18 @@ pub fn run() {
             commands::cli_detect::verify_cli_path,
             commands::cli_detect::get_cli_capabilities,
             commands::cli_detect::check_cli_update,
+            commands::system::check_runtime_prerequisites,
             // Checklist commands
+            commands::checklist::create_checklist,
+            commands::checklist::update_checklist,
+            commands::checklist::delete_checklist,
             commands::checklist::get_workspace_checklist,
             commands::checklist::update_checklist_item,
+            commands::checklist::create_checklist_category,
             commands::checklist::update_checklist_category,
+            commands::checklist::delete_checklist_category,
+            commands::checklist::create_checklist_item,
+            commands::checklist::delete_checklist_item,
             commands::checklist::create_workspace_checklist,
             commands::checklist::delete_workspace_checklist,
             commands::checklist::update_checklist_item_auto_detect,
@@ -317,6 +326,7 @@ pub fn run() {
             commands::files::scan_workspace_files,
             commands::files::read_file_content,
             commands::files::create_note_file,
+            commands::files::pick_attachment_files,
             // Script commands
             commands::script::list_scripts,
             commands::script::get_script,
@@ -339,6 +349,7 @@ pub fn run() {
             models::get_available_models,
             models::refresh_models,
             // Updater commands
+            commands::updater::get_update_status,
             commands::updater::check_for_update,
             commands::updater::install_update,
         ])

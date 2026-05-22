@@ -82,7 +82,8 @@ export function SettingCard({ children, active = false, onClick, className = '' 
         active
           ? 'border-accent bg-accent/5'
           : 'border-border-default hover:border-accent/50'
-      } ${onClick ? 'cursor-pointer' : ''} ${className}`}
+      } ${className}`}
+      style={onClick ? { cursor: 'pointer' } : undefined}
     >
       {children}
     </Component>
@@ -115,7 +116,8 @@ export function SettingInput({
       onChange={(e) => { onChange(e.target.value); }}
       placeholder={placeholder}
       disabled={disabled}
-      className={`w-full rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:cursor-not-allowed disabled:opacity-50 ${
+      style={{ cursor: disabled ? 'not-allowed' : undefined }}
+      className={`w-full rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50 ${
         mono ? 'font-mono' : ''
       }`}
     />
@@ -146,7 +148,8 @@ export function SettingTextarea({
       placeholder={placeholder}
       disabled={disabled}
       rows={rows}
-      className="w-full resize-none rounded-lg border border-border-default bg-surface px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-secondary/50 transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
+      style={{ cursor: disabled ? 'not-allowed' : undefined }}
+      className="w-full resize-none rounded-lg border border-border-default bg-surface px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-secondary/50 transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50"
     />
   )
 }
@@ -298,7 +301,8 @@ export function ShortcutRecorder({
           setPressedKeys([])
         }}
         disabled={disabled}
-        className={`flex-1 rounded-lg border px-3 py-2 text-left text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:cursor-not-allowed disabled:opacity-50 ${
+        style={{ cursor: disabled ? 'not-allowed' : undefined }}
+        className={`flex-1 rounded-lg border px-3 py-2 text-left text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50 ${
           isRecording
             ? 'border-accent bg-accent/10 text-accent'
             : value

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { getVersion } from '@tauri-apps/api/app'
-import { checkForUpdate, installUpdate, type UpdateInfo } from '@/lib/ipc/updater'
+import { checkForUpdate, getUpdateStatus, installUpdate, type UpdateInfo, type UpdateStatus } from '@/lib/ipc/updater'
 
 type CheckState = 'idle' | 'checking' | 'up-to-date' | 'available' | 'installing' | 'error'
 
@@ -27,12 +27,24 @@ export function UpdatesTab() {
   const [update, setUpdate] = useState<UpdateInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [currentVersion, setCurrentVersion] = useState<string | null>(null)
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
 
   useEffect(() => {
     getVersion().then(setCurrentVersion).catch(() => { /* non-critical */ })
+    getUpdateStatus()
+      .then(setUpdateStatus)
+      .catch(() => {
+        setUpdateStatus({
+          configured: false,
+          reason: 'Application update status could not be read for this build.',
+          endpointCount: 0,
+          artifactsEnabled: false,
+        })
+      })
   }, [])
 
   const handleCheck = useCallback(() => {
+    if (updateStatus && !updateStatus.configured) return
     setState('checking')
     setError(null)
     setUpdate(null)
@@ -49,7 +61,7 @@ export function UpdatesTab() {
         setError(formatErr(err))
         setState('error')
       })
-  }, [])
+  }, [updateStatus])
 
   const handleInstall = useCallback(() => {
     setState('installing')
@@ -61,6 +73,8 @@ export function UpdatesTab() {
   }, [])
 
   const installing = state === 'installing'
+  const updatesConfigured = updateStatus?.configured ?? false
+  const checkingDisabled = state === 'checking' || state === 'installing' || !updatesConfigured
 
   return (
     <div className="space-y-6">
@@ -74,12 +88,22 @@ export function UpdatesTab() {
             </div>
             <button
               onClick={handleCheck}
-              disabled={state === 'checking' || state === 'installing'}
-              className="rounded px-3 py-1.5 text-sm font-medium bg-accent text-white hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              disabled={checkingDisabled}
+              style={{ cursor: checkingDisabled ? 'not-allowed' : undefined }}
+              className="rounded px-3 py-1.5 text-sm font-medium bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors"
             >
               {state === 'checking' ? 'Checking…' : 'Check for Updates'}
             </button>
           </div>
+
+          {updateStatus && !updateStatus.configured && (
+            <div className="rounded-md border border-border-default bg-surface px-3 py-2 text-sm text-text-secondary">
+              <p>{updateStatus.reason ?? 'Application updates are not configured for this build.'}</p>
+              <p className="mt-1 text-xs">
+                Release builds need updater artifacts and a signing public key before in-app updates can be checked.
+              </p>
+            </div>
+          )}
 
           {state === 'up-to-date' && (
             <div className="rounded-md border border-border-default bg-surface px-3 py-2 text-sm text-text-secondary">
@@ -101,6 +125,7 @@ export function UpdatesTab() {
                 <button
                   onClick={handleInstall}
                   disabled={installing}
+                  style={{ cursor: installing ? 'not-allowed' : undefined }}
                   className="rounded px-3 py-1.5 text-sm font-medium bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors"
                 >
                   {installing ? 'Installing…' : 'Install & Restart'}

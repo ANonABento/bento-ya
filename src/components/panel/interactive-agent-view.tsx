@@ -43,14 +43,28 @@ export function InteractiveAgentView({
   agentStatus,
   agentPausedAt,
 }: InteractiveAgentViewProps) {
-  const [liveStatus, setLiveStatus] = useState<LiveStatus>('running')
+  const [liveStatus, setLiveStatus] = useState<LiveStatus>(() => agentStatus === 'running' ? 'running' : 'idle')
   const [restarting, setRestarting] = useState(false)
   const [interrupting, setInterrupting] = useState(false)
   const [switchingModel, setSwitchingModel] = useState(false)
   const [pauseBusy, setPauseBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const lastOutputAtRef = useRef<number>(Date.now())
+  const resetTimeoutsRef = useRef<number[]>([])
   const isPaused = agentPausedAt != null
+
+  const scheduleReset = useCallback((callback: () => void, delayMs: number) => {
+    const timeoutId = window.setTimeout(() => {
+      resetTimeoutsRef.current = resetTimeoutsRef.current.filter((id) => id !== timeoutId)
+      callback()
+    }, delayMs)
+    resetTimeoutsRef.current.push(timeoutId)
+  }, [])
+
+  useEffect(() => () => {
+    resetTimeoutsRef.current.forEach((timeoutId) => { window.clearTimeout(timeoutId) })
+    resetTimeoutsRef.current = []
+  }, [])
 
   // Listen to pty output events to track "is the agent typing right now?"
   // — used to flip the status pill between running and idle. We don't try
@@ -93,15 +107,16 @@ export function InteractiveAgentView({
       : isPaused
         ? 'paused'
         : liveStatus
+  const sessionAvailable = status !== 'stopped'
 
   // Lock the model dropdown mid-response. Paused doesn't count as
   // mid-response since the agent's not generating; but we don't want
   // to send a slash command into a suspended shell either, so also
   // lock when paused.
-  const modelLocked = status === 'running' || isPaused
+  const modelLocked = status === 'running' || isPaused || !sessionAvailable
 
   const handleInterrupt = useCallback(async () => {
-    if (interrupting) return
+    if (interrupting || !sessionAvailable) return
     setInterrupting(true)
     setError(null)
     try {
@@ -109,9 +124,9 @@ export function InteractiveAgentView({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      window.setTimeout(() => { setInterrupting(false) }, 250)
+      scheduleReset(() => { setInterrupting(false) }, 250)
     }
-  }, [interrupting, taskId])
+  }, [interrupting, sessionAvailable, scheduleReset, taskId])
 
   const handleRestart = useCallback(async () => {
     if (restarting) return
@@ -126,9 +141,9 @@ export function InteractiveAgentView({
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       // Generous debounce — the new session needs a moment to land.
-      window.setTimeout(() => { setRestarting(false) }, 1500)
+      scheduleReset(() => { setRestarting(false) }, 1500)
     }
-  }, [restarting, taskId])
+  }, [restarting, scheduleReset, taskId])
 
   const handleModelChange = useCallback(async (next: ModelOption) => {
     if (modelLocked || switchingModel) return
@@ -139,12 +154,12 @@ export function InteractiveAgentView({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      window.setTimeout(() => { setSwitchingModel(false) }, 250)
+      scheduleReset(() => { setSwitchingModel(false) }, 250)
     }
-  }, [modelLocked, switchingModel, taskId])
+  }, [modelLocked, scheduleReset, switchingModel, taskId])
 
   const handlePauseToggle = useCallback(async () => {
-    if (pauseBusy) return
+    if (pauseBusy || !sessionAvailable) return
     setPauseBusy(true)
     setError(null)
     try {
@@ -156,9 +171,9 @@ export function InteractiveAgentView({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      window.setTimeout(() => { setPauseBusy(false) }, 200)
+      scheduleReset(() => { setPauseBusy(false) }, 200)
     }
-  }, [pauseBusy, isPaused, taskId])
+  }, [pauseBusy, sessionAvailable, isPaused, scheduleReset, taskId])
 
   return (
     <div
@@ -171,6 +186,7 @@ export function InteractiveAgentView({
         interrupting={interrupting}
         restarting={restarting}
         switchingModel={switchingModel}
+        sessionAvailable={sessionAvailable}
         isPaused={isPaused}
         pauseBusy={pauseBusy}
         onInterrupt={() => { void handleInterrupt() }}
@@ -187,7 +203,11 @@ export function InteractiveAgentView({
         </div>
       )}
       <div className="min-h-0 flex-1">
-        <TerminalView taskId={taskId} workingDir={workingDir} />
+        <TerminalView
+          taskId={taskId}
+          workingDir={workingDir}
+          allowSpawn={agentStatus === 'running'}
+        />
       </div>
     </div>
   )
@@ -199,6 +219,7 @@ type ControlBarProps = {
   interrupting: boolean
   restarting: boolean
   switchingModel: boolean
+  sessionAvailable: boolean
   isPaused: boolean
   pauseBusy: boolean
   onInterrupt: () => void
@@ -213,6 +234,7 @@ function ControlBar({
   interrupting,
   restarting,
   switchingModel,
+  sessionAvailable,
   isPaused,
   pauseBusy,
   onInterrupt,
@@ -268,26 +290,28 @@ function ControlBar({
         <button
           type="button"
           onClick={onPauseToggle}
-          disabled={pauseBusy}
+          disabled={pauseBusy || !sessionAvailable}
           data-testid="interactive-agent-pause"
           title={
-            isPaused
+            !sessionAvailable
+              ? 'Agent session is stopped'
+              : isPaused
               ? 'Resume the suspended agent process'
               : 'Suspend the agent process (SIGTSTP). In-flight network requests keep going — use Interrupt for a hard stop.'
           }
           className="rounded border border-border-default bg-surface px-2 py-0.5 text-[11px] font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
-          style={{ cursor: pauseBusy ? 'wait' : 'pointer' }}
+          style={{ cursor: pauseBusy ? 'wait' : sessionAvailable ? 'pointer' : 'not-allowed' }}
         >
           {isPaused ? 'Resume' : 'Pause'}
         </button>
         <button
           type="button"
           onClick={onInterrupt}
-          disabled={interrupting}
+          disabled={interrupting || !sessionAvailable}
           data-testid="interactive-agent-interrupt"
-          title="Send Ctrl+C — aborts current generation, agent stays at prompt"
+          title={sessionAvailable ? 'Send Ctrl+C — aborts current generation, agent stays at prompt' : 'Agent session is stopped'}
           className="rounded border border-border-default bg-surface px-2 py-0.5 text-[11px] font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
-          style={{ cursor: interrupting ? 'wait' : 'pointer' }}
+          style={{ cursor: interrupting ? 'wait' : sessionAvailable ? 'pointer' : 'not-allowed' }}
         >
           Interrupt
         </button>

@@ -59,6 +59,7 @@ pub struct Task {
     pub agent_mode: Option<String>,
     pub agent_status: Option<String>,
     pub queued_at: Option<String>,
+    #[serde(rename = "branch")]
     pub branch_name: Option<String>,
     /// Batch identifier used to group related pipeline PRs.
     pub batch_id: Option<String>,

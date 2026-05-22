@@ -61,7 +61,7 @@
   <!-- Navigation -->
   <nav aria-label="Main navigation">
     <a href="/" class="logo">
-      <div class="logo-placeholder"></div>
+      <div class="logo-mark" aria-hidden="true">K</div>
       KaitenCode
     </a>
     <div class="nav-right">
@@ -97,13 +97,6 @@
           </svg>
           <span>macOS</span>
         </a>
-        <a href="https://github.com/ANonABento/kaitencode/releases/latest" aria-label="Download KaitenCode for Windows" rel="noopener noreferrer">
-          <!-- Windows icon from MDI -->
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M3 12V6.75l6-1.32v6.48zm17-9v8.75l-10 .15V5.21zM3 13l6 .09v6.81l-6-1.15zm17 .25V22l-10-1.91V13.1z"/>
-          </svg>
-          <span>Windows</span>
-        </a>
         <a href="https://github.com/ANonABento/kaitencode/releases/latest" aria-label="Download KaitenCode for Linux" rel="noopener noreferrer">
           <!-- Linux/Tux icon -->
           <svg viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
@@ -137,7 +130,6 @@
               </div>
               <div class="window-title">KaitenCode</div>
             </div>
-            <!-- App content placeholder -->
             <div class="app-content-preview">
               <div class="preview-sidebar">
                 <div class="preview-workspace active"></div>
@@ -277,27 +269,24 @@
               <span class="feature-desc">Navigate without mouse</span>
             </div>
 
-            <!-- Voice (coming soon) -->
-            <div class="compartment feature-cell coming-soon">
+            <div class="compartment feature-cell">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                <rect x="9" y="2" width="6" height="12" rx="3"/>
-                <path d="M5 10a7 7 0 0014 0"/>
-                <path d="M12 18v4M8 22h8"/>
+                <path d="M4 7h16M4 12h10M4 17h7"/>
+                <path d="M17 14l3 3-3 3"/>
               </svg>
-              <span class="feature-label">Voice input</span>
-              <span class="feature-tag">Soon</span>
+              <span class="feature-label">Runtime modes</span>
+              <span class="feature-desc">Headless or terminal</span>
             </div>
 
-            <!-- Extensions (coming soon) -->
-            <div class="compartment feature-cell coming-soon">
+            <div class="compartment feature-cell">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                 <rect x="3" y="3" width="8" height="8" rx="1"/>
                 <rect x="13" y="3" width="8" height="8" rx="1"/>
                 <rect x="3" y="13" width="8" height="8" rx="1"/>
                 <path d="M16 16h3M17.5 14.5v3"/>
               </svg>
-              <span class="feature-label">Extensions</span>
-              <span class="feature-tag">Soon</span>
+              <span class="feature-label">MCP tools</span>
+              <span class="feature-desc">Board automation API</span>
             </div>
           </div>
         </div>

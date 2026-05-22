@@ -1,13 +1,11 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicholasrice/tauri/v2/crates/tauri-utils/schema.json",
+  "$schema": "https://schema.tauri.app/config/2/capability",
   "identifier": "default",
   "description": "Default capability with minimal permissions",
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "shell:allow-open",
     "dialog:allow-open",
-    "fs:allow-read",
     "window-state:default",
     "core:webview:allow-set-webview-zoom"
   ]

@@ -73,6 +73,20 @@ pub struct SiegeEvent {
 
 // ─── GitHub CLI Helpers ─────────────────────────────────────────────────────
 
+fn validate_siege_cli_path(cli_path: Option<String>) -> Result<String, String> {
+    let cli =
+        crate::commands::agent::validate_agent_cli_path(cli_path.as_deref().unwrap_or("claude"))
+            .map_err(|e| e.to_string())?;
+    let binary_name = cli.rsplit('/').next().unwrap_or(&cli);
+    if binary_name != "claude" {
+        return Err(format!(
+            "Siege loop requires Claude CLI, got {}",
+            binary_name
+        ));
+    }
+    Ok(cli)
+}
+
 /// Fetch PR status and comments using gh CLI
 fn fetch_pr_status(repo_path: &str, pr_number: i64) -> Result<PrStatus, AppError> {
     // Get PR state and review decision
@@ -309,7 +323,7 @@ pub async fn start_siege(
     let prompt = build_comment_prompt(&pr_status);
 
     // Spawn agent via SessionRegistry with PTY transport
-    let cli = cli_path.unwrap_or_else(|| "claude".to_string());
+    let cli = validate_siege_cli_path(cli_path)?;
     let pid = {
         let mut registry = session_registry.lock().await;
 
@@ -560,7 +574,7 @@ pub async fn continue_siege(
     let prompt = build_comment_prompt(&check_result.pr_status);
 
     // Spawn agent via SessionRegistry
-    let cli = cli_path.unwrap_or_else(|| "claude".to_string());
+    let cli = validate_siege_cli_path(cli_path)?;
     let pid = {
         let mut registry = session_registry.lock().await;
 

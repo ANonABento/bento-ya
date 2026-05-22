@@ -124,9 +124,10 @@ function MenuItemComponent({ item, onClose }: { item: MenuItem; onClose: () => v
     <button
       onClick={handleClick}
       disabled={item.disabled}
+      style={{ cursor: item.disabled ? 'not-allowed' : undefined }}
       className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors ${
         item.disabled
-          ? 'text-text-secondary/50 cursor-not-allowed'
+          ? 'text-text-secondary/50'
           : item.variant === 'danger'
             ? 'text-error hover:bg-error/10'
             : 'text-text-primary hover:bg-surface-hover'
@@ -160,13 +161,35 @@ function SubmenuComponent({
     timeoutRef.current = setTimeout(() => { setIsOpen(false); }, 150)
   }
 
+  const toggleOpen = () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    setIsOpen((open) => !open)
+  }
+
   return (
     <div
       className="relative"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      <button className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-text-primary hover:bg-surface-hover">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        onClick={toggleOpen}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowRight') {
+            event.preventDefault()
+            setIsOpen(true)
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            setIsOpen(false)
+          }
+        }}
+        style={{ cursor: 'pointer' }}
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-text-primary hover:bg-surface-hover"
+      >
         {item.icon && <span className="text-text-secondary">{item.icon}</span>}
         <span className="flex-1">{item.label}</span>
         {Icons.chevronRight}

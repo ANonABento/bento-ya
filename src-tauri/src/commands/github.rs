@@ -30,14 +30,16 @@ pub struct PrStatusResponse {
 pub async fn fetch_pr_status(
     state: State<'_, AppState>,
     task_id: String,
-    repo_path: String,
+    _repo_path: String,
 ) -> Result<PrStatusResponse, AppError> {
-    let task = {
+    let (task, repo_path) = {
         let conn = state
             .db
             .lock()
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-        db::get_task(&conn, &task_id)?
+        let task = db::get_task(&conn, &task_id)?;
+        let workspace = db::get_workspace(&conn, &task.workspace_id)?;
+        (task, workspace.repo_path)
     };
 
     let pr_number = task

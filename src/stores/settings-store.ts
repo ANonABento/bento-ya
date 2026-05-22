@@ -54,21 +54,45 @@ type PersistedSettingsState = {
   workspaceOverrides?: SettingsState['workspaceOverrides']
 }
 
+function stripSecretEnvVars<T extends { agent?: Partial<Settings['agent']> }>(settings: T): T {
+  if (!settings.agent) return settings
+  return {
+    ...settings,
+    agent: {
+      ...settings.agent,
+      envVars: {},
+    },
+  }
+}
+
+function sanitizeWorkspaceOverrides(
+  overrides: SettingsState['workspaceOverrides'] | undefined,
+): SettingsState['workspaceOverrides'] {
+  if (!overrides) return {}
+  return Object.fromEntries(
+    Object.entries(overrides).map(([workspaceId, settings]) => [
+      workspaceId,
+      stripSecretEnvVars(settings),
+    ]),
+  )
+}
+
 function mergeSettings(settings: PersistedSettings | undefined): Settings {
+  const sanitized = stripSecretEnvVars(settings ?? {})
   return {
     ...DEFAULT_SETTINGS,
-    ...settings,
-    agent: { ...DEFAULT_SETTINGS.agent, ...settings?.agent },
-    model: { ...DEFAULT_SETTINGS.model, ...settings?.model },
-    voice: { ...DEFAULT_SETTINGS.voice, ...settings?.voice },
-    git: { ...DEFAULT_SETTINGS.git, ...settings?.git },
-    appearance: { ...DEFAULT_SETTINGS.appearance, ...settings?.appearance },
-    cards: { ...DEFAULT_SETTINGS.cards, ...settings?.cards },
-    terminal: { ...DEFAULT_SETTINGS.terminal, ...settings?.terminal },
-    panel: { ...DEFAULT_SETTINGS.panel, ...settings?.panel },
-    gestures: { ...DEFAULT_SETTINGS.gestures, ...settings?.gestures },
-    advanced: { ...DEFAULT_SETTINGS.advanced, ...settings?.advanced },
-    workspaceDefaults: { ...DEFAULT_SETTINGS.workspaceDefaults, ...settings?.workspaceDefaults },
+    ...sanitized,
+    agent: { ...DEFAULT_SETTINGS.agent, ...sanitized.agent },
+    model: { ...DEFAULT_SETTINGS.model, ...sanitized.model },
+    voice: { ...DEFAULT_SETTINGS.voice, ...sanitized.voice },
+    git: { ...DEFAULT_SETTINGS.git, ...sanitized.git },
+    appearance: { ...DEFAULT_SETTINGS.appearance, ...sanitized.appearance },
+    cards: { ...DEFAULT_SETTINGS.cards, ...sanitized.cards },
+    terminal: { ...DEFAULT_SETTINGS.terminal, ...sanitized.terminal },
+    panel: { ...DEFAULT_SETTINGS.panel, ...sanitized.panel },
+    gestures: { ...DEFAULT_SETTINGS.gestures, ...sanitized.gestures },
+    advanced: { ...DEFAULT_SETTINGS.advanced, ...sanitized.advanced },
+    workspaceDefaults: { ...DEFAULT_SETTINGS.workspaceDefaults, ...sanitized.workspaceDefaults },
   }
 }
 
@@ -152,8 +176,8 @@ export const useSettingsStore = create<SettingsState>()(
       {
         name: 'bento-settings',
         partialize: (state) => ({
-          global: state.global,
-          workspaceOverrides: state.workspaceOverrides,
+          global: stripSecretEnvVars(state.global),
+          workspaceOverrides: sanitizeWorkspaceOverrides(state.workspaceOverrides),
         }),
         merge: (persistedState, currentState) => {
           const persisted = persistedState as PersistedSettingsState | undefined
@@ -161,7 +185,7 @@ export const useSettingsStore = create<SettingsState>()(
             ...currentState,
             ...persisted,
             global: mergeSettings(persisted?.global),
-            workspaceOverrides: persisted?.workspaceOverrides ?? currentState.workspaceOverrides,
+            workspaceOverrides: sanitizeWorkspaceOverrides(persisted?.workspaceOverrides ?? currentState.workspaceOverrides),
           }
         },
       },

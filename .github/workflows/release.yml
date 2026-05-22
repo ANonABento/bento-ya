@@ -14,43 +14,103 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            args: --target aarch64-apple-darwin
-            name: macOS-arm64
-          - platform: macos-latest
-            args: --target x86_64-apple-darwin
-            name: macOS-x64
-          - platform: ubuntu-22.04
-            args: ''
-            name: Linux-x64
-          - platform: windows-latest
-            args: ''
-            name: Windows-x64
-
-    runs-on: ${{ matrix.platform }}
+  preflight:
+    name: Release preflight
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v3
         with:
           version: 9
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-action@stable
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev tmux
+
+      - name: Start tmux server (required for bridge integration tests)
+        run: tmux new-session -d -s _kaitencode_release_keepalive 'sleep 86400'
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm run type-check
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: IPC registration check
+        run: pnpm run test:ipc
+
+      - name: Dependency audit
+        run: pnpm audit --audit-level moderate
+
+      - name: Frontend tests
+        run: pnpm run test:run
+
+      - name: Cargo check
+        run: cargo check --workspace
+
+      - name: Cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Cargo test
+        run: cargo test --workspace
+
+  build:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-15
+            args: --target aarch64-apple-darwin --bundles dmg,app
+            rust-targets: aarch64-apple-darwin
+            name: macOS-arm64
+          - platform: macos-15-intel
+            args: --target x86_64-apple-darwin --bundles dmg,app
+            rust-targets: x86_64-apple-darwin
+            name: macOS-x64
+          - platform: ubuntu-22.04
+            args: --bundles deb,appimage
+            rust-targets: ''
+            name: Linux-x64
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -59,19 +119,99 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev
 
       - name: Install frontend dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate release version
+        shell: bash
+        run: |
+          RELEASE_VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          if [[ ! "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.].*)?$ ]]; then
+            echo "Release version must look like v0.1.0; got '$RELEASE_VERSION'" >&2
+            exit 1
+          fi
+          APP_VERSION="${RELEASE_VERSION#v}"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          TAURI_VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          CARGO_VERSION="$(node -e "const fs=require('fs'); const m=fs.readFileSync('src-tauri/Cargo.toml','utf8').match(/^version\\s*=\\s*\"([^\"]+)\"/m); console.log(m && m[1])")"
+          if [[ "$PACKAGE_VERSION" != "$APP_VERSION" || "$TAURI_VERSION" != "$APP_VERSION" || "$CARGO_VERSION" != "$APP_VERSION" ]]; then
+            echo "Version mismatch for $RELEASE_VERSION: package=$PACKAGE_VERSION tauri=$TAURI_VERSION cargo=$CARGO_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Validate release signing secrets
+        shell: bash
+        env:
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          missing=()
+          [[ -n "$TAURI_UPDATER_PUBKEY" ]] || missing+=(TAURI_UPDATER_PUBKEY)
+          [[ -n "$TAURI_SIGNING_PRIVATE_KEY" ]] || missing+=(TAURI_SIGNING_PRIVATE_KEY)
+
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            [[ -n "$APPLE_SIGNING_IDENTITY" ]] || missing+=(APPLE_SIGNING_IDENTITY)
+            [[ -n "$APPLE_CERTIFICATE" ]] || missing+=(APPLE_CERTIFICATE)
+            [[ -n "$APPLE_CERTIFICATE_PASSWORD" ]] || missing+=(APPLE_CERTIFICATE_PASSWORD)
+            [[ -n "$APPLE_API_ISSUER" ]] || missing+=(APPLE_API_ISSUER)
+            [[ -n "$APPLE_API_KEY" ]] || missing+=(APPLE_API_KEY)
+            [[ -n "$APPLE_API_KEY_PATH" || -n "$APPLE_API_KEY_P8" ]] || missing+=(APPLE_API_KEY_PATH_OR_APPLE_API_KEY_P8)
+          fi
+
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required production release secret(s): %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Prepare Apple notarization API key
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH_SECRET: ${{ secrets.APPLE_API_KEY_PATH }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [[ -n "$APPLE_API_KEY_PATH_SECRET" ]]; then
+            echo "APPLE_API_KEY_PATH=$APPLE_API_KEY_PATH_SECRET" >> "$GITHUB_ENV"
+          elif [[ -n "$APPLE_API_KEY_P8" ]]; then
+            KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+            printf '%s' "$APPLE_API_KEY_P8" > "$KEY_PATH"
+            chmod 600 "$KEY_PATH"
+            echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          fi
+
+      - name: Configure updater endpoint
+        run: node scripts/sync-updater-endpoint.js
+        env:
+          REQUIRE_TAURI_UPDATER_PUBKEY: '1'
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUIRE_TAURI_UPDATER_PUBKEY: '1'
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'KaitenCode ${{ github.ref_name }}'
+          tagName: ${{ github.event.inputs.version || github.ref_name }}
+          releaseName: 'KaitenCode ${{ github.event.inputs.version || github.ref_name }}'
           releaseBody: |
             ## What's New
 
-            See the [commit history](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}) for changes.
+            See the [commit history](https://github.com/${{ github.repository }}/commits/${{ github.event.inputs.version || github.ref_name }}) for changes.
 
             ## Rename Notes
 
@@ -86,13 +226,18 @@ jobs:
 
             | Platform | File |
             |----------|------|
-            | macOS (Apple Silicon) | `.dmg` |
-            | macOS (Intel) | `.dmg` |
-            | Windows | `.msi` or `.exe` |
+            | macOS (Apple Silicon) | `.dmg`, `.app.tar.gz` |
+            | macOS (Intel) | `.dmg`, `.app.tar.gz` |
             | Linux | `.deb` or `.AppImage` |
 
             ### macOS Note
-            Since this app isn't signed, you may need to right-click → Open the first time.
+            Public release builds require Developer ID signing and notarization secrets.
+
+            ### Linux Update Note
+            In-app updater artifacts are generated for AppImage builds. `.deb` packages are provided for manual package-manager installs and should be upgraded by installing a newer `.deb` from a published release.
+
+            ### Updater Note
+            This workflow creates a draft release for inspection. Publish the draft after verifying artifacts so `/releases/latest/download/latest.json` points at this version.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

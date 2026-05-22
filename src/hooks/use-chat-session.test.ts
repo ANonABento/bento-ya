@@ -18,18 +18,13 @@ vi.mock('@/lib/ipc', () => ({
   cancelOrchestratorChat: vi.fn(),
   getChatHistory: vi.fn(),
   clearChatHistory: vi.fn(),
-}))
-
-// Mock Tauri event listen (for orchestrator mode)
-vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(() => Promise.resolve(() => {})),
 }))
 
 import * as ipc from '@/lib/ipc'
-import { listen } from '@tauri-apps/api/event'
 
 const mockIpc = vi.mocked(ipc)
-const mockListen = vi.mocked(listen)
+const mockListen = vi.mocked(ipc.listen)
 
 // Store event handlers for simulating events
 const eventHandlers: Map<string, ((event: unknown) => void)[]> = new Map()
@@ -37,7 +32,7 @@ const eventHandlers: Map<string, ((event: unknown) => void)[]> = new Map()
 function emitEvent(eventName: string, payload: unknown) {
   const handlers = eventHandlers.get(eventName) ?? []
   for (const handler of handlers) {
-    handler({ payload })
+    handler(payload)
   }
 }
 
@@ -58,7 +53,7 @@ describe('useChatSession', () => {
 
     // Capture event listeners for orchestrator mode
     mockListen.mockImplementation((eventName, handler) => {
-      const name = String(eventName)
+      const name = eventName
       const h = handler as (event: unknown) => void
       const handlers = eventHandlers.get(name) || []
       handlers.push(h)

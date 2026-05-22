@@ -13,6 +13,7 @@ pub mod pipeline;
 pub mod pipeline_template;
 pub mod script;
 pub mod siege;
+pub mod system;
 pub mod task;
 pub mod terminal;
 pub mod updater;
@@ -27,8 +28,3 @@ pub mod workspace;
 
 // Re-export models commands (they live in models module, not commands)
 pub use crate::models;
-
-#[tauri::command]
-pub fn greet(name: &str) -> String {
-    format!("Hello, {}! Welcome to KaitenCode.", name)
-}

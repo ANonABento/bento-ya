@@ -253,11 +253,11 @@ export function Board() {
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
       >
-        <div className="flex h-full" data-board-container>
+        <div className="flex h-full min-h-0" data-board-container>
           {/* Board + orchestrator panel (left side, shrinks when task panel open) */}
-          <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {activeWorkspaceId && <UsageBudgetBanner workspaceId={activeWorkspaceId} />}
-            <div className="relative flex flex-1 overflow-x-auto" data-board-scroll>
+            <div className="relative flex min-h-0 flex-1 overflow-x-auto" data-board-scroll>
               <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
                 {sortedColumns.map((col) => (
                   <Column

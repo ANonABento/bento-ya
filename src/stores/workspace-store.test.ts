@@ -52,21 +52,38 @@ describe('workspace-store', () => {
     it('should create workspace and add to store', async () => {
       vi.mocked(invoke).mockResolvedValueOnce(mockWorkspace)
 
-      await useWorkspaceStore.getState().add('New Workspace', '/new/path')
+      const created = await useWorkspaceStore.getState().add('New Workspace', '/new/path')
 
       expect(invoke).toHaveBeenCalledWith('create_workspace', {
         name: 'New Workspace',
         repoPath: '/new/path',
       })
+      expect(created).toEqual(mockWorkspace)
       expect(useWorkspaceStore.getState().workspaces).toContainEqual(mockWorkspace)
     })
 
-    it('should not auto-activate new workspace (use setActive manually)', async () => {
+    it('should pass workspace setup options to creation', async () => {
+      vi.mocked(invoke).mockResolvedValueOnce(mockWorkspace)
+
+      await useWorkspaceStore.getState().add('New Workspace', '/new/path', {
+        templateId: 'quick-fix',
+        defaultAgentCli: 'codex',
+      })
+
+      expect(invoke).toHaveBeenCalledWith('create_workspace', {
+        name: 'New Workspace',
+        repoPath: '/new/path',
+        templateId: 'quick-fix',
+        defaultAgentCli: 'codex',
+      })
+    })
+
+    it('should not auto-activate new workspace in the store itself', async () => {
       vi.mocked(invoke).mockResolvedValueOnce(mockWorkspace)
 
       await useWorkspaceStore.getState().add('New Workspace', '/new/path')
 
-      // add() doesn't set active - caller must use setActive() explicitly
+      // Callers decide whether to switch immediately after creation.
       expect(useWorkspaceStore.getState().activeWorkspaceId).toBeNull()
     })
   })

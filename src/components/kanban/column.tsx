@@ -236,11 +236,11 @@ export const Column = memo(function Column({
         style={style}
         layout
         data-column-id={column.id}
-        className={`flex w-[300px] min-w-[280px] max-w-[360px] shrink-0 flex-col border-r border-border-default bg-surface/30 ${
+        className={`flex h-full min-h-0 w-[300px] min-w-[280px] max-w-[360px] shrink-0 flex-col border-r border-border-default bg-surface/30 ${
           isDragging ? 'opacity-50' : ''
         }`}
       >
-        <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
+        <div {...attributes} {...listeners} style={{ cursor: isDragging ? 'grabbing' : 'grab' }}>
           <ColumnHeader
             name={column.name}
             icon={column.icon || 'list'}
@@ -262,7 +262,7 @@ export const Column = memo(function Column({
         <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
           <div
             ref={setDroppableRef}
-            className={`flex flex-1 flex-col gap-2 overflow-y-auto px-2 pt-1 pb-2 transition-colors ${
+            className={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pt-1 pb-2 transition-colors ${
               isOver ? 'bg-accent/5' : ''
             }`}
           >

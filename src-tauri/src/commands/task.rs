@@ -910,16 +910,18 @@ pub struct CreatePrResult {
 pub async fn create_pr(
     state: State<'_, AppState>,
     task_id: String,
-    repo_path: String,
+    _repo_path: String,
     base_branch: Option<String>,
 ) -> Result<CreatePrResult, AppError> {
     // Get the task to retrieve title, description, and branch
-    let task = {
+    let (task, repo_path) = {
         let conn = state
             .db
             .lock()
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-        db::get_task(&conn, &task_id)?
+        let task = db::get_task(&conn, &task_id)?;
+        let workspace = db::get_workspace(&conn, &task.workspace_id)?;
+        (task, workspace.repo_path)
     };
 
     // Verify task has a branch
@@ -1061,23 +1063,39 @@ pub struct GenerateTestChecklistResult {
     pub diff_summary: String,
 }
 
+fn validate_claude_cli_path(cli_path: Option<String>) -> Result<String, AppError> {
+    let cli =
+        crate::commands::agent::validate_agent_cli_path(cli_path.as_deref().unwrap_or("claude"))?;
+    let binary_name = cli.rsplit('/').next().unwrap_or(&cli);
+    if binary_name != "claude" {
+        return Err(AppError::InvalidInput(format!(
+            "Test checklist generation requires Claude CLI, got {}",
+            binary_name
+        )));
+    }
+    Ok(cli)
+}
+
 /// Generate test checklist items from PR diff using Claude CLI
 #[tauri::command(rename_all = "camelCase")]
 pub async fn generate_test_checklist(
     state: State<'_, AppState>,
     task_id: String,
-    repo_path: String,
+    _repo_path: String,
     cli_path: Option<String>,
 ) -> Result<GenerateTestChecklistResult, AppError> {
     // Get task to check PR number
-    let pr_number = {
+    let (pr_number, repo_path) = {
         let conn = state
             .db
             .lock()
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
         let task = db::get_task(&conn, &task_id)?;
-        task.pr_number
-            .ok_or_else(|| AppError::InvalidInput("Task has no PR associated".to_string()))?
+        let workspace = db::get_workspace(&conn, &task.workspace_id)?;
+        let pr_number = task
+            .pr_number
+            .ok_or_else(|| AppError::InvalidInput("Task has no PR associated".to_string()))?;
+        (pr_number, workspace.repo_path)
     };
 
     // Get PR diff using gh CLI
@@ -1144,7 +1162,7 @@ Return ONLY the JSON array, no other text."#,
     );
 
     // Call Claude CLI to generate test items
-    let cli = cli_path.unwrap_or_else(|| "claude".to_string());
+    let cli = validate_claude_cli_path(cli_path)?;
     let items = tokio::task::spawn_blocking({
         let cli = cli.clone();
         let repo_path = repo_path.clone();

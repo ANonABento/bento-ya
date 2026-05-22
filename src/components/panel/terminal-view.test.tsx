@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { TerminalView } from './terminal-view'
 import { resizePty, ensurePtySession } from '@/lib/ipc/terminal'
 import { listen } from '@/lib/ipc'
@@ -147,7 +147,7 @@ describe('TerminalView', () => {
     render(<TerminalView taskId="task-1" workingDir="/tmp/worktree" />)
 
     await waitFor(() => {
-      expect(ensurePtySession).toHaveBeenCalledWith('task-1', '/tmp/worktree', 100, 30)
+      expect(ensurePtySession).toHaveBeenCalledWith('task-1', '/tmp/worktree', 100, 30, true)
     })
     expect(resizePty).toHaveBeenCalledWith('task-1', 100, 30)
     expect(xtermMock.instances[0]?.options).toMatchObject({
@@ -206,5 +206,22 @@ describe('TerminalView', () => {
       output(btoa('second'))
     })
     expect(term.scrollToBottom).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows an attach-only empty state instead of spawning for missing sessions', async () => {
+    vi.mocked(ensurePtySession).mockResolvedValueOnce({
+      taskId: 'task-1',
+      pid: null,
+      status: 'Missing',
+    })
+
+    render(<TerminalView taskId="task-1" workingDir="/tmp/worktree" allowSpawn={false} />)
+
+    await waitFor(() => {
+      expect(ensurePtySession).toHaveBeenCalledWith('task-1', '/tmp/worktree', 100, 30, false)
+    })
+    expect(await screen.findByText('No live terminal session')).toBeInTheDocument()
+    expect(screen.queryByText('Spawning terminal')).not.toBeInTheDocument()
+    expect(xtermMock.instances[0]?.writes).toEqual([])
   })
 })

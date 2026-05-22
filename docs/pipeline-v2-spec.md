@@ -35,10 +35,10 @@ No agent. Pipeline logic only:
 ### `batch_wait`
 No agent. Waits for conditions:
 1. Check if all tasks in the same batch have reached PR/Staging
-2. If yes: create a `staging/<batch-id>` branch from main
+2. If yes: create a `staging/<batch-id>` branch from the workspace default base branch
 3. Merge all task branches into staging (resolve conflicts)
 4. Run type-check on staging. If fails, mark batch as needs-review.
-5. Push staging + create PR: staging → main
+5. Push staging + create PR: staging -> workspace default base branch
 6. Auto-advance all batch tasks to Merge (waiting for CI)
 
 ### `auto_merge`
@@ -77,7 +77,7 @@ workspace default base branch.
 Verify column checks which files the task modified:
 - If any file in `src/app/` (routes): run E2E
 - If only `src/lib/`, `src/components/`, config files: skip E2E
-- Check via: `git diff --name-only main..HEAD | grep "^src/app/"`
+- Check via: `git diff --name-only <workspace-default-base>..HEAD | grep "^src/app/"`
 
 ## Stale Session Cleanup
 

@@ -5,8 +5,9 @@
 
 /* eslint-disable @typescript-eslint/no-unnecessary-condition -- Mock data uses ?? for defensive safety with unknown runtime args */
 
-import type { Workspace, Column, Task, Label, AgentMode, AgentStatus, PipelineState } from '@/types'
+import type { Workspace, Column, Task, Label, AgentMode, AgentStatus, PipelineState, Script } from '@/types'
 import type { AgentTranscriptEvent, AgentTranscriptEventType } from '@/types/events'
+import type { ModelsCache } from '@/lib/ipc/models'
 import { DEFAULT_TRIGGERS } from '@/types/column'
 
 // Check if we're running in Tauri or in a test environment
@@ -207,6 +208,101 @@ const sampleDiffByPath: Record<string, string> = {
 const sampleCombinedDiff = Object.values(sampleDiffByPath).join('\n')
 
 let mockLabels: Label[] = []
+let mockScripts: Script[] = [
+  {
+    id: 'code-check',
+    name: 'Code Check',
+    description: 'Run type-check and linter',
+    steps: '[{"type":"bash","name":"Type check","command":"npm run type-check"},{"type":"bash","name":"Lint","command":"npm run lint"}]',
+    isBuiltIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'run-tests',
+    name: 'Run Tests',
+    description: 'Run the test suite',
+    steps: '[{"type":"bash","name":"Run tests","command":"npm test"}]',
+    isBuiltIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'ai-code-review',
+    name: 'AI Code Review',
+    description: 'Agent reviews the diff and suggests improvements',
+    steps: '[{"type":"agent","name":"Review code","prompt":"Review the changes on this branch. Check for bugs, security issues, and code quality.","model":"sonnet"}]',
+    isBuiltIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+]
+const mockModelsCache: ModelsCache = {
+  lastFetched: '',
+  source: 'built-in',
+  models: [
+    {
+      id: 'claude-opus-4-6-20260217',
+      displayName: 'Claude Opus 4.6',
+      provider: 'anthropic',
+      alias: 'opus',
+      tier: 'flagship',
+      contextWindow: 200000,
+      supportsExtendedContext: true,
+      maxOutputTokens: 32000,
+      inputCostPerM: 15,
+      outputCostPerM: 75,
+      capabilities: ['text', 'tools'],
+      isNew: false,
+      createdAt: null,
+    },
+    {
+      id: 'claude-sonnet-4-6-20260217',
+      displayName: 'Claude Sonnet 4.6',
+      provider: 'anthropic',
+      alias: 'sonnet',
+      tier: 'standard',
+      contextWindow: 200000,
+      supportsExtendedContext: true,
+      maxOutputTokens: 64000,
+      inputCostPerM: 3,
+      outputCostPerM: 15,
+      capabilities: ['text', 'tools'],
+      isNew: false,
+      createdAt: null,
+    },
+    {
+      id: 'claude-haiku-4-5-20251001',
+      displayName: 'Claude Haiku 4.5',
+      provider: 'anthropic',
+      alias: 'haiku',
+      tier: 'fast',
+      contextWindow: 200000,
+      supportsExtendedContext: false,
+      maxOutputTokens: 8192,
+      inputCostPerM: 1,
+      outputCostPerM: 5,
+      capabilities: ['text', 'tools'],
+      isNew: false,
+      createdAt: null,
+    },
+    {
+      id: 'codex-5.3',
+      displayName: 'Codex 5.3',
+      provider: 'openai',
+      alias: null,
+      tier: 'flagship',
+      contextWindow: 400000,
+      supportsExtendedContext: true,
+      maxOutputTokens: 128000,
+      inputCostPerM: null,
+      outputCostPerM: null,
+      capabilities: ['text', 'code', 'tools'],
+      isNew: false,
+      createdAt: null,
+    },
+  ],
+}
 let mockTranscriptEvents: AgentTranscriptEvent[] = sampleTranscriptEvents('task-1')
 const mockEventListeners = new Map<string, Set<(payload: unknown) => void>>()
 
@@ -325,7 +421,9 @@ const mockCommands: Record<string, CommandHandler> = {
       tabOrder: mockWorkspaces.length,
       isActive: false,
       activeTaskCount: 0,
-      config: '{}',
+      config: args?.defaultAgentCli
+        ? JSON.stringify({ defaultAgentCli: args.defaultAgentCli })
+        : '{}',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
@@ -358,6 +456,18 @@ const mockCommands: Record<string, CommandHandler> = {
       if (ws) ws.tabOrder = idx
     })
   },
+  scan_workspace_files: () => [],
+  read_file_content: () => '# Mock file\n\nBrowser mock mode does not read local files.',
+  create_note_file: (args) => {
+    const name = typeof args?.filename === 'string' ? args.filename : 'note.md'
+    return {
+      path: `/tmp/demo-repo/${name}`,
+      name,
+      category: 'notes',
+      modifiedAt: Date.now(),
+    }
+  },
+  pick_attachment_files: () => [],
 
   // Column commands
   list_columns: (args) => mockColumns.filter((c) => c.workspaceId === args?.workspaceId),
@@ -579,6 +689,34 @@ const mockCommands: Record<string, CommandHandler> = {
   // Settings
   get_settings: () => ({ theme: 'dark', defaultTemplate: 'standard' }),
   update_settings: () => undefined,
+  get_available_models: (args) => {
+    const provider = typeof args?.provider === 'string' ? args.provider : null
+    return {
+      ...mockModelsCache,
+      models: provider
+        ? mockModelsCache.models.filter((model) => model.provider === provider)
+        : mockModelsCache.models,
+    }
+  },
+  refresh_models: () => {
+    const refreshed = {
+      ...mockModelsCache,
+      lastFetched: new Date().toISOString(),
+      source: 'built-in',
+    } satisfies ModelsCache
+    emitMockEvent('models:updated', refreshed)
+    return refreshed
+  },
+  get_update_status: () => ({
+    configured: false,
+    reason: 'Application updates are not configured in browser mock mode.',
+    endpointCount: 0,
+    artifactsEnabled: false,
+  }),
+  check_for_update: () => null,
+  install_update: () => {
+    throw new Error('Application updates are not available in browser mock mode.')
+  },
 
   // PR creation (stub)
   create_pr: (args) => {
@@ -826,6 +964,9 @@ const mockCommands: Record<string, CommandHandler> = {
     recordCount: 0,
   }),
   get_workspace_model_usage_between: () => [],
+  get_workspace_daily_costs: () => [],
+  get_workspace_column_costs: () => [],
+  get_workspace_task_costs: () => [],
   get_task_usage_summary: () => ({
     totalInputTokens: 0,
     totalOutputTokens: 0,
@@ -833,6 +974,43 @@ const mockCommands: Record<string, CommandHandler> = {
     recordCount: 0,
   }),
   clear_workspace_usage: () => undefined,
+
+  // Script commands
+  list_scripts: () => [...mockScripts].sort((a, b) => Number(b.isBuiltIn) - Number(a.isBuiltIn) || a.name.localeCompare(b.name)),
+  get_script: (args) => {
+    const script = mockScripts.find((s) => s.id === args?.id)
+    if (!script) throw new Error('Script not found')
+    return script
+  },
+  create_script: (args) => {
+    const now = new Date().toISOString()
+    const script: Script = {
+      id: generateId('script'),
+      name: (args?.name as string) || 'New Script',
+      description: (args?.description as string) || '',
+      steps: (args?.steps as string) || '[]',
+      isBuiltIn: false,
+      createdAt: now,
+      updatedAt: now,
+    }
+    mockScripts.push(script)
+    return script
+  },
+  update_script: (args) => {
+    const script = mockScripts.find((s) => s.id === args?.id)
+    if (!script) throw new Error('Script not found')
+    if (script.isBuiltIn) throw new Error('Cannot modify built-in scripts')
+    script.name = (args?.name as string) ?? script.name
+    script.description = (args?.description as string) ?? script.description
+    script.steps = (args?.steps as string) ?? script.steps
+    script.updatedAt = new Date().toISOString()
+    return script
+  },
+  delete_script: (args) => {
+    const script = mockScripts.find((s) => s.id === args?.id)
+    if (script?.isBuiltIn) throw new Error('Cannot delete built-in scripts')
+    mockScripts = mockScripts.filter((s) => s.id !== args?.id)
+  },
 
   // Session history (stubs)
   create_snapshot: () => ({
@@ -968,6 +1146,32 @@ const mockCommands: Record<string, CommandHandler> = {
     version: null,
     isAvailable: false,
   }),
+  check_runtime_prerequisites: () => [
+    {
+      id: 'git',
+      name: 'Git',
+      required: true,
+      available: true,
+      version: 'git version mock',
+      installHint: 'Install Git from https://git-scm.com/downloads or your OS package manager.',
+    },
+    {
+      id: 'tmux',
+      name: 'tmux',
+      required: true,
+      available: true,
+      version: 'tmux mock',
+      installHint: 'Install tmux with Homebrew on macOS or your Linux package manager.',
+    },
+    {
+      id: 'gh',
+      name: 'GitHub CLI',
+      required: false,
+      available: false,
+      version: null,
+      installHint: 'Install GitHub CLI from https://cli.github.com/ for PR automation.',
+    },
+  ],
   get_cli_capabilities: () => ({
     cliId: 'claude',
     cliVersion: 'mock',

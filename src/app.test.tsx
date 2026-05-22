@@ -8,6 +8,30 @@ vi.mock('@/hooks/use-pr-status-polling', () => ({ usePrStatusPolling: vi.fn() })
 vi.mock('@/hooks/use-task-sync', () => ({ useTaskSync: vi.fn() }))
 vi.mock('@/hooks/use-agent-streaming-sync', () => ({ useAgentStreamingSync: vi.fn() }))
 vi.mock('@/hooks/use-cli-path', () => ({ useAutoDetectClis: vi.fn() }))
+vi.mock('@/lib/ipc', () => ({
+  getWorkspace: vi.fn(() => Promise.resolve({
+    id: 'ws-1',
+    name: 'Workspace',
+    repoPath: '/tmp/workspace',
+    tabOrder: 0,
+    isActive: true,
+    activeTaskCount: 0,
+    config: '{}',
+    createdAt: '2024-01-01T00:00:00Z',
+    updatedAt: '2024-01-01T00:00:00Z',
+  })),
+  updateWorkspaceConfig: vi.fn(() => Promise.resolve({
+    id: 'ws-1',
+    name: 'Workspace',
+    repoPath: '/tmp/workspace',
+    tabOrder: 0,
+    isActive: true,
+    activeTaskCount: 0,
+    config: '{}',
+    createdAt: '2024-01-01T00:00:00Z',
+    updatedAt: '2024-01-01T00:00:00Z',
+  })),
+}))
 vi.mock('@/components/layout/board', () => ({ Board: () => <div>Board</div> }))
 vi.mock('@/components/layout/workspace-setup', () => ({ WorkspaceSetup: () => <div>Workspace setup</div> }))
 vi.mock('@/components/onboarding/onboarding-wizard', () => ({ OnboardingWizard: () => <div>Onboarding</div> }))

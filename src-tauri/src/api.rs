@@ -1,14 +1,17 @@
 //! HTTP API server for external control (MCP bridge).
 //!
-//! Starts an axum server on a random available port. The port is written
-//! to `~/.kaitencode/api.port` so MCP clients can discover it.
+//! When enabled, starts an axum server on a random available port. The port and
+//! a per-process bearer token are written to `~/.kaitencode/api.port` so MCP
+//! clients can discover it.
 //! Mutation endpoints call the same internal functions as Tauri IPC commands.
 
 use crate::db;
 use crate::pipeline;
 use axum::{
+    extract::Request,
     extract::State as AxumState,
-    http::StatusCode,
+    http::{header, StatusCode},
+    middleware::{self, Next},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -17,11 +20,13 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tauri::AppHandle;
+use uuid::Uuid;
 
 /// Shared state for axum handlers.
 struct ApiState {
     app: AppHandle,
     db: Arc<std::sync::Mutex<rusqlite::Connection>>,
+    token: String,
 }
 
 /// Standard API response.
@@ -51,6 +56,25 @@ fn err_response(status: StatusCode, msg: String) -> impl IntoResponse {
             error: Some(msg),
         }),
     )
+}
+
+async fn require_api_auth(
+    AxumState(api): AxumState<Arc<ApiState>>,
+    req: Request,
+    next: Next,
+) -> impl IntoResponse {
+    let expected = format!("Bearer {}", api.token);
+    let authorized = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == expected);
+
+    if !authorized {
+        return err_response(StatusCode::UNAUTHORIZED, "Unauthorized".to_string()).into_response();
+    }
+
+    next.run(req).await
 }
 
 macro_rules! get_db {
@@ -176,6 +200,7 @@ struct CreateTaskReq {
     title: String,
     description: Option<String>,
     trigger_prompt: Option<String>,
+    model: Option<String>,
 }
 
 async fn create_task(
@@ -202,6 +227,13 @@ async fn create_task(
         let _ = conn.execute(
             "UPDATE tasks SET trigger_prompt = ?1, updated_at = ?2 WHERE id = ?3",
             rusqlite::params![prompt, ts, task.id],
+        );
+    }
+    if let Some(ref model) = req.model {
+        let ts = db::now();
+        let _ = conn.execute(
+            "UPDATE tasks SET model = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![model, ts, task.id],
         );
     }
 
@@ -603,8 +635,37 @@ fn port_file_path() -> std::path::PathBuf {
     crate::db::data_dir().join("api.port")
 }
 
-/// Start the HTTP API server on a random port. Writes port to ~/.kaitencode/api.port.
+fn write_api_discovery_file(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(contents.as_bytes())?;
+        file.write_all(b"\n")
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, format!("{contents}\n"))
+    }
+}
+
+/// Start the HTTP API server on a random port. Writes port and token to
+/// ~/.kaitencode/api.port.
 pub fn start(app: AppHandle) {
+    if !local_api_enabled() {
+        let _ = std::fs::remove_file(port_file_path());
+        log::info!("[api] Local HTTP API disabled; set KAITENCODE_LOCAL_API=1 to enable");
+        return;
+    }
+
     // Open a separate DB connection for the API server (WAL allows concurrent access)
     let db = Arc::new(std::sync::Mutex::new(
         rusqlite::Connection::open(crate::db::db_path()).expect("Failed to open DB for API server"),
@@ -615,11 +676,15 @@ pub fn start(app: AppHandle) {
         let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
     }
 
-    let api_state = Arc::new(ApiState { app, db });
+    let token = Uuid::new_v4().to_string();
+    let api_state = Arc::new(ApiState {
+        app,
+        db,
+        token: token.clone(),
+    });
 
     tauri::async_runtime::spawn(async move {
-        let router = Router::new()
-            .route("/api/health", get(health))
+        let protected = Router::new()
             .route("/api/move_task", post(move_task))
             .route("/api/create_task", post(create_task))
             .route("/api/delete_task", post(delete_task))
@@ -641,6 +706,14 @@ pub fn start(app: AppHandle) {
                 "/api/delete_pipeline_template",
                 post(delete_pipeline_template_api),
             )
+            .route_layer(middleware::from_fn_with_state(
+                Arc::clone(&api_state),
+                require_api_auth,
+            ));
+
+        let router = Router::new()
+            .route("/api/health", get(health))
+            .merge(protected)
             .with_state(api_state);
 
         // Bind to random available port
@@ -655,9 +728,14 @@ pub fn start(app: AppHandle) {
         let addr: SocketAddr = listener.local_addr().unwrap();
         log::info!("[api] HTTP API server listening on {}", addr);
 
-        // Write port file
+        // Write discovery file with user-only permissions where the platform supports it.
         let port_path = port_file_path();
-        if let Err(e) = std::fs::write(&port_path, addr.port().to_string()) {
+        let discovery = serde_json::json!({
+            "port": addr.port(),
+            "token": token,
+        })
+        .to_string();
+        if let Err(e) = write_api_discovery_file(&port_path, &discovery) {
             log::error!("[api] Failed to write port file: {}", e);
         }
 
@@ -674,4 +752,40 @@ pub fn start(app: AppHandle) {
 /// Remove the port file (call on app shutdown).
 pub fn cleanup() {
     let _ = std::fs::remove_file(port_file_path());
+}
+
+fn local_api_enabled() -> bool {
+    std::env::var("KAITENCODE_LOCAL_API")
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::local_api_enabled;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn local_api_disabled_by_default() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var("KAITENCODE_LOCAL_API");
+        assert!(!local_api_enabled());
+    }
+
+    #[test]
+    fn local_api_accepts_explicit_enable_values() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        for value in ["1", "true", "yes", "on"] {
+            std::env::set_var("KAITENCODE_LOCAL_API", value);
+            assert!(local_api_enabled(), "value {value}");
+        }
+        std::env::remove_var("KAITENCODE_LOCAL_API");
+    }
 }

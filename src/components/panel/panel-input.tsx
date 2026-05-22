@@ -60,7 +60,7 @@ export function PanelInput({ onSendMessage, onCancel, onInputChange, isProcessin
     if (!trimmed || disabled) return
 
     // Get connection settings from active provider
-    const connectionMode = (anthropicProvider?.connectionMode ?? 'api')
+    const connectionMode = (anthropicProvider?.connectionMode ?? 'cli')
     const apiKeyEnvVar = anthropicProvider?.apiKeyEnvVar || 'ANTHROPIC_API_KEY'
     const apiKey = settings.agent.envVars[apiKeyEnvVar] || undefined
     const cliPath = anthropicProvider?.cliPath || 'claude'
@@ -223,9 +223,10 @@ export function PanelInput({ onSendMessage, onCancel, onInputChange, isProcessin
                   : voice.state === 'error'
                     ? 'border-yellow-500 bg-yellow-500/10 text-yellow-500'
                     : !voice.isAvailable
-                      ? 'border-border-default bg-bg text-text-secondary/40 cursor-help'
+                      ? 'border-border-default bg-bg text-text-secondary/40'
                       : 'border-border-default bg-bg text-text-primary hover:bg-bg-hover hover:border-border-hover'
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
+            } disabled:opacity-50`}
+            style={{ cursor: disabled ? 'not-allowed' : !voice.isAvailable ? 'help' : undefined }}
           >
             {voice.state === 'processing' ? (
               <LoadingSpinner />
@@ -259,7 +260,8 @@ export function PanelInput({ onSendMessage, onCancel, onInputChange, isProcessin
             type="button"
             onClick={handleSubmit}
             disabled={!message.trim() || disabled}
-            className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg bg-accent text-bg transition-colors hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ cursor: !message.trim() || disabled ? 'not-allowed' : undefined }}
+            className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg bg-accent text-bg transition-colors hover:bg-accent/90 disabled:opacity-50"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
               <path d="M3.105 2.288a.75.75 0 0 0-.826.95l1.414 4.926A1.5 1.5 0 0 0 5.135 9.25h6.115a.75.75 0 0 1 0 1.5H5.135a1.5 1.5 0 0 0-1.442 1.086l-1.414 4.926a.75.75 0 0 0 .826.95 28.897 28.897 0 0 0 15.293-7.155.75.75 0 0 0 0-1.114A28.897 28.897 0 0 0 3.105 2.288Z" />

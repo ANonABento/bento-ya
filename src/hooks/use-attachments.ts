@@ -4,15 +4,13 @@
  */
 
 import { useState, useCallback } from 'react'
-import { open } from '@tauri-apps/plugin-dialog'
-import { readFile } from '@tauri-apps/plugin-fs'
+import { pickAttachmentFiles, type AttachmentFile } from '@/lib/ipc'
 import type { Attachment, AttachmentError } from '@/types'
 import {
   getAttachmentType,
   isFileSupported,
   getMaxSize,
   MAX_ATTACHMENTS,
-  SUPPORTED_EXTENSIONS,
 } from '@/types'
 
 type UseAttachmentsOptions = {
@@ -146,10 +144,10 @@ export function useAttachments(options: UseAttachmentsOptions = {}): UseAttachme
   const [isLoading, setIsLoading] = useState(false)
 
   /**
-   * Validate and process a file from Tauri (path-based)
+   * Validate and process a file selected by the backend native picker.
    */
-  const processFileFromPath = useCallback(async (path: string): Promise<Attachment | null> => {
-    const name = path.split('/').pop() || path
+  const processSelectedFile = useCallback(async (file: AttachmentFile): Promise<Attachment | null> => {
+    const { path, name } = file
     const extension = getExtension(name)
     const mimeType = inferMimeType(extension)
 
@@ -164,8 +162,7 @@ export function useAttachments(options: UseAttachmentsOptions = {}): UseAttachme
     }
 
     try {
-      // Read file data
-      const data = await readFile(path)
+      const data = file.bytes
       const size = data.length
 
       // Determine type
@@ -300,25 +297,16 @@ export function useAttachments(options: UseAttachmentsOptions = {}): UseAttachme
     try {
       setIsLoading(true)
 
-      const selected = await open({
-        multiple: true,
-        filters: [
-          {
-            name: 'Supported Files',
-            extensions: SUPPORTED_EXTENSIONS.map(e => e.slice(1)), // Remove leading dot
-          },
-        ],
-      })
+      const selected = await pickAttachmentFiles()
 
-      if (!selected) return
+      if (selected.length === 0) return
 
-      const paths = Array.isArray(selected) ? selected : [selected]
       const remaining = maxAttachments - attachments.length
-      const toProcess = paths.slice(0, remaining)
+      const toProcess = selected.slice(0, remaining)
 
       const newAttachments: Attachment[] = []
-      for (const path of toProcess) {
-        const attachment = await processFileFromPath(path)
+      for (const file of toProcess) {
+        const attachment = await processSelectedFile(file)
         if (attachment) {
           newAttachments.push(attachment)
         }
@@ -330,7 +318,7 @@ export function useAttachments(options: UseAttachmentsOptions = {}): UseAttachme
     } finally {
       setIsLoading(false)
     }
-  }, [attachments.length, maxAttachments, onError, processFileFromPath])
+  }, [attachments.length, maxAttachments, onError, processSelectedFile])
 
   /**
    * Handle paste event (images only)

@@ -11,6 +11,7 @@ use crate::git::branch_manager;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -478,6 +479,65 @@ impl ResolvedStep {
             ResolvedStep::Agent { .. } => "agent",
         }
     }
+}
+
+fn canonical_existing_dir(path: &Path) -> Result<PathBuf, AppError> {
+    let canonical = path.canonicalize().map_err(|e| {
+        AppError::InvalidInput(format!(
+            "Script working directory does not exist: {} ({})",
+            path.display(),
+            e
+        ))
+    })?;
+    if !canonical.is_dir() {
+        return Err(AppError::InvalidInput(format!(
+            "Script working directory is not a directory: {}",
+            path.display()
+        )));
+    }
+    Ok(canonical)
+}
+
+fn path_is_within(path: &Path, root: &Path) -> bool {
+    path == root || path.starts_with(root)
+}
+
+fn resolve_script_work_dir(
+    requested_work_dir: &str,
+    default_working_dir: &str,
+    workspace_repo_path: &str,
+) -> Result<String, AppError> {
+    let requested = requested_work_dir.trim();
+    if requested.is_empty() {
+        return Err(AppError::InvalidInput(
+            "Script workDir cannot be empty".to_string(),
+        ));
+    }
+
+    let default_dir = Path::new(default_working_dir);
+    let candidate = if Path::new(requested).is_absolute() {
+        PathBuf::from(requested)
+    } else {
+        default_dir.join(requested)
+    };
+    let canonical_candidate = canonical_existing_dir(&candidate)?;
+
+    let mut allowed_roots = vec![canonical_existing_dir(Path::new(workspace_repo_path))?];
+    if default_working_dir != workspace_repo_path {
+        allowed_roots.push(canonical_existing_dir(default_dir)?);
+    }
+
+    if allowed_roots
+        .iter()
+        .any(|root| path_is_within(&canonical_candidate, root))
+    {
+        return Ok(canonical_candidate.to_string_lossy().to_string());
+    }
+
+    Err(AppError::InvalidInput(format!(
+        "Script workDir must stay inside the workspace or task worktree: {}",
+        requested_work_dir
+    )))
 }
 
 // ─── Trigger Resolution ────────────────────────────────────────────────────
@@ -1612,11 +1672,19 @@ fn execute_spawn_cli(
         format!("{}\n\nSee .task.md for full spec.", task.title)
     };
 
-    // Resolve CLI: trigger config > workspace config > global settings
-    let cli_type = cli
+    // Resolve CLI: trigger config > workspace config > global settings.
+    // Stored trigger/workspace config is user-editable JSON, so normalize it
+    // through the same backend allowlist used by direct agent commands before
+    // it reaches the shell launcher.
+    let raw_cli_type = cli
         .filter(|c| !c.trim().is_empty())
         .map(|c| c.to_string())
         .unwrap_or_else(|| pipeline_settings.default_agent_cli.clone());
+    let cli_type = if raw_cli_type.trim() == "auto" {
+        "codex".to_string()
+    } else {
+        crate::commands::agent::validate_agent_cli_path(&raw_cli_type)?
+    };
 
     // Prepend slash command if provided
     let initial_prompt = match command {
@@ -2890,24 +2958,6 @@ fn execute_run_script(
         );
     }
 
-    let ts = db::now();
-    let updated_task = db::update_task_pipeline_state(
-        conn,
-        &task.id,
-        PipelineState::Running.as_str(),
-        Some(&ts),
-        Option::None,
-    )?;
-
-    emit_pipeline(
-        app,
-        EVT_RUNNING,
-        &task.id,
-        &column.id,
-        PipelineState::Running,
-        Some(format!("Running script: {}", script.name)),
-    );
-
     // Parse steps
     let steps: Vec<serde_json::Value> = serde_json::from_str(&script.steps).unwrap_or_default();
 
@@ -2924,7 +2974,7 @@ fn execute_run_script(
     // Resolve all steps into owned data
     let resolved_steps: Vec<ResolvedStep> = steps
         .iter()
-        .map(|step| {
+        .map(|step| -> Result<ResolvedStep, AppError> {
             let step_type = step
                 .get("type")
                 .and_then(|v| v.as_str())
@@ -2944,6 +2994,8 @@ fn execute_run_script(
                         .get("workDir")
                         .and_then(|v| v.as_str())
                         .map(|d| template::interpolate(d, &ctx))
+                        .map(|d| resolve_script_work_dir(&d, &working_dir, &workspace.repo_path))
+                        .transpose()?
                         .unwrap_or_else(|| working_dir.clone());
                     let continue_on_error = step
                         .get("continueOnError")
@@ -2954,14 +3006,14 @@ fn execute_run_script(
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
 
-                    ResolvedStep::Shell {
+                    Ok(ResolvedStep::Shell {
                         name: step_name,
                         is_check: step_type == "check",
                         command,
                         work_dir,
                         continue_on_error,
                         fail_message,
-                    }
+                    })
                 }
                 "agent" => {
                     let prompt = step.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
@@ -2975,24 +3027,42 @@ fn execute_run_script(
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
 
-                    ResolvedStep::Agent {
+                    Ok(ResolvedStep::Agent {
                         name: step_name,
                         prompt,
                         model,
                         command,
-                    }
+                    })
                 }
-                _ => ResolvedStep::Shell {
+                _ => Ok(ResolvedStep::Shell {
                     name: step_name,
                     is_check: false,
                     command: String::new(),
                     work_dir: working_dir.clone(),
                     continue_on_error: true,
                     fail_message: None,
-                },
+                }),
             }
         })
-        .collect();
+        .collect::<Result<Vec<_>, AppError>>()?;
+
+    let ts = db::now();
+    let updated_task = db::update_task_pipeline_state(
+        conn,
+        &task.id,
+        PipelineState::Running.as_str(),
+        Some(&ts),
+        Option::None,
+    )?;
+
+    emit_pipeline(
+        app,
+        EVT_RUNNING,
+        &task.id,
+        &column.id,
+        PipelineState::Running,
+        Some(format!("Running script: {}", script.name)),
+    );
 
     let task_id = task.id.clone();
     let app_handle = app.clone();
@@ -3056,7 +3126,9 @@ fn execute_run_script(
                                 log::warn!(
                                     "[script:{}] stderr: {}",
                                     task_id,
-                                    stderr.chars().take(500).collect::<String>()
+                                    redact_sensitive_log_fragment(
+                                        &stderr.chars().take(500).collect::<String>()
+                                    )
                                 );
                             }
                             if !out.status.success() {
@@ -3152,6 +3224,33 @@ fn execute_run_script(
     });
 
     Ok(updated_task)
+}
+
+fn redact_sensitive_log_fragment(input: &str) -> String {
+    let secret_markers = [
+        "api_key",
+        "apikey",
+        "api-key",
+        "authorization",
+        "bearer ",
+        "token",
+        "secret",
+        "password",
+        "anthropic_api_key",
+        "openai_api_key",
+    ];
+    input
+        .lines()
+        .map(|line| {
+            let lower = line.to_ascii_lowercase();
+            if secret_markers.iter().any(|marker| lower.contains(marker)) {
+                "[redacted sensitive stderr line]"
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 // Note: dependency task interpolation ({dep.<id>.title}) is handled at the
@@ -4050,6 +4149,60 @@ mod tests {
 
         assert_eq!(step_type, "check");
         assert_eq!(fail_message, Some("Lint errors"));
+    }
+
+    #[test]
+    fn test_resolve_script_work_dir_allows_workspace_subdirectory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        let scripts = repo.join("scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
+
+        let resolved = super::resolve_script_work_dir(
+            "scripts",
+            repo.to_str().unwrap(),
+            repo.to_str().unwrap(),
+        )
+        .expect("workspace child should be allowed");
+
+        assert_eq!(resolved, scripts.canonicalize().unwrap().to_string_lossy());
+    }
+
+    #[test]
+    fn test_resolve_script_work_dir_allows_task_worktree_subdirectory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        let worktree = tmp.path().join("worktree");
+        let nested = worktree.join("pkg");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+
+        let resolved = super::resolve_script_work_dir(
+            "pkg",
+            worktree.to_str().unwrap(),
+            repo.to_str().unwrap(),
+        )
+        .expect("worktree child should be allowed");
+
+        assert_eq!(resolved, nested.canonicalize().unwrap().to_string_lossy());
+    }
+
+    #[test]
+    fn test_resolve_script_work_dir_rejects_paths_outside_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let err = super::resolve_script_work_dir(
+            outside.to_str().unwrap(),
+            repo.to_str().unwrap(),
+            repo.to_str().unwrap(),
+        )
+        .expect_err("outside path should be rejected");
+
+        assert!(err.to_string().contains("inside the workspace"));
     }
 
     #[test]

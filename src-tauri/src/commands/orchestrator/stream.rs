@@ -99,6 +99,7 @@ pub(super) async fn stream_orchestrator_chat(
             let cli = cli_path
                 .clone()
                 .unwrap_or_else(|| DEFAULT_CLI_PATH.to_string());
+            let cli = crate::commands::agent::validate_agent_cli_path(&cli)?;
             stream_via_unified_cli(
                 app.clone(),
                 state.clone(),

@@ -216,6 +216,26 @@ pub fn update_agent_session_cli_for_adapter(
     get_agent_session(conn, id)
 }
 
+pub fn update_agent_session_model(
+    conn: &Connection,
+    id: &str,
+    model: Option<&str>,
+    effort_level: Option<&str>,
+) -> SqlResult<AgentSession> {
+    let current = get_agent_session(conn, id)?;
+    let ts = now();
+    conn.execute(
+        "UPDATE agent_sessions SET model = ?1, effort_level = ?2, updated_at = ?3 WHERE id = ?4",
+        params![
+            model.or(current.model.as_deref()),
+            effort_level.or(current.effort_level.as_deref()),
+            ts,
+            id,
+        ],
+    )?;
+    get_agent_session(conn, id)
+}
+
 /// Resolve the resume id for a given adapter on an agent session.
 ///
 /// Lookup order:

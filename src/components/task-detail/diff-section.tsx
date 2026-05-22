@@ -4,6 +4,7 @@ import { DiffViewer } from '@/components/review/diff-viewer'
 
 type DiffSectionProps = {
   branch: string | null
+  referenceKind?: 'branch' | 'commit' | 'none'
   changes: ChangeSummary | null
   loading: boolean
   diffLoading: boolean
@@ -20,6 +21,7 @@ const FILE_LIST_LIMIT = 6
 
 export function DiffSection({
   branch,
+  referenceKind = branch ? 'branch' : 'none',
   changes,
   loading,
   diffLoading,
@@ -34,19 +36,27 @@ export function DiffSection({
   const [showAll, setShowAll] = useState(false)
   const [filesExpanded, setFilesExpanded] = useState(false)
 
-  // Reset selection when branch changes
+  const hasReference = referenceKind !== 'none' && Boolean(branch)
+  const referenceLabel = referenceKind === 'commit'
+    ? `commit ${branch ?? ''}`
+    : branch
+
+  // Reset selection when the comparison reference changes.
   useEffect(() => {
     setSelectedFile(null)
     setShowAll(false)
     setFilesExpanded(false)
   }, [branch])
 
-  if (!branch) {
+  if (!hasReference) {
     return (
       <div className="rounded-md border border-border-default bg-surface px-3 py-3" data-testid="changes-empty-no-branch">
-        <span className="text-xs text-text-secondary">
-          No branch on this task — create one to see diffs.
-        </span>
+        <div className="space-y-1">
+          <div className="text-xs font-medium text-text-primary">No task change reference</div>
+          <p className="text-xs leading-relaxed text-text-secondary">
+            This task has no recorded branch or committed hash in its transcript yet. Agent runs should create a task branch/worktree, or the Changes tab needs a commit hash to diff.
+          </p>
+        </div>
       </div>
     )
   }
@@ -100,12 +110,17 @@ export function DiffSection({
     <div className="rounded-md border border-border-default bg-surface" data-testid="changes-panel">
       {/* Summary header */}
       <div className={`flex items-center justify-between gap-2 border-b border-border-default ${compact ? 'px-2 py-1.5' : 'px-3 py-2'}`}>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <span className="text-xs font-medium text-text-primary">
             {changes.totalFiles} file{changes.totalFiles !== 1 ? 's' : ''}
           </span>
           <span className="text-xs text-success">+{changes.totalAdditions}</span>
           <span className="text-xs text-error">-{changes.totalDeletions}</span>
+          {referenceLabel && (
+            <span className="min-w-0 truncate rounded border border-border-default/70 px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
+              {referenceLabel}
+            </span>
+          )}
         </div>
         <button
           type="button"

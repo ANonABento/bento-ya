@@ -7,7 +7,6 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { listen } from '@tauri-apps/api/event'
 import { useUIStore } from '@/stores/ui-store'
 import { useResizablePanel } from '@/hooks/use-resizable-panel'
 import { ResizeHandle } from '@/components/shared/resize-handle'
@@ -15,7 +14,7 @@ import { useTaskStore } from '@/stores/task-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { useOrchestratorSessions } from '@/hooks/use-orchestrator-sessions'
 import { useChatSession } from '@/hooks/chat-session'
-import { getChatHistory, type ChatMessage } from '@/lib/ipc'
+import { getChatHistory, listen, type ChatMessage } from '@/lib/ipc'
 import { buildPromptWithAttachments } from '@/types'
 import { useCliPath } from '@/hooks/use-cli-path'
 import { ChatHistory } from './chat-history'
@@ -144,24 +143,21 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     const unsubscribes: Array<() => void> = []
 
     const setupListeners = async () => {
-      const unsubTaskCreated = await listen('task:created', (event) => {
-        const payload = event.payload as { workspace_id?: string }
+      const unsubTaskCreated = await listen<{ workspace_id?: string }>('task:created', (payload) => {
         if (payload.workspace_id === workspaceId) {
           void loadTasks(workspaceId)
         }
       })
       unsubscribes.push(unsubTaskCreated)
 
-      const unsubTaskUpdated = await listen('task:updated', (event) => {
-        const payload = event.payload as { workspace_id?: string }
+      const unsubTaskUpdated = await listen<{ workspace_id?: string }>('task:updated', (payload) => {
         if (payload.workspace_id === workspaceId) {
           void loadTasks(workspaceId)
         }
       })
       unsubscribes.push(unsubTaskUpdated)
 
-      const unsubTaskDeleted = await listen('task:deleted', (event) => {
-        const payload = event.payload as { workspace_id?: string }
+      const unsubTaskDeleted = await listen<{ workspace_id?: string }>('task:deleted', (payload) => {
         if (payload.workspace_id === workspaceId) {
           void loadTasks(workspaceId)
         }
@@ -320,11 +316,12 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 aria-label={sidebarMode === 'history' ? 'Hide history' : 'Show history'}
                 aria-pressed={sidebarMode === 'history'}
                 title="History"
-                className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
                   sidebarMode === 'history'
                     ? 'bg-surface-hover text-text-primary'
                     : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
                 }`}
+                style={{ cursor: 'pointer' }}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
                   <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13a.75.75 0 0 0-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 0 0 0-1.5h-3.25V5Z" clipRule="evenodd" />
@@ -336,11 +333,12 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 aria-label={sidebarMode === 'files' ? 'Hide files' : 'Show files'}
                 aria-pressed={sidebarMode === 'files'}
                 title="Files"
-                className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
                   sidebarMode === 'files'
                     ? 'bg-surface-hover text-text-primary'
                     : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
                 }`}
+                style={{ cursor: 'pointer' }}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
                   <path d="M3.75 3A1.75 1.75 0 0 0 2 4.75v3.26a3.235 3.235 0 0 1 1.75-.51h12.5c.644 0 1.245.188 1.75.51V6.75A1.75 1.75 0 0 0 16.25 5h-4.836a.25.25 0 0 1-.177-.073L9.823 3.513A1.75 1.75 0 0 0 8.586 3H3.75Z" />
@@ -352,11 +350,12 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 onClick={() => { setSidebarMode(sidebarMode === 'dashboard' ? null : 'dashboard') }}
                 aria-label={sidebarMode === 'dashboard' ? 'Hide pipeline dashboard' : 'Show pipeline dashboard'}
                 aria-pressed={sidebarMode === 'dashboard'}
-                className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
                   sidebarMode === 'dashboard'
                     ? 'bg-surface-hover text-text-primary'
                     : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
                 }`}
+                style={{ cursor: 'pointer' }}
                 title="Pipeline dashboard"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
@@ -368,11 +367,12 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 onClick={() => { setSidebarMode(sidebarMode === 'v2-dashboard' ? null : 'v2-dashboard') }}
                 aria-label={sidebarMode === 'v2-dashboard' ? 'Hide pipeline v2 dashboard' : 'Show pipeline v2 dashboard'}
                 aria-pressed={sidebarMode === 'v2-dashboard'}
-                className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors ${
+                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
                   sidebarMode === 'v2-dashboard'
                     ? 'bg-surface-hover text-text-primary'
                     : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
                 }`}
+                style={{ cursor: 'pointer' }}
                 title="Pipeline v2 dashboard — column distribution, ETA, cost"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -398,7 +398,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               type="button"
               onClick={() => { void handleNewChat() }}
               disabled={localMessages.length === 0}
-              className="flex h-6 cursor-pointer items-center gap-1 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+              className="flex h-6 items-center gap-1 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+              style={{ cursor: localMessages.length === 0 ? 'not-allowed' : 'pointer' }}
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
                 <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
@@ -415,7 +416,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               type="button"
               onClick={() => { setPanelDock(isRightDock ? 'bottom' : 'right') }}
               title={isRightDock ? 'Dock to bottom' : 'Dock to right'}
-              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+              style={{ cursor: 'pointer' }}
             >
               {isRightDock ? (
                 /* Icon: dock bottom */
@@ -435,7 +437,8 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             onClick={togglePanel}
             aria-label={isPanelCollapsed ? 'Expand orchestrator panel' : 'Collapse orchestrator panel'}
             aria-expanded={!isPanelCollapsed}
-            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+            style={{ cursor: 'pointer' }}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

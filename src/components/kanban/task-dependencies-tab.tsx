@@ -212,7 +212,8 @@ export function DependenciesTab({
           type="button"
           onClick={() => { void handleAdd() }}
           disabled={!newTaskId || isValidating}
-          className="w-full rounded-lg bg-accent/10 px-3 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ cursor: !newTaskId || isValidating ? 'not-allowed' : undefined }}
+          className="w-full rounded-lg bg-accent/10 px-3 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
         >
           {isValidating ? 'Validating...' : 'Add Dependency'}
         </button>

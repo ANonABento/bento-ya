@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { PathPicker } from '@/components/shared/path-picker'
+import { getErrorMessage } from '@/lib/errors'
 
 type AddWorkspaceDialogProps = {
   onClose: () => void
@@ -8,8 +10,10 @@ type AddWorkspaceDialogProps = {
 
 export function AddWorkspaceDialog({ onClose }: AddWorkspaceDialogProps) {
   const add = useWorkspaceStore((s) => s.add)
+  const setActive = useWorkspaceStore((s) => s.setActive)
   const [name, setName] = useState('')
   const [repoPath, setRepoPath] = useState('')
+  const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -22,11 +26,18 @@ export function AddWorkspaceDialog({ onClose }: AddWorkspaceDialogProps) {
     if (!name.trim() || !repoPath.trim() || isSubmitting) return
 
     setIsSubmitting(true)
+    setError(null)
     try {
-      await add(name.trim(), repoPath.trim())
+      const workspace = await add(name.trim(), repoPath.trim())
+      setActive(workspace.id)
       onClose()
-    } catch (err) {
-      console.error('Failed to add workspace:', err)
+    } catch (err: unknown) {
+      const message = getErrorMessage(err)
+      if (message.includes('repo') || message.includes('git')) {
+        setError('Invalid repository path. Select a local git repository and try again.')
+      } else {
+        setError(message)
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -61,19 +72,26 @@ export function AddWorkspaceDialog({ onClose }: AddWorkspaceDialogProps) {
 
           <div>
             <label className="mb-1 block text-sm text-text-secondary">Repository Path</label>
-            <input
-              type="text"
+            <PathPicker
               value={repoPath}
-              onChange={(e) => { setRepoPath(e.target.value) }}
+              onChange={(path) => {
+                setRepoPath(path)
+                setError(null)
+              }}
+              onError={setError}
               placeholder="/path/to/repo"
-              className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none"
             />
           </div>
+
+          {error && (
+            <p className="text-xs text-error" role="alert">{error}</p>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"
               onClick={onClose}
+              style={{ cursor: 'pointer' }}
               className="rounded-lg px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
             >
               Cancel
@@ -81,6 +99,7 @@ export function AddWorkspaceDialog({ onClose }: AddWorkspaceDialogProps) {
             <button
               type="submit"
               disabled={!name.trim() || !repoPath.trim() || isSubmitting}
+              style={{ cursor: !name.trim() || !repoPath.trim() || isSubmitting ? 'not-allowed' : 'pointer' }}
               className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg disabled:opacity-50"
             >
               {isSubmitting ? 'Adding...' : 'Add'}

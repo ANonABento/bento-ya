@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
-use crate::db;
+use crate::db::{self, AppState};
+use tauri::Manager;
 
 // ─── Event channel name helpers ────────────────────────────────────────────
 
@@ -135,17 +136,40 @@ pub fn persist_and_emit_agent_transcript_event(
     content: Option<&str>,
     metadata_json: Option<&str>,
 ) -> Option<db::AgentTranscriptEvent> {
-    let conn = rusqlite::Connection::open(db::db_path()).ok()?;
-    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-    let event = db::insert_agent_transcript_event(
-        &conn,
-        task_id,
-        session_id,
-        event_type,
-        content,
-        metadata_json,
-    )
-    .ok()?;
+    // Use the shared AppState mutex instead of opening a new sqlite handle
+    // per call. Streaming agents emit hundreds of events/sec; the previous
+    // pattern fanned out to thousands of concurrent fresh connections under
+    // load and contended for the WAL writer lock.
+    let state = app.try_state::<AppState>()?;
+    let event = {
+        let conn = match state.db.lock() {
+            Ok(guard) => guard,
+            Err(e) => {
+                eprintln!(
+                    "[events] transcript persist for task {} failed: db mutex poisoned: {}",
+                    task_id, e
+                );
+                return None;
+            }
+        };
+        match db::insert_agent_transcript_event(
+            &conn,
+            task_id,
+            session_id,
+            event_type,
+            content,
+            metadata_json,
+        ) {
+            Ok(event) => event,
+            Err(e) => {
+                eprintln!(
+                    "[events] transcript persist for task {} event_type={} failed: {}",
+                    task_id, event_type, e
+                );
+                return None;
+            }
+        }
+    };
     emit_agent_transcript_event(
         app,
         AgentTranscriptEventPayload {

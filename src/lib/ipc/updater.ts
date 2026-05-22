@@ -6,6 +6,17 @@ export type UpdateInfo = {
   date: string | null
 }
 
+export type UpdateStatus = {
+  configured: boolean
+  reason: string | null
+  endpointCount: number
+  artifactsEnabled: boolean
+}
+
+export async function getUpdateStatus(): Promise<UpdateStatus> {
+  return invoke<UpdateStatus>('get_update_status')
+}
+
 export async function checkForUpdate(): Promise<UpdateInfo | null> {
   return invoke<UpdateInfo | null>('check_for_update')
 }

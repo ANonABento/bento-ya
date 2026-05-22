@@ -8,6 +8,8 @@ export type { ModelId }
 export type ModelSelection = { model: ModelId; extendedContext: boolean }
 
 export type ChatInputConfig = {
+  defaultModel?: ModelId
+  defaultThinkingLevel?: ThinkingLevel
   showModelSelector?: boolean
   showContextToggle?: boolean
   showThinkingSelector?: boolean

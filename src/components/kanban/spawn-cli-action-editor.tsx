@@ -174,7 +174,7 @@ export function SpawnCliActionEditor({
         />
         <details className="mt-1">
           <summary
-            className="cursor-pointer text-xs text-text-secondary hover:text-text-primary"
+            className="text-xs text-text-secondary hover:text-text-primary"
             style={{ cursor: 'pointer' }}
           >
             Available variables

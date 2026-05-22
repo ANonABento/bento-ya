@@ -55,9 +55,10 @@ export function ThinkingSelector({ value, maxLevel, onChange }: ThinkingSelector
               type="button"
               onClick={() => { if (!disabled) handleSelect(level.id) }}
               disabled={disabled}
+              style={{ cursor: disabled ? 'not-allowed' : undefined }}
               className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
                 disabled
-                  ? 'text-text-muted/30 cursor-not-allowed'
+                  ? 'text-text-muted/30'
                   : level.id === value
                     ? 'text-accent hover:bg-surface-hover'
                     : 'text-text-secondary hover:bg-surface-hover'

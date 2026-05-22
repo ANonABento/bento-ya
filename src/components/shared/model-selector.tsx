@@ -7,7 +7,7 @@ import { useState, useCallback } from 'react'
 import { SelectorDropdown, SelectorOption, SelectorButton } from './selector-dropdown'
 import { useModelCapabilities, type ModelCapability } from '@/hooks/use-model-capabilities'
 
-export type ModelId = 'opus' | 'sonnet' | 'haiku'
+export type ModelId = string
 
 interface ModelSelectorProps {
   value: ModelId
@@ -25,7 +25,9 @@ export function ModelSelector({
   const models = modelsProp ?? dynamicModels
   const [open, setOpen] = useState(false)
 
-  const currentModel = models.find((m) => m.id === value) ?? models[1]
+  const currentModel = models.find((m) =>
+    m.id === value || m.fullId === value || m.aliases?.includes(value)
+  ) ?? models[1]
 
   const handleSelect = useCallback((modelId: ModelId) => {
     onChange(modelId)
@@ -47,7 +49,7 @@ export function ModelSelector({
           <SelectorOption
             key={model.id}
             selected={model.id === value}
-            onClick={() => { handleSelect(model.id as ModelId) }}
+            onClick={() => { handleSelect(model.id) }}
             label={model.name}
             description={model.description}
           />

@@ -44,6 +44,25 @@ pub(crate) fn tmux_test_lock_blocking() -> tokio::sync::MutexGuard<'static, ()> 
 const SESSION_PREFIX: &str = "kaitencode_";
 const LEGACY_SESSION_PREFIXES: &[&str] = &["bentoya_"];
 
+fn tmux_server_missing(stderr: &str) -> bool {
+    stderr.contains("no server running")
+        || stderr.contains("error connecting to")
+        || stderr.contains("No such file or directory")
+}
+
+pub fn default_user_shell() -> String {
+    std::env::var("SHELL")
+        .ok()
+        .filter(|shell| !shell.trim().is_empty())
+        .unwrap_or_else(|| {
+            if cfg!(target_os = "macos") {
+                "/bin/zsh".to_string()
+            } else {
+                "/bin/sh".to_string()
+            }
+        })
+}
+
 /// Check if tmux is available on the system.
 /// Returns the version string on success, or an error message.
 pub fn check_tmux() -> Result<String, String> {
@@ -72,7 +91,7 @@ pub fn ensure_tmux_server() -> Result<(), String> {
 
     if !check.status.success() {
         let stderr = String::from_utf8_lossy(&check.stderr);
-        if stderr.contains("no server running") {
+        if tmux_server_missing(&stderr) {
             eprintln!("[tmux] Server not running — auto-starting");
             let start = Command::new("tmux")
                 .args(["new-session", "-d", "-s", "default"])
@@ -177,7 +196,7 @@ pub fn kill_session(task_id: &str) -> Result<(), String> {
         if !output.status.success() {
             // Session might already be dead — not an error
             let stderr = String::from_utf8_lossy(&output.stderr);
-            if !stderr.contains("no server running")
+            if !tmux_server_missing(&stderr)
                 && !stderr.contains("session not found")
                 && !stderr.contains("can't find session")
             {
@@ -316,7 +335,7 @@ impl TmuxTransport {
         // Spawn the shell command inside tmux
         // If command is a shell ($SHELL), tmux uses its default shell
         // If it's something else, pass it as the tmux command
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let shell = default_user_shell();
         if config.command != shell {
             args.push(config.command.clone());
             for arg in &config.args {

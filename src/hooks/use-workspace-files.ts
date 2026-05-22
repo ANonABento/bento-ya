@@ -11,7 +11,7 @@ export type GroupedFiles = {
   notes: FileEntry[]
 }
 
-export function useWorkspaceFiles(repoPath: string | null) {
+export function useWorkspaceFiles(workspaceId: string | null) {
   const [files, setFiles] = useState<FileEntry[]>([])
   const [groupedFiles, setGroupedFiles] = useState<GroupedFiles>({
     context: [],
@@ -22,7 +22,7 @@ export function useWorkspaceFiles(repoPath: string | null) {
   const [error, setError] = useState<string | null>(null)
 
   const fetchFiles = useCallback(async () => {
-    if (!repoPath) {
+    if (!workspaceId) {
       setFiles([])
       setGroupedFiles({ context: [], tickets: [], notes: [] })
       return
@@ -31,7 +31,7 @@ export function useWorkspaceFiles(repoPath: string | null) {
     try {
       setLoading(true)
       setError(null)
-      const result = await scanWorkspaceFiles(repoPath)
+      const result = await scanWorkspaceFiles(workspaceId)
       setFiles(result)
 
       // Group files by category
@@ -54,7 +54,7 @@ export function useWorkspaceFiles(repoPath: string | null) {
     } finally {
       setLoading(false)
     }
-  }, [repoPath])
+  }, [workspaceId])
 
   // Auto-fetch on mount and when repoPath changes
   useEffect(() => {

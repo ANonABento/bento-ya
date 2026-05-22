@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
-import { detectSingleCli } from '@/lib/ipc'
+import { detectSingleCli, verifyCliPath } from '@/lib/ipc'
 
 type CliPathResult = {
   cliPath: string
@@ -49,6 +49,7 @@ export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
     setResolvedPath(configuredPath)
     setDetectionError(null)
     setIsDetecting(needsDetection)
+    hasDetected.current = false
   }, [configuredPath, needsDetection])
 
   useEffect(() => {
@@ -57,8 +58,37 @@ export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
   }, [providerId])
 
   useEffect(() => {
-    // Only auto-detect if path is just a binary name (no slashes)
     if (configuredPath.includes('/')) {
+      if (hasDetected.current) return
+      hasDetected.current = true
+      let cancelled = false
+
+      const verifyPath = async () => {
+        try {
+          const detected = await verifyCliPath(configuredPath)
+          if (cancelled) return
+          if (!detected.isAvailable) {
+            setDetectionError(`Configured ${cliId} CLI path is not valid. Check Settings > Agents & Models.`)
+          }
+        } catch {
+          if (!cancelled) {
+            setDetectionError(`Failed to verify configured ${cliId} CLI path`)
+          }
+        } finally {
+          if (!cancelled) {
+            setIsDetecting(false)
+          }
+        }
+      }
+
+      void verifyPath()
+
+      return () => {
+        cancelled = true
+      }
+    }
+
+    if (configuredPath.trim() === '') {
       return
     }
 

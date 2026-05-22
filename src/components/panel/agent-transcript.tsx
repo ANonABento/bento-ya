@@ -1009,6 +1009,8 @@ function hasCommandIdentity(metadata: Record<string, unknown>): boolean {
 
 function formatEndDetail(metadata: Record<string, unknown>): string | undefined {
   const exitCode = stringMeta(metadata, 'exitCode')
+  const autoCommitHash = stringMeta(metadata, 'autoCommitHash')
+  if (autoCommitHash) return `auto-commit ${autoCommitHash.slice(0, 7)}`
   if (!exitCode || exitCode === '0' || exitCode === '130') return undefined
   const error = stringMeta(metadata, 'error')
   return error ?? `exit ${exitCode}`

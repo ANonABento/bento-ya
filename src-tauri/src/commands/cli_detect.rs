@@ -1,8 +1,75 @@
 //! CLI detection commands for finding installed AI coding assistants
 
 use serde::{Deserialize, Serialize};
+use std::io::Read;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
+
+const CLI_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
+fn command_output_with_timeout(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> std::io::Result<Option<Output>> {
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    // Drain stdout/stderr in dedicated threads so a child that writes more
+    // than the OS pipe buffer (~64 KiB) cannot block on write while we are
+    // polling try_wait(). Threads exit when the pipes close (on child exit
+    // or after we kill the child below).
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let stdout_handle = stdout.map(|mut s| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = s.read_to_end(&mut buf);
+            buf
+        })
+    });
+    let stderr_handle = stderr.map(|mut s| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = s.read_to_end(&mut buf);
+            buf
+        })
+    });
+
+    let started = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait()? {
+            let stdout = stdout_handle
+                .and_then(|h| h.join().ok())
+                .unwrap_or_default();
+            let stderr = stderr_handle
+                .and_then(|h| h.join().ok())
+                .unwrap_or_default();
+            return Ok(Some(Output {
+                status,
+                stdout,
+                stderr,
+            }));
+        }
+
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_handle.and_then(|h| h.join().ok());
+            let _ = stderr_handle.and_then(|h| h.join().ok());
+            return Ok(None);
+        }
+
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,7 +112,11 @@ fn get_search_paths() -> Vec<PathBuf> {
         // Standard PATH locations
         PathBuf::from("/usr/local/bin"),
         PathBuf::from("/usr/bin"),
+        PathBuf::from("/bin"),
         PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/snap/bin"),
+        PathBuf::from("/var/lib/flatpak/exports/bin"),
+        PathBuf::from(format!("{}/.local/share/flatpak/exports/bin", home)),
         // User-specific locations
         PathBuf::from(format!("{}/.local/bin", home)),
         PathBuf::from(format!("{}/bin", home)),
@@ -71,7 +142,7 @@ fn get_search_paths() -> Vec<PathBuf> {
 /// Try to find a CLI tool by name
 fn find_cli(name: &str) -> Option<String> {
     // First try `which` command
-    if let Ok(output) = Command::new("which").arg(name).output() {
+    if let Ok(Some(output)) = command_output_with_timeout("which", &[name], CLI_PROBE_TIMEOUT) {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() && std::path::Path::new(&path).exists() {
@@ -93,7 +164,9 @@ fn find_cli(name: &str) -> Option<String> {
 
 /// Get version string from a CLI tool
 fn get_cli_version(path: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(path).args(args).output().ok()?;
+    let output = command_output_with_timeout(path, args, CLI_PROBE_TIMEOUT)
+        .ok()
+        .flatten()?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -255,8 +328,27 @@ pub fn get_cli_capabilities(cli_id: String) -> CliCapabilities {
 #[tauri::command]
 pub fn verify_cli_path(path: String) -> DetectedCli {
     let path_obj = std::path::Path::new(&path);
+    let binary_name = path_obj
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+    let (id, name) = match binary_name {
+        "claude" => ("claude", "Claude Code"),
+        "codex" => ("codex", "Codex CLI"),
+        _ => ("custom", "Custom CLI"),
+    };
 
-    if !path_obj.exists() {
+    if !path_obj.exists() || !path_obj.is_file() {
+        return DetectedCli {
+            id: id.to_string(),
+            name: name.to_string(),
+            path,
+            version: None,
+            is_available: false,
+        };
+    }
+
+    if !matches!(binary_name, "claude" | "codex") {
         return DetectedCli {
             id: "custom".to_string(),
             name: "Custom CLI".to_string(),
@@ -266,20 +358,34 @@ pub fn verify_cli_path(path: String) -> DetectedCli {
         };
     }
 
+    #[cfg(unix)]
+    {
+        let executable = path_obj
+            .metadata()
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false);
+        if !executable {
+            return DetectedCli {
+                id: id.to_string(),
+                name: name.to_string(),
+                path,
+                version: None,
+                is_available: false,
+            };
+        }
+    }
+
     // Try to get version
     let version = get_cli_version(&path, &["--version"]);
-
-    // Try to determine which CLI it is based on the binary name
-    let binary_name = path_obj
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown");
-
-    let (id, name) = match binary_name {
-        "claude" => ("claude", "Claude Code"),
-        "codex" => ("codex", "Codex CLI"),
-        _ => ("custom", "Custom CLI"),
-    };
+    if version.is_none() {
+        return DetectedCli {
+            id: id.to_string(),
+            name: name.to_string(),
+            path,
+            version: None,
+            is_available: false,
+        };
+    }
 
     DetectedCli {
         id: id.to_string(),
@@ -287,6 +393,57 @@ pub fn verify_cli_path(path: String) -> DetectedCli {
         path,
         version,
         is_available: true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn verify_cli_path_rejects_directories() {
+        let temp = tempfile::tempdir().unwrap();
+        let detected = verify_cli_path(temp.path().to_string_lossy().to_string());
+        assert!(!detected.is_available);
+    }
+
+    #[test]
+    fn verify_cli_path_rejects_non_executable_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("claude");
+        fs::write(&path, "#!/bin/sh\necho claude").unwrap();
+        #[cfg(unix)]
+        {
+            let mut permissions = fs::metadata(&path).unwrap().permissions();
+            permissions.set_mode(0o644);
+            fs::set_permissions(&path, permissions).unwrap();
+        }
+
+        let detected = verify_cli_path(path.to_string_lossy().to_string());
+        assert!(!detected.is_available);
+    }
+
+    #[test]
+    fn verify_cli_path_rejects_unknown_executable_without_running_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("not-an-agent");
+        let marker = temp.path().join("marker");
+        fs::write(
+            &path,
+            format!("#!/bin/sh\ntouch {}\necho nope\n", marker.display()),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            let mut permissions = fs::metadata(&path).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&path, permissions).unwrap();
+        }
+
+        let detected = verify_cli_path(path.to_string_lossy().to_string());
+        assert!(!detected.is_available);
+        assert!(!marker.exists());
     }
 }
 
@@ -314,13 +471,17 @@ pub async fn check_cli_update(cli_id: String) -> Result<CliUpdateInfo, String> {
     let path = find_cli(binary).ok_or_else(|| format!("{} CLI not found", binary))?;
 
     // Get current version — run async to handle paths with spaces
-    let version_output = tokio::process::Command::new(&path)
-        .arg("--version")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .await
-        .ok();
+    let version_output = tokio::time::timeout(
+        CLI_PROBE_TIMEOUT,
+        tokio::process::Command::new(&path)
+            .arg("--version")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output(),
+    )
+    .await
+    .ok()
+    .and_then(Result::ok);
 
     let current_version = version_output
         .and_then(|o| {

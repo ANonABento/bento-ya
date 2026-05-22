@@ -225,7 +225,8 @@ export const ColumnHeader = memo(function ColumnHeader({
           />
         ) : (
           <h3
-            className="min-w-0 flex-1 text-xs font-semibold uppercase tracking-wider text-text-secondary truncate cursor-default select-none"
+            className="min-w-0 flex-1 text-xs font-semibold uppercase tracking-wider text-text-secondary truncate select-none"
+            style={{ cursor: 'default' }}
             onDoubleClick={handleNameDoubleClick}
           >
             {name}
