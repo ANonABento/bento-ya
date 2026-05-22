@@ -1,10 +1,11 @@
 //! CLI detection commands for finding installed AI coding assistants
 
 use serde::{Deserialize, Serialize};
+use std::io::Read;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 const CLI_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
@@ -14,17 +15,55 @@ fn command_output_with_timeout(
     args: &[&str],
     timeout: Duration,
 ) -> std::io::Result<Option<Output>> {
-    let mut child = Command::new(program).args(args).spawn()?;
-    let started = Instant::now();
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
 
+    // Drain stdout/stderr in dedicated threads so a child that writes more
+    // than the OS pipe buffer (~64 KiB) cannot block on write while we are
+    // polling try_wait(). Threads exit when the pipes close (on child exit
+    // or after we kill the child below).
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let stdout_handle = stdout.map(|mut s| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = s.read_to_end(&mut buf);
+            buf
+        })
+    });
+    let stderr_handle = stderr.map(|mut s| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = s.read_to_end(&mut buf);
+            buf
+        })
+    });
+
+    let started = Instant::now();
     loop {
-        if child.try_wait()?.is_some() {
-            return child.wait_with_output().map(Some);
+        if let Some(status) = child.try_wait()? {
+            let stdout = stdout_handle
+                .and_then(|h| h.join().ok())
+                .unwrap_or_default();
+            let stderr = stderr_handle
+                .and_then(|h| h.join().ok())
+                .unwrap_or_default();
+            return Ok(Some(Output {
+                status,
+                stdout,
+                stderr,
+            }));
         }
 
         if started.elapsed() >= timeout {
             let _ = child.kill();
             let _ = child.wait();
+            let _ = stdout_handle.and_then(|h| h.join().ok());
+            let _ = stderr_handle.and_then(|h| h.join().ok());
             return Ok(None);
         }
 
