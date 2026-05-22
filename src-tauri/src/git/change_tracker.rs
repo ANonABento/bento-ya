@@ -229,20 +229,21 @@ pub fn get_changes(
     let branch_diff = get_branch_diff(&repo, branch, base_branch, None)?;
     let workdir_diff = get_workdir_diff(&repo, branch, None)?;
 
-    let branch_stats = branch_diff.stats().map_err(|e| e.to_string())?;
-    let mut total_additions = branch_stats.insertions();
-    let mut total_deletions = branch_stats.deletions();
-
     let mut files = Vec::new();
     let mut seen_paths = HashSet::new();
     collect_file_changes(&branch_diff, &mut files, &mut seen_paths);
 
     if let Some(workdir_diff) = workdir_diff {
-        let workdir_stats = workdir_diff.stats().map_err(|e| e.to_string())?;
-        total_additions += workdir_stats.insertions();
-        total_deletions += workdir_stats.deletions();
         collect_file_changes(&workdir_diff, &mut files, &mut seen_paths);
     }
+
+    // Derive totals from the per-file list rather than summing branch+workdir
+    // diff stats independently: when a file is touched in BOTH the branch
+    // diff and the dirty worktree, the file entry is deduped via seen_paths,
+    // so summing both stats would double-count it and produce a header that
+    // disagreed with the listed file rows.
+    let total_additions: usize = files.iter().map(|f| f.additions).sum();
+    let total_deletions: usize = files.iter().map(|f| f.deletions).sum();
 
     Ok(ChangeSummary {
         total_additions,

@@ -341,13 +341,21 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
 }
 
 function inferLatestCommitHash(events: AgentTranscriptEvent[]): string | null {
+  // Pull the hash from event metadata that the auto-commit safety net emits
+  // (see bridge.rs / commands/agent.rs auto_commit_completed_worktree:
+  // `{ "source": "auto_commit", "commit": "<sha>" }`). Reading from metadata
+  // is robust; the previous regex over event.content grabbed any 7+ char
+  // hex run — including UUID fragments, content-hash digests, and tokens —
+  // and fed those to get_commit_changes as a synthetic ref.
   for (let i = events.length - 1; i >= 0; i--) {
-    const content = events[i]?.content
-    if (!content) continue
-    const matches = Array.from(content.matchAll(/\b[0-9a-f]{7,40}\b/gi))
-      .map((match) => match[0])
-      .filter((hash) => !/^[0-9]+$/.test(hash))
-    if (matches.length > 0) return matches[matches.length - 1] ?? null
+    const event = events[i]
+    if (!event) continue
+    const metadata = parseEventMetadata(event.metadataJson)
+    if (metadata.source !== 'auto_commit') continue
+    const commit = metadata.commit
+    if (typeof commit === 'string' && /^[0-9a-f]{7,40}$/i.test(commit)) {
+      return commit
+    }
   }
   return null
 }

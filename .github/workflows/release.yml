@@ -181,8 +181,11 @@ jobs:
             echo "APPLE_API_KEY_PATH=$APPLE_API_KEY_PATH_SECRET" >> "$GITHUB_ENV"
           elif [[ -n "$APPLE_API_KEY_P8" ]]; then
             KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
-            printf '%s' "$APPLE_API_KEY_P8" > "$KEY_PATH"
-            chmod 600 "$KEY_PATH"
+            # umask 077 so the file is born 0600 — closes the race window
+            # between write and chmod. printf '%s\n' restores the trailing
+            # newline GitHub Actions secrets strip; strict PEM parsers and
+            # some notarytool versions reject a key without it.
+            ( umask 077 && printf '%s\n' "$APPLE_API_KEY_P8" > "$KEY_PATH" )
             echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
           fi
 
