@@ -1,6 +1,5 @@
 use crate::db::{self, AppState, Column};
 use crate::error::AppError;
-use crate::pipeline::triggers::ColumnTriggersV2;
 use tauri::State;
 
 #[tauri::command]
@@ -69,19 +68,9 @@ pub fn update_column(
         }
     }
 
-    // Validate trigger JSON if provided
+    // Validate trigger JSON if provided (shared validator — single source of truth)
     if let Some(ref t) = triggers {
-        if !t.is_empty() && t != "{}" {
-            match serde_json::from_str::<ColumnTriggersV2>(t) {
-                Ok(_) => {} // Valid
-                Err(e) => {
-                    return Err(AppError::InvalidInput(format!(
-                        "Invalid trigger configuration: {}. Check that trigger types match: auto_setup, spawn_cli, move_column, trigger_task, run_script (requires script_id), create_pr, auto_merge, none.",
-                        e
-                    )));
-                }
-            }
-        }
+        crate::pipeline::triggers::validate_triggers_json(t)?;
     }
 
     let conn = state

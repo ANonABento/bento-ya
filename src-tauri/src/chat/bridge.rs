@@ -540,10 +540,16 @@ fn build_claude_streaming_command(
     // Build the streaming and fallback command lines. Note: these go inside a
     // `bash -c '...'` so we already have one level of single-quote nesting —
     // the helper `bash_double_quote_for_outer_squote` escapes single quotes
-    // for that outer layer.
+    // for that outer layer. The streaming-output flags are shared with the
+    // managed adapter via `runtime::CLAUDE_STREAM_OUTPUT_FLAGS` so the two
+    // spawn families can't drift on them; the terminal-only flags
+    // (`--dangerously-skip-permissions`, `--include-partial-messages`, `-p`,
+    // and the jq pipe) stay here.
+    let stream_flags = super::runtime::CLAUDE_STREAM_OUTPUT_FLAGS.join(" ");
     let stream_cmd = format!(
-        "{cli} --dangerously-skip-permissions --output-format stream-json --verbose --include-partial-messages{resume}{args}{prompt} | tee -a \"${{KAITENCODE_CLAUDE_JSON_LOG:-${{BENTOYA_CLAUDE_JSON_LOG:-/dev/null}}}}\" | jq -rj --unbuffered \"$KAITENCODE_CLAUDE_FILTER\"",
+        "{cli} --dangerously-skip-permissions {stream_flags} --include-partial-messages{resume}{args}{prompt} | tee -a \"${{KAITENCODE_CLAUDE_JSON_LOG:-${{BENTOYA_CLAUDE_JSON_LOG:-/dev/null}}}}\" | jq -rj --unbuffered \"$KAITENCODE_CLAUDE_FILTER\"",
         cli = cli_quoted,
+        stream_flags = stream_flags,
         resume = resume_segment,
         args = user_args_segment,
         prompt = prompt_quoted,
@@ -578,6 +584,14 @@ fn build_claude_streaming_command(
     )
 }
 
+/// Terminal/headless codex invocation. Unlike Claude there is no shared flag
+/// constant with the managed adapter (`CodexCliAdapter::managed_turn_args`):
+/// the two paths sandbox differently *by design* — this terminal path pins
+/// `-c sandbox_mode="danger-full-access" -c approval_policy="never"` (stable
+/// `-c` overrides that survive inside worktrees) whereas the managed adapter
+/// uses `--dangerously-bypass-approvals-and-sandbox`. Only `exec`, `--json`,
+/// and `--skip-git-repo-check` overlap, and those are inert if codex renames
+/// them, so they're left inline rather than centralized.
 fn build_codex_streaming_command(
     cli_command: &str,
     args: &[String],
@@ -1236,6 +1250,57 @@ fn ensure_trigger_session(
 /// The frontend's `TerminalView` can attach (or be attached) at any time
 /// during the trigger via `ensure_pty_session`, which finds the existing
 /// tmux session and starts streaming live to xterm.js.
+/// Shared "mark this agent session started" write sequence used by the
+/// tmux-backed trigger spawn paths (headless terminal + interactive). Sets the
+/// session's runtime mode + tmux name, flips it to `running` (clearing any
+/// stale exit code left by a reused/completed session — bug-fix #5), optionally
+/// records the model, points the task at the session, and emits a
+/// `tasks:changed` carrying the real `workspace_id` so the live card refreshes.
+/// Callers keep their own resume-id and transcript-event handling.
+#[allow(clippy::too_many_arguments)]
+fn persist_agent_session_started(
+    conn: &Connection,
+    app: &AppHandle,
+    task_id: &str,
+    workspace_id: &str,
+    session_id: &str,
+    adapter_kind: &str,
+    runtime_mode: &str,
+    tmux_name: &str,
+    model: Option<&str>,
+) {
+    let _ = db::update_agent_session_runtime(
+        conn,
+        session_id,
+        Some(adapter_kind),
+        Some(runtime_mode),
+        None,
+        Some(Some(tmux_name)),
+    );
+    let _ = db::update_agent_session(
+        conn,
+        session_id,
+        None,
+        Some("running"),
+        Some(None),
+        None,
+        None,
+        None,
+    );
+    // Skip the model write when unset so paths that never track a model
+    // (interactive) don't perform a redundant no-op update.
+    if model.is_some() {
+        let _ = db::update_agent_session_model(conn, session_id, model, None);
+    }
+    let _ = db::update_task_agent_status(conn, task_id, Some("running"), None);
+    let ts = db::now();
+    let _ = conn.execute(
+        "UPDATE tasks SET agent_session_id = ?1, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![session_id, ts, task_id],
+    );
+    pipeline::emit_tasks_changed(app, workspace_id, "agent_session_created");
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_cli_trigger_task(
     app: AppHandle,
@@ -1273,49 +1338,27 @@ pub fn spawn_cli_trigger_task(
             match session_result {
                 Ok(session) => {
                     let tmux_name = tmux_session_name(&task_id);
-                    // Bug-fix #5: when reusing a persistent session that was
-                    // previously `completed`, clear stale exit_code so the
-                    // (running, exit_code=0) ghost state can't survive a
-                    // mid-run process death. Otherwise pipeline freezes.
-                    let _ = db::update_agent_session(
+                    // Reused persistent sessions may carry a `managed` mode and
+                    // a stale exit code; the helper flips to running + clears it.
+                    let runtime_mode = task_snapshot
+                        .as_ref()
+                        .and_then(|task| task.agent_mode.as_deref())
+                        .filter(|mode| *mode == "managed")
+                        .unwrap_or("terminal");
+                    persist_agent_session_started(
                         &conn,
-                        &session.id,
-                        None,
-                        Some("running"),
-                        Some(None),
-                        None,
-                        None,
-                        None,
-                    );
-                    let _ = db::update_agent_session_runtime(
-                        &conn,
-                        &session.id,
-                        Some(db::adapter_kind_for_agent_type(&cli_command)),
-                        Some(
-                            task_snapshot
-                                .as_ref()
-                                .and_then(|task| task.agent_mode.as_deref())
-                                .filter(|mode| *mode == "managed")
-                                .unwrap_or("terminal"),
-                        ),
-                        None,
-                        Some(Some(&tmux_name)),
-                    );
-                    let _ = db::update_agent_session_model(
-                        &conn,
-                        &session.id,
+                        &app,
+                        &task_id,
                         task_snapshot
                             .as_ref()
-                            .and_then(|task| task.model.as_deref()),
-                        None,
+                            .map(|t| t.workspace_id.as_str())
+                            .unwrap_or(""),
+                        &session.id,
+                        db::adapter_kind_for_agent_type(&cli_command),
+                        runtime_mode,
+                        &tmux_name,
+                        task_snapshot.as_ref().and_then(|task| task.model.as_deref()),
                     );
-                    let _ = db::update_task_agent_status(&conn, &task_id, Some("running"), None);
-                    let ts = db::now();
-                    let _ = conn.execute(
-                        "UPDATE tasks SET agent_session_id = ?1, updated_at = ?2 WHERE id = ?3",
-                        rusqlite::params![session.id, ts, task_id],
-                    );
-                    pipeline::emit_tasks_changed(&app, "", "agent_session_created");
                     let adapter = db::adapter_kind_for_agent_type(&cli_command);
                     let candidate_resume_id = if persistent_lifecycle {
                         db::resolve_cli_session_id(&session, adapter)
@@ -2701,31 +2744,20 @@ pub fn spawn_interactive_trigger_task(
             match session_record {
                 Ok(session) => {
                     let tmux_name = tmux_session_name(&task_id);
-                    let _ = db::update_agent_session_runtime(
+                    persist_agent_session_started(
                         &conn,
+                        &app,
+                        &task_id,
+                        task_snapshot
+                            .as_ref()
+                            .map(|t| t.workspace_id.as_str())
+                            .unwrap_or(""),
                         &session.id,
-                        Some(db::adapter_kind_for_agent_type(&cli_command)),
-                        Some("interactive"),
-                        None,
-                        Some(Some(&tmux_name)),
-                    );
-                    let _ = db::update_agent_session(
-                        &conn,
-                        &session.id,
-                        None,
-                        Some("running"),
-                        Some(None),
-                        None,
-                        None,
+                        db::adapter_kind_for_agent_type(&cli_command),
+                        "interactive",
+                        &tmux_name,
                         None,
                     );
-                    let _ = db::update_task_agent_status(&conn, &task_id, Some("running"), None);
-                    let ts = db::now();
-                    let _ = conn.execute(
-                        "UPDATE tasks SET agent_session_id = ?1, updated_at = ?2 WHERE id = ?3",
-                        rusqlite::params![session.id, ts, task_id],
-                    );
-                    pipeline::emit_tasks_changed(&app, "", "agent_session_created");
                     let metadata = serde_json::json!({
                         "cli": cli_command,
                         "workdir": working_dir,

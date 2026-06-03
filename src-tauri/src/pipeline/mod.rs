@@ -6,6 +6,7 @@
 
 pub mod dependencies;
 pub mod hygiene;
+pub mod spawn;
 pub mod template;
 pub mod templates;
 pub mod triggers;
@@ -126,6 +127,28 @@ pub fn emit_tasks_changed(app: &AppHandle, workspace_id: &str, reason: &str) {
         &TasksChangedEvent {
             workspace_id: workspace_id.to_string(),
             reason: reason.to_string(),
+        },
+    );
+}
+
+/// Global event emitted when a non-task entity (workspace, column, script) is
+/// mutated out of band — e.g. by MCP or the chef. `kind` is one of
+/// `workspace` | `column` | `script`. The frontend's entity-sync hook reloads
+/// the matching store so external changes refresh the UI (the per-entity stores
+/// otherwise only refresh via optimistic updates after a direct invoke()).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntitiesChangedEvent {
+    pub workspace_id: String,
+    pub kind: String,
+}
+
+pub fn emit_entities_changed(app: &AppHandle, workspace_id: &str, kind: &str) {
+    let _ = app.emit(
+        "entities:changed",
+        &EntitiesChangedEvent {
+            workspace_id: workspace_id.to_string(),
+            kind: kind.to_string(),
         },
     );
 }
@@ -481,6 +504,168 @@ pub fn fire_trigger(
 
     // No trigger configured, stay idle
     Ok(task.clone())
+}
+
+/// The single create-a-task service path. Every human/agent surface (Tauri
+/// command, HTTP API, MCP-via-API) funnels through here so a task created from
+/// anywhere is identical: same DB row (via [`db::insert_task_full`]), same
+/// blocked-from-dependencies derivation, same trigger-firing rule, same
+/// `tasks:changed` event.
+///
+/// `fire_triggers` lets callers opt out of trigger firing (e.g. bulk import);
+/// when true, the on-entry trigger fires only if the task is not blocked by
+/// unmet dependencies — matching the long-standing UI/chef behavior.
+pub fn create_task_service(
+    conn: &Connection,
+    app: &AppHandle,
+    new: &db::NewTask,
+    fire_triggers: bool,
+) -> Result<Task, AppError> {
+    if new.title.trim().is_empty() {
+        return Err(AppError::InvalidInput(
+            "Task title cannot be empty".to_string(),
+        ));
+    }
+
+    let task = db::insert_task_full(conn, new)?;
+
+    let task = if fire_triggers && !task.blocked {
+        let column = db::get_column(conn, &task.column_id)?;
+        fire_trigger(conn, app, &task, &column)?
+    } else {
+        task
+    };
+
+    emit_tasks_changed(app, new.workspace_id, "task_created");
+    Ok(task)
+}
+
+/// The single move-a-task path. Updates column+position, and when the column
+/// changes runs the full transition: cancel a running agent (unless the target
+/// also spawns one), fire the old column's `on_exit`, clean up a worktree if the
+/// target is terminal, re-check dependents against the post-move state, emit
+/// `tasks:changed`, and fire the target column's `on_entry`. Every surface
+/// (Tauri command, HTTP API, chef) funnels through here so the transition is
+/// identical and triggers fire exactly once.
+pub fn move_task_service(
+    conn: &Connection,
+    app: &AppHandle,
+    id: &str,
+    target_column_id: &str,
+    position: i64,
+) -> Result<Task, AppError> {
+    if position < 0 {
+        return Err(AppError::InvalidInput(
+            "Position must be non-negative".to_string(),
+        ));
+    }
+
+    let task_before = db::get_task(conn, id)?;
+    let old_column_id = task_before.column_id.clone();
+    let column_changed = old_column_id != target_column_id;
+
+    let ts = db::now();
+    if column_changed {
+        conn.execute(
+            "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = NULL, updated_at = ?3 WHERE id = ?4",
+            rusqlite::params![target_column_id, position, ts, id],
+        )?;
+    } else {
+        conn.execute(
+            "UPDATE tasks SET column_id = ?1, position = ?2, updated_at = ?3 WHERE id = ?4",
+            rusqlite::params![target_column_id, position, ts, id],
+        )?;
+    }
+
+    let task = db::get_task(conn, id)?;
+    if !column_changed {
+        return Ok(task);
+    }
+
+    let old_column = db::get_column(conn, &old_column_id)?;
+    let target_column = db::get_column(conn, target_column_id)?;
+
+    // Cancel a running agent if the target column has no spawn_cli trigger.
+    // If the target also has a trigger, the new agent replaces the old one.
+    if task_before.agent_status.as_deref() == Some("running") {
+        let target_has_trigger = target_column
+            .triggers
+            .as_deref()
+            .map(|t| t.contains("spawn_cli"))
+            .unwrap_or(false);
+        if !target_has_trigger {
+            crate::chat::tmux_transport::cancel_task_agent(
+                conn,
+                id,
+                task_before.agent_session_id.as_deref(),
+            );
+        }
+    }
+
+    let _ = triggers::fire_on_exit(conn, app, &task_before, &old_column, Some(&target_column));
+
+    let task = cleanup_task_worktree_if_terminal(conn, &task, &target_column, "manual_move")?;
+
+    emit_tasks_changed(app, &task.workspace_id, "task_moved");
+
+    // Second dependents pass with post-move state (fire_on_exit's pre-move pass
+    // only saw the old column).
+    let _ = dependencies::check_dependents(conn, app, &task);
+
+    fire_trigger(conn, app, &task, &target_column)
+}
+
+/// Optional field set for a task update. `None` = leave unchanged; `Some(None)`
+/// (for nullable fields) = set to NULL. Mirrors the Tauri command's argument
+/// shape so the command, HTTP API, and chef share one update path.
+#[derive(Debug, Default)]
+pub struct UpdateTaskFields<'a> {
+    pub title: Option<&'a str>,
+    pub description: Option<Option<&'a str>>,
+    pub column_id: Option<&'a str>,
+    pub position: Option<i64>,
+    pub agent_mode: Option<Option<&'a str>>,
+    pub priority: Option<&'a str>,
+    pub model: Option<Option<&'a str>>,
+    pub estimated_hours: Option<Option<f64>>,
+}
+
+/// The single field-update path. Applies the core columns via `db::update_task`,
+/// then the model and time-tracking side-updates, and emits `tasks:changed` so
+/// every surface refreshes the UI identically (the Tauri command historically
+/// emitted nothing; MCP wrote the DB directly and skipped the event entirely).
+pub fn update_task_service(
+    conn: &Connection,
+    app: &AppHandle,
+    id: &str,
+    fields: &UpdateTaskFields,
+) -> Result<Task, AppError> {
+    let mut task = db::update_task(
+        conn,
+        id,
+        fields.title,
+        fields.description,
+        fields.column_id,
+        fields.position,
+        fields.agent_mode,
+        fields.priority,
+    )?;
+
+    if let Some(model) = fields.model {
+        let ts = db::now();
+        conn.execute(
+            "UPDATE tasks SET model = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![model, ts, id],
+        )?;
+        task = db::get_task(conn, id)?;
+    }
+
+    if let Some(hours) = fields.estimated_hours {
+        task = db::update_task_time_tracking(conn, id, hours)?;
+    }
+
+    emit_tasks_changed(app, &task.workspace_id, "task_updated");
+    Ok(task)
 }
 
 /// Evaluate exit criteria for a task.

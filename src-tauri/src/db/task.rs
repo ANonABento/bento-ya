@@ -102,6 +102,80 @@ fn with_labels_for_tasks(conn: &Connection, tasks: Vec<Task>) -> SqlResult<Vec<T
         .collect())
 }
 
+/// Returns true when a dependencies JSON string represents at least one dependency.
+/// Treats `None`, empty, and the empty-array literal `[]` as "no dependencies".
+pub fn deps_imply_blocked(dependencies: Option<&str>) -> bool {
+    dependencies
+        .map(|d| {
+            let trimmed = d.trim();
+            !trimmed.is_empty() && trimmed != "[]"
+        })
+        .unwrap_or(false)
+}
+
+/// Rich, single-INSERT task creation input. This is the one shape every
+/// task-creation surface (UI, HTTP API, chef/orchestrator, MCP) funnels through
+/// so a task created from any path is byte-for-byte identical in the DB.
+///
+/// Fields default to the same values the legacy `insert_task` hardcoded, so a
+/// bare `NewTask { workspace_id, column_id, title, ..Default::default() }`
+/// reproduces the old behavior exactly.
+#[derive(Debug, Default, Clone)]
+pub struct NewTask<'a> {
+    pub workspace_id: &'a str,
+    pub column_id: &'a str,
+    pub title: &'a str,
+    pub description: Option<&'a str>,
+    pub model: Option<&'a str>,
+    pub trigger_prompt: Option<&'a str>,
+    /// JSON array of task ids. Presence of any entry sets `blocked = true`.
+    pub dependencies: Option<&'a str>,
+    /// Defaults to "medium" when None.
+    pub priority: Option<&'a str>,
+    pub runtime_mode_override: Option<&'a str>,
+}
+
+/// The single rich INSERT. Sets every caller-supplied column atomically in one
+/// statement (no follow-up UPDATEs), derives `blocked` from `dependencies`, and
+/// returns the freshly-loaded `Task`.
+pub fn insert_task_full(conn: &Connection, new: &NewTask) -> SqlResult<Task> {
+    let id = new_id();
+    let ts = now();
+    let blocked = deps_imply_blocked(new.dependencies) as i64;
+    let priority = new.priority.unwrap_or("medium");
+    // Get next position in column
+    let max_pos: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
+            params![new.column_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(-1);
+    conn.execute(
+        "INSERT INTO tasks (id, workspace_id, column_id, title, description, position, priority, files_touched, pipeline_state, trigger_prompt, dependencies, blocked, model, runtime_mode_override, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '[]', 'idle', ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        params![
+            id,
+            new.workspace_id,
+            new.column_id,
+            new.title,
+            new.description,
+            max_pos + 1,
+            priority,
+            new.trigger_prompt,
+            new.dependencies,
+            blocked,
+            new.model,
+            new.runtime_mode_override,
+            ts,
+            ts
+        ],
+    )?;
+    get_task(conn, &id)
+}
+
+/// Thin wrapper preserving the original 4-field signature. New callers should
+/// prefer [`insert_task_full`] so they can set model/runtime_mode/deps/etc.
 pub fn insert_task(
     conn: &Connection,
     workspace_id: &str,
@@ -109,21 +183,16 @@ pub fn insert_task(
     title: &str,
     description: Option<&str>,
 ) -> SqlResult<Task> {
-    let id = new_id();
-    let ts = now();
-    // Get next position in column
-    let max_pos: i64 = conn
-        .query_row(
-            "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE column_id = ?1",
-            params![column_id],
-            |row| row.get(0),
-        )
-        .unwrap_or(-1);
-    conn.execute(
-        "INSERT INTO tasks (id, workspace_id, column_id, title, description, position, priority, files_touched, pipeline_state, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'medium', '[]', 'idle', ?7, ?8)",
-        params![id, workspace_id, column_id, title, description, max_pos + 1, ts, ts],
-    )?;
-    get_task(conn, &id)
+    insert_task_full(
+        conn,
+        &NewTask {
+            workspace_id,
+            column_id,
+            title,
+            description,
+            ..Default::default()
+        },
+    )
 }
 
 /// Duplicate a task immediately after the source task in the same column.

@@ -26,58 +26,31 @@ pub async fn create_task(
     description: Option<String>,
     trigger_prompt: Option<String>,
     dependencies: Option<String>,
+    model: Option<String>,
+    priority: Option<String>,
+    runtime_mode_override: Option<String>,
 ) -> Result<Task, AppError> {
-    if title.trim().is_empty() {
-        return Err(AppError::InvalidInput(
-            "Task title cannot be empty".to_string(),
-        ));
-    }
-
     let conn = state
         .db
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    let task = db::insert_task(
+
+    pipeline::create_task_service(
         &conn,
-        &workspace_id,
-        &column_id,
-        title.trim(),
-        description.as_deref(),
-    )?;
-
-    // Set trigger prompt and dependencies if provided
-    let ts = db::now();
-    if trigger_prompt.is_some() || dependencies.is_some() {
-        let has_deps = dependencies
-            .as_ref()
-            .map(|d| d != "[]" && !d.is_empty())
-            .unwrap_or(false);
-        conn.execute(
-            "UPDATE tasks SET trigger_prompt = COALESCE(?1, trigger_prompt), dependencies = COALESCE(?2, dependencies), blocked = ?3, updated_at = ?4 WHERE id = ?5",
-            rusqlite::params![
-                trigger_prompt,
-                dependencies,
-                has_deps as i64,
-                ts,
-                task.id,
-            ],
-        ).map_err(AppError::from)?;
-    }
-
-    let task = db::get_task(&conn, &task.id)?;
-
-    // Fire column trigger for the initial column (unless blocked)
-    let column = db::get_column(&conn, &column_id)?;
-    let task = if !task.blocked {
-        pipeline::fire_trigger(&conn, &app, &task, &column)?
-    } else {
-        task
-    };
-
-    // Notify frontend to refresh task store
-    pipeline::emit_tasks_changed(&app, &workspace_id, "task_created");
-
-    Ok(task)
+        &app,
+        &db::NewTask {
+            workspace_id: &workspace_id,
+            column_id: &column_id,
+            title: title.trim(),
+            description: description.as_deref(),
+            model: model.as_deref(),
+            trigger_prompt: trigger_prompt.as_deref(),
+            dependencies: dependencies.as_deref(),
+            priority: priority.as_deref(),
+            runtime_mode_override: runtime_mode_override.as_deref(),
+        },
+        true,
+    )
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -296,7 +269,7 @@ pub async fn create_task_from_template(
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub fn update_task(
-    _app: AppHandle,
+    app: AppHandle,
     state: State<AppState>,
     id: String,
     title: Option<String>,
@@ -335,40 +308,27 @@ pub fn update_task(
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    let desc_ref = description.as_ref().map(|d| d.as_deref());
-    let mode_ref = agent_mode.as_ref().map(|m| m.as_deref());
-    let mut task = db::update_task(
+    pipeline::update_task_service(
         &conn,
+        &app,
         &id,
-        title.as_deref(),
-        desc_ref,
-        column_id.as_deref(),
-        position,
-        mode_ref,
-        priority.as_deref(),
-    )?;
-
-    // Update model if provided
-    if let Some(ref m) = model {
-        let ts = db::now();
-        conn.execute(
-            "UPDATE tasks SET model = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![m.as_deref(), ts, id],
-        )
-        .map_err(AppError::from)?;
-        task = db::get_task(&conn, &id)?;
-    }
-
-    if let Some(hours) = estimated_hours {
-        task = db::update_task_time_tracking(&conn, &id, hours)?;
-    }
-
-    Ok(task)
+        &pipeline::UpdateTaskFields {
+            title: title.as_deref(),
+            description: description.as_ref().map(|d| d.as_deref()),
+            column_id: column_id.as_deref(),
+            position,
+            agent_mode: agent_mode.as_ref().map(|m| m.as_deref()),
+            priority: priority.as_deref(),
+            model: model.as_ref().map(|m| m.as_deref()),
+            estimated_hours,
+        },
+    )
 }
 
 /// Update task trigger settings (overrides, prompt, dependencies)
 #[tauri::command(rename_all = "camelCase")]
 pub fn update_task_triggers(
+    app: AppHandle,
     state: State<AppState>,
     id: String,
     trigger_overrides: Option<String>,
@@ -381,18 +341,10 @@ pub fn update_task_triggers(
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    // Validate dependencies won't create a cycle before saving
-    if let Some(ref deps_json) = dependencies {
-        if !deps_json.is_empty() && deps_json != "[]" {
-            let deps: Vec<pipeline::dependencies::TaskDependency> = serde_json::from_str(deps_json)
-                .map_err(|e| AppError::InvalidInput(format!("Invalid dependencies JSON: {}", e)))?;
-            pipeline::dependencies::validate_dependencies(&conn, &id, &deps)?;
-        }
-    }
-
     let ts = db::now();
 
-    // Build dynamic UPDATE query
+    // Build dynamic UPDATE for trigger fields. Dependencies are handled
+    // separately through the shared validated service below.
     let mut updates = Vec::new();
     let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -404,30 +356,40 @@ pub fn update_task_triggers(
         updates.push("trigger_prompt = ?");
         params_vec.push(Box::new(prompt.clone()));
     }
-    if let Some(ref deps) = dependencies {
-        updates.push("dependencies = ?");
-        params_vec.push(Box::new(deps.clone()));
-    }
-    if let Some(b) = blocked {
-        updates.push("blocked = ?");
-        params_vec.push(Box::new(b as i64));
-    }
-
-    if updates.is_empty() {
-        return Ok(db::get_task(&conn, &id)?);
+    // Only honor an explicit blocked override when dependencies aren't being set
+    // (when deps are provided, the service derives blocked from them).
+    if dependencies.is_none() {
+        if let Some(b) = blocked {
+            updates.push("blocked = ?");
+            params_vec.push(Box::new(b as i64));
+        }
     }
 
-    updates.push("updated_at = ?");
-    params_vec.push(Box::new(ts));
+    if !updates.is_empty() {
+        updates.push("updated_at = ?");
+        params_vec.push(Box::new(ts));
 
-    let set_clause = updates.join(", ");
-    let sql = format!("UPDATE tasks SET {} WHERE id = ?", set_clause);
-    params_vec.push(Box::new(id.clone()));
+        let set_clause = updates.join(", ");
+        let sql = format!("UPDATE tasks SET {} WHERE id = ?", set_clause);
+        params_vec.push(Box::new(id.clone()));
 
-    let params_refs: Vec<&dyn rusqlite::types::ToSql> =
-        params_vec.iter().map(|p| p.as_ref()).collect();
-    conn.execute(&sql, params_refs.as_slice())
-        .map_err(AppError::from)?;
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+        conn.execute(&sql, params_refs.as_slice())
+            .map_err(AppError::from)?;
+    }
+
+    // Route dependency changes through the single validated service (cycle
+    // validation + derived blocked + tasks:changed event).
+    if let Some(ref deps_json) = dependencies {
+        let deps: Vec<pipeline::dependencies::TaskDependency> = if deps_json.is_empty() {
+            Vec::new()
+        } else {
+            serde_json::from_str(deps_json)
+                .map_err(|e| AppError::InvalidInput(format!("Invalid dependencies JSON: {}", e)))?
+        };
+        return pipeline::dependencies::set_task_dependencies(&conn, &app, &id, &deps);
+    }
 
     Ok(db::get_task(&conn, &id)?)
 }
@@ -440,100 +402,12 @@ pub async fn move_task(
     target_column_id: String,
     position: i64,
 ) -> Result<Task, AppError> {
-    if position < 0 {
-        return Err(AppError::InvalidInput(
-            "Position must be non-negative".to_string(),
-        ));
-    }
-
     let conn = state
         .db
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    // Get the task's current column to check if it changed
-    let task_before = db::get_task(&conn, &id)?;
-    let old_column_id = task_before.column_id.clone();
-    let column_changed = old_column_id != target_column_id;
-
-    let tx = conn
-        .unchecked_transaction()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-    // Update column and position atomically
-    // Also reset pipeline state when moving to a new column
-    let ts = db::now();
-    if column_changed {
-        conn.execute(
-            "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = NULL, updated_at = ?3 WHERE id = ?4",
-            rusqlite::params![target_column_id, position, ts, id],
-        )
-        .map_err(AppError::from)?;
-    } else {
-        conn.execute(
-            "UPDATE tasks SET column_id = ?1, position = ?2, updated_at = ?3 WHERE id = ?4",
-            rusqlite::params![target_column_id, position, ts, id],
-        )
-        .map_err(AppError::from)?;
-    }
-
-    tx.commit()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-    let task = db::get_task(&conn, &id)?;
-
-    // Fire column trigger if task moved to a new column
-    if column_changed {
-        // Fire on_exit trigger on the old column (V2 triggers)
-        let old_column = db::get_column(&conn, &old_column_id)?;
-        let target_column = db::get_column(&conn, &target_column_id)?;
-
-        // Cancel running agent if target column has no spawn_cli trigger.
-        // If target also has a trigger, it replaces the old agent — no cancel needed.
-        if task_before.agent_status.as_deref() == Some("running") {
-            let target_has_trigger = target_column
-                .triggers
-                .as_deref()
-                .map(|t| t.contains("spawn_cli"))
-                .unwrap_or(false);
-
-            if !target_has_trigger {
-                crate::chat::tmux_transport::cancel_task_agent(
-                    &conn,
-                    &id,
-                    task_before.agent_session_id.as_deref(),
-                );
-            }
-        }
-        let _ = pipeline::triggers::fire_on_exit(
-            &conn,
-            &app,
-            &task_before,
-            &old_column,
-            Some(&target_column),
-        );
-
-        let task = pipeline::cleanup_task_worktree_if_terminal(
-            &conn,
-            &task,
-            &target_column,
-            "manual_move",
-        )?;
-
-        // Notify frontend to refresh task store
-        pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_moved");
-
-        // Re-check dependents with the post-move task state. The pre-move call inside
-        // fire_on_exit only sees the old column, so any dep waiting on this task to
-        // reach a specific column (`completed`, `moved_to_column`, `at_or_past_column`)
-        // needs this second pass.
-        let _ = pipeline::dependencies::check_dependents(&conn, &app, &task);
-
-        let task = pipeline::fire_trigger(&conn, &app, &task, &target_column)?;
-        return Ok(task);
-    }
-
-    Ok(task)
+    pipeline::move_task_service(&conn, &app, &id, &target_column_id, position)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -864,12 +738,15 @@ pub async fn approve_task(
         return Ok(advanced_task);
     }
 
+    // No auto-advance: still notify the frontend so the review badge refreshes.
+    pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_approved");
     Ok(task)
 }
 
 /// Reject a task - sets review_status to "rejected" and optionally sets pipeline_error
 #[tauri::command]
 pub fn reject_task(
+    app: AppHandle,
     state: State<AppState>,
     id: String,
     reason: Option<String>,
@@ -893,6 +770,7 @@ pub fn reject_task(
         )?;
     }
 
+    pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_rejected");
     Ok(task)
 }
 

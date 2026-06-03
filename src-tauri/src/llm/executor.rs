@@ -136,37 +136,51 @@ pub fn execute_tools(
                         pipeline::emit_tasks_changed(app, workspace_id, "orchestrator_tool");
                         tasks_updated.push(task);
                     }
-                    ToolOutcome::TaskMoved(task, from_col, to_col) => {
-                        // Fire trigger on the new column (on_entry)
-                        let task = if !task.blocked {
-                            let new_column = columns.iter().find(|c| c.id == task.column_id);
-                            if let Some(col) = new_column {
-                                pipeline::fire_trigger(conn, app, &task, col).unwrap_or(task)
-                            } else {
-                                task
+                    ToolOutcome::TaskMoveRequested {
+                        task_id,
+                        target_column_id,
+                        position,
+                        from_column,
+                        to_column,
+                    } => {
+                        // Route through the unified service so chef moves get
+                        // the same transition as the UI/API: on_exit, agent
+                        // cancellation, terminal worktree cleanup, on_entry, and
+                        // both dependents passes. It also emits `tasks:changed`,
+                        // so we don't re-fire the trigger or re-emit here.
+                        match pipeline::move_task_service(
+                            conn,
+                            app,
+                            &task_id,
+                            &target_column_id,
+                            position,
+                        ) {
+                            Ok(task) => {
+                                results.push(ToolResult {
+                                    tool_use_id: tool_use.id.clone(),
+                                    content: format!(
+                                        "Moved \"{}\" from {} to {}",
+                                        task.title, from_column, to_column
+                                    ),
+                                    is_error: false,
+                                });
+                                let _ = app.emit(
+                                    "task:updated",
+                                    TaskUpdatedPayload {
+                                        workspace_id: workspace_id.to_string(),
+                                        task: task.clone(),
+                                    },
+                                );
+                                tasks_updated.push(task);
                             }
-                        } else {
-                            task
-                        };
-
-                        results.push(ToolResult {
-                            tool_use_id: tool_use.id.clone(),
-                            content: format!(
-                                "Moved \"{}\" from {} to {}",
-                                task.title, from_col, to_col
-                            ),
-                            is_error: false,
-                        });
-                        let _ = app.emit(
-                            "task:updated",
-                            TaskUpdatedPayload {
-                                workspace_id: workspace_id.to_string(),
-                                task: task.clone(),
-                            },
-                        );
-                        // Emit tasks:changed so frontend refreshes
-                        pipeline::emit_tasks_changed(app, workspace_id, "orchestrator_tool");
-                        tasks_updated.push(task);
+                            Err(e) => {
+                                results.push(ToolResult {
+                                    tool_use_id: tool_use.id.clone(),
+                                    content: format!("Error: {}", e),
+                                    is_error: true,
+                                });
+                            }
+                        }
                     }
                     ToolOutcome::TaskDeleted(task_id, title) => {
                         results.push(ToolResult {
@@ -220,6 +234,8 @@ pub fn execute_tools(
                                 column_id: column_id.clone(),
                             },
                         );
+                        // Refresh the board's column store (shared entity-sync channel).
+                        pipeline::emit_entities_changed(app, workspace_id, "column");
                     }
                 }
             }
@@ -294,8 +310,18 @@ fn resolve_last_placeholder(input: &serde_json::Value, last_id: Option<&str>) ->
 enum ToolOutcome {
     TaskCreated(Task),
     TaskUpdated(Task),
-    TaskMoved(Task, String, String),  // task, from_column, to_column
-    TaskDeleted(String, String),      // task_id, title
+    /// A1: chef resolves the move target but does NOT mutate the task — it has
+    /// no `&AppHandle`. The caller loop (which does) routes this through
+    /// `pipeline::move_task_service` for full transition parity (on_exit,
+    /// agent-cancel, worktree cleanup, on_entry, second dependents pass).
+    TaskMoveRequested {
+        task_id: String,
+        target_column_id: String,
+        position: i64,
+        from_column: String,
+        to_column: String,
+    },
+    TaskDeleted(String, String), // task_id, title
     TasksQueued(Vec<String>, String), // task_ids, agent_type
     TriggersConfigured(String, String, String), // column_id, column_name, triggers_json
 }
@@ -322,6 +348,17 @@ fn execute_single_tool(
             }
 
             let description = input.get("description").and_then(|v| v.as_str());
+            let model = input.get("model").and_then(|v| v.as_str());
+            let trigger_prompt = input
+                .get("trigger_prompt")
+                .or_else(|| input.get("triggerPrompt"))
+                .and_then(|v| v.as_str());
+            let dependencies = input.get("dependencies").and_then(|v| v.as_str());
+            let priority = input.get("priority").and_then(|v| v.as_str());
+            let runtime_mode_override = input
+                .get("runtime_mode")
+                .or_else(|| input.get("runtimeMode"))
+                .and_then(|v| v.as_str());
 
             let column_id = if let Some(column_id) = input
                 .get("column_id")
@@ -333,8 +370,21 @@ fn execute_single_tool(
                 find_column_id(columns, input.get("column").and_then(|v| v.as_str()))?
             };
 
-            let task = db::insert_task(conn, workspace_id, &column_id, title, description)
-                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            let task = db::insert_task_full(
+                conn,
+                &db::NewTask {
+                    workspace_id,
+                    column_id: &column_id,
+                    title,
+                    description,
+                    model,
+                    trigger_prompt,
+                    dependencies,
+                    priority,
+                    runtime_mode_override,
+                },
+            )
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
             Ok(ToolOutcome::TaskCreated(task))
         }
@@ -361,21 +411,34 @@ fn execute_single_tool(
                 })
                 .transpose()?;
             let description = input.get("description").and_then(|v| v.as_str());
+            let priority = input.get("priority").and_then(|v| v.as_str());
+            let model = input.get("model").and_then(|v| v.as_str());
 
             // Convert description to the expected Option<Option<&str>> format
             let desc_option = description.map(Some);
 
-            let task = db::update_task(
+            let mut task = db::update_task(
                 conn,
                 task_id,
                 title,
                 desc_option,
-                None, // column_id
+                None, // column_id (moves go through move_task)
                 None, // position
                 None, // agent_mode
-                None, // priority
+                priority,
             )
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+            if let Some(m) = model {
+                let ts = db::now();
+                conn.execute(
+                    "UPDATE tasks SET model = ?1, updated_at = ?2 WHERE id = ?3",
+                    rusqlite::params![m, ts, task_id],
+                )
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+                task = db::get_task(conn, task_id)
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            }
 
             Ok(ToolOutcome::TaskUpdated(task))
         }
@@ -432,15 +495,16 @@ fn execute_single_tool(
                 .unwrap_or(0)
             };
 
-            let task = move_task_to_column(
-                conn,
-                task_id,
-                &current_task.column_id,
-                &target_column_id,
+            // No DB write here — `execute_single_tool` stays `AppHandle`-free
+            // (Wry-vs-Mock test landmine). The caller routes through
+            // `move_task_service`, which owns the column change + reset.
+            Ok(ToolOutcome::TaskMoveRequested {
+                task_id: task_id.to_string(),
+                target_column_id,
                 position,
-            )?;
-
-            Ok(ToolOutcome::TaskMoved(task, from_column, to_column))
+                from_column,
+                to_column,
+            })
         }
 
         "delete_task" => {
@@ -455,6 +519,21 @@ fn execute_single_tool(
             let task =
                 db::get_task(conn, task_id).map_err(|e| AppError::DatabaseError(e.to_string()))?;
             let title = task.title.clone();
+
+            // Clean up the task's worktree + tmux session (matches the Tauri/API
+            // delete paths) so chef-initiated deletes don't orphan resources.
+            if task.worktree_path.is_some() {
+                if let Ok(ws) = db::get_workspace(conn, &task.workspace_id) {
+                    if let Err(e) =
+                        crate::git::branch_manager::remove_task_worktree(&ws.repo_path, task_id)
+                    {
+                        log::warn!("Failed to clean up worktree for deleted task {task_id}: {e}");
+                    }
+                }
+            }
+            if let Err(e) = crate::chat::tmux_transport::kill_session(task_id) {
+                log::warn!("Failed to clean up tmux session for deleted task {task_id}: {e}");
+            }
 
             db::delete_task(conn, task_id).map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
@@ -504,6 +583,10 @@ fn execute_single_tool(
             let triggers_json = serde_json::to_string(&triggers).map_err(|e| {
                 AppError::InvalidInput(format!("Failed to serialize triggers: {}", e))
             })?;
+
+            // Validate against the shared V2 schema (previously this path did no
+            // validation and would accept malformed trigger JSON).
+            crate::pipeline::triggers::validate_triggers_json(&triggers_json)?;
 
             // Save to database
             db::update_column(
@@ -591,30 +674,6 @@ fn resolve_column_id(columns: &[Column], id_or_name: &str) -> Result<String, App
     }
 
     find_column_id(columns, Some(id_or_name))
-}
-
-fn move_task_to_column(
-    conn: &Connection,
-    task_id: &str,
-    old_column_id: &str,
-    target_column_id: &str,
-    position: i64,
-) -> Result<Task, AppError> {
-    let ts = db::now();
-    if old_column_id == target_column_id {
-        conn.execute(
-            "UPDATE tasks SET column_id = ?1, position = ?2, updated_at = ?3 WHERE id = ?4",
-            rusqlite::params![target_column_id, position, ts, task_id],
-        )
-    } else {
-        conn.execute(
-            "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = NULL, updated_at = ?3 WHERE id = ?4",
-            rusqlite::params![target_column_id, position, ts, task_id],
-        )
-    }
-    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-    db::get_task(conn, task_id).map_err(|e| AppError::DatabaseError(e.to_string()))
 }
 
 /// Get column name by ID
@@ -739,7 +798,12 @@ mod tests {
     }
 
     #[test]
-    fn test_move_task_resets_pipeline_state_when_column_changes() {
+    fn test_move_task_resolves_target_without_mutating() {
+        // `execute_single_tool` is `AppHandle`-free, so the move arm now only
+        // *resolves* the target (column id, position, display names) and defers
+        // the actual transition + pipeline-state reset to `move_task_service`
+        // in the caller loop. Assert the resolved request; the DB mutation is
+        // covered by `move_task_service`'s own tests.
         let (conn, workspace_id, columns) = setup_db_with_columns();
         let task = db::insert_task(&conn, &workspace_id, &columns[0].id, "Task", None).unwrap();
         db::update_task_pipeline_state(
@@ -760,13 +824,27 @@ mod tests {
         )
         .unwrap();
 
-        let ToolOutcome::TaskMoved(moved, _, _) = outcome else {
-            panic!("expected task move");
+        let ToolOutcome::TaskMoveRequested {
+            task_id,
+            target_column_id,
+            position,
+            from_column,
+            to_column,
+        } = outcome
+        else {
+            panic!("expected move request");
         };
-        assert_eq!(moved.column_id, columns[1].id);
-        assert_eq!(moved.pipeline_state, "idle");
-        assert!(moved.pipeline_triggered_at.is_none());
-        assert!(moved.pipeline_error.is_none());
+        assert_eq!(task_id, task.id);
+        assert_eq!(target_column_id, columns[1].id);
+        // Target column ("Done") is empty → next free slot is 0.
+        assert_eq!(position, 0);
+        assert_eq!(from_column, "Backlog");
+        assert_eq!(to_column, "Done");
+
+        // The task itself must NOT have moved yet.
+        let unchanged = db::get_task(&conn, &task.id).unwrap();
+        assert_eq!(unchanged.column_id, columns[0].id);
+        assert_eq!(unchanged.pipeline_state, "error");
     }
 
     #[test]

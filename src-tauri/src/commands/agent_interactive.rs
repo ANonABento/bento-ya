@@ -21,8 +21,9 @@ use crate::chat::{bridge, tmux_transport};
 use crate::config;
 use crate::db::{self, AppState};
 use crate::error::AppError;
+use crate::pipeline::spawn;
 use crate::pipeline::triggers::{
-    parse_column_triggers, resolve_runtime_mode_for_task, ResolvedRuntimeMode,
+    parse_column_triggers, resolve_runtime_mode_for_task, resolve_working_dir, ResolvedRuntimeMode,
 };
 
 fn session_name(task_id: &str) -> String {
@@ -181,24 +182,18 @@ pub async fn agent_restart(
             .map(|s| s.agent_type)
             .unwrap_or_else(|| "claude".to_string());
 
-        let working_dir = task
-            .worktree_path
-            .clone()
-            .filter(|p| !p.is_empty() && std::path::Path::new(p).exists())
-            .unwrap_or_else(|| workspace.repo_path.clone());
+        // Reuse the shared spawn helpers so restart stays in lock-step with
+        // the original trigger spawn (working-dir, model→args, and the
+        // `.task.md` prompt default all live in pipeline::spawn / triggers).
+        let working_dir = resolve_working_dir(&task, &workspace.repo_path);
 
-        let model = task.model.clone();
-        let mut args: Vec<String> = Vec::new();
-        if let Some(m) = model.filter(|m| !m.trim().is_empty()) {
-            args.push("--model".to_string());
-            args.push(m);
-        }
+        let args = spawn::model_to_args(task.model.as_deref());
 
         let initial_prompt = task
             .trigger_prompt
             .clone()
             .filter(|p| !p.is_empty())
-            .unwrap_or_else(|| format!("{}\n\nSee .task.md for full spec.", task.title));
+            .unwrap_or_else(|| spawn::task_md_default_prompt(&task));
 
         (cli, working_dir, args, initial_prompt, include_sentinel)
     };

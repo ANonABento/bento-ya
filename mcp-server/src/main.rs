@@ -258,7 +258,11 @@ fn get_tools() -> Vec<Value> {
                     "title": { "type": "string" },
                     "description": { "type": "string" },
                     "column": { "type": "string", "description": "Column name (default: first column)" },
-                    "model": { "type": "string", "description": "AI model (opus, sonnet, haiku)" }
+                    "model": { "type": "string", "description": "AI model (opus, sonnet, haiku)" },
+                    "trigger_prompt": { "type": "string", "description": "Override prompt sent to the agent when the task's column trigger fires" },
+                    "dependencies": { "type": "string", "description": "JSON array of task IDs this task depends on; non-empty marks the task blocked until they complete" },
+                    "priority": { "type": "string", "description": "Task priority (low, medium, high). Default: medium" },
+                    "runtime_mode": { "type": "string", "description": "Agent runtime mode override (terminal, managed, interactive)" }
                 },
                 "required": ["title"]
             }),
@@ -277,13 +281,15 @@ fn get_tools() -> Vec<Value> {
         ),
         tool(
             "update_task",
-            "Update task title or description",
+            "Update a task's title, description, priority, or model",
             json!({
                 "type": "object",
                 "properties": {
                     "task": { "type": "string", "description": "Task title or ID" },
                     "title": { "type": "string" },
-                    "description": { "type": "string" }
+                    "description": { "type": "string" },
+                    "priority": { "type": "string", "description": "Task priority (low, medium, high)" },
+                    "model": { "type": "string", "description": "AI model (opus, sonnet, haiku)" }
                 },
                 "required": ["task"]
             }),
@@ -898,6 +904,9 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
 
     let model = args.get("model").and_then(|v| v.as_str());
     let trigger_prompt = args.get("trigger_prompt").and_then(|v| v.as_str());
+    let dependencies = args.get("dependencies").and_then(|v| v.as_str());
+    let priority = args.get("priority").and_then(|v| v.as_str());
+    let runtime_mode = args.get("runtime_mode").and_then(|v| v.as_str());
 
     // Route through app API (triggers pipeline + updates UI)
     if let Some(resp) = api_call(
@@ -909,6 +918,9 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
             "description": description,
             "model": model,
             "trigger_prompt": trigger_prompt,
+            "dependencies": dependencies,
+            "priority": priority,
+            "runtime_mode": runtime_mode,
         }),
     ) {
         if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
@@ -1023,11 +1035,51 @@ fn handle_update_task(conn: &Connection, args: &Value) -> Value {
 
     let new_title = args.get("title").and_then(|v| v.as_str());
     let new_desc = args.get("description").and_then(|v| v.as_str());
+    let new_priority = args.get("priority").and_then(|v| v.as_str());
+    let new_model = args.get("model").and_then(|v| v.as_str());
 
-    if new_title.is_none() && new_desc.is_none() {
-        return json!({ "error": "Nothing to update — provide title or description" });
+    if new_title.is_none()
+        && new_desc.is_none()
+        && new_priority.is_none()
+        && new_model.is_none()
+    {
+        return json!({ "error": "Nothing to update — provide title, description, priority, or model" });
     }
 
+    // Route through app API so tasks:changed fires and the UI refreshes.
+    let mut body = serde_json::Map::new();
+    body.insert("task_id".into(), json!(task_id));
+    if let Some(t) = new_title {
+        body.insert("title".into(), json!(t));
+    }
+    if let Some(d) = new_desc {
+        body.insert("description".into(), json!(d));
+    }
+    if let Some(p) = new_priority {
+        body.insert("priority".into(), json!(p));
+    }
+    if let Some(m) = new_model {
+        body.insert("model".into(), json!(m));
+    }
+
+    if let Some(resp) = api_call("/api/update_task", &Value::Object(body)) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "task_id": task_id,
+                "title": new_title.unwrap_or(task["title"].as_str().unwrap_or("")),
+                "message": "Task updated"
+            });
+        }
+        if let Some(err) = resp.get("error") {
+            return json!({ "error": err.clone() });
+        }
+    }
+
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
+    }
+
+    // Test-only fallback: direct DB write.
     let ts = now();
     let mut updates = Vec::new();
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -1039,6 +1091,14 @@ fn handle_update_task(conn: &Connection, args: &Value) -> Value {
     if let Some(d) = new_desc {
         updates.push(format!("description = ?{}", param_values.len() + 1));
         param_values.push(Box::new(d.to_string()));
+    }
+    if let Some(p) = new_priority {
+        updates.push(format!("priority = ?{}", param_values.len() + 1));
+        param_values.push(Box::new(p.to_string()));
+    }
+    if let Some(m) = new_model {
+        updates.push(format!("model = ?{}", param_values.len() + 1));
+        param_values.push(Box::new(m.to_string()));
     }
     updates.push(format!("updated_at = ?{}", param_values.len() + 1));
     param_values.push(Box::new(ts));
@@ -1152,8 +1212,9 @@ fn handle_reject_task(conn: &Connection, args: &Value) -> Value {
     let task_id = task["id"].as_str().unwrap();
     let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("");
 
-    // Route through app API (updates UI)
-    if let Some(resp) = api_call("/api/reject_task", &json!({"id": task_id})) {
+    // Route through app API (updates UI). Pass the reason so it's persisted as
+    // pipeline_error consistently whether the app is up or we fall back to DB.
+    if let Some(resp) = api_call("/api/reject_task", &json!({"id": task_id, "reason": reason})) {
         if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
             return json!({
                 "task_id": task_id, "title": task["title"], "review_status": "rejected",
@@ -1216,9 +1277,40 @@ fn handle_add_dependency(conn: &Connection, args: &Value) -> Value {
     }));
 
     let deps_json = serde_json::to_string(&deps).unwrap();
-    let ts = now();
-    let blocked = 1; // Has dependencies, so blocked
 
+    // Route through app API: runs cycle validation + emits tasks:changed.
+    if let Some(resp) = api_call(
+        "/api/set_dependencies",
+        &json!({"task_id": task_id, "dependencies": deps_json}),
+    ) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "task_id": task_id,
+                "title": task["title"],
+                "depends_on": dep_task["title"],
+                "condition": condition,
+                "blocked": true,
+                "message": format!(
+                    "'{}' now depends on '{}' ({})",
+                    task["title"].as_str().unwrap_or("?"),
+                    dep_task["title"].as_str().unwrap_or("?"),
+                    condition
+                )
+            });
+        }
+        // API reachable but rejected (e.g. would create a cycle): surface it.
+        if let Some(err) = resp.get("error") {
+            return json!({ "error": err.clone() });
+        }
+    }
+
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
+    }
+
+    // Test-only fallback: direct DB write.
+    let ts = now();
+    let blocked = 1;
     match conn.execute(
         "UPDATE tasks SET dependencies = ?1, blocked = ?2, updated_at = ?3 WHERE id = ?4",
         params![deps_json, blocked, ts, task_id],
@@ -1274,8 +1366,36 @@ fn handle_remove_dependency(conn: &Connection, args: &Value) -> Value {
 
     let deps_json = serde_json::to_string(&deps).unwrap();
     let blocked = if deps.is_empty() { 0 } else { 1 };
-    let ts = now();
 
+    // Route through app API: emits tasks:changed (and re-validates).
+    if let Some(resp) = api_call(
+        "/api/set_dependencies",
+        &json!({"task_id": task_id, "dependencies": deps_json}),
+    ) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "task_id": task_id,
+                "title": task["title"],
+                "removed": dep_task["title"],
+                "blocked": blocked != 0,
+                "message": format!(
+                    "Removed dependency '{}' from '{}'",
+                    dep_task["title"].as_str().unwrap_or("?"),
+                    task["title"].as_str().unwrap_or("?")
+                )
+            });
+        }
+        if let Some(err) = resp.get("error") {
+            return json!({ "error": err.clone() });
+        }
+    }
+
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
+    }
+
+    // Test-only fallback: direct DB write.
+    let ts = now();
     match conn.execute(
         "UPDATE tasks SET dependencies = ?1, blocked = ?2, updated_at = ?3 WHERE id = ?4",
         params![deps_json, blocked, ts, task_id],
@@ -1313,10 +1433,33 @@ fn handle_mark_complete(conn: &Connection, args: &Value) -> Value {
         Err(e) => return json!({ "error": e }),
     };
     let task_id = task["id"].as_str().unwrap();
+
+    // Route through app API: runs the real completion engine (timing, dependents,
+    // auto-advance, telemetry) and emits tasks:changed so the UI refreshes.
+    if let Some(resp) = api_call(
+        "/api/mark_complete",
+        &json!({"task_id": task_id, "success": success}),
+    ) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "task_id": task_id,
+                "title": task["title"],
+                "message": format!(
+                    "Marked '{}' as {}",
+                    task["title"].as_str().unwrap_or("?"),
+                    if success { "complete" } else { "failed" }
+                )
+            });
+        }
+    }
+
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
+    }
+
+    // Test-only fallback: direct DB write.
     let ts = now();
-
     let new_state = if success { "completed" } else { "failed" };
-
     match conn.execute(
         "UPDATE tasks SET pipeline_state = ?1, updated_at = ?2 WHERE id = ?3",
         params![new_state, ts, task_id],
@@ -1440,16 +1583,44 @@ fn handle_create_workspace(conn: &Connection, args: &Value) -> Value {
         None => return json!({ "error": "repo_path is required" }),
     };
 
+    let template_id = args.get("template_id").and_then(|v| v.as_str());
+    let default_agent_cli = args.get("default_agent_cli").and_then(|v| v.as_str());
+
+    // Route through app API so the workspace is created with the same config +
+    // template columns as the UI, and an entities:changed event refreshes it.
+    if let Some(resp) = api_call(
+        "/api/create_workspace",
+        &json!({
+            "name": name,
+            "repo_path": repo_path,
+            "template_id": template_id,
+            "default_agent_cli": default_agent_cli,
+        }),
+    ) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "message": format!("Created workspace '{}'", name),
+                "workspace": resp.get("data"),
+            });
+        }
+        if let Some(err) = resp.get("error") {
+            return json!({ "error": err.clone() });
+        }
+    }
+
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
+    }
+
+    // Test-only fallback: direct DB write with hardcoded default columns.
     let id = Uuid::new_v4().to_string();
     let ts = now();
-
     match conn.execute(
         "INSERT INTO workspaces (id, name, repo_path, tab_order, is_active, config, created_at, updated_at) \
          VALUES (?1, ?2, ?3, 0, 1, '{}', ?4, ?5)",
         params![id, name, repo_path, ts, ts],
     ) {
         Ok(_) => {
-            // Create default columns
             let columns = ["Backlog", "Working", "Review", "Done"];
             for (i, col_name) in columns.iter().enumerate() {
                 let col_id = Uuid::new_v4().to_string();
@@ -1462,12 +1633,7 @@ fn handle_create_workspace(conn: &Connection, args: &Value) -> Value {
             checkpoint_wal(conn);
             json!({
                 "message": format!("Created workspace '{}' with 4 columns", name),
-                "workspace": {
-                    "id": id,
-                    "name": name,
-                    "repo_path": repo_path,
-                    "columns": columns
-                }
+                "workspace": { "id": id, "name": name, "repo_path": repo_path, "columns": columns }
             })
         }
         Err(e) => json!({ "error": e.to_string() }),
@@ -1510,9 +1676,29 @@ fn handle_create_column(conn: &Connection, args: &Value) -> Value {
             .unwrap_or(0)
         });
 
+    // Route through app API (same db CRUD + entities:changed event).
+    if let Some(resp) = api_call(
+        "/api/create_column",
+        &json!({ "workspace_id": workspace_id, "name": name, "position": position }),
+    ) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "message": format!("Created column '{}' at position {}", name, position),
+                "column": resp.get("data"),
+            });
+        }
+        if let Some(err) = resp.get("error") {
+            return json!({ "error": err.clone() });
+        }
+    }
+
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
+    }
+
+    // Test-only fallback: direct DB write.
     let id = Uuid::new_v4().to_string();
     let ts = now();
-
     match conn.execute(
         "INSERT INTO columns (id, workspace_id, name, icon, position, visible, created_at, updated_at) \
          VALUES (?1, ?2, ?3, 'list', ?4, 1, ?5, ?6)",
@@ -1592,6 +1778,28 @@ fn handle_configure_triggers(conn: &Connection, args: &Value) -> Value {
         Err(e) => return json!({ "error": e }),
     };
 
+    // Route through app API: canonical ColumnTriggersV2 validation + entities:changed.
+    if let Some(resp) = api_call(
+        "/api/configure_triggers",
+        &json!({ "column_id": col_id, "triggers": triggers }),
+    ) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "message": format!("Configured triggers for column '{}'", col_name),
+                "column": col_name,
+                "triggers": serde_json::from_str::<Value>(triggers).unwrap_or(Value::Null)
+            });
+        }
+        if let Some(err) = resp.get("error") {
+            return json!({ "error": err.clone() });
+        }
+    }
+
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
+    }
+
+    // Test-only fallback: direct DB write.
     let ts = now();
     match conn.execute(
         "UPDATE columns SET triggers = ?1, updated_at = ?2 WHERE id = ?3",
@@ -1677,6 +1885,33 @@ fn handle_create_script(conn: &Connection, args: &Value) -> Value {
         Err(e) => return json!({ "error": format!("Invalid steps JSON: {}", e) }),
     };
 
+    // Route through app API (same db CRUD + entities:changed event).
+    if let Some(resp) = api_call(
+        "/api/create_script",
+        &json!({ "name": name, "description": description, "steps": steps }),
+    ) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            let created_id = resp
+                .get("data")
+                .and_then(|d| d.get("id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            return json!({
+                "message": format!("Created script '{}'", name),
+                "id": created_id,
+                "name": name,
+            });
+        }
+        if let Some(err) = resp.get("error") {
+            return json!({ "error": err.clone() });
+        }
+    }
+
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
+    }
+
+    // Test-only fallback: direct DB write.
     let id = new_id();
     let ts = now();
     match conn.execute(
@@ -1784,11 +2019,34 @@ fn handle_run_script(conn: &Connection, args: &Value) -> Value {
             json!({ "type": "run_script", "script_id": script_id }),
         );
     }
+    let triggers_str = triggers.to_string();
 
+    // Route through app API: validates the merged triggers + entities:changed.
+    if let Some(resp) = api_call(
+        "/api/configure_triggers",
+        &json!({ "column_id": col_id, "triggers": triggers_str }),
+    ) {
+        if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
+            return json!({
+                "message": format!("Column '{}' will now run script '{}' on entry", col_name, script_name),
+                "column": col_name,
+                "script": script_name,
+            });
+        }
+        if let Some(err) = resp.get("error") {
+            return json!({ "error": err.clone() });
+        }
+    }
+
+    if !allow_db_fallback() {
+        return json!({ "error": "Failed to reach app API — is the app running?" });
+    }
+
+    // Test-only fallback: direct DB write.
     let ts = now();
     match conn.execute(
         "UPDATE columns SET triggers = ?1, updated_at = ?2 WHERE id = ?3",
-        params![triggers.to_string(), ts, col_id],
+        params![triggers_str, ts, col_id],
     ) {
         Ok(_) => json!({
             "message": format!("Column '{}' will now run script '{}' on entry", col_name, script_name),

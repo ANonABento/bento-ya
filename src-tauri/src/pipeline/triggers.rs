@@ -17,6 +17,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
+use super::spawn;
 use super::template::{self, TemplateContext};
 use super::{emit_pipeline, PipelineState, EVT_ADVANCED, EVT_RUNNING, EVT_TRIGGERED};
 
@@ -211,6 +212,27 @@ pub struct ColumnTriggersV2 {
     /// UI writes it yet — Phase 4 adds the column-config picker.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_runtime_mode: Option<String>,
+}
+
+/// The single validator for a column-triggers JSON string. Empty or `"{}"` is
+/// treated as "no triggers" (valid). Otherwise the string must deserialize into
+/// [`ColumnTriggersV2`], which enforces valid action types and required fields
+/// (e.g. `run_script` needs `script_id`). Used by the Tauri command, the HTTP
+/// API, and the chef executor so every surface validates triggers identically —
+/// previously the chef path accepted any JSON with no validation.
+pub fn validate_triggers_json(triggers: &str) -> Result<(), AppError> {
+    let trimmed = triggers.trim();
+    if trimmed.is_empty() || trimmed == "{}" {
+        return Ok(());
+    }
+    serde_json::from_str::<ColumnTriggersV2>(trimmed)
+        .map(|_| ())
+        .map_err(|e| {
+            AppError::InvalidInput(format!(
+                "Invalid trigger configuration: {}. Check that trigger types match: auto_setup, spawn_cli, move_column, trigger_task, run_script (requires script_id), create_pr, auto_merge, none.",
+                e
+            ))
+        })
 }
 
 /// Exit criteria (V2 format).
@@ -954,7 +976,7 @@ fn execute_batch_wait(
 }
 
 /// Resolve working directory for a task: worktree_path (if set and exists) > workspace.repo_path.
-fn resolve_working_dir(task: &Task, workspace_repo_path: &str) -> String {
+pub(crate) fn resolve_working_dir(task: &Task, workspace_repo_path: &str) -> String {
     if let Some(ref wt) = task.worktree_path {
         if !wt.is_empty() && std::path::Path::new(wt).exists() {
             return wt.clone();
@@ -963,7 +985,7 @@ fn resolve_working_dir(task: &Task, workspace_repo_path: &str) -> String {
     workspace_repo_path.to_string()
 }
 
-fn resolve_model_override(
+pub(crate) fn resolve_model_override(
     task_model: Option<&str>,
     trigger_model: Option<&str>,
     default_model: Option<&str>,
@@ -1583,7 +1605,31 @@ fn execute_spawn_cli(
         task.clone()
     };
 
-    let mut working_dir = resolve_working_dir(&task, &workspace.repo_path);
+    // Resolve cli / model / runtime-mode / prompt / cwd precedence in one
+    // place (see pipeline::spawn::resolve). All side effects below — worktree
+    // .task.md, DB writes, event emission, dispatch — stay here in the caller.
+    let resolved = spawn::resolve(
+        &task,
+        column,
+        &workspace,
+        other_column,
+        &spawn::SpawnOverrides {
+            cli,
+            command,
+            prompt_template,
+            prompt,
+            runtime_mode,
+            model,
+        },
+        &pipeline_settings.default_agent_cli,
+        pipeline_settings.default_model.as_deref(),
+    )?;
+    let cli_type = resolved.cli_type;
+    let initial_prompt = resolved.initial_prompt;
+    let runtime_mode = resolved.runtime_mode;
+    let resolved_model = resolved.model;
+
+    let mut working_dir = resolved.working_dir;
 
     // Belt-and-braces: if the resolved dir is gone (terminal-column case
     // where worktree was just removed, or any other race), fall back to the
@@ -1648,56 +1694,11 @@ fn execute_spawn_cli(
         }
     }
 
-    let ctx = TemplateContext {
-        task: &task,
-        column,
-        workspace: &workspace,
-        prev_column: other_column,
-        next_column: Option::None,
-        dep_tasks: HashMap::new(),
-    };
-
-    // Resolve prompt: direct prompt > template > .task.md pointer (token-optimized default)
-    let resolved_prompt = if let Some(p) = prompt {
-        if !p.is_empty() {
-            template::interpolate(p, &ctx)
-        } else if let Some(tmpl) = prompt_template {
-            template::interpolate(tmpl, &ctx)
-        } else {
-            format!("{}\n\nSee .task.md for full spec.", task.title)
-        }
-    } else if let Some(tmpl) = prompt_template {
-        template::interpolate(tmpl, &ctx)
-    } else {
-        format!("{}\n\nSee .task.md for full spec.", task.title)
-    };
-
-    // Resolve CLI: trigger config > workspace config > global settings.
-    // Stored trigger/workspace config is user-editable JSON, so normalize it
-    // through the same backend allowlist used by direct agent commands before
-    // it reaches the shell launcher.
-    let raw_cli_type = cli
-        .filter(|c| !c.trim().is_empty())
-        .map(|c| c.to_string())
-        .unwrap_or_else(|| pipeline_settings.default_agent_cli.clone());
-    let cli_type = if raw_cli_type.trim() == "auto" {
-        "codex".to_string()
-    } else {
-        crate::commands::agent::validate_agent_cli_path(&raw_cli_type)?
-    };
-
-    // Prepend slash command if provided
-    let initial_prompt = match command {
-        Some(cmd) if resolved_prompt.is_empty() => cmd.to_string(),
-        Some(cmd) => format!("{}\n\n{}", cmd, resolved_prompt),
-        None => resolved_prompt,
-    };
-
-    // Store resolved prompt. `normalize_agent_runtime_mode` downgrades
-    // `interactive` to `terminal` when KAITENCODE_INTERACTIVE_MODE_ENABLED is
-    // unset (with a one-time warning) so existing pipelines aren't affected.
+    // `runtime_mode` (resolved above) is already normalized:
+    // `normalize_agent_runtime_mode` downgraded `interactive` to `terminal`
+    // when KAITENCODE_INTERACTIVE_MODE_ENABLED is unset (with a one-time
+    // warning) so existing pipelines aren't affected.
     let ts = db::now();
-    let runtime_mode = normalize_agent_runtime_mode(runtime_mode, &cli_type);
     if let Err(e) = conn.execute(
         "UPDATE tasks SET trigger_prompt = ?1, agent_mode = ?2, updated_at = ?3 WHERE id = ?4",
         rusqlite::params![initial_prompt, runtime_mode, ts, task.id],
@@ -1733,17 +1734,7 @@ fn execute_spawn_cli(
         Some(format!("CLI trigger: {}", cli_type)),
     );
 
-    // Resolve model: task override > trigger config > workspace config > global settings
-    let resolved_model = resolve_model_override(
-        task.model.as_deref(),
-        model,
-        pipeline_settings.default_model.as_deref(),
-    );
-    let mut cli_args = Vec::new();
-    if let Some(ref m) = resolved_model {
-        cli_args.push("--model".to_string());
-        cli_args.push(m.clone());
-    }
+    let mut cli_args = spawn::model_to_args(resolved_model.as_deref());
     if let Some(flags) = flags {
         cli_args.extend(flags.iter().cloned());
     }
@@ -1798,7 +1789,10 @@ fn execute_spawn_cli(
     Ok(updated_task)
 }
 
-fn normalize_agent_runtime_mode(runtime_mode: Option<&str>, cli_type: &str) -> &'static str {
+pub(crate) fn normalize_agent_runtime_mode(
+    runtime_mode: Option<&str>,
+    cli_type: &str,
+) -> &'static str {
     match runtime_mode {
         Some("managed") => "managed",
         Some("interactive") => {
@@ -3290,6 +3284,23 @@ pub fn resolve_column_target(
 mod tests {
     use super::*;
     use crate::db;
+
+    #[test]
+    fn test_validate_triggers_json() {
+        // Empty / "{}" means "no triggers" — valid.
+        assert!(validate_triggers_json("").is_ok());
+        assert!(validate_triggers_json("   ").is_ok());
+        assert!(validate_triggers_json("{}").is_ok());
+
+        // A well-formed V2 config validates.
+        let valid = r#"{"on_entry":{"type":"spawn_cli","cli":"claude"}}"#;
+        assert!(validate_triggers_json(valid).is_ok());
+
+        // Garbage / unknown action types are rejected (the chef path used to
+        // accept these silently).
+        assert!(validate_triggers_json("not json").is_err());
+        assert!(validate_triggers_json(r#"{"on_entry":{"type":"bogus_action"}}"#).is_err());
+    }
 
     fn setup() -> (
         rusqlite::Connection,

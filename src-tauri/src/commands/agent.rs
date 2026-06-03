@@ -1081,11 +1081,7 @@ fn build_task_input_line(
         });
     }
 
-    let mut args = Vec::new();
-    if !model.trim().is_empty() {
-        args.push("--model".to_string());
-        args.push(model.to_string());
-    }
+    let args = crate::pipeline::spawn::model_to_args(Some(model));
 
     let adapter_kind = agent_adapter_kind_from_db(agent_type_from_cli_path(cli_path));
     let mut command = crate::chat::bridge::build_trigger_command(cli_path, &args, text, resume_id);

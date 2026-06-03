@@ -2,6 +2,7 @@ use crate::config::DEFAULT_BASE_BRANCH;
 use crate::db::{self, AppState, Column, Workspace};
 use crate::error::AppError;
 use git2::{BranchType, Repository};
+use rusqlite::Connection;
 use serde_json::Value;
 use std::path::Path;
 use tauri::State;
@@ -232,6 +233,55 @@ fn columns_for_template(template_id: Option<&str>) -> &'static [DefaultColumn] {
     }
 }
 
+/// Shared workspace-creation core used by both the Tauri command and the HTTP
+/// API. Validates the repo path, writes the workspace + config, and creates the
+/// template's default columns — all in one transaction — so a workspace created
+/// from the UI and from MCP are identical (the MCP path previously hardcoded 4
+/// columns and skipped config + templates).
+pub fn create_workspace_core(
+    conn: &Connection,
+    name: &str,
+    repo_path: &str,
+    template_id: Option<&str>,
+    default_agent_cli: Option<&str>,
+) -> Result<Workspace, AppError> {
+    if name.trim().is_empty() {
+        return Err(AppError::InvalidInput(
+            "Workspace name cannot be empty".to_string(),
+        ));
+    }
+    let repo_path = validate_workspace_repo_path(repo_path)?;
+    let workspace_config = new_workspace_config(&repo_path, default_agent_cli.map(str::trim))?;
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let mut ws = db::insert_workspace(conn, name.trim(), &repo_path)?;
+    if workspace_config != "{}" {
+        ws = db::update_workspace(conn, &ws.id, None, None, None, None, Some(&workspace_config))?;
+    }
+
+    // Auto-create columns from the selected onboarding template.
+    for (i, col) in columns_for_template(template_id).iter().enumerate() {
+        let created =
+            db::insert_column_with_style(conn, &ws.id, col.name, i as i64, col.icon, col.color)?;
+        if !col.trigger_config.is_empty() || !col.exit_config.is_empty() || col.auto_advance {
+            let triggers = serde_json::json!({
+                "triggerConfig": col.trigger_config,
+                "exitConfig": col.exit_config,
+                "autoAdvance": col.auto_advance,
+            })
+            .to_string();
+            db::update_column(conn, &created.id, None, None, None, None, None, Some(&triggers))?;
+        }
+    }
+
+    tx.commit()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    Ok(ws)
+}
+
 #[tauri::command]
 pub fn create_workspace(
     state: State<AppState>,
@@ -240,66 +290,17 @@ pub fn create_workspace(
     template_id: Option<String>,
     default_agent_cli: Option<String>,
 ) -> Result<Workspace, AppError> {
-    if name.trim().is_empty() {
-        return Err(AppError::InvalidInput(
-            "Workspace name cannot be empty".to_string(),
-        ));
-    }
-    let repo_path = validate_workspace_repo_path(&repo_path)?;
-    let workspace_config =
-        new_workspace_config(&repo_path, default_agent_cli.as_deref().map(str::trim))?;
-
     let conn = state
         .db
         .lock()
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    let tx = conn
-        .unchecked_transaction()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-    let mut ws = db::insert_workspace(&conn, name.trim(), &repo_path)?;
-    if workspace_config != "{}" {
-        ws = db::update_workspace(
-            &conn,
-            &ws.id,
-            None,
-            None,
-            None,
-            None,
-            Some(&workspace_config),
-        )?;
-    }
-
-    // Auto-create columns from the selected onboarding template.
-    for (i, col) in columns_for_template(template_id.as_deref())
-        .iter()
-        .enumerate()
-    {
-        let created =
-            db::insert_column_with_style(&conn, &ws.id, col.name, i as i64, col.icon, col.color)?;
-        if !col.trigger_config.is_empty() || !col.exit_config.is_empty() || col.auto_advance {
-            let triggers = serde_json::json!({
-                "triggerConfig": col.trigger_config,
-                "exitConfig": col.exit_config,
-                "autoAdvance": col.auto_advance,
-            })
-            .to_string();
-            db::update_column(
-                &conn,
-                &created.id,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(&triggers),
-            )?;
-        }
-    }
-
-    tx.commit()
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-    Ok(ws)
+    create_workspace_core(
+        &conn,
+        &name,
+        &repo_path,
+        template_id.as_deref(),
+        default_agent_cli.as_deref(),
+    )
 }
 
 fn new_workspace_config(

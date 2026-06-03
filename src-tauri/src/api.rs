@@ -106,91 +106,11 @@ async fn move_task(
     AxumState(api): AxumState<Arc<ApiState>>,
     Json(req): Json<MoveTaskReq>,
 ) -> impl IntoResponse {
-    // Phase 1: DB updates (hold lock briefly)
-    let (task, task_before, old_column_id, column_changed) = {
-        let conn = get_db!(api);
-
-        let task_before = match db::get_task(&conn, &req.id) {
-            Ok(t) => t,
-            Err(e) => return err_response(StatusCode::NOT_FOUND, e.to_string()).into_response(),
-        };
-
-        let old_column_id = task_before.column_id.clone();
-        let column_changed = old_column_id != req.target_column_id;
-
-        let ts = db::now();
-        if column_changed {
-            let _ = conn.execute(
-                "UPDATE tasks SET column_id = ?1, position = ?2, pipeline_state = 'idle', pipeline_triggered_at = NULL, pipeline_error = NULL, updated_at = ?3 WHERE id = ?4",
-                rusqlite::params![req.target_column_id, req.position, ts, req.id],
-            );
-        } else {
-            let _ = conn.execute(
-                "UPDATE tasks SET column_id = ?1, position = ?2, updated_at = ?3 WHERE id = ?4",
-                rusqlite::params![req.target_column_id, req.position, ts, req.id],
-            );
-        }
-
-        let task = match db::get_task(&conn, &req.id) {
-            Ok(t) => t,
-            Err(e) => {
-                return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                    .into_response()
-            }
-        };
-
-        (task, task_before, old_column_id, column_changed)
-    }; // DB lock released
-
-    // Phase 2: Pipeline triggers (may spawn async tasks)
-    if column_changed {
-        let conn = get_db!(api);
-        let old_column = db::get_column(&conn, &old_column_id).ok();
-        let target_column = db::get_column(&conn, &req.target_column_id).ok();
-
-        // Cancel running agent if task is leaving its column AND target has no spawn_cli trigger.
-        // If target also has a trigger, the new trigger replaces the old agent — no need to cancel.
-        if task_before.agent_status.as_deref() == Some("running") {
-            let target_has_trigger = target_column
-                .as_ref()
-                .and_then(|c| c.triggers.as_deref())
-                .map(|t| t.contains("spawn_cli"))
-                .unwrap_or(false);
-
-            if !target_has_trigger {
-                eprintln!(
-                    "[api] Task {} leaving to non-trigger column — cancelling agent",
-                    req.id
-                );
-                crate::chat::tmux_transport::cancel_task_agent(
-                    &conn,
-                    &req.id,
-                    task_before.agent_session_id.as_deref(),
-                );
-            }
-        }
-
-        if let (Some(ref old_col), Some(ref tgt_col)) = (&old_column, &target_column) {
-            let _ = pipeline::triggers::fire_on_exit(
-                &conn,
-                &api.app,
-                &task_before,
-                old_col,
-                Some(tgt_col),
-            );
-        }
-
-        pipeline::emit_tasks_changed(&api.app, &task.workspace_id, "api_task_moved");
-
-        if let Some(ref tgt_col) = target_column {
-            let _ = pipeline::fire_trigger(&conn, &api.app, &task, tgt_col);
-        }
-
-        let task = db::get_task(&conn, &req.id).unwrap_or(task);
-        return ok_response(serde_json::to_value(&task).unwrap_or_default()).into_response();
+    let conn = get_db!(api);
+    match pipeline::move_task_service(&conn, &api.app, &req.id, &req.target_column_id, req.position) {
+        Ok(task) => ok_response(serde_json::to_value(&task).unwrap_or_default()).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
-
-    ok_response(serde_json::to_value(&task).unwrap_or_default()).into_response()
 }
 
 #[derive(Deserialize)]
@@ -201,6 +121,9 @@ struct CreateTaskReq {
     description: Option<String>,
     trigger_prompt: Option<String>,
     model: Option<String>,
+    dependencies: Option<String>,
+    priority: Option<String>,
+    runtime_mode: Option<String>,
 }
 
 async fn create_task(
@@ -209,45 +132,25 @@ async fn create_task(
 ) -> impl IntoResponse {
     let conn = get_db!(api);
 
-    let task = match db::insert_task(
+    match pipeline::create_task_service(
         &conn,
-        &req.workspace_id,
-        &req.column_id,
-        req.title.trim(),
-        req.description.as_deref(),
+        &api.app,
+        &db::NewTask {
+            workspace_id: &req.workspace_id,
+            column_id: &req.column_id,
+            title: req.title.trim(),
+            description: req.description.as_deref(),
+            model: req.model.as_deref(),
+            trigger_prompt: req.trigger_prompt.as_deref(),
+            dependencies: req.dependencies.as_deref(),
+            priority: req.priority.as_deref(),
+            runtime_mode_override: req.runtime_mode.as_deref(),
+        },
+        true,
     ) {
-        Ok(t) => t,
-        Err(e) => {
-            return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-        }
-    };
-
-    if let Some(ref prompt) = req.trigger_prompt {
-        let ts = db::now();
-        let _ = conn.execute(
-            "UPDATE tasks SET trigger_prompt = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![prompt, ts, task.id],
-        );
+        Ok(task) => ok_response(serde_json::to_value(&task).unwrap_or_default()).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
-    if let Some(ref model) = req.model {
-        let ts = db::now();
-        let _ = conn.execute(
-            "UPDATE tasks SET model = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![model, ts, task.id],
-        );
-    }
-
-    let task = db::get_task(&conn, &task.id).unwrap_or(task);
-
-    // Fire column trigger
-    if let Ok(column) = db::get_column(&conn, &req.column_id) {
-        let _ = pipeline::fire_trigger(&conn, &api.app, &task, &column);
-    }
-
-    pipeline::emit_tasks_changed(&api.app, &req.workspace_id, "api_task_created");
-
-    let task = db::get_task(&conn, &task.id).unwrap_or(task);
-    ok_response(serde_json::to_value(&task).unwrap_or_default()).into_response()
 }
 
 #[derive(Deserialize)]
@@ -314,28 +217,292 @@ async fn approve_task(
         return ok_response(serde_json::to_value(&advanced).unwrap_or_default()).into_response();
     }
 
+    pipeline::emit_tasks_changed(&api.app, &task.workspace_id, "api_task_approved");
     ok_response(serde_json::to_value(&task).unwrap_or_default()).into_response()
+}
+
+#[derive(Deserialize)]
+struct RejectReq {
+    id: String,
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 async fn reject_task(
     AxumState(api): AxumState<Arc<ApiState>>,
-    Json(req): Json<TaskIdReq>,
+    Json(req): Json<RejectReq>,
 ) -> impl IntoResponse {
     let conn = get_db!(api);
 
-    let task = match db::update_task_review_status(&conn, &req.id, Some("rejected")) {
+    let mut task = match db::update_task_review_status(&conn, &req.id, Some("rejected")) {
         Ok(t) => t,
         Err(e) => {
             return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
         }
     };
 
+    // Persist the rejection reason as pipeline_error, matching the Tauri command.
+    if let Some(ref reason_text) = req.reason {
+        if let Ok(updated) = db::update_task_pipeline_state(
+            &conn,
+            &req.id,
+            &task.pipeline_state,
+            task.pipeline_triggered_at.as_deref(),
+            Some(reason_text),
+        ) {
+            task = updated;
+        }
+    }
+
+    pipeline::emit_tasks_changed(&api.app, &task.workspace_id, "api_task_rejected");
     ok_response(serde_json::to_value(&task).unwrap_or_default()).into_response()
 }
 
 #[derive(Deserialize)]
 struct RetryReq {
     task_id: String,
+}
+
+#[derive(Deserialize)]
+struct MarkCompleteReq {
+    task_id: String,
+    #[serde(default = "default_true")]
+    success: bool,
+    #[serde(default)]
+    error_detail: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Deserialize)]
+struct UpdateTaskReq {
+    task_id: String,
+    title: Option<String>,
+    description: Option<String>,
+    column_id: Option<String>,
+    position: Option<i64>,
+    agent_mode: Option<String>,
+    priority: Option<String>,
+    model: Option<String>,
+    estimated_hours: Option<f64>,
+}
+
+/// Single field-update entry point for out-of-process callers (MCP).
+/// Routes through `pipeline::update_task_service` so the `tasks:changed` event
+/// fires and the field set matches the Tauri command.
+async fn update_task(
+    AxumState(api): AxumState<Arc<ApiState>>,
+    Json(req): Json<UpdateTaskReq>,
+) -> impl IntoResponse {
+    let conn = get_db!(api);
+    match pipeline::update_task_service(
+        &conn,
+        &api.app,
+        &req.task_id,
+        &pipeline::UpdateTaskFields {
+            title: req.title.as_deref(),
+            description: req.description.as_deref().map(Some),
+            column_id: req.column_id.as_deref(),
+            position: req.position,
+            agent_mode: req.agent_mode.as_deref().map(Some),
+            priority: req.priority.as_deref(),
+            model: req.model.as_deref().map(Some),
+            estimated_hours: req.estimated_hours.map(Some),
+        },
+    ) {
+        Ok(task) => ok_response(serde_json::to_value(&task).unwrap_or_default()).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct SetDependenciesReq {
+    task_id: String,
+    /// JSON array of `{ task_id, condition, ... }` dependency objects.
+    dependencies: String,
+}
+
+/// Single validated entry point for replacing a task's dependency list.
+/// Routes through `pipeline::dependencies::set_task_dependencies` so MCP gets
+/// the same cycle validation + `tasks:changed` event the UI path has.
+async fn set_dependencies(
+    AxumState(api): AxumState<Arc<ApiState>>,
+    Json(req): Json<SetDependenciesReq>,
+) -> impl IntoResponse {
+    let deps: Vec<pipeline::dependencies::TaskDependency> =
+        match serde_json::from_str(&req.dependencies) {
+            Ok(d) => d,
+            Err(e) => {
+                return err_response(
+                    StatusCode::BAD_REQUEST,
+                    format!("Invalid dependencies JSON: {}", e),
+                )
+                .into_response()
+            }
+        };
+    let conn = get_db!(api);
+    match pipeline::dependencies::set_task_dependencies(&conn, &api.app, &req.task_id, &deps) {
+        Ok(task) => ok_response(serde_json::to_value(&task).unwrap_or_default()).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// The single completion entry point for out-of-process callers (MCP).
+/// Routes through `pipeline::mark_complete_with_error`, the same engine the
+/// Tauri command uses — so timing, dependents, auto-advance, telemetry, and
+/// `tasks:changed`/`pipeline:complete` events all fire identically.
+async fn mark_complete(
+    AxumState(api): AxumState<Arc<ApiState>>,
+    Json(req): Json<MarkCompleteReq>,
+) -> impl IntoResponse {
+    let conn = get_db!(api);
+    match pipeline::mark_complete_with_error(
+        &conn,
+        &api.app,
+        &req.task_id,
+        req.success,
+        req.error_detail.as_deref(),
+    ) {
+        Ok(task) => ok_response(serde_json::to_value(&task).unwrap_or_default()).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+// ─── Entity creation (workspace / column / triggers / script) ───────────────
+// These let MCP route through the app instead of writing the DB directly, so
+// writes go through the same validation + emit an `entities:changed` event the
+// frontend's entity-sync hook listens to.
+
+#[derive(Deserialize)]
+struct CreateWorkspaceReq {
+    name: String,
+    repo_path: String,
+    #[serde(default)]
+    template_id: Option<String>,
+    #[serde(default)]
+    default_agent_cli: Option<String>,
+}
+
+async fn create_workspace(
+    AxumState(api): AxumState<Arc<ApiState>>,
+    Json(req): Json<CreateWorkspaceReq>,
+) -> impl IntoResponse {
+    let conn = get_db!(api);
+    match crate::commands::workspace::create_workspace_core(
+        &conn,
+        &req.name,
+        &req.repo_path,
+        req.template_id.as_deref(),
+        req.default_agent_cli.as_deref(),
+    ) {
+        Ok(ws) => {
+            pipeline::emit_entities_changed(&api.app, &ws.id, "workspace");
+            ok_response(serde_json::to_value(&ws).unwrap_or_default()).into_response()
+        }
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct CreateColumnReq {
+    workspace_id: String,
+    name: String,
+    position: Option<i64>,
+}
+
+async fn create_column(
+    AxumState(api): AxumState<Arc<ApiState>>,
+    Json(req): Json<CreateColumnReq>,
+) -> impl IntoResponse {
+    if req.name.trim().is_empty() {
+        return err_response(StatusCode::BAD_REQUEST, "Column name cannot be empty".into())
+            .into_response();
+    }
+    let conn = get_db!(api);
+    // Default to appending after the last column when no position is given.
+    let position = req.position.unwrap_or_else(|| {
+        conn.query_row(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM columns WHERE workspace_id = ?1",
+            rusqlite::params![req.workspace_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+    });
+    match db::insert_column(&conn, &req.workspace_id, req.name.trim(), position) {
+        Ok(col) => {
+            pipeline::emit_entities_changed(&api.app, &req.workspace_id, "column");
+            ok_response(serde_json::to_value(&col).unwrap_or_default()).into_response()
+        }
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ConfigureTriggersReq {
+    column_id: String,
+    triggers: String,
+}
+
+async fn configure_triggers(
+    AxumState(api): AxumState<Arc<ApiState>>,
+    Json(req): Json<ConfigureTriggersReq>,
+) -> impl IntoResponse {
+    if let Err(e) = pipeline::triggers::validate_triggers_json(&req.triggers) {
+        return err_response(StatusCode::BAD_REQUEST, e.to_string()).into_response();
+    }
+    let conn = get_db!(api);
+    match db::update_column(
+        &conn,
+        &req.column_id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(&req.triggers),
+    ) {
+        Ok(col) => {
+            pipeline::emit_entities_changed(&api.app, &col.workspace_id, "column");
+            ok_response(serde_json::to_value(&col).unwrap_or_default()).into_response()
+        }
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct CreateScriptReq {
+    name: String,
+    #[serde(default)]
+    description: String,
+    steps: String,
+}
+
+async fn create_script(
+    AxumState(api): AxumState<Arc<ApiState>>,
+    Json(req): Json<CreateScriptReq>,
+) -> impl IntoResponse {
+    if req.name.trim().is_empty() {
+        return err_response(StatusCode::BAD_REQUEST, "Script name cannot be empty".into())
+            .into_response();
+    }
+    if let Err(e) = serde_json::from_str::<Vec<serde_json::Value>>(&req.steps) {
+        return err_response(
+            StatusCode::BAD_REQUEST,
+            format!("Steps must be a JSON array: {}", e),
+        )
+        .into_response();
+    }
+    let conn = get_db!(api);
+    let id = db::new_id();
+    match db::insert_script(&conn, &id, req.name.trim(), &req.description, &req.steps, false) {
+        Ok(script) => {
+            pipeline::emit_entities_changed(&api.app, "", "script");
+            ok_response(serde_json::to_value(&script).unwrap_or_default()).into_response()
+        }
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }
 
 async fn retry_task(
@@ -687,11 +854,18 @@ pub fn start(app: AppHandle) {
         let protected = Router::new()
             .route("/api/move_task", post(move_task))
             .route("/api/create_task", post(create_task))
+            .route("/api/update_task", post(update_task))
             .route("/api/delete_task", post(delete_task))
             .route("/api/approve_task", post(approve_task))
             .route("/api/reject_task", post(reject_task))
             .route("/api/retry_task", post(retry_task))
             .route("/api/retry_from_start", post(retry_from_start))
+            .route("/api/mark_complete", post(mark_complete))
+            .route("/api/set_dependencies", post(set_dependencies))
+            .route("/api/create_workspace", post(create_workspace))
+            .route("/api/create_column", post(create_column))
+            .route("/api/configure_triggers", post(configure_triggers))
+            .route("/api/create_script", post(create_script))
             .route("/api/settings", get(get_settings))
             .route("/api/settings", post(update_settings))
             .route(

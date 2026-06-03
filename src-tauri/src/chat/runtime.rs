@@ -166,6 +166,22 @@ pub struct ManagedCliTurnInvocation {
     pub delivery: AgentInputDelivery,
 }
 
+/// The `claude` streaming-output flags that BOTH spawn families must keep in
+/// lock-step: the managed argv path ([`ClaudeCliAdapter::managed_turn_args`])
+/// and the terminal/headless shell-string path
+/// (`chat::bridge::build_claude_streaming_command`). If Claude ever renames
+/// `stream-json` or the verbose toggle, this is the single place to change it.
+///
+/// Everything *else* about the two invocations legitimately differs and is
+/// intentionally kept local to each builder — the terminal path adds
+/// `--dangerously-skip-permissions` / `--include-partial-messages`, passes the
+/// prompt via `-p`, and pipes through `jq`; the managed path uses `--print`,
+/// `--system-prompt`, and a positional message. Those are different render
+/// targets (raw tmux pane vs. semantic event stream), not drift, so only the
+/// genuinely-shared output flags are centralized here.
+pub(crate) const CLAUDE_STREAM_OUTPUT_FLAGS: &[&str] =
+    &["--output-format", "stream-json", "--verbose"];
+
 #[derive(Debug, Clone)]
 pub struct ClaudeCliAdapter {
     pub cli_path: String,
@@ -221,16 +237,14 @@ impl ClaudeCliAdapter {
         resume_id: Option<&str>,
         message: &str,
     ) -> Vec<String> {
-        let mut args = vec![
-            "--print".to_string(),
-            "--output-format".to_string(),
-            "stream-json".to_string(),
-            "--verbose".to_string(),
+        let mut args = vec!["--print".to_string()];
+        args.extend(CLAUDE_STREAM_OUTPUT_FLAGS.iter().map(|s| s.to_string()));
+        args.extend([
             "--model".to_string(),
             model.to_string(),
             "--system-prompt".to_string(),
             system_prompt.to_string(),
-        ];
+        ]);
 
         if let Some(effort) = effort_level {
             args.push("--effort".to_string());
@@ -1542,6 +1556,20 @@ fn metadata_json(value: Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_managed_args_embed_shared_stream_flags_in_order() {
+        // Lock-step guard: the managed argv must contain the shared
+        // streaming-output flags (the same constant the terminal/headless
+        // shell builder splices in), in order, right after `--print`.
+        let args = ClaudeCliAdapter::managed_turn_args("sonnet", "sys", None, None, "hi");
+        assert_eq!(args[0], "--print");
+        assert_eq!(&args[1..1 + CLAUDE_STREAM_OUTPUT_FLAGS.len()], CLAUDE_STREAM_OUTPUT_FLAGS);
+        // Sanity: the rest of the managed shape is unchanged.
+        assert!(args.windows(2).any(|w| w[0] == "--model" && w[1] == "sonnet"));
+        assert!(args.windows(2).any(|w| w[0] == "--system-prompt" && w[1] == "sys"));
+        assert_eq!(args.last().map(String::as_str), Some("hi"));
+    }
 
     fn task_with_session(conn: &Connection) -> (String, String) {
         let workspace = db::insert_workspace(conn, "WS", "/tmp").unwrap();
