@@ -606,6 +606,63 @@ mod tests {
     }
 
     #[test]
+    fn test_insert_task_full_sets_all_fields_and_blocked() {
+        let conn = init_test().unwrap();
+        let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();
+        let col = insert_column(&conn, &ws.id, "Backlog", 0).unwrap();
+
+        // Rich create: every caller-supplied field lands in one INSERT.
+        let task = insert_task_full(
+            &conn,
+            &NewTask {
+                workspace_id: &ws.id,
+                column_id: &col.id,
+                title: "Rich task",
+                description: Some("desc"),
+                model: Some("sonnet"),
+                trigger_prompt: Some("do the thing"),
+                dependencies: Some("[\"dep-1\"]"),
+                priority: Some("high"),
+                runtime_mode_override: Some("interactive"),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(task.model.as_deref(), Some("sonnet"));
+        assert_eq!(task.trigger_prompt.as_deref(), Some("do the thing"));
+        assert_eq!(task.dependencies.as_deref(), Some("[\"dep-1\"]"));
+        assert_eq!(task.priority, "high");
+        assert_eq!(task.runtime_mode_override.as_deref(), Some("interactive"));
+        // Non-empty dependencies imply blocked.
+        assert!(task.blocked);
+
+        // Defaults reproduce the legacy insert_task behavior exactly.
+        let bare = insert_task_full(
+            &conn,
+            &NewTask {
+                workspace_id: &ws.id,
+                column_id: &col.id,
+                title: "Bare task",
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(bare.priority, "medium");
+        assert!(!bare.blocked);
+        assert_eq!(bare.model, None);
+        assert_eq!(bare.runtime_mode_override, None);
+    }
+
+    #[test]
+    fn test_deps_imply_blocked() {
+        assert!(!deps_imply_blocked(None));
+        assert!(!deps_imply_blocked(Some("")));
+        assert!(!deps_imply_blocked(Some("[]")));
+        assert!(!deps_imply_blocked(Some("  []  ")));
+        assert!(deps_imply_blocked(Some("[\"task-1\"]")));
+    }
+
+    #[test]
     fn test_label_crud_and_task_assignment() {
         let conn = init_test().unwrap();
         let ws = insert_workspace(&conn, "WS", "/tmp").unwrap();

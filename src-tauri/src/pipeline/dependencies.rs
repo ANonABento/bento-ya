@@ -620,6 +620,34 @@ pub fn validate_dependencies(
     Ok(())
 }
 
+/// The single validated path for replacing a task's full dependency list.
+/// Every surface (Tauri command, HTTP API, MCP add/remove) funnels through here
+/// so cycle/self-loop/existence validation, the derived `blocked` flag, and the
+/// `tasks:changed` event are identical everywhere — closing the MCP gap where
+/// dependencies were written directly with no validation and no UI refresh.
+pub fn set_task_dependencies(
+    conn: &Connection,
+    app: &AppHandle,
+    task_id: &str,
+    deps: &[TaskDependency],
+) -> Result<Task, AppError> {
+    validate_dependencies(conn, task_id, deps)?;
+
+    let deps_json = serde_json::to_string(deps)
+        .map_err(|e| AppError::InvalidInput(format!("Invalid dependencies: {}", e)))?;
+    let blocked = !deps.is_empty();
+    let ts = db::now();
+    conn.execute(
+        "UPDATE tasks SET dependencies = ?1, blocked = ?2, updated_at = ?3 WHERE id = ?4",
+        rusqlite::params![deps_json, blocked as i64, ts, task_id],
+    )
+    .map_err(AppError::from)?;
+
+    let task = db::get_task(conn, task_id)?;
+    emit_tasks_changed(app, &task.workspace_id, "dependencies_changed");
+    Ok(task)
+}
+
 /// Update a task's blocked state.
 fn update_blocked(conn: &Connection, task_id: &str, blocked: bool) -> Result<(), AppError> {
     let ts = db::now();
