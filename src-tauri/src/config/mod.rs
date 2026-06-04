@@ -23,11 +23,22 @@ pub const DEFAULT_BASE_BRANCH: &str = "main";
 pub const INTERACTIVE_MODE_ENV_VAR: &str = "KAITENCODE_INTERACTIVE_MODE_ENABLED";
 pub const DEPRECATED_INTERACTIVE_MODE_ENV_VAR: &str = "BENTOYA_INTERACTIVE_MODE_ENABLED";
 
-/// Whether the interactive runtime mode is currently allowed. Reads the env
-/// var on every call (cheap) so the flag responds to test setup and `launchctl
-/// setenv`-style live tweaks without an app restart. Treats `1`, `true`,
-/// `yes`, `on` (case-insensitive) as enabled.
+/// Whether the interactive runtime mode is currently allowed. The env var is a
+/// force-on override (for tests/CI and `launchctl setenv`-style live tweaks
+/// without an app restart) — treats `1`, `true`, `yes`, `on` (case-insensitive)
+/// as enabled. When the env var is absent/falsy we fall back to the persisted
+/// `AppSettings.interactive_mode_enabled` toggle, which is the supported,
+/// user-facing way to turn interactive mode on.
 pub fn interactive_mode_enabled() -> bool {
+    if interactive_mode_env_enabled() {
+        return true;
+    }
+    AppSettings::load().interactive_mode_enabled
+}
+
+/// The raw env-var gate, kept separate so callers (and the setting fallback)
+/// can distinguish a force-on env override from the persisted toggle.
+fn interactive_mode_env_enabled() -> bool {
     match env_var(
         INTERACTIVE_MODE_ENV_VAR,
         DEPRECATED_INTERACTIVE_MODE_ENV_VAR,
@@ -113,6 +124,16 @@ pub struct AppSettings {
     /// "managed" | "interactive" | ""` (empty = no global default, fall
     /// through to plan default of headless·bubbles).
     pub default_runtime_mode: String,
+    /// Phase 3 (AGENT_PANEL_MODES) — opt-in gate for the interactive runtime
+    /// mode. Replaces the dev-only `KAITENCODE_INTERACTIVE_MODE_ENABLED` env
+    /// var as the real, user-facing switch. The env var still force-enables
+    /// (for tests/CI), but this setting is the supported way to turn it on.
+    pub interactive_mode_enabled: bool,
+    /// Phase 5 (CLI-compat) — known-good minimum CLI versions. The startup
+    /// health check warns (never hard-blocks) when an installed CLI is older.
+    /// `None`/empty = accept any version.
+    pub claude_min_version: Option<String>,
+    pub codex_min_version: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -272,6 +293,9 @@ impl Default for AppSettings {
             default_session_strategy: "fresh".to_string(),
             default_advance_mode: "auto".to_string(),
             default_runtime_mode: String::new(),
+            interactive_mode_enabled: false,
+            claude_min_version: None,
+            codex_min_version: None,
         }
     }
 }
@@ -347,6 +371,20 @@ impl AppSettings {
             if let Some(v) = obj.get("default_runtime_mode").and_then(|v| v.as_str()) {
                 self.default_runtime_mode = v.to_string();
             }
+            if let Some(v) = obj
+                .get("interactive_mode_enabled")
+                .and_then(|v| v.as_bool())
+            {
+                self.interactive_mode_enabled = v;
+            }
+            if let Some(v) = obj.get("claude_min_version").and_then(|v| v.as_str()) {
+                self.claude_min_version =
+                    Some(v.to_string()).filter(|s| !s.trim().is_empty());
+            }
+            if let Some(v) = obj.get("codex_min_version").and_then(|v| v.as_str()) {
+                self.codex_min_version =
+                    Some(v.to_string()).filter(|s| !s.trim().is_empty());
+            }
         }
     }
 
@@ -411,6 +449,23 @@ mod tests {
         assert_eq!(settings.default_agent_cli, "claude");
         // Unchanged fields keep defaults
         assert_eq!(settings.gc_interval_minutes, 5);
+    }
+
+    #[test]
+    fn test_interactive_mode_enabled_setting_round_trips() {
+        // Defaults off; merge_update flips it; serde preserves it.
+        let mut settings = AppSettings::default();
+        assert!(!settings.interactive_mode_enabled);
+        settings.merge_update(&serde_json::json!({ "interactive_mode_enabled": true }));
+        assert!(settings.interactive_mode_enabled);
+
+        let json = serde_json::to_string(&settings).unwrap();
+        let parsed: AppSettings = serde_json::from_str(&json).unwrap();
+        assert!(parsed.interactive_mode_enabled);
+
+        // Older settings.json without the key deserializes to the default (off).
+        let legacy: AppSettings = serde_json::from_str("{}").unwrap();
+        assert!(!legacy.interactive_mode_enabled);
     }
 
     #[test]

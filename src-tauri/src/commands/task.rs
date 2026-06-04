@@ -325,6 +325,34 @@ pub fn update_task(
     )
 }
 
+/// Set or clear the task-level runtime mode override (`terminal` / `managed` /
+/// `interactive`, or `null`/empty to inherit). Unlike the legacy `agent_mode`
+/// field that `update_task` writes, this lands in the `runtime_mode_override`
+/// column the resolver actually consults — so the per-chat toggle and the task
+/// settings modal can flip a task's runtime and have it take effect. Emits
+/// `tasks:changed` so `useResolvedRuntimeMode` re-resolves (remounting the panel).
+#[tauri::command(rename_all = "camelCase")]
+pub fn set_task_runtime_mode_override(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+    runtime_mode_override: Option<String>,
+) -> Result<Task, AppError> {
+    // Treat an empty string the same as null — both mean "inherit".
+    let normalized = runtime_mode_override.filter(|s| !s.trim().is_empty());
+
+    let task = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        db::update_task_runtime_mode_override(&conn, &id, normalized.as_deref())?
+    };
+
+    pipeline::emit_tasks_changed(&app, &task.workspace_id, "task_runtime_mode_changed");
+    Ok(task)
+}
+
 /// Update task trigger settings (overrides, prompt, dependencies)
 #[tauri::command(rename_all = "camelCase")]
 pub fn update_task_triggers(

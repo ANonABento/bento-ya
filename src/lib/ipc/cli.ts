@@ -58,3 +58,28 @@ export type CliUpdateInfo = {
 export async function checkCliUpdate(cliId: string): Promise<CliUpdateInfo> {
   return invoke<CliUpdateInfo>('check_cli_update', { cliId })
 }
+
+// ─── CLI compatibility health (Phase 5) ─────────────────────────────────────
+
+export type CliHealthReport = {
+  id: string
+  name: string
+  available: boolean
+  path: string | null
+  version: string | null
+  minVersion: string | null
+  versionOk: boolean
+  missingFlags: string[]
+  /** "ok" | "missing" | "outdated" | "drift" */
+  status: string
+}
+
+export async function checkCliHealth(): Promise<CliHealthReport[]> {
+  return invoke<CliHealthReport[]>('check_cli_health')
+}
+
+/** A report worth surfacing: an installed CLI whose flags or version drifted.
+ *  A *missing* CLI is intentionally ignored here — onboarding/settings own that. */
+export function isCliHealthConcerning(report: CliHealthReport): boolean {
+  return report.available && (report.status === 'drift' || report.status === 'outdated')
+}

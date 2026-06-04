@@ -8,6 +8,8 @@ type ScriptState = {
   loaded: boolean
 
   load: () => Promise<void>
+  /** Force a refetch even if already loaded — used when scripts change out of band. */
+  reload: () => Promise<void>
   getScriptName: (id: string) => string | undefined
 }
 
@@ -19,6 +21,11 @@ export const useScriptStore = create<ScriptState>()(
 
       load: async () => {
         if (get().loaded) return
+        const scripts = await ipc.listScripts()
+        set({ scripts, loaded: true })
+      },
+
+      reload: async () => {
         const scripts = await ipc.listScripts()
         set({ scripts, loaded: true })
       },

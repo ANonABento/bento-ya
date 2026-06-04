@@ -21,6 +21,7 @@ export * from './label'
 export * from './models'
 export * from './updater'
 export * from './system'
+export * from './settings'
 
 // Re-export listen and types that consumers use directly
 export { listen, type UnlistenFn, type EventCallback } from './invoke'

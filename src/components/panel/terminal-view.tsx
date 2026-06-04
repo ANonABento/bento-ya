@@ -13,7 +13,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
 
 import { listen, type UnlistenFn } from '@/lib/ipc'
-import { writeToPty, resizePty, ensurePtySession } from '@/lib/ipc/terminal'
+import { writeToPty, resizePty, ensurePtySession, type EnsureSessionFn } from '@/lib/ipc/terminal'
 import { EventChannels, type PtyExitPayload } from '@/types/events'
 import { getXtermTheme } from '@/lib/xterm-theme'
 import { getTheme } from '@/lib/theme'
@@ -21,12 +21,17 @@ import { EmptyState } from '@/components/shared/empty-state'
 import { useSettingsStore } from '@/stores/settings-store'
 
 type TerminalViewProps = {
+  /** Session key — a task id, or a `chef_<workspaceId>` key. Drives the
+   *  generic PTY IPC and the `pty:<taskId>:*` event channels. */
   taskId: string
   workingDir: string
   allowSpawn?: boolean
+  /** How to spawn/attach the session. Defaults to the per-task PTY command;
+   *  the chef terminal passes a workspace-keyed variant. */
+  ensure?: EnsureSessionFn
 }
 
-export function TerminalView({ taskId, workingDir, allowSpawn = true }: TerminalViewProps) {
+export function TerminalView({ taskId, workingDir, allowSpawn = true, ensure = ensurePtySession }: TerminalViewProps) {
   const terminalHostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -206,7 +211,7 @@ export function TerminalView({ taskId, workingDir, allowSpawn = true }: Terminal
           const cols = Math.max(term.cols, 80)
           const rows = Math.max(term.rows, 24)
           void resizePty(taskId, cols, rows)
-          ensurePtySession(taskId, workingDir, cols, rows, allowSpawn)
+          ensure(taskId, workingDir, cols, rows, allowSpawn)
             .then((info) => {
               // Re-check `disposed` AFTER the await: a fast task-switch can
               // tear down this effect while ensure_pty_session is in flight.
@@ -305,7 +310,7 @@ export function TerminalView({ taskId, workingDir, allowSpawn = true }: Terminal
       if (termRef.current === term) termRef.current = null
       if (fitAddonRef.current === fitAddon) fitAddonRef.current = null
     }
-  }, [allowSpawn, fontSize, lineHeight, scrollback, taskId, workingDir])
+  }, [allowSpawn, ensure, fontSize, lineHeight, scrollback, taskId, workingDir])
 
   return (
     <div

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useSettingsStore } from '@/stores/settings-store'
 import type { AgentConfig, ProviderConfig } from '@/types/settings'
-import { detectSingleCli, checkCliUpdate, type DetectedCli, type CliUpdateInfo } from '@/lib/ipc'
+import { detectSingleCli, checkCliUpdate, getAppSettings, updateAppSettings, type DetectedCli, type CliUpdateInfo } from '@/lib/ipc'
 import { useModels } from '@/hooks/use-models'
 import { SettingSection, SettingRow, SettingInput, SettingSlider } from '@/components/shared/setting-components'
 import { Dropdown } from '@/components/shared/dropdown'
+import { Toggle } from '@/components/shared/toggle'
 import { getModelBudgetKey } from '@/lib/usage-budget'
 
 const PROVIDER_INFO: Record<string, { name: string; description: string; cliId: string; supportsApi: boolean }> = {
@@ -64,6 +65,49 @@ export function AgentTab() {
   useEffect(() => {
     localStorage.setItem('agent-tab-coming-soon-collapsed', String(comingSoonCollapsed))
   }, [comingSoonCollapsed])
+
+  // Global agent-runtime settings live in the backend AppSettings
+  // (~/.kaitencode/settings.json), not the persisted zustand store — the
+  // pipeline resolver reads them at the global tier. Load + write via IPC.
+  const [defaultRuntimeMode, setDefaultRuntimeMode] = useState('')
+  const [interactiveEnabled, setInteractiveEnabled] = useState(false)
+  const [runtimeSettingsLoaded, setRuntimeSettingsLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    getAppSettings()
+      .then((s) => {
+        if (cancelled) return
+        setDefaultRuntimeMode(s.default_runtime_mode)
+        setInteractiveEnabled(s.interactive_mode_enabled)
+        setRuntimeSettingsLoaded(true)
+      })
+      .catch((err: unknown) => { console.error("Failed to load app settings:", err) })
+    return () => { cancelled = true }
+  }, [])
+
+  const persistRuntimeSetting = (updates: { default_runtime_mode?: string; interactive_mode_enabled?: boolean }) => {
+    void updateAppSettings(updates).catch((err: unknown) => {
+      console.error('Failed to update app settings:', err)
+    })
+  }
+
+  const handleDefaultRuntimeModeChange = (value: string) => {
+    setDefaultRuntimeMode(value)
+    persistRuntimeSetting({ default_runtime_mode: value })
+  }
+
+  const handleInteractiveEnabledChange = (enabled: boolean) => {
+    setInteractiveEnabled(enabled)
+    // Turning the gate off while interactive is the global default would leave
+    // the resolver downgrading every task — clear the default in lock-step.
+    if (!enabled && defaultRuntimeMode === 'interactive') {
+      setDefaultRuntimeMode('')
+      persistRuntimeSetting({ interactive_mode_enabled: false, default_runtime_mode: '' })
+    } else {
+      persistRuntimeSetting({ interactive_mode_enabled: enabled })
+    }
+  }
 
   const updateAgent = (updates: Partial<AgentConfig>) => {
     updateGlobal('agent', { ...agent, ...updates })
@@ -631,6 +675,48 @@ export function AgentTab() {
               onChange={(value) => { updateAgent({ maxConcurrentAgents: value }) }}
               min={1}
               max={50}
+            />
+          </SettingRow>
+        </div>
+      </SettingSection>
+
+      {/* ── 2b. AGENT RUNTIME ─────────────────────────────────── */}
+      <SettingSection
+        title="Agent runtime"
+        description="How trigger-spawned agents run by default. Headless pipes the CLI for a transcript or terminal view; interactive opens the real CLI TUI you can drive live."
+        border
+      >
+        <div className="space-y-5">
+          <SettingRow
+            label="Enable interactive mode"
+            description="Allow tasks to run as a live CLI TUI. Billing differs: interactive uses your CLI subscription's interactive limits, while headless bills against API / Agent-SDK credit. Headless stays the default either way."
+            vertical
+          >
+            <Toggle
+              checked={interactiveEnabled}
+              onChange={handleInteractiveEnabledChange}
+              disabled={!runtimeSettingsLoaded}
+              size="md"
+              aria-label="Enable interactive runtime mode"
+            />
+          </SettingRow>
+
+          <SettingRow
+            label="Default runtime mode"
+            description="Applied when a column trigger, task, or workspace doesn't specify its own runtime mode."
+            vertical
+          >
+            <Dropdown
+              options={[
+                { value: '', label: 'Auto', description: 'Headless · bubbles (recommended default)' },
+                { value: 'managed', label: 'Headless · bubbles', description: 'Semantic event stream as chat bubbles' },
+                { value: 'terminal', label: 'Headless · terminal', description: 'Raw tmux pane in xterm.js' },
+                ...(interactiveEnabled || defaultRuntimeMode === 'interactive'
+                  ? [{ value: 'interactive', label: 'Interactive', description: 'Live CLI TUI you can steer' }]
+                  : []),
+              ]}
+              value={defaultRuntimeMode}
+              onChange={handleDefaultRuntimeModeChange}
             />
           </SettingRow>
         </div>

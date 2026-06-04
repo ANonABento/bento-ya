@@ -15,6 +15,7 @@ import { useQueueStatus } from '@/hooks/use-queue-status'
 import { ColumnHeader } from './column-header'
 import { TaskCard } from './task-card'
 import { ColumnConfigDialog } from './column-config-dialog'
+import { TaskCreateDialog } from './task-create-dialog'
 
 type BatchQueueLocalState = {
   isQueuing: boolean
@@ -93,6 +94,8 @@ export const Column = memo(function Column({
   const [showConfigDialog, setShowConfigDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showAddTask, setShowAddTask] = useState(false)
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [createDialogTitle, setCreateDialogTitle] = useState('')
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const addTaskInputRef = useRef<HTMLInputElement>(null)
 
@@ -229,6 +232,15 @@ export const Column = memo(function Column({
     setShowAddTask(false)
   }, [])
 
+  // Promote the inline quick-add into the full create dialog, carrying the
+  // typed title over so the user keeps every option the backend accepts.
+  const handleOpenCreateDialog = useCallback(() => {
+    setCreateDialogTitle(newTaskTitle)
+    setShowAddTask(false)
+    setNewTaskTitle('')
+    setShowCreateDialog(true)
+  }, [newTaskTitle])
+
   return (
     <>
       <motion.div
@@ -290,20 +302,29 @@ export const Column = memo(function Column({
                       placeholder="Task title..."
                       className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none"
                     />
-                    <div className="mt-2 flex justify-end gap-1">
+                    <div className="mt-2 flex items-center justify-between gap-1">
                       <button
-                        onClick={handleCancelAddTask}
-                        className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover"
+                        onClick={handleOpenCreateDialog}
+                        title="More options (model, runtime, priority, dependencies…)"
+                        className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary"
                       >
-                        Cancel
+                        More options…
                       </button>
-                      <button
-                        onClick={() => void handleSubmitTask()}
-                        disabled={!newTaskTitle.trim()}
-                        className="rounded bg-accent px-2 py-1 text-xs font-medium text-bg disabled:opacity-50"
-                      >
-                        Add
-                      </button>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={handleCancelAddTask}
+                          className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => void handleSubmitTask()}
+                          disabled={!newTaskTitle.trim()}
+                          className="rounded bg-accent px-2 py-1 text-xs font-medium text-bg disabled:opacity-50"
+                        >
+                          Add
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </motion.div>
@@ -329,6 +350,15 @@ export const Column = memo(function Column({
           </div>
         </SortableContext>
       </motion.div>
+
+      {/* Full create dialog (model, runtime, priority, trigger prompt, deps) */}
+      {showCreateDialog && (
+        <TaskCreateDialog
+          columnId={column.id}
+          initialTitle={createDialogTitle}
+          onClose={() => { setShowCreateDialog(false); setCreateDialogTitle('') }}
+        />
+      )}
 
       {/* Config dialog */}
       {showConfigDialog && (

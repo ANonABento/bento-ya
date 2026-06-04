@@ -52,13 +52,35 @@ export async function deleteTaskTemplate(id: string): Promise<void> {
   return invoke('delete_task_template', { id })
 }
 
+/** Rich, optional fields for task creation — mirrors the backend `NewTask`.
+ *  Anything an agent/MCP can set at creation, the UI can set too. */
+export interface CreateTaskOptions {
+  triggerPrompt?: string
+  /** JSON array of task IDs; non-empty marks the task blocked. */
+  dependencies?: string
+  model?: string
+  priority?: string
+  runtimeModeOverride?: string
+}
+
 export async function createTask(
   workspaceId: string,
   columnId: string,
   title: string,
   description?: string,
+  options: CreateTaskOptions = {},
 ): Promise<Task> {
-  return invoke<Task>('create_task', { workspaceId, columnId, title, description })
+  return invoke<Task>('create_task', {
+    workspaceId,
+    columnId,
+    title,
+    description,
+    triggerPrompt: options.triggerPrompt,
+    dependencies: options.dependencies,
+    model: options.model,
+    priority: options.priority,
+    runtimeModeOverride: options.runtimeModeOverride,
+  })
 }
 
 export async function getTask(id: string): Promise<Task> {
@@ -70,6 +92,16 @@ export async function updateTask(
   updates: Partial<Task>,
 ): Promise<Task> {
   return invoke<Task>('update_task', { id, ...updates })
+}
+
+/** Set or clear (`null`) the task-level runtime mode override — the field the
+ *  pipeline resolver consults at tier 2. Unlike `updateTask`'s `agentMode`,
+ *  this actually takes effect. Emits `tasks:changed`. */
+export async function setTaskRuntimeModeOverride(
+  id: string,
+  runtimeModeOverride: string | null,
+): Promise<Task> {
+  return invoke<Task>('set_task_runtime_mode_override', { id, runtimeModeOverride })
 }
 
 export async function updateTaskTriggers(

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'motion/react'
-import { getCurrentBranch, detectClis, checkRuntimePrerequisites } from '@/lib/ipc'
+import { getCurrentBranch, detectClis, checkRuntimePrerequisites, updateAppSettings } from '@/lib/ipc'
 import type { DetectedCli } from '@/lib/ipc/cli'
 import type { RuntimePrerequisite } from '@/lib/ipc/system'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -19,6 +19,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [name, setName] = useState('')
   const [repoPath, setRepoPath] = useState('')
   const [template, setTemplate] = useState('standard')
+  const [runtimeMode, setRuntimeMode] = useState<'headless' | 'interactive'>('headless')
   const [selectedClis, setSelectedClis] = useState<Set<string>>(new Set())
   const [isCreating, setIsCreating] = useState(false)
   const [gitStatus, setGitStatus] = useState<GitStatus>(null)
@@ -102,6 +103,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         templateId: template,
         ...(defaultAgentCli ? { defaultAgentCli } : {}),
       })
+      // Persist the runtime choice globally (these live in backend AppSettings,
+      // not the workspace). Interactive is opt-in, so only flip when chosen.
+      if (runtimeMode === 'interactive') {
+        await updateAppSettings({
+          interactive_mode_enabled: true,
+          default_runtime_mode: 'interactive',
+        }).catch((err: unknown) => { console.error('Failed to save runtime mode:', err) })
+      }
       setActive(created.id)
       onComplete()
     } catch (err: unknown) {
@@ -110,7 +119,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     } finally {
       setIsCreating(false)
     }
-  }, [name, repoPath, selectedClis, template, addWorkspace, setActive, onComplete])
+  }, [name, repoPath, selectedClis, template, runtimeMode, addWorkspace, setActive, onComplete])
 
   const canCreate = repoPath.trim().length > 0 && gitStatus === 'valid' && !isCreating
   const missingRequiredPrereqs = prerequisites.filter((item) => item.required && !item.available)
@@ -275,6 +284,36 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   No agent CLIs detected. You can configure one later in Settings.
                 </p>
               )}
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-text-secondary">
+                Agent runtime
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { id: 'headless', name: 'Headless', blurb: 'Pipelined CLI. Bills against API / Agent-SDK credit.' },
+                  { id: 'interactive', name: 'Interactive', blurb: 'Live CLI TUI you can steer. Uses subscription limits.' },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => { setRuntimeMode(opt.id) }}
+                    className={`rounded-md border px-3 py-2 text-left transition-colors ${
+                      runtimeMode === opt.id
+                        ? 'border-accent bg-accent/10'
+                        : 'border-border-default bg-surface hover:bg-surface-hover'
+                    }`}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="text-sm font-medium text-text-primary">{opt.name}</div>
+                    <div className="mt-0.5 text-[11px] text-text-secondary">{opt.blurb}</div>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-text-secondary">
+                Headless is the recommended default. You can change this anytime in Settings → Agent.
+              </p>
             </div>
           </div>
 

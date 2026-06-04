@@ -163,6 +163,7 @@ pub fn run() {
             commands::task::delete_task_template,
             commands::task::create_task_from_template,
             commands::task::update_task,
+            commands::task::set_task_runtime_mode_override,
             commands::task::duplicate_task,
             commands::task::update_task_triggers,
             commands::task::move_task,
@@ -222,6 +223,7 @@ pub fn run() {
             commands::agent::kill_task_session,
             commands::agent::switch_agent_transport,
             commands::agent::ensure_pty_session,
+            commands::agent::ensure_chef_terminal,
             commands::agent::queue_agent_tasks,
             commands::agent::update_task_agent_status,
             commands::agent::get_queue_status,
@@ -236,6 +238,9 @@ pub fn run() {
             commands::agent_interactive::list_completion_events,
             commands::agent_interactive::agent_pause,
             commands::agent_interactive::agent_resume,
+            // Global app settings (Phase 3 — Agent runtime)
+            commands::settings::get_app_settings,
+            commands::settings::update_app_settings,
             // Pipeline commands
             commands::pipeline::mark_pipeline_complete,
             commands::pipeline::get_pipeline_state,
@@ -305,6 +310,7 @@ pub fn run() {
             commands::cli_detect::verify_cli_path,
             commands::cli_detect::get_cli_capabilities,
             commands::cli_detect::check_cli_update,
+            commands::cli_detect::check_cli_health,
             commands::system::check_runtime_prerequisites,
             // Checklist commands
             commands::checklist::create_checklist,
@@ -415,7 +421,15 @@ fn spawn_startup_recovery(app: tauri::AppHandle) {
             recover_tmux_sessions(blocking_app);
         })
         .await;
-        resume_stale_pipeline_tasks(recovery_app);
+        resume_stale_pipeline_tasks(recovery_app.clone());
+
+        // Phase 5 — probe the CLIs for flag/version drift and broadcast the
+        // result so the UI can raise a (dismissible) compatibility banner.
+        let health_app = recovery_app;
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            commands::cli_detect::emit_cli_health(&health_app);
+        })
+        .await;
     });
 }
 

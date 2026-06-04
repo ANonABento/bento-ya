@@ -6,6 +6,7 @@ import { TaskSettingsModal } from './task-settings-modal'
 const ipcMocks = vi.hoisted(() => ({
   updateTask: vi.fn(),
   updateTaskTriggers: vi.fn(),
+  setTaskRuntimeModeOverride: vi.fn(),
 }))
 
 vi.mock('@/lib/ipc', () => ({
@@ -15,6 +16,10 @@ vi.mock('@/lib/ipc', () => ({
   },
   updateTaskTriggers: async (...args: unknown[]) => {
     const result = await ipcMocks.updateTaskTriggers(...args) as unknown
+    return result
+  },
+  setTaskRuntimeModeOverride: async (...args: unknown[]) => {
+    const result = await ipcMocks.setTaskRuntimeModeOverride(...args) as unknown
     return result
   },
   listen: vi.fn().mockResolvedValue(() => {}),
@@ -45,12 +50,13 @@ describe('TaskSettingsModal runtime override', () => {
   beforeEach(() => {
     ipcMocks.updateTask.mockReset()
     ipcMocks.updateTaskTriggers.mockReset()
+    ipcMocks.setTaskRuntimeModeOverride.mockReset()
   })
 
-  it('saves managed runtime as a task-level override', async () => {
-    const task = mockKanbanTask({ agentMode: null })
-    ipcMocks.updateTask.mockResolvedValue(task)
-    ipcMocks.updateTaskTriggers.mockResolvedValue({ ...task, agentMode: 'managed' })
+  it('saves managed runtime via the runtime_mode_override write path', async () => {
+    const task = mockKanbanTask({ runtimeModeOverride: null })
+    ipcMocks.setTaskRuntimeModeOverride.mockResolvedValue({ ...task, runtimeModeOverride: 'managed' })
+    ipcMocks.updateTaskTriggers.mockResolvedValue({ ...task, runtimeModeOverride: 'managed' })
     const onClose = vi.fn()
 
     render(<TaskSettingsModal task={task} onClose={onClose} />)
@@ -59,16 +65,18 @@ describe('TaskSettingsModal runtime override', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
-      expect(ipcMocks.updateTask).toHaveBeenCalledWith(task.id, { agentMode: 'managed' })
+      expect(ipcMocks.setTaskRuntimeModeOverride).toHaveBeenCalledWith(task.id, 'managed')
     })
+    // Model unchanged → no updateTask call.
+    expect(ipcMocks.updateTask).not.toHaveBeenCalled()
     expect(ipcMocks.updateTaskTriggers).toHaveBeenCalled()
     expect(onClose).toHaveBeenCalled()
   })
 
   it('clears an existing runtime override back to column default', async () => {
-    const task = mockKanbanTask({ agentMode: 'managed' })
-    ipcMocks.updateTask.mockResolvedValue(task)
-    ipcMocks.updateTaskTriggers.mockResolvedValue({ ...task, agentMode: null })
+    const task = mockKanbanTask({ runtimeModeOverride: 'managed' })
+    ipcMocks.setTaskRuntimeModeOverride.mockResolvedValue({ ...task, runtimeModeOverride: null })
+    ipcMocks.updateTaskTriggers.mockResolvedValue({ ...task, runtimeModeOverride: null })
 
     render(<TaskSettingsModal task={task} onClose={vi.fn()} />)
 
@@ -76,7 +84,7 @@ describe('TaskSettingsModal runtime override', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
-      expect(ipcMocks.updateTask).toHaveBeenCalledWith(task.id, { agentMode: null })
+      expect(ipcMocks.setTaskRuntimeModeOverride).toHaveBeenCalledWith(task.id, null)
     })
   })
 })

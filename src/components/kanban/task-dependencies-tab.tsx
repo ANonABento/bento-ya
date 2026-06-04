@@ -12,7 +12,8 @@ export function DependenciesTab({
 }: {
   deps: Dependency[]
   blocked: boolean
-  taskId: string
+  /** null while creating a task that has no id yet — validation is skipped. */
+  taskId: string | null
   onDepsChange: (deps: Dependency[]) => void
 }) {
   const tasks = useTaskStore((s) => s.tasks)
@@ -45,7 +46,11 @@ export function DependenciesTab({
     const proposed = [...deps, newDep]
 
     try {
-      await ipc.validateTaskDependencies(taskId, JSON.stringify(proposed))
+      // No id yet at create time — a brand-new task can't be a cycle target,
+      // so skip the backend validation round-trip and add directly.
+      if (taskId) {
+        await ipc.validateTaskDependencies(taskId, JSON.stringify(proposed))
+      }
       onDepsChange(proposed)
       setNewTaskId('')
       setNewCondition('completed')

@@ -31,7 +31,7 @@ type TaskState = {
   showArchived: boolean
 
   load: (workspaceId: string) => Promise<void>
-  add: (workspaceId: string, columnId: string, title: string, description: string) => Promise<Task>
+  add: (workspaceId: string, columnId: string, title: string, description?: string, options?: ipc.CreateTaskOptions) => Promise<Task>
   remove: (id: string) => Promise<void>
   bulkRemove: (ids: string[]) => Promise<boolean>
   bulkMove: (ids: string[], targetColumnId: string) => Promise<boolean>
@@ -128,13 +128,13 @@ export const useTaskStore = create<TaskState>()(
         set({ tasks, loaded: true })
       },
 
-      add: async (workspaceId, columnId, title, description) => {
+      add: async (workspaceId, columnId, title, description, options) => {
         const prev = get().tasks
-        const optimisticTask = createOptimisticTask(prev, workspaceId, columnId, title, description)
+        const optimisticTask = createOptimisticTask(prev, workspaceId, columnId, title, description ?? '')
         set((s) => ({ tasks: [...s.tasks, optimisticTask] }))
 
         try {
-          const task = await ipc.createTask(workspaceId, columnId, title, description)
+          const task = await ipc.createTask(workspaceId, columnId, title, description, options)
           set((s) => ({
             tasks: s.tasks.map((current) =>
               current.id === optimisticTask.id ? task : current,
