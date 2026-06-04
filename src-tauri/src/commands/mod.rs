@@ -12,6 +12,7 @@ pub mod orchestrator;
 pub mod pipeline;
 pub mod pipeline_template;
 pub mod script;
+pub mod settings;
 pub mod siege;
 pub mod system;
 pub mod task;

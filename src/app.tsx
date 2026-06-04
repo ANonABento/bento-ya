@@ -7,11 +7,13 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { usePrStatusPolling } from '@/hooks/use-pr-status-polling'
 import { useTaskSync } from '@/hooks/use-task-sync'
+import { useEntitySync } from '@/hooks/use-entity-sync'
 import { useSettingsSync } from '@/hooks/use-settings-sync'
 import { useAgentStreamingSync } from '@/hooks/use-agent-streaming-sync'
 import { useAutoDetectClis } from '@/hooks/use-cli-path'
 import { useUpdater } from '@/hooks/use-updater'
 import { Board } from '@/components/layout/board'
+import { CliHealthBanner } from '@/components/layout/cli-health-banner'
 import { WorkspaceSetup } from '@/components/layout/workspace-setup'
 import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard'
 import { TabBar } from '@/components/layout/tab-bar'
@@ -77,6 +79,10 @@ function App() {
 
   // Task sync (re-fetches task store when backend mutates tasks)
   useTaskSync(activeWorkspaceId)
+
+  // Entity sync (re-fetches column/workspace/script stores when the backend
+  // mutates them out of band — e.g. via MCP or the chef)
+  useEntitySync(activeWorkspaceId)
 
   // Settings sync (loads and persists per-workspace settings through SQLite)
   useSettingsSync()
@@ -148,6 +154,9 @@ function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* CLI compatibility (flag/version drift) banner */}
+      <CliHealthBanner />
 
       {/* Main content */}
       <main className="flex-1 overflow-hidden">

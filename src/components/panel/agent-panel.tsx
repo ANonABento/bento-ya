@@ -6,7 +6,8 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { parseWorkspaceConfig } from '@/types/workspace'
 import { useAgentTranscriptStore } from '@/stores/agent-transcript-store'
 import { holdTask, killTaskSession } from '@/lib/ipc/agent'
-import { agentInjectMessage } from '@/lib/ipc/agent-interactive'
+import { agentInjectMessage, agentRestart, interactiveModeDevFlag } from '@/lib/ipc/agent-interactive'
+import { setTaskRuntimeModeOverride } from '@/lib/ipc/task'
 import { signalPtyInterrupt } from '@/lib/ipc/terminal'
 import { useResolvedRuntimeMode } from '@/hooks/use-resolved-runtime-mode'
 import { useTaskDetail } from '@/hooks/use-task-detail'
@@ -204,6 +205,7 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
         onClose={onClose}
         rightSlot={
           <>
+            <RuntimeModeToggle task={task} />
             <button
               type="button"
               onClick={() => { void handleHoldToggle() }}
@@ -488,6 +490,7 @@ function InteractivePanel({ task, onClose }: AgentPanelProps) {
         onClose={onClose}
         rightSlot={
           <>
+            <RuntimeModeToggle task={task} />
             <button
               type="button"
               onClick={() => { void handleHoldToggle() }}
@@ -604,6 +607,106 @@ function PanelHeader({
       </div>
 
       {errorSlot && <div className="px-3 pb-2">{errorSlot}</div>}
+    </div>
+  )
+}
+
+// Per-chat runtime switcher. Writes `runtime_mode_override` (the field the
+// resolver consults at tier 2) and, when flipping into interactive, restarts
+// the agent so the live TUI spawns. The override emits `tasks:changed`, which
+// re-resolves `useResolvedRuntimeMode` and remounts the panel via its key.
+type RuntimeChoice = '' | 'managed' | 'terminal' | 'interactive'
+
+const RUNTIME_CHOICES: { value: RuntimeChoice; label: string }[] = [
+  { value: '', label: 'Inherit from column' },
+  { value: 'managed', label: 'Headless · bubbles' },
+  { value: 'terminal', label: 'Headless · terminal' },
+  { value: 'interactive', label: 'Interactive (live TUI)' },
+]
+
+function RuntimeModeToggle({ task }: { task: Task }) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [interactiveAllowed, setInteractiveAllowed] = useState(true)
+  const resolved = useResolvedRuntimeMode(task.id)
+
+  useEffect(() => {
+    let cancelled = false
+    interactiveModeDevFlag()
+      .then((v) => { if (!cancelled) setInteractiveAllowed(v) })
+      .catch(() => { /* leave enabled; backend downgrades safely */ })
+    return () => { cancelled = true }
+  }, [])
+
+  const current = (task.runtimeModeOverride ?? '') as RuntimeChoice
+  const label = resolved.isLoading
+    ? '…'
+    : resolved.mode === 'interactive'
+      ? 'Interactive'
+      : `Headless · ${resolved.render ?? 'bubbles'}`
+
+  const handleSelect = async (choice: RuntimeChoice) => {
+    setOpen(false)
+    if (choice === current) return
+    setBusy(true)
+    try {
+      await setTaskRuntimeModeOverride(task.id, choice || null)
+      // Headless modes re-fire their `-p` run on demand; interactive needs the
+      // TUI spawned now.
+      if (choice === 'interactive') {
+        await agentRestart(task.id)
+      }
+    } catch (err) {
+      console.error('Failed to switch runtime mode:', err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => { setOpen((v) => !v) }}
+        disabled={busy}
+        aria-expanded={open}
+        aria-label="Runtime mode"
+        title="Switch runtime mode for this task"
+        data-testid="agent-panel-runtime-toggle"
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-border-default bg-surface px-2 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+        style={{ cursor: busy ? 'wait' : 'pointer' }}
+      >
+        <span className="truncate">{label}</span>
+        <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-md border border-border-default bg-bg p-1 shadow-lg">
+          {RUNTIME_CHOICES.map((choice) => {
+            const disabled = choice.value === 'interactive' && !interactiveAllowed
+            return (
+              <button
+                key={choice.value || 'inherit'}
+                type="button"
+                disabled={disabled}
+                onClick={() => { void handleSelect(choice.value) }}
+                className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[11px] transition-colors disabled:opacity-40 ${
+                  current === choice.value
+                    ? 'text-text-primary'
+                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                }`}
+                style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
+                title={disabled ? 'Enable interactive mode in Settings → Agent' : undefined}
+              >
+                <span className="truncate">{choice.label}</span>
+                {current === choice.value && <span className="ml-2 text-accent">✓</span>}
+                {disabled && <span className="ml-2 text-[10px] text-text-secondary/60">off</span>}
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

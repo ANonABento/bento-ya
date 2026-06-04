@@ -32,6 +32,43 @@ export async function ensurePtySession(
   return invoke('ensure_pty_session', { taskId, workingDir, cols, rows, allowSpawn })
 }
 
+/** AgentInfo shape returned by the PTY-ensure commands. */
+export type EnsureSessionInfo = {
+  taskId: string
+  pid: number | null
+  status: string
+  scrollback?: string
+}
+
+/** Common signature shared by `ensurePtySession` and `ensureChefTerminal`, so a
+ *  terminal view can be pointed at either a task or a workspace-level session. */
+export type EnsureSessionFn = (
+  id: string,
+  workingDir: string,
+  cols: number,
+  rows: number,
+  allowSpawn: boolean,
+) => Promise<EnsureSessionInfo>
+
+/** Registry key (and `pty:<key>:*` event prefix) for a workspace chef terminal. */
+export function chefSessionKey(workspaceId: string): string {
+  return `chef_${workspaceId}`
+}
+
+/**
+ * Ensure the workspace-level chef terminal (a shell rooted at the repo) exists.
+ * Mirrors `ensurePtySession` but keyed by workspace; the returned `taskId` is
+ * the `chef_<workspaceId>` session key the generic PTY IPC + events use.
+ */
+export async function ensureChefTerminal(
+  workspaceId: string,
+  cols: number,
+  rows: number,
+  allowSpawn = true,
+): Promise<EnsureSessionInfo> {
+  return invoke('ensure_chef_terminal', { workspaceId, cols, rows, allowSpawn })
+}
+
 export type TransportType = 'pipe' | 'pty'
 
 export async function switchAgentTransport(

@@ -396,10 +396,236 @@ pub fn verify_cli_path(path: String) -> DetectedCli {
     }
 }
 
+// ─── CLI compatibility health check (Phase 5) ────────────────────────────────
+//
+// Interactive/headless modes shell straight into `claude`/`codex`, so a CLI
+// update that renames or drops a flag silently breaks the product. This layer
+// probes each CLI's `--help` and asserts the flags `chat::bridge` depends on
+// still exist, and compares `--version` against an optional known-good floor.
+// It only ever *warns* — never hard-blocks.
+
+/// A help probe: print help for some (sub)command, then assert `flags` appear.
+struct FlagProbe {
+    /// Args that print the relevant help (e.g. `["--help"]`, `["exec", "--help"]`).
+    help_args: &'static [&'static str],
+    /// Flags expected to appear in that help output.
+    flags: &'static [&'static str],
+}
+
+struct CliHealthSpec {
+    id: &'static str,
+    name: &'static str,
+    binary: &'static str,
+    version_args: &'static [&'static str],
+    probes: &'static [FlagProbe],
+}
+
+/// The flags `chat::bridge` actually passes. Keep in sync with the argv builders
+/// there (`build_*_streaming_command`, `build_interactive_*_argv`).
+const CLI_HEALTH_SPECS: &[CliHealthSpec] = &[
+    CliHealthSpec {
+        id: "claude",
+        name: "Claude Code",
+        binary: "claude",
+        version_args: &["--version"],
+        probes: &[FlagProbe {
+            help_args: &["--help"],
+            flags: &[
+                "--dangerously-skip-permissions",
+                "--output-format",
+                "--include-partial-messages",
+                "--append-system-prompt",
+                "--resume",
+                "--model",
+            ],
+        }],
+    },
+    CliHealthSpec {
+        id: "codex",
+        name: "Codex CLI",
+        binary: "codex",
+        version_args: &["--version"],
+        probes: &[
+            FlagProbe { help_args: &["--help"], flags: &["exec"] },
+            FlagProbe {
+                help_args: &["exec", "--help"],
+                flags: &["--json", "--skip-git-repo-check", "sandbox"],
+            },
+        ],
+    },
+];
+
+/// Per-CLI compatibility report surfaced to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliHealthReport {
+    pub id: String,
+    pub name: String,
+    pub available: bool,
+    pub path: Option<String>,
+    pub version: Option<String>,
+    pub min_version: Option<String>,
+    pub version_ok: bool,
+    pub missing_flags: Vec<String>,
+    /// "ok" | "missing" | "outdated" | "drift"
+    pub status: String,
+}
+
+/// Pure: flags from `expected` that don't appear in `help_text`.
+fn missing_flags(help_text: &str, expected: &[&str]) -> Vec<String> {
+    expected
+        .iter()
+        .filter(|flag| !help_text.contains(**flag))
+        .map(|flag| (*flag).to_string())
+        .collect()
+}
+
+/// Pure: parse a leading dotted-number version (e.g. `1.2.3`, or
+/// `claude 1.2.3 (build)`) into comparable components. `None` if no digits.
+fn parse_version_triple(raw: &str) -> Option<(u64, u64, u64)> {
+    let start = raw.find(|c: char| c.is_ascii_digit())?;
+    let rest = &raw[start..];
+    let end = rest
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(rest.len());
+    let mut parts = rest[..end].split('.').filter(|s| !s.is_empty());
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let patch = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    Some((major, minor, patch))
+}
+
+/// Pure: does `current` satisfy `>= min`? Unparseable inputs are treated as
+/// satisfied — we warn on confident drift, never on a parse we can't trust.
+fn version_satisfies_min(current: &str, min: &str) -> bool {
+    match (parse_version_triple(current), parse_version_triple(min)) {
+        (Some(c), Some(m)) => c >= m,
+        _ => true,
+    }
+}
+
+fn min_version_for(settings: &crate::config::AppSettings, id: &str) -> Option<String> {
+    let configured = match id {
+        "claude" => settings.claude_min_version.as_ref(),
+        "codex" => settings.codex_min_version.as_ref(),
+        _ => None,
+    };
+    configured
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn check_one(spec: &CliHealthSpec, settings: &crate::config::AppSettings) -> CliHealthReport {
+    let min_version = min_version_for(settings, spec.id);
+
+    let Some(path) = find_cli(spec.binary) else {
+        return CliHealthReport {
+            id: spec.id.to_string(),
+            name: spec.name.to_string(),
+            available: false,
+            path: None,
+            version: None,
+            min_version,
+            version_ok: true,
+            missing_flags: Vec::new(),
+            status: "missing".to_string(),
+        };
+    };
+
+    let version = get_cli_version(&path, spec.version_args);
+
+    // Only count a flag as missing when its help probe actually succeeds — a
+    // timeout or spawn error must not masquerade as drift.
+    let mut missing = Vec::new();
+    for probe in spec.probes {
+        if let Ok(Some(out)) =
+            command_output_with_timeout(&path, probe.help_args, CLI_PROBE_TIMEOUT)
+        {
+            let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+            text.push_str(&String::from_utf8_lossy(&out.stderr));
+            missing.extend(missing_flags(&text, probe.flags));
+        }
+    }
+
+    let version_ok = match (&version, &min_version) {
+        (Some(v), Some(m)) => version_satisfies_min(v, m),
+        _ => true,
+    };
+
+    let status = if !version_ok {
+        "outdated"
+    } else if !missing.is_empty() {
+        "drift"
+    } else {
+        "ok"
+    };
+
+    CliHealthReport {
+        id: spec.id.to_string(),
+        name: spec.name.to_string(),
+        available: true,
+        path: Some(path),
+        version,
+        min_version,
+        version_ok,
+        missing_flags: missing,
+        status: status.to_string(),
+    }
+}
+
+/// Run the health check for every known CLI (spawns probe processes — call off
+/// the UI thread).
+pub fn cli_health_reports() -> Vec<CliHealthReport> {
+    let settings = crate::config::AppSettings::load();
+    CLI_HEALTH_SPECS
+        .iter()
+        .map(|spec| check_one(spec, &settings))
+        .collect()
+}
+
+/// On-demand health check (Settings "re-check" button, etc.).
+#[tauri::command]
+pub fn check_cli_health() -> Vec<CliHealthReport> {
+    cli_health_reports()
+}
+
+/// Run the health check and broadcast it so the UI can raise a drift banner.
+pub fn emit_cli_health(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+    let _ = app.emit("cli:health", cli_health_reports());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn missing_flags_detects_absent_and_present() {
+        let help = "Usage: claude [opts]\n  --model <m>\n  --resume <id>\n";
+        assert_eq!(missing_flags(help, &["--model", "--resume"]), Vec::<String>::new());
+        assert_eq!(
+            missing_flags(help, &["--model", "--append-system-prompt"]),
+            vec!["--append-system-prompt".to_string()],
+        );
+    }
+
+    #[test]
+    fn version_triple_parses_messy_strings() {
+        assert_eq!(parse_version_triple("1.2.3"), Some((1, 2, 3)));
+        assert_eq!(parse_version_triple("claude 2.0.14 (build 9)"), Some((2, 0, 14)));
+        assert_eq!(parse_version_triple("v3"), Some((3, 0, 0)));
+        assert_eq!(parse_version_triple("no digits"), None);
+    }
+
+    #[test]
+    fn version_floor_compares_and_tolerates_garbage() {
+        assert!(version_satisfies_min("2.1.0", "2.0.0"));
+        assert!(version_satisfies_min("2.0.0", "2.0.0"));
+        assert!(!version_satisfies_min("1.9.9", "2.0.0"));
+        // Unparseable → treated as satisfied (never hard-block on a bad parse).
+        assert!(version_satisfies_min("weird", "2.0.0"));
+    }
 
     #[test]
     fn verify_cli_path_rejects_directories() {

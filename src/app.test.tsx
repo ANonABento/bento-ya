@@ -6,6 +6,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 
 vi.mock('@/hooks/use-pr-status-polling', () => ({ usePrStatusPolling: vi.fn() }))
 vi.mock('@/hooks/use-task-sync', () => ({ useTaskSync: vi.fn() }))
+vi.mock('@/hooks/use-entity-sync', () => ({ useEntitySync: vi.fn() }))
 vi.mock('@/hooks/use-agent-streaming-sync', () => ({ useAgentStreamingSync: vi.fn() }))
 vi.mock('@/hooks/use-cli-path', () => ({ useAutoDetectClis: vi.fn() }))
 vi.mock('@/lib/ipc', () => ({
@@ -33,6 +34,7 @@ vi.mock('@/lib/ipc', () => ({
   })),
 }))
 vi.mock('@/components/layout/board', () => ({ Board: () => <div>Board</div> }))
+vi.mock('@/components/layout/cli-health-banner', () => ({ CliHealthBanner: () => null }))
 vi.mock('@/components/layout/workspace-setup', () => ({ WorkspaceSetup: () => <div>Workspace setup</div> }))
 vi.mock('@/components/onboarding/onboarding-wizard', () => ({ OnboardingWizard: () => <div>Onboarding</div> }))
 vi.mock('@/components/layout/tab-bar', () => ({ TabBar: () => <div>Tabs</div> }))

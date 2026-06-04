@@ -18,6 +18,7 @@ import { getChatHistory, listen, type ChatMessage } from '@/lib/ipc'
 import { buildPromptWithAttachments } from '@/types'
 import { useCliPath } from '@/hooks/use-cli-path'
 import { ChatHistory } from './chat-history'
+import { OrchestratorTerminalView } from './orchestrator-terminal-view'
 import { PanelSidebar } from './panel-sidebar'
 import { PipelineDashboard } from './pipeline-dashboard'
 import { PipelineV2Dashboard } from './pipeline-v2-dashboard'
@@ -95,6 +96,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
   // Local UI state
   const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | 'dashboard' | 'v2-dashboard' | null>(null)
+  const [viewMode, setViewMode] = useState<'chat' | 'terminal'>('chat')
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -495,54 +497,81 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               />
             )}
 
-            {/* Main chat area */}
+            {/* Main chat / terminal area */}
             <ChatErrorBoundary panelName="Orchestrator Chat">
               <div className="flex flex-1 flex-col overflow-hidden">
-                {/* CLI Detection Indicator */}
-                {cliDetecting && <CliDetectingBanner />}
-                {/* Error Banner */}
-                {error && !chat.failedMessage && !cliDetecting && (
-                  <ErrorBanner
-                    error={error}
-                    onDismiss={() => { setLocalError(null); chat.clearError(); }}
-                  />
+                {/* Chat ↔ Terminal toggle */}
+                <div className="flex items-center gap-1 border-b border-border-default px-2 py-1">
+                  {(['chat', 'terminal'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => { setViewMode(m) }}
+                      data-testid={`orchestrator-view-${m}`}
+                      aria-pressed={viewMode === m}
+                      className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                        viewMode === m
+                          ? 'bg-surface-hover text-text-primary'
+                          : 'text-text-secondary hover:text-text-primary'
+                      }`}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {m === 'chat' ? 'Chat' : 'Terminal'}
+                    </button>
+                  ))}
+                </div>
+
+                {viewMode === 'terminal' ? (
+                  <OrchestratorTerminalView workspaceId={workspaceId} />
+                ) : (
+                  <>
+                    {/* CLI Detection Indicator */}
+                    {cliDetecting && <CliDetectingBanner />}
+                    {/* Error Banner */}
+                    {error && !chat.failedMessage && !cliDetecting && (
+                      <ErrorBanner
+                        error={error}
+                        onDismiss={() => { setLocalError(null); chat.clearError(); }}
+                      />
+                    )}
+                    {/* Failed message with retry/dismiss */}
+                    {chat.failedMessage && (
+                      <FailedMessageBanner
+                        error={chat.failedMessage.error}
+                        onRetry={() => { void chat.retryFailed() }}
+                        onDismiss={chat.dismissFailed}
+                      />
+                    )}
+                    <ChatHistory
+                      messages={localMessages}
+                      isLoading={isLoading}
+                      streamingContent={chat.streaming.content}
+                      processingStartTime={chat.streaming.startTime}
+                      thinkingContent={chat.streaming.thinkingContent}
+                      toolCalls={toolCalls}
+                      onCancel={() => { void handleCancel() }}
+                      queuedMessages={chat.queue}
+                    />
+                    <ChatInput
+                      config={{
+                        showModelSelector: true,
+                        showContextToggle: true,
+                        showThinkingSelector: true,
+                        showPermissionSelector: true,
+                        showVoiceInput: true,
+                        showAttachments: true,
+                        placeholder: 'Ask me to create tasks...',
+                      }}
+                      onSend={handleSendMessage}
+                      onCancel={() => { void handleCancel() }}
+                      onInputChange={handleInputChange}
+                      onAttachmentError={(err) => { setLocalError(`${err.file}: ${err.message}`) }}
+                      isProcessing={isProcessing}
+                      disabled={!chat.canSend || cliDetecting}
+                      queueCount={chat.queue.length}
+                    />
+                  </>
                 )}
-                {/* Failed message with retry/dismiss */}
-                {chat.failedMessage && (
-                  <FailedMessageBanner
-                    error={chat.failedMessage.error}
-                    onRetry={() => { void chat.retryFailed() }}
-                    onDismiss={chat.dismissFailed}
-                  />
-                )}
-                <ChatHistory
-                  messages={localMessages}
-                  isLoading={isLoading}
-                  streamingContent={chat.streaming.content}
-                  processingStartTime={chat.streaming.startTime}
-                  thinkingContent={chat.streaming.thinkingContent}
-                  toolCalls={toolCalls}
-                  onCancel={() => { void handleCancel() }}
-                  queuedMessages={chat.queue}
-                />
-                <ChatInput
-                  config={{
-                    showModelSelector: true,
-                    showContextToggle: true,
-                    showThinkingSelector: true,
-                    showPermissionSelector: true,
-                    showVoiceInput: true,
-                    showAttachments: true,
-                    placeholder: 'Ask me to create tasks...',
-                  }}
-                  onSend={handleSendMessage}
-                  onCancel={() => { void handleCancel() }}
-                  onInputChange={handleInputChange}
-                  onAttachmentError={(err) => { setLocalError(`${err.file}: ${err.message}`) }}
-                  isProcessing={isProcessing}
-                  disabled={!chat.canSend || cliDetecting}
-                  queueCount={chat.queue.length}
-                />
               </div>
             </ChatErrorBoundary>
           </motion.div>

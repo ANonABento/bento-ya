@@ -1764,6 +1764,111 @@ pub async fn ensure_pty_session(
     })
 }
 
+/// Phase 4 (chef terminal) — ensure a workspace-level interactive terminal
+/// exists, mirroring `ensure_pty_session` but keyed by workspace instead of
+/// task. It's a login shell rooted at the repo, so the user can drive
+/// `claude`/`codex` (or anything) without leaving the app. The registry key is
+/// `chef_<workspace_id>`, so it rides the same generic PTY IPC
+/// (`write_to_pty`/`resize_pty`/`get_pty_scrollback`) and `pty:<key>:*` events
+/// as task terminals — only the spawn/attach entrypoint differs.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn ensure_chef_terminal(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_registry: State<'_, SharedSessionRegistry>,
+    workspace_id: String,
+    cols: u16,
+    rows: u16,
+    allow_spawn: Option<bool>,
+) -> Result<AgentInfo, String> {
+    let repo_path = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        db::get_workspace(&conn, &workspace_id)
+            .map_err(|_| format!("workspace not found: {}", workspace_id))?
+            .repo_path
+    };
+    let key = format!("chef_{}", workspace_id);
+    let allow_spawn = allow_spawn.unwrap_or(true);
+    let mut registry = session_registry.lock().await;
+
+    // Case 1: session alive — reattach (resize + bridge) and return.
+    let session_alive = registry.get(&key).map(|s| s.is_alive()).unwrap_or(false);
+    if session_alive {
+        let needs_bridge = !registry.has_active_bridge(&key);
+        let (scrollback, pid, resubscribe_rx) = {
+            let session = registry.get_mut(&key).unwrap();
+            let _ = session.resize_pty(cols, rows);
+            let scrollback = if needs_bridge { String::new() } else { session.scrollback() };
+            let pid = session.pid();
+            let rx = if needs_bridge { session.resubscribe() } else { None };
+            (scrollback, pid, rx)
+        };
+        if let Some(rx) = resubscribe_rx {
+            let bridge = crate::chat::bridge::ManagedBridge::start(app.clone(), key.clone(), rx);
+            registry.set_bridge(&key, bridge);
+        }
+        return Ok(AgentInfo {
+            task_id: key,
+            agent_type: "shell".to_string(),
+            status: "Running".to_string(),
+            pid,
+            working_dir: repo_path,
+            scrollback: if scrollback.is_empty() { None } else { Some(scrollback) },
+        });
+    }
+
+    // Case 2: dead/missing and caller only wants to attach — restore scrollback.
+    if !allow_spawn {
+        registry.remove(&key);
+        let cached = registry.take_scrollback(&key);
+        let tmux = capture_scrollback(&key);
+        let scrollback = if !tmux.is_empty() { tmux } else { cached };
+        return Ok(AgentInfo {
+            task_id: key,
+            agent_type: "shell".to_string(),
+            status: "Missing".to_string(),
+            pid: None,
+            working_dir: repo_path,
+            scrollback: if scrollback.is_empty() { None } else { Some(scrollback) },
+        });
+    }
+
+    // Case 3: spawn a fresh shell at the repo root.
+    registry.remove(&key);
+    let cached_scrollback = registry.take_scrollback(&key);
+    let config = SessionConfig {
+        cli_path: default_user_shell(),
+        model: String::new(),
+        system_prompt: String::new(),
+        working_dir: Some(repo_path.clone()),
+        effort_level: None,
+    };
+    let session = registry
+        .get_or_create(&key, config, TransportType::Pty)
+        .map_err(|e| e.to_string())?;
+    let _mpsc_rx = session.start_pty(cols, rows)?;
+    let pid = session.pid();
+    let live_scrollback = session.scrollback();
+    if let Some(rx) = session.resubscribe() {
+        let bridge = crate::chat::bridge::ManagedBridge::start(app.clone(), key.clone(), rx);
+        registry.set_bridge(&key, bridge);
+    }
+    Ok(AgentInfo {
+        task_id: key,
+        agent_type: "shell".to_string(),
+        status: "Running".to_string(),
+        pid,
+        working_dir: repo_path,
+        scrollback: if !live_scrollback.is_empty() {
+            Some(live_scrollback)
+        } else if cached_scrollback.is_empty() {
+            None
+        } else {
+            Some(cached_scrollback)
+        },
+    })
+}
+
 /// Cancel an ongoing agent chat by sending Ctrl+C, preserving the session.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn cancel_agent_chat(app: AppHandle, task_id: String) -> Result<(), AppError> {

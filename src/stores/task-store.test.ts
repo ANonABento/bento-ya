@@ -123,8 +123,26 @@ describe('task-store', () => {
       const state = useTaskStore.getState()
       expect(created).toEqual(newTask)
       expect(state.tasks).toContainEqual(newTask)
-      expect(mockIpc.createTask).toHaveBeenCalledWith('ws-1', 'col-1', 'New Task', 'Description')
+      expect(mockIpc.createTask).toHaveBeenCalledWith('ws-1', 'col-1', 'New Task', 'Description', undefined)
       expect(refreshWorkspace).toHaveBeenCalledWith('ws-1')
+    })
+
+    it('should forward create options to the createTask IPC', async () => {
+      const newTask = createMockTask({ id: 'task-opts', title: 'Configured Task' })
+      mockIpc.createTask.mockResolvedValueOnce(newTask)
+      refreshWorkspace.mockResolvedValueOnce(undefined)
+
+      const options = {
+        model: 'opus',
+        priority: 'high',
+        runtimeModeOverride: 'interactive',
+        triggerPrompt: 'Do the thing',
+        dependencies: '[{"task_id":"task-1","condition":"completed","on_met":{"type":"none"}}]',
+      }
+
+      await useTaskStore.getState().add('ws-1', 'col-1', 'Configured Task', 'Desc', options)
+
+      expect(mockIpc.createTask).toHaveBeenCalledWith('ws-1', 'col-1', 'Configured Task', 'Desc', options)
     })
 
     it('should add an optimistic task before IPC resolves and replace it with the created task', async () => {
