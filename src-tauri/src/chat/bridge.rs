@@ -1258,6 +1258,19 @@ fn ensure_trigger_session(
 /// `tasks:changed` carrying the real `workspace_id` so the live card refreshes.
 /// Callers keep their own resume-id and transcript-event handling.
 #[allow(clippy::too_many_arguments)]
+/// Resolve a task's workspace id for an out-of-band `tasks:changed` emit.
+/// The trigger-lifecycle emits below fire after their DB block has closed (so
+/// `conn` is out of scope); without the real workspace id the frontend's
+/// `useTaskSync` filter (`payload.workspaceId === workspaceId`) drops the event
+/// and the card never refreshes. Cheap — runs once per trigger completion.
+fn workspace_for_task(task_id: &str) -> String {
+    Connection::open(db::db_path())
+        .ok()
+        .and_then(|conn| db::get_task(&conn, task_id).ok())
+        .map(|task| task.workspace_id)
+        .unwrap_or_default()
+}
+
 fn persist_agent_session_started(
     conn: &Connection,
     app: &AppHandle,
@@ -1515,7 +1528,7 @@ pub fn spawn_cli_trigger_task(
                     }
                 }
             }
-            pipeline::emit_tasks_changed(&app, "", "trigger_failed");
+            pipeline::emit_tasks_changed(&app, &workspace_for_task(&task_id), "trigger_failed");
         }
     });
 }
@@ -2138,7 +2151,7 @@ async fn run_trigger_in_tmux(
                     delay.as_secs() / 60
                 )),
             );
-            pipeline::emit_tasks_changed(app, "", "trigger_rate_limited");
+            pipeline::emit_tasks_changed(app, &workspace_for_task(task_id), "trigger_rate_limited");
             schedule_rate_limit_retry(
                 app.clone(),
                 task_id.to_string(),
@@ -2221,7 +2234,7 @@ async fn run_trigger_in_tmux(
         }
     }
 
-    pipeline::emit_tasks_changed(app, "", "trigger_complete");
+    pipeline::emit_tasks_changed(app, &workspace_for_task(task_id), "trigger_complete");
 
     // Phase 4 telemetry — every headless completion logs an event. The
     // source is `exit_code` regardless of success: we got an exit code
@@ -2909,7 +2922,7 @@ fn handle_interactive_spawn_failure(
             }
         }
     }
-    pipeline::emit_tasks_changed(app, "", "trigger_failed");
+    pipeline::emit_tasks_changed(app, &workspace_for_task(task_id), "trigger_failed");
 }
 
 /// Poll the task's tmux pane for the KAITENCODE_DONE sentinel until it appears,
@@ -3116,7 +3129,7 @@ async fn watch_interactive_sentinel(
         }
     }
 
-    pipeline::emit_tasks_changed(&app, "", "trigger_complete");
+    pipeline::emit_tasks_changed(&app, &workspace_for_task(&task_id), "trigger_complete");
 
     // Phase 4 telemetry. Fire-and-forget so we never block completion
     // on the insert. Source mapping mirrors the (success, session_gone)

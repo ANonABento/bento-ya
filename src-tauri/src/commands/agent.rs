@@ -738,6 +738,7 @@ fn spawn_managed_task_turn(
     text: String,
     resume_id: Option<String>,
 ) {
+    let mut workspace_id = String::new();
     if let Ok(conn) = rusqlite::Connection::open(db::db_path()) {
         let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
         let _ = db::update_agent_session(
@@ -751,8 +752,13 @@ fn spawn_managed_task_turn(
             Some(true),
         );
         let _ = db::update_task_agent_status(&conn, &task_id, Some("running"), None);
+        // Real workspace id so useTaskSync doesn't drop this refresh (the filter
+        // is `payload.workspaceId === workspaceId`).
+        workspace_id = db::get_task(&conn, &task_id)
+            .map(|task| task.workspace_id)
+            .unwrap_or_default();
     }
-    crate::pipeline::emit_tasks_changed(&app, "", "managed_agent_turn_running");
+    crate::pipeline::emit_tasks_changed(&app, &workspace_id, "managed_agent_turn_running");
 
     let adapter = agent_adapter_kind_from_db(&adapter_kind);
     let invocation = if adapter == AgentAdapterKind::CodexCli {
