@@ -134,6 +134,11 @@ pub struct AppSettings {
     /// `None`/empty = accept any version.
     pub claude_min_version: Option<String>,
     pub codex_min_version: Option<String>,
+    /// MCP recursion guard — the maximum depth of an agent-spawned task chain.
+    /// A trigger-spawned agent that calls the MCP `create_task` tool while its
+    /// own task is already at this depth is refused. Default 3 (human → agent →
+    /// agent → agent, then stop). See `mcp-add-source-attribution` ticket.
+    pub mcp_max_recursion_depth: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -296,6 +301,7 @@ impl Default for AppSettings {
             interactive_mode_enabled: false,
             claude_min_version: None,
             codex_min_version: None,
+            mcp_max_recursion_depth: 3,
         }
     }
 }
@@ -384,6 +390,9 @@ impl AppSettings {
             if let Some(v) = obj.get("codex_min_version").and_then(|v| v.as_str()) {
                 self.codex_min_version =
                     Some(v.to_string()).filter(|s| !s.trim().is_empty());
+            }
+            if let Some(v) = obj.get("mcp_max_recursion_depth").and_then(|v| v.as_i64()) {
+                self.mcp_max_recursion_depth = v.max(0);
             }
         }
     }

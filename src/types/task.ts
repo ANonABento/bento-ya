@@ -81,6 +81,12 @@ export type Task = {
   /** Phase 5 (AGENT_PANEL_MODES) — Unix ms timestamp the interactive
    *  agent was paused (Ctrl+Z). null = not paused. */
   agentPausedAt: number | null
+  /** MCP source attribution (migration 046). Set when a trigger-spawned agent
+   *  created this task via the MCP `create_task` tool; null for human creates. */
+  createdByTaskId: string | null
+  createdByAgentSessionId: string | null
+  /** Depth in an agent-spawned task chain. 0 for human/UI-created tasks. */
+  recursionDepth: number
   labels: Label[]                  // Workspace-scoped labels (loaded via JOIN)
   position: number
   createdAt: string

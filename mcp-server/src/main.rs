@@ -160,7 +160,14 @@ fn api_call(endpoint: &str, body: &Value) -> Option<Value> {
     let discovery = read_api_discovery()?;
     let token = discovery.token?;
     let url = format!("http://127.0.0.1:{}{}", discovery.port, endpoint);
+    // Don't treat a non-2xx status as a transport error: the app surfaces
+    // logical rejections (e.g. the recursion-depth guard returns 429) with a
+    // JSON `{ "success": false, "error": ... }` body we want to read and pass
+    // back to the caller, not collapse into a generic "app unreachable".
     let resp = ureq::post(&url)
+        .config()
+        .http_status_as_error(false)
+        .build()
         .header("Authorization", &format!("Bearer {token}"))
         .send_json(body)
         .ok()?;
@@ -180,6 +187,22 @@ fn allow_db_fallback() -> bool {
 
 fn now() -> String {
     Utc::now().format("%Y-%m-%d %H:%M:%S%.6f+00:00").to_string()
+}
+
+/// Read the MCP source-attribution env vars the spawning agent inherited from
+/// its trigger (set by `pipeline::execute_spawn_cli` + the bridge). Returns
+/// `(parent_task_id, parent_agent_session_id, parent_recursion_depth)`. All
+/// `None` when this MCP server isn't running inside a trigger-spawned agent
+/// (e.g. a human running Claude Code with kaitencode attached) — those creates
+/// are roots with no attribution and no depth limit.
+fn recursion_attribution() -> (Option<String>, Option<String>, Option<i64>) {
+    fn non_empty(var: &str) -> Option<String> {
+        std::env::var(var).ok().filter(|s| !s.trim().is_empty())
+    }
+    let parent_task = non_empty("KAITENCODE_PARENT_TASK_ID");
+    let parent_session = non_empty("KAITENCODE_PARENT_AGENT_SESSION_ID");
+    let depth = non_empty("KAITENCODE_RECURSION_DEPTH").and_then(|s| s.trim().parse::<i64>().ok());
+    (parent_task, parent_session, depth)
 }
 
 fn new_id() -> String {
@@ -907,6 +930,9 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
     let dependencies = args.get("dependencies").and_then(|v| v.as_str());
     let priority = args.get("priority").and_then(|v| v.as_str());
     let runtime_mode = args.get("runtime_mode").and_then(|v| v.as_str());
+    // Source attribution / recursion guard: inherited from the spawning agent's
+    // environment when this MCP server runs inside a trigger-spawned agent.
+    let (parent_task_id, parent_session_id, parent_depth) = recursion_attribution();
 
     // Route through app API (triggers pipeline + updates UI)
     if let Some(resp) = api_call(
@@ -921,6 +947,9 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
             "dependencies": dependencies,
             "priority": priority,
             "runtime_mode": runtime_mode,
+            "created_by_task_id": parent_task_id,
+            "created_by_agent_session_id": parent_session_id,
+            "recursion_depth": parent_depth,
         }),
     ) {
         if resp.get("success").and_then(|v| v.as_bool()) == Some(true) {
@@ -928,6 +957,11 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
                 "task": resp.get("data"),
                 "message": format!("Created task '{}' in column '{}'", title, col_name)
             });
+        }
+        // App responded but rejected the create (e.g. recursion-depth guard).
+        // Surface its error to the agent rather than silently DB-falling-back.
+        if let Some(err) = resp.get("error").and_then(|v| v.as_str()) {
+            return json!({ "error": err });
         }
     }
 
@@ -2681,6 +2715,47 @@ mod tests {
             "trigger_prompt dropped"
         );
         assert_eq!(row.3, "[\"dep-1\"]", "dependencies dropped");
+    }
+
+    #[test]
+    fn test_recursion_attribution_reads_env() {
+        use std::sync::Mutex;
+        static ENV_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        // Unset → no attribution (human/non-spawned MCP create).
+        for v in [
+            "KAITENCODE_PARENT_TASK_ID",
+            "KAITENCODE_PARENT_AGENT_SESSION_ID",
+            "KAITENCODE_RECURSION_DEPTH",
+        ] {
+            std::env::remove_var(v);
+        }
+        assert_eq!(recursion_attribution(), (None, None, None));
+
+        // Set → threaded through; depth parses to i64.
+        std::env::set_var("KAITENCODE_PARENT_TASK_ID", "task-7");
+        std::env::set_var("KAITENCODE_PARENT_AGENT_SESSION_ID", "sess-3");
+        std::env::set_var("KAITENCODE_RECURSION_DEPTH", "2");
+        assert_eq!(
+            recursion_attribution(),
+            (Some("task-7".into()), Some("sess-3".into()), Some(2))
+        );
+
+        // Blank/garbage depth → None (treated as no limit info), blanks ignored.
+        std::env::set_var("KAITENCODE_PARENT_TASK_ID", "  ");
+        std::env::set_var("KAITENCODE_RECURSION_DEPTH", "notanumber");
+        let (task, _sess, depth) = recursion_attribution();
+        assert_eq!(task, None);
+        assert_eq!(depth, None);
+
+        for v in [
+            "KAITENCODE_PARENT_TASK_ID",
+            "KAITENCODE_PARENT_AGENT_SESSION_ID",
+            "KAITENCODE_RECURSION_DEPTH",
+        ] {
+            std::env::remove_var(v);
+        }
     }
 
     #[test]

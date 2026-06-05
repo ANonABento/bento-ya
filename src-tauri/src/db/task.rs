@@ -6,7 +6,7 @@ use super::{new_id, now, now_millis};
 
 /// Shared SELECT columns for tasks (54 fields).
 /// Order is load-bearing: `map_task_row` reads by index matching this list.
-const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked, archived_at, estimated_hours, actual_hours, last_user_input_at, held_by_user, runtime_mode_override, agent_paused_at";
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked, archived_at, estimated_hours, actual_hours, last_user_input_at, held_by_user, runtime_mode_override, agent_paused_at, created_by_task_id, created_by_agent_session_id, recursion_depth";
 
 /// Generate a sortable task batch identifier for staging PR workflows.
 pub fn generate_batch_id() -> String {
@@ -77,6 +77,9 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         held_by_user: row.get::<_, Option<i64>>(53)?.unwrap_or(0) != 0,
         runtime_mode_override: row.get(54)?,
         agent_paused_at: row.get(55)?,
+        created_by_task_id: row.get(56)?,
+        created_by_agent_session_id: row.get(57)?,
+        recursion_depth: row.get::<_, Option<i64>>(58)?.unwrap_or(0),
         labels: Vec::new(),
     })
 }
@@ -133,6 +136,11 @@ pub struct NewTask<'a> {
     /// Defaults to "medium" when None.
     pub priority: Option<&'a str>,
     pub runtime_mode_override: Option<&'a str>,
+    /// MCP source attribution (migration 046). Set only when a trigger-spawned
+    /// agent creates the task via MCP; None/0 for human/UI creates.
+    pub created_by_task_id: Option<&'a str>,
+    pub created_by_agent_session_id: Option<&'a str>,
+    pub recursion_depth: i64,
 }
 
 /// The single rich INSERT. Sets every caller-supplied column atomically in one
@@ -152,8 +160,8 @@ pub fn insert_task_full(conn: &Connection, new: &NewTask) -> SqlResult<Task> {
         )
         .unwrap_or(-1);
     conn.execute(
-        "INSERT INTO tasks (id, workspace_id, column_id, title, description, position, priority, files_touched, pipeline_state, trigger_prompt, dependencies, blocked, model, runtime_mode_override, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '[]', 'idle', ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        "INSERT INTO tasks (id, workspace_id, column_id, title, description, position, priority, files_touched, pipeline_state, trigger_prompt, dependencies, blocked, model, runtime_mode_override, created_by_task_id, created_by_agent_session_id, recursion_depth, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '[]', 'idle', ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             id,
             new.workspace_id,
@@ -167,6 +175,9 @@ pub fn insert_task_full(conn: &Connection, new: &NewTask) -> SqlResult<Task> {
             blocked,
             new.model,
             new.runtime_mode_override,
+            new.created_by_task_id,
+            new.created_by_agent_session_id,
+            new.recursion_depth,
             ts,
             ts
         ],

@@ -48,6 +48,8 @@ pub async fn create_task(
             dependencies: dependencies.as_deref(),
             priority: priority.as_deref(),
             runtime_mode_override: runtime_mode_override.as_deref(),
+            // UI-created tasks are always the root of a chain (no parent agent).
+            ..Default::default()
         },
         true,
     )
