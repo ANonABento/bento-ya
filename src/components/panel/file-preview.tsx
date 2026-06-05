@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { readFileContent, type FileEntry } from '@/lib/ipc'
+import remarkGfm from 'remark-gfm'
+import { readFileContent, openInEditor, type FileEntry } from '@/lib/ipc'
 import {
   detectLanguage,
   tokenizeCode,
@@ -58,16 +59,32 @@ export function FilePreview({ workspaceId, file, onClose }: FilePreviewProps) {
           </svg>
           <span className="text-xs font-medium text-text-primary truncate" title={file.path}>{file.name}</span>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="p-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors"
-          aria-label="Close file preview"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-            <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" />
-          </svg>
-        </button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => { void openInEditor(workspaceId, file.path).catch(() => {}) }}
+            className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+            title="Open in editor (VS Code)"
+            aria-label="Open in editor"
+            style={{ cursor: 'pointer' }}
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-3.5 w-3.5" aria-hidden="true">
+              <path d="M9.5 2.5H13.5V6.5M13.5 2.5L8 8M11 9v3.5a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1H7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span>Open</span>
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+            aria-label="Close file preview"
+            style={{ cursor: 'pointer' }}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+              <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Content */}
@@ -86,8 +103,8 @@ export function FilePreview({ workspaceId, file, onClose }: FilePreviewProps) {
 
         {!loading && !error && content !== null && (
           markdown ? (
-            <article className="prose prose-sm prose-invert max-w-none p-3 prose-headings:text-text-primary prose-p:text-text-secondary prose-a:text-blue-400 prose-strong:text-text-primary prose-code:text-amber-300 prose-code:bg-surface-hover prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-surface-hover prose-pre:border prose-pre:border-border-default prose-li:text-text-secondary prose-blockquote:border-l-text-secondary/30 prose-blockquote:text-text-secondary/80">
-              <ReactMarkdown>{content}</ReactMarkdown>
+            <article className="prose prose-sm prose-invert max-w-3xl p-4 prose-headings:text-text-primary prose-p:text-text-secondary prose-a:text-blue-400 prose-strong:text-text-primary prose-code:text-amber-300 prose-code:bg-surface-hover prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-pre:bg-surface-hover prose-pre:border prose-pre:border-border-default prose-li:text-text-secondary prose-blockquote:border-l-text-secondary/30 prose-blockquote:text-text-secondary/80 prose-table:text-text-secondary prose-th:text-text-primary prose-td:border-border-default prose-th:border-border-default prose-hr:border-border-default">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
             </article>
           ) : (
             <CodeView content={content} filePath={file.path} />
