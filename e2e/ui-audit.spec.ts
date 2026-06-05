@@ -38,8 +38,14 @@ test('capture UI surfaces', async ({ page }) => {
     }
   }
 
-  // Detail clip of the chef tab header (sidebar-icon row + Chat/Terminal/Files).
-  await page.screenshot({ path: `${DIR}/02b-chef-header.png`, clip: { x: 0, y: 700, width: 700, height: 70 } })
+  // Detail clip of the chef header (Chef + tabs + overflow).
+  await page.screenshot({ path: `${DIR}/02b-chef-header.png`, clip: { x: 0, y: 700, width: 900, height: 40 } })
+  const more = page.locator('[aria-label="More options"]')
+  if (await more.count()) {
+    await more.first().click().catch(() => {})
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: `${DIR}/02c-chef-header-expanded.png`, clip: { x: 0, y: 700, width: 900, height: 40 } })
+  }
 
   // Open a task → agent panel, capture each tab.
   const card = page.getByText('Revamp agent panel UX').first()

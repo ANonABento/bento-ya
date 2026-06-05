@@ -107,6 +107,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   // Local UI state
   const [sidebarMode, setSidebarMode] = useState<'history' | 'dashboard' | 'v2-dashboard' | null>(null)
   const [viewMode, setViewMode] = useState<OrchestratorView>('chat')
+  const [moreOpen, setMoreOpen] = useState(false)
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -318,119 +319,145 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
         }`}
         style={{ cursor: 'pointer' }}
       >
-        {/* Left: identity + sidebar toggles + view tabs */}
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm font-medium text-text-primary shrink-0">Chef</span>
-          {isProcessing && (
-            <ProcessingIndicator startTime={chat.streaming.startTime} />
-          )}
+        {/* Left: view tabs first, then a ⋯ that reveals secondary icons */}
+        <div className="flex min-w-0 items-center gap-1.5">
           {!isPanelCollapsed && (
             <>
-              <div className="flex shrink-0 items-center gap-1">
-              <button
-                type="button"
-                onClick={() => { setSidebarMode(sidebarMode === 'history' ? null : 'history') }}
-                aria-label={sidebarMode === 'history' ? 'Hide history' : 'Show history'}
-                aria-pressed={sidebarMode === 'history'}
-                title="History"
-                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
-                  sidebarMode === 'history'
-                    ? 'bg-surface-hover text-text-primary'
-                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-                }`}
-                style={{ cursor: 'pointer' }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13a.75.75 0 0 0-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 0 0 0-1.5h-3.25V5Z" clipRule="evenodd" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                onClick={() => { setSidebarMode(sidebarMode === 'dashboard' ? null : 'dashboard') }}
-                aria-label={sidebarMode === 'dashboard' ? 'Hide pipeline dashboard' : 'Show pipeline dashboard'}
-                aria-pressed={sidebarMode === 'dashboard'}
-                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
-                  sidebarMode === 'dashboard'
-                    ? 'bg-surface-hover text-text-primary'
-                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-                }`}
-                style={{ cursor: 'pointer' }}
-                title="Pipeline dashboard"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
-                  <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM10 7a1.5 1.5 0 0 0-1.5 1.5v8a1.5 1.5 0 0 0 3 0v-8A1.5 1.5 0 0 0 10 7ZM4.5 12A1.5 1.5 0 0 0 3 13.5v3a1.5 1.5 0 0 0 3 0v-3A1.5 1.5 0 0 0 4.5 12Z" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                onClick={() => { setSidebarMode(sidebarMode === 'v2-dashboard' ? null : 'v2-dashboard') }}
-                aria-label={sidebarMode === 'v2-dashboard' ? 'Hide pipeline v2 dashboard' : 'Show pipeline v2 dashboard'}
-                aria-pressed={sidebarMode === 'v2-dashboard'}
-                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
-                  sidebarMode === 'v2-dashboard'
-                    ? 'bg-surface-hover text-text-primary'
-                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-                }`}
-                style={{ cursor: 'pointer' }}
-                title="Pipeline v2 dashboard — column distribution, ETA, cost"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                  <path fillRule="evenodd" d="M1 2.75A.75.75 0 0 1 1.75 2h16.5a.75.75 0 0 1 0 1.5H18v8.75A2.75 2.75 0 0 1 15.25 15h-1.072l.798 3.06a.75.75 0 0 1-1.452.38L13.41 18H6.59l-.114.44a.75.75 0 0 1-1.452-.38L5.823 15H4.75A2.75 2.75 0 0 1 2 12.25V3.5h-.25A.75.75 0 0 1 1 2.75ZM7.373 15l-.391 1.5h6.036l-.392-1.5H7.373ZM13 7.5a.5.5 0 0 0-1 0v4a.5.5 0 0 0 1 0v-4Zm-3 2a.5.5 0 0 0-1 0v2a.5.5 0 0 0 1 0v-2Zm-2.5 1a.5.5 0 0 1 .5.5v.5a.5.5 0 0 1-1 0v-.5a.5.5 0 0 1 .5-.5Z" clipRule="evenodd" />
-                </svg>
-              </button>
-              </div>
-              <div className="h-4 w-px shrink-0 bg-border-default" aria-hidden="true" />
               <PanelTabs
                 aria-label="Orchestrator views"
                 value={viewMode}
                 onChange={setViewMode}
                 tabs={ORCHESTRATOR_TABS}
               />
+              <div className="h-4 w-px shrink-0 bg-border-default" aria-hidden="true" />
+              <button
+                type="button"
+                onClick={() => { setMoreOpen((v) => !v) }}
+                aria-label={moreOpen ? 'Hide more options' : 'More options'}
+                aria-pressed={moreOpen}
+                title="More"
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors ${
+                  moreOpen
+                    ? 'bg-surface-hover text-text-primary'
+                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                }`}
+                style={{ cursor: 'pointer' }}
+              >
+                <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                  <path d="M5 10a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0ZM11.25 10a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0ZM16.25 11.25a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Z" />
+                </svg>
+              </button>
+              <AnimatePresence initial={false}>
+                {moreOpen && (
+                  <motion.div
+                    initial={{ width: 0, opacity: 0 }}
+                    animate={{ width: 'auto', opacity: 1 }}
+                    exit={{ width: 0, opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                    className="flex shrink-0 items-center gap-1 overflow-hidden"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => { setSidebarMode(sidebarMode === 'history' ? null : 'history') }}
+                      aria-label={sidebarMode === 'history' ? 'Hide history' : 'Show history'}
+                      aria-pressed={sidebarMode === 'history'}
+                      title="History"
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors ${
+                        sidebarMode === 'history'
+                          ? 'bg-surface-hover text-text-primary'
+                          : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                      }`}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13a.75.75 0 0 0-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 0 0 0-1.5h-3.25V5Z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSidebarMode(sidebarMode === 'dashboard' ? null : 'dashboard') }}
+                      aria-label={sidebarMode === 'dashboard' ? 'Hide pipeline dashboard' : 'Show pipeline dashboard'}
+                      aria-pressed={sidebarMode === 'dashboard'}
+                      title="Pipeline dashboard"
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors ${
+                        sidebarMode === 'dashboard'
+                          ? 'bg-surface-hover text-text-primary'
+                          : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                      }`}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                        <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM10 7a1.5 1.5 0 0 0-1.5 1.5v8a1.5 1.5 0 0 0 3 0v-8A1.5 1.5 0 0 0 10 7ZM4.5 12A1.5 1.5 0 0 0 3 13.5v3a1.5 1.5 0 0 0 3 0v-3A1.5 1.5 0 0 0 4.5 12Z" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSidebarMode(sidebarMode === 'v2-dashboard' ? null : 'v2-dashboard') }}
+                      aria-label={sidebarMode === 'v2-dashboard' ? 'Hide pipeline v2 dashboard' : 'Show pipeline v2 dashboard'}
+                      aria-pressed={sidebarMode === 'v2-dashboard'}
+                      title="Pipeline v2 dashboard — column distribution, ETA, cost"
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors ${
+                        sidebarMode === 'v2-dashboard'
+                          ? 'bg-surface-hover text-text-primary'
+                          : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                      }`}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                        <path fillRule="evenodd" d="M1 2.75A.75.75 0 0 1 1.75 2h16.5a.75.75 0 0 1 0 1.5H18v8.75A2.75 2.75 0 0 1 15.25 15h-1.072l.798 3.06a.75.75 0 0 1-1.452.38L13.41 18H6.59l-.114.44a.75.75 0 0 1-1.452-.38L5.823 15H4.75A2.75 2.75 0 0 1 2 12.25V3.5h-.25A.75.75 0 0 1 1 2.75ZM7.373 15l-.391 1.5h6.036l-.392-1.5H7.373ZM13 7.5a.5.5 0 0 0-1 0v4a.5.5 0 0 0 1 0v-4Zm-3 2a.5.5 0 0 0-1 0v2a.5.5 0 0 0 1 0v-2Zm-2.5 1a.5.5 0 0 1 .5.5v.5a.5.5 0 0 1-1 0v-.5a.5.5 0 0 1 .5-.5Z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { void handleNewChat() }}
+                      disabled={localMessages.length === 0}
+                      title="New chat"
+                      aria-label="New chat"
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+                      style={{ cursor: localMessages.length === 0 ? 'not-allowed' : 'pointer' }}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                        <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setPanelDock(isRightDock ? 'bottom' : 'right') }}
+                      title={isRightDock ? 'Dock to bottom' : 'Dock to right'}
+                      aria-label={isRightDock ? 'Dock to bottom' : 'Dock to right'}
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {isRightDock ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                          <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v7.5h13V4.25a.75.75 0 0 0-.75-.75H4.25ZM3.5 13.25v2.5c0 .414.336.75.75.75h11.5a.75.75 0 0 0 .75-.75v-2.5h-13Z" clipRule="evenodd" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                          <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v11.5c0 .414.336.75.75.75h7.5V3.5H4.25Zm9 0v13h2.5a.75.75 0 0 0 .75-.75V4.25a.75.75 0 0 0-.75-.75h-2.5Z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </>
           )}
         </div>
 
-        {/* Right: New chat + collapse */}
-        <div className="flex items-center gap-2">
-          {!isPanelCollapsed && (
-            <button
-              type="button"
-              onClick={() => { void handleNewChat() }}
-              disabled={localMessages.length === 0}
-              className="flex h-6 items-center gap-1 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
-              style={{ cursor: localMessages.length === 0 ? 'not-allowed' : 'pointer' }}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-                <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
-              </svg>
-              New
-            </button>
+        {/* Center: Chef title + processing indicator */}
+        <div className="pointer-events-none absolute left-1/2 flex -translate-x-1/2 items-center gap-2">
+          <span className="text-sm font-medium text-text-primary">Chef</span>
+          {isProcessing && (
+            <ProcessingIndicator startTime={chat.streaming.startTime} />
           )}
+        </div>
+
+        {/* Right: keyboard hint + collapse */}
+        <div className="flex shrink-0 items-center gap-2">
           <span className="text-xs text-text-secondary">
             {isPanelCollapsed ? 'Cmd+J to expand' : 'Cmd+J'}
           </span>
-          {/* Dock position toggle */}
-          {!isPanelCollapsed && (
-            <button
-              type="button"
-              onClick={() => { setPanelDock(isRightDock ? 'bottom' : 'right') }}
-              title={isRightDock ? 'Dock to bottom' : 'Dock to right'}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-              style={{ cursor: 'pointer' }}
-            >
-              {isRightDock ? (
-                /* Icon: dock bottom */
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                  <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v7.5h13V4.25a.75.75 0 0 0-.75-.75H4.25ZM3.5 13.25v2.5c0 .414.336.75.75.75h11.5a.75.75 0 0 0 .75-.75v-2.5h-13Z" clipRule="evenodd" />
-                </svg>
-              ) : (
-                /* Icon: dock right */
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                  <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v11.5c0 .414.336.75.75.75h7.5V3.5H4.25Zm9 0v13h2.5a.75.75 0 0 0 .75-.75V4.25a.75.75 0 0 0-.75-.75h-2.5Z" clipRule="evenodd" />
-                </svg>
-              )}
-            </button>
-          )}
           <button
             type="button"
             onClick={togglePanel}
