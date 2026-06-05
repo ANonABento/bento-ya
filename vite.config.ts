@@ -11,6 +11,10 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+    // Keep a single React instance — a duplicate copy (which the dep optimizer
+    // can introduce when a new dependency is added) causes "Invalid hook call /
+    // Cannot read properties of null (reading 'useState')" and a blank screen.
+    dedupe: ['react', 'react-dom'],
   },
   clearScreen: false,
   server: {
