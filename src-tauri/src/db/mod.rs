@@ -378,6 +378,10 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
             "045_agent_completion_events",
             include_str!("migrations/045_agent_completion_events.sql"),
         ),
+        (
+            "046_task_source_attribution",
+            include_str!("migrations/046_task_source_attribution.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {
@@ -507,8 +511,8 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // Includes split 019, 030 + Phase 4 (044, 045) migrations.
-        assert_eq!(count, 47);
+        // Includes split 019, 030 + Phase 4 (044, 045) + 046 attribution.
+        assert_eq!(count, 48);
     }
 
     #[test]
@@ -624,6 +628,9 @@ mod tests {
                 dependencies: Some("[\"dep-1\"]"),
                 priority: Some("high"),
                 runtime_mode_override: Some("interactive"),
+                created_by_task_id: Some("parent-1"),
+                created_by_agent_session_id: Some("sess-1"),
+                recursion_depth: 2,
             },
         )
         .unwrap();
@@ -633,6 +640,10 @@ mod tests {
         assert_eq!(task.dependencies.as_deref(), Some("[\"dep-1\"]"));
         assert_eq!(task.priority, "high");
         assert_eq!(task.runtime_mode_override.as_deref(), Some("interactive"));
+        // MCP source attribution round-trips.
+        assert_eq!(task.created_by_task_id.as_deref(), Some("parent-1"));
+        assert_eq!(task.created_by_agent_session_id.as_deref(), Some("sess-1"));
+        assert_eq!(task.recursion_depth, 2);
         // Non-empty dependencies imply blocked.
         assert!(task.blocked);
 
@@ -651,6 +662,10 @@ mod tests {
         assert!(!bare.blocked);
         assert_eq!(bare.model, None);
         assert_eq!(bare.runtime_mode_override, None);
+        // Human/UI creates have no attribution and sit at depth 0.
+        assert_eq!(bare.created_by_task_id, None);
+        assert_eq!(bare.created_by_agent_session_id, None);
+        assert_eq!(bare.recursion_depth, 0);
     }
 
     #[test]

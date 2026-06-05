@@ -1728,6 +1728,15 @@ fn execute_spawn_cli(
     if let Some(f) = flags {
         env_vars.insert("TRIGGER_FLAGS".to_string(), f.join(" "));
     }
+    // MCP source attribution + recursion guard (migration 046). If this agent
+    // calls the MCP `create_task` tool, the kaitencode-mcp binary reads these
+    // from its environment and threads them into the new task's row. The spawn
+    // layer exports them onto the CLI process so its MCP child inherits them.
+    env_vars.insert("KAITENCODE_PARENT_TASK_ID".to_string(), task.id.clone());
+    env_vars.insert(
+        "KAITENCODE_RECURSION_DEPTH".to_string(),
+        task.recursion_depth.to_string(),
+    );
 
     emit_pipeline(
         app,

@@ -1458,7 +1458,16 @@ pub fn spawn_cli_trigger_task(
         }
     };
 
-    let env_vars = env_vars.unwrap_or_default();
+    let mut env_vars = env_vars.unwrap_or_default();
+    // Attribution: the agent_session_id isn't known until the session row is
+    // created above, so add it here (the task id + recursion depth came in via
+    // the env map from execute_spawn_cli). Best-effort — skipped if missing.
+    if let Some(ref sid) = session_id {
+        env_vars.insert(
+            "KAITENCODE_PARENT_AGENT_SESSION_ID".to_string(),
+            sid.clone(),
+        );
+    }
 
     tokio::spawn(async move {
         let start_time = std::time::Instant::now();
@@ -1544,6 +1553,26 @@ pub fn spawn_cli_trigger_task(
 enum DeadOrTimeout {
     DeadAgent,
     TimedOut,
+}
+
+/// Build an inline `KEY=value ` env prefix for the MCP source-attribution vars
+/// (`KAITENCODE_PARENT_*` / `KAITENCODE_RECURSION_DEPTH`) so the launched CLI
+/// process — and any `kaitencode-mcp` subprocess it spawns — inherits them. This
+/// mirrors the existing `KAITENCODE_CLAUDE_JSON_LOG=… <cmd>` idiom. Keys are
+/// sorted for determinism; returns an empty string when none are present.
+fn attribution_env_prefix(env_vars: &HashMap<String, String>) -> String {
+    let mut entries: Vec<(&String, &String)> = env_vars
+        .iter()
+        .filter(|(k, _)| {
+            k.starts_with("KAITENCODE_PARENT_") || k.as_str() == "KAITENCODE_RECURSION_DEPTH"
+        })
+        .collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    let mut prefix = String::new();
+    for (k, v) in entries {
+        prefix.push_str(&format!("{}={} ", k, shell_quote_arg(v)));
+    }
+    prefix
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1648,10 +1677,18 @@ async fn run_trigger_in_tmux(
         _ => full_cmd.to_string(),
     };
 
+    // Prepend the MCP attribution env so a `create_task` call from this agent
+    // is correctly parented and depth-limited.
+    let command_with_attribution = format!(
+        "{}{}",
+        attribution_env_prefix(env_vars),
+        command_with_semantic_log
+    );
+
     let wrapped = format!(
         "{}{}; rc=$?; printf '%s' \"$rc\" > {}; tmux wait-for -S {}",
         "tmux clear-history -t \"$TMUX_PANE\" 2>/dev/null; clear; ",
-        command_with_semantic_log,
+        command_with_attribution,
         shell_quote_arg(&exit_path),
         wait_channel
     );
@@ -3211,6 +3248,33 @@ mod tests {
         let a = gen_nonce();
         assert_eq!(a.len(), 16);
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_attribution_env_prefix_emits_sorted_quoted_pairs() {
+        let mut env = HashMap::new();
+        env.insert("WORKING_DIR".to_string(), "/tmp/x".to_string());
+        env.insert("KAITENCODE_PARENT_TASK_ID".to_string(), "task-1".to_string());
+        env.insert("KAITENCODE_RECURSION_DEPTH".to_string(), "2".to_string());
+        env.insert(
+            "KAITENCODE_PARENT_AGENT_SESSION_ID".to_string(),
+            "sess-9".to_string(),
+        );
+        let prefix = attribution_env_prefix(&env);
+        // Only the attribution keys, sorted, quoted, with a trailing space each.
+        // WORKING_DIR (a template var) is excluded.
+        assert_eq!(
+            prefix,
+            "KAITENCODE_PARENT_AGENT_SESSION_ID='sess-9' KAITENCODE_PARENT_TASK_ID='task-1' KAITENCODE_RECURSION_DEPTH='2' "
+        );
+    }
+
+    #[test]
+    fn test_attribution_env_prefix_empty_when_no_attribution_keys() {
+        let mut env = HashMap::new();
+        env.insert("WORKING_DIR".to_string(), "/tmp/x".to_string());
+        env.insert("TRIGGER_PROMPT".to_string(), "hi".to_string());
+        assert_eq!(attribution_env_prefix(&env), "");
     }
 
     #[test]

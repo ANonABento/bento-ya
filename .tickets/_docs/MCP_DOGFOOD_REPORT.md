@@ -5,7 +5,7 @@ Audit of the `kaitencode-mcp` stdio server (`mcp-server/src/main.rs`, ~2.4k LOC,
 ## TL;DR
 
 - **Setup works.** Binary lives at `~/.cargo/bin/kaitencode-mcp` (or build with `cargo build -p kaitencode-mcp`). Auto-detects DB at `~/.kaitencode/data.db` with platform-specific fallbacks. Read tools work without the app; mutations require the app running (HTTP API on a port written to `~/.kaitencode/api.port`).
-- **No agent-level recursion guard.** A task that spawns a CLI agent (e.g. Claude Code with this MCP attached) can transitively call `create_task` again. The only ceiling today is `DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS = 5` per workspace (extra tasks get queued, not rejected). Safe self-task patterns require client-side discipline — see `MCP_SELF_TASK_WORKFLOW.md`.
+- ~~**No agent-level recursion guard.**~~ ✅ Fixed 2026-06-05: `mcp_max_recursion_depth` (default 3) is enforced in `/api/create_task` — a trigger-spawned agent whose task is already at the limit is refused. Attribution (`created_by_task_id` / `recursion_depth`) is threaded via `KAITENCODE_PARENT_*` env. The concurrency cap (`DEFAULT_PIPELINE_MAX_CONCURRENT_AGENTS = 5`) still applies on top. See `.tickets/done/mcp-add-source-attribution.md`.
 - **Three concrete MCP bugs / inconsistencies found** (none catastrophic, all worth fixing). Each filed as a follow-up ticket under `.tickets/`.
 - **CLAUDE.md drift fixed** in this branch: tool list, LOC count, and concurrency default now match the code.
 
@@ -107,7 +107,7 @@ The current design intentionally pushes the responsibility to the **agent prompt
 | 1 | `create_task` accepts `model` but the `/api/create_task` payload drops it | medium (silent no-op) | `.tickets/done/mcp-fix-create-task-model-dropped.md` | ✅ fixed — `handle_create_task` forwards `model`; regression test `test_create_task_persists_options` |
 | 2 | `create_task` doesn't expose `trigger_prompt` (API supports it) | medium (feature gap) | `.tickets/done/mcp-fix-create-task-trigger-prompt.md` | ✅ fixed — schema + handler forward `trigger_prompt` (and `priority`/`dependencies`/`runtime_mode`) |
 | 3 | `mark_complete` / `add_dependency` / `remove_dependency` bypass the API → no `tasks:changed` | low (stale UI) | `.tickets/done/mcp-fix-direct-db-no-events.md` | ✅ fixed — all three route through `/api/mark_complete` + `/api/set_dependencies`, which emit `tasks:changed`; direct DB only under `allow_db_fallback()` |
-| 4 | No source attribution / recursion guard | medium (safety) | `.tickets/mcp-add-source-attribution.md` | open |
+| 4 | No source attribution / recursion guard | medium (safety) | `.tickets/done/mcp-add-source-attribution.md` | ✅ fixed (Parts 1+2) — migration 046 attribution columns + `KAITENCODE_PARENT_*` env threading + `mcp_max_recursion_depth` guard (default 3) enforced in `/api/create_task`. Badge/filter UI + interactive-path env deferred |
 
 ## Recommendations
 

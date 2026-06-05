@@ -382,6 +382,9 @@ fn execute_single_tool(
                     dependencies,
                     priority,
                     runtime_mode_override,
+                    // Chef-created tasks aren't part of the trigger-spawn
+                    // recursion chain; treat as root (no attribution).
+                    ..Default::default()
                 },
             )
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;

@@ -123,6 +123,12 @@ pub struct Task {
     /// via the control bar. NULL = not paused. Schema lands in Phase 4;
     /// Phase 5 wires the pause/resume Tauri commands that flip it.
     pub agent_paused_at: Option<i64>,
+    /// MCP source attribution (migration 046). When a trigger-spawned CLI agent
+    /// creates this task via the MCP `create_task` tool, these record the parent
+    /// task / agent session and the chain depth. NULL / 0 for human-created tasks.
+    pub created_by_task_id: Option<String>,
+    pub created_by_agent_session_id: Option<String>,
+    pub recursion_depth: i64,
     /// Task labels — workspace-scoped tags. Loaded via JOIN; not a column on tasks table.
     #[serde(default)]
     pub labels: Vec<Label>,

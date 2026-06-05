@@ -1,5 +1,32 @@
 # MCP-created tasks have no source attribution / recursion guard
 
+> ✅ **RESOLVED 2026-06-05 (Parts 1 + 2).** Implemented:
+> - **Migration 046** adds `created_by_task_id`, `created_by_agent_session_id`,
+>   `recursion_depth` to `tasks` (in `TASK_COLUMNS` / `map_task_row` / `NewTask` /
+>   `insert_task_full`; mirrored on the frontend `Task` type).
+> - **Env threading:** `pipeline::execute_spawn_cli` sets `KAITENCODE_PARENT_TASK_ID`
+>   + `KAITENCODE_RECURSION_DEPTH`; the bridge adds `KAITENCODE_PARENT_AGENT_SESSION_ID`
+>   once the session exists; `run_trigger_in_tmux` exports them inline on the CLI
+>   command (`attribution_env_prefix`, same idiom as the JSON-log vars) so the
+>   agent's `kaitencode-mcp` child inherits them.
+> - **MCP:** `recursion_attribution()` reads those env vars and threads them into
+>   the `create_task` payload; `api_call` no longer swallows non-2xx bodies, so the
+>   guard's rejection message reaches the agent.
+> - **Recursion guard:** `AppSettings.mcp_max_recursion_depth` (default 3); the
+>   `/api/create_task` handler calls `next_recursion_depth(parent_depth, max)` —
+>   refuses with HTTP 429 when the spawning task is already at the limit, else
+>   persists the child at `parent_depth + 1`. Human/UI creates are roots (depth 0,
+>   never refused).
+> - **Tests:** `next_recursion_depth` (api.rs), `attribution_env_prefix` (bridge.rs),
+>   `insert_task_full` attribution round-trip (db), `recursion_attribution` env read
+>   (mcp-server).
+>
+> **Deferred (Part 3 + follow-ups):** the task-card "spawned by …" badge and the
+> human-vs-agent filter; a Settings UI control for `mcp_max_recursion_depth` (it's
+> settable today via the settings API / `settings.json`); and env threading for the
+> **interactive** and **managed** spawn paths (only the headless `terminal` path —
+> the dominant case — exports the attribution env so far). Original ticket below.
+
 Found during MCP dogfood audit, 2026-05-12. See `.tickets/_docs/MCP_DOGFOOD_REPORT.md` and `.tickets/_docs/MCP_SELF_TASK_WORKFLOW.md`.
 
 ## Problem

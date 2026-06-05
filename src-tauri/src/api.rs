@@ -124,6 +124,33 @@ struct CreateTaskReq {
     dependencies: Option<String>,
     priority: Option<String>,
     runtime_mode: Option<String>,
+    // MCP source attribution (migration 046). Populated from the calling agent's
+    // KAITENCODE_PARENT_* env vars; absent for human/UI creates.
+    created_by_task_id: Option<String>,
+    created_by_agent_session_id: Option<String>,
+    /// The spawning task's own recursion depth. The new task is created at
+    /// `depth + 1`; absent (human/UI) means the new task is a root at depth 0.
+    recursion_depth: Option<i64>,
+}
+
+/// Compute the new task's recursion depth from the spawning agent's parent depth
+/// (threaded via the MCP `create_task` payload), or refuse when the chain is
+/// already at the configured limit. `parent_depth` is `None` for human/UI
+/// creates — those are always roots at depth 0 and never refused.
+pub(crate) fn next_recursion_depth(
+    parent_depth: Option<i64>,
+    max_depth: i64,
+) -> Result<i64, String> {
+    match parent_depth {
+        None => Ok(0),
+        Some(d) if d >= max_depth => Err(format!(
+            "Recursion depth exceeded: the spawning task is already at depth {} (limit {}). \
+             Refusing to create another agent-spawned task. Raise mcp_max_recursion_depth in \
+             settings to allow deeper chains.",
+            d, max_depth
+        )),
+        Some(d) => Ok(d.saturating_add(1)),
+    }
 }
 
 async fn create_task(
@@ -131,6 +158,15 @@ async fn create_task(
     Json(req): Json<CreateTaskReq>,
 ) -> impl IntoResponse {
     let conn = get_db!(api);
+
+    // Recursion guard: refuse if the spawning agent's chain is already too deep.
+    let max_depth = crate::config::AppSettings::load().mcp_max_recursion_depth;
+    let recursion_depth = match next_recursion_depth(req.recursion_depth, max_depth) {
+        Ok(d) => d,
+        Err(msg) => {
+            return err_response(StatusCode::TOO_MANY_REQUESTS, msg).into_response();
+        }
+    };
 
     match pipeline::create_task_service(
         &conn,
@@ -145,6 +181,9 @@ async fn create_task(
             dependencies: req.dependencies.as_deref(),
             priority: req.priority.as_deref(),
             runtime_mode_override: req.runtime_mode.as_deref(),
+            created_by_task_id: req.created_by_task_id.as_deref(),
+            created_by_agent_session_id: req.created_by_agent_session_id.as_deref(),
+            recursion_depth,
         },
         true,
     ) {
@@ -941,10 +980,34 @@ fn local_api_enabled() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::local_api_enabled;
+    use super::{local_api_enabled, next_recursion_depth};
     use std::sync::Mutex;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn recursion_depth_human_create_is_root() {
+        // No parent (UI / human) → depth 0, never refused regardless of limit.
+        assert_eq!(next_recursion_depth(None, 3), Ok(0));
+        assert_eq!(next_recursion_depth(None, 0), Ok(0));
+    }
+
+    #[test]
+    fn recursion_depth_increments_under_limit() {
+        // Spawning task at depth d → child at d+1 while d < max.
+        assert_eq!(next_recursion_depth(Some(0), 3), Ok(1));
+        assert_eq!(next_recursion_depth(Some(1), 3), Ok(2));
+        assert_eq!(next_recursion_depth(Some(2), 3), Ok(3));
+    }
+
+    #[test]
+    fn recursion_depth_refuses_at_limit() {
+        // Spawning task already at the limit → refuse (no new task).
+        assert!(next_recursion_depth(Some(3), 3).is_err());
+        assert!(next_recursion_depth(Some(5), 3).is_err());
+        // A max of 0 disables agent-spawned chains entirely.
+        assert!(next_recursion_depth(Some(0), 0).is_err());
+    }
 
     #[test]
     fn local_api_disabled_by_default() {

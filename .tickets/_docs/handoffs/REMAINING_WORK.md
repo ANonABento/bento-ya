@@ -205,10 +205,15 @@ by leverage:
    `/api/mark_complete` + `/api/set_dependencies`, which emit `tasks:changed`
    (verified 2026-06-05; ticket moved to `done/`).
 2. ~~**A2** — `pty:{taskId}:exit` casing~~ ✅ done 2026-06-05.
-3. **MCP bug #4** (`mcp-add-source-attribution.md`) — source attribution +
-   recursion guard on agent-spawned tasks (safety). Needs a migration. **The next
-   real chunk of work.**
+3. ~~**MCP bug #4** — source attribution + recursion guard~~ ✅ done 2026-06-05
+   (Parts 1+2: migration 046, `KAITENCODE_PARENT_*` env threading,
+   `mcp_max_recursion_depth` guard). Deferred polish: the task-card "spawned by"
+   badge + human/agent filter (Part 3), a Settings UI control for the depth limit,
+   and env threading for the interactive/managed spawn paths (headless terminal
+   path done).
 4. **B2 codex verification** — confirm codex `--resume` + `--append-system-prompt`
    actually work in interactive mode (needs the app + a codex binary).
 5. **C-section product gaps** — inert keyboard shortcuts, multi-provider stubs,
    `thinking_level` as a first-class attribute, voice un-gating.
+6. **MCP #4 follow-ups** — the deferred badge/filter/settings-control/interactive-env
+   bits above, if/when wanted.
