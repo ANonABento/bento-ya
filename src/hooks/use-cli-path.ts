@@ -66,8 +66,19 @@ export function useCliPath(providerId: string = 'anthropic'): CliPathResult {
       const verifyPath = async () => {
         try {
           const detected = await verifyCliPath(configuredPath)
+          if (detected.isAvailable) return
+
+          // The stored path is stale. This is common with per-shell version
+          // managers (fnm/nvm/asdf/volta), whose shim dirs live under paths
+          // like /run/user/.../fnm_multishells/<shell-pid>_<ts>/bin and vanish
+          // when that shell exits. Re-detect a fresh path and self-heal rather
+          // than surfacing a scary error for a CLI that's actually installed.
+          const redetected = await detectSingleCli(cliId)
           if (cancelled) return
-          if (!detected.isAvailable) {
+          if (redetected.isAvailable && redetected.path) {
+            setResolvedPath(redetected.path)
+            persistDetectedCliPath(providerId, redetected.path)
+          } else {
             setDetectionError(`Configured ${cliId} CLI path is not valid. Check Settings > Agents & Models.`)
           }
         } catch {
