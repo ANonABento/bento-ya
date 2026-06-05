@@ -19,6 +19,7 @@ import { buildPromptWithAttachments } from '@/types'
 import { useCliPath } from '@/hooks/use-cli-path'
 import { ChatHistory } from './chat-history'
 import { OrchestratorTerminalView } from './orchestrator-terminal-view'
+import { OrchestratorFilesView } from './orchestrator-files-view'
 import { PanelSidebar } from './panel-sidebar'
 import { PipelineDashboard } from './pipeline-dashboard'
 import { PipelineV2Dashboard } from './pipeline-v2-dashboard'
@@ -96,7 +97,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
 
   // Local UI state
   const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | 'dashboard' | 'v2-dashboard' | null>(null)
-  const [viewMode, setViewMode] = useState<'chat' | 'terminal'>('chat')
+  const [viewMode, setViewMode] = useState<'chat' | 'terminal' | 'files'>('chat')
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -502,7 +503,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               <div className="flex flex-1 flex-col overflow-hidden">
                 {/* Chat ↔ Terminal toggle */}
                 <div className="flex items-center gap-1 border-b border-border-default px-2 py-1">
-                  {(['chat', 'terminal'] as const).map((m) => (
+                  {(['chat', 'terminal', 'files'] as const).map((m) => (
                     <button
                       key={m}
                       type="button"
@@ -516,13 +517,15 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                       }`}
                       style={{ cursor: 'pointer' }}
                     >
-                      {m === 'chat' ? 'Chat' : 'Terminal'}
+                      {m === 'chat' ? 'Chat' : m === 'terminal' ? 'Terminal' : 'Files'}
                     </button>
                   ))}
                 </div>
 
                 {viewMode === 'terminal' ? (
                   <OrchestratorTerminalView workspaceId={workspaceId} />
+                ) : viewMode === 'files' ? (
+                  <OrchestratorFilesView workspaceId={workspaceId} />
                 ) : (
                   <>
                     {/* CLI Detection Indicator */}
