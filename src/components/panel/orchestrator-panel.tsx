@@ -314,13 +314,13 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             togglePanel()
           }
         }}
-        className={`relative flex items-center justify-between gap-2 px-3 py-1.5 select-none transition-colors ${
+        className={`grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-3 py-1.5 select-none transition-colors ${
           isPanelCollapsed ? 'hover:bg-surface-hover/60' : 'border-b border-border-default'
         }`}
         style={{ cursor: 'pointer' }}
       >
-        {/* Left: view tabs first, then a ⋯ that reveals secondary icons */}
-        <div className="flex min-w-0 items-center gap-1.5">
+        {/* Left: view tabs first, then a ⋯ that reveals sidebar toggles */}
+        <div className="flex min-w-0 items-center gap-1.5 justify-self-start">
           {!isPanelCollapsed && (
             <>
               <PanelTabs
@@ -407,37 +407,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                         <path fillRule="evenodd" d="M1 2.75A.75.75 0 0 1 1.75 2h16.5a.75.75 0 0 1 0 1.5H18v8.75A2.75 2.75 0 0 1 15.25 15h-1.072l.798 3.06a.75.75 0 0 1-1.452.38L13.41 18H6.59l-.114.44a.75.75 0 0 1-1.452-.38L5.823 15H4.75A2.75 2.75 0 0 1 2 12.25V3.5h-.25A.75.75 0 0 1 1 2.75ZM7.373 15l-.391 1.5h6.036l-.392-1.5H7.373ZM13 7.5a.5.5 0 0 0-1 0v4a.5.5 0 0 0 1 0v-4Zm-3 2a.5.5 0 0 0-1 0v2a.5.5 0 0 0 1 0v-2Zm-2.5 1a.5.5 0 0 1 .5.5v.5a.5.5 0 0 1-1 0v-.5a.5.5 0 0 1 .5-.5Z" clipRule="evenodd" />
                       </svg>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => { void handleNewChat() }}
-                      disabled={localMessages.length === 0}
-                      title="New chat"
-                      aria-label="New chat"
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
-                      style={{ cursor: localMessages.length === 0 ? 'not-allowed' : 'pointer' }}
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-                        <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
-                      </svg>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setPanelDock(isRightDock ? 'bottom' : 'right') }}
-                      title={isRightDock ? 'Dock to bottom' : 'Dock to right'}
-                      aria-label={isRightDock ? 'Dock to bottom' : 'Dock to right'}
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-                      style={{ cursor: 'pointer' }}
-                    >
-                      {isRightDock ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                          <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v7.5h13V4.25a.75.75 0 0 0-.75-.75H4.25ZM3.5 13.25v2.5c0 .414.336.75.75.75h11.5a.75.75 0 0 0 .75-.75v-2.5h-13Z" clipRule="evenodd" />
-                        </svg>
-                      ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                          <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v11.5c0 .414.336.75.75.75h7.5V3.5H4.25Zm9 0v13h2.5a.75.75 0 0 0 .75-.75V4.25a.75.75 0 0 0-.75-.75h-2.5Z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </button>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -446,16 +415,51 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
         </div>
 
         {/* Center: Chef title + processing indicator */}
-        <div className="pointer-events-none absolute left-1/2 flex -translate-x-1/2 items-center gap-2">
+        <div className="flex items-center justify-self-center gap-2">
           <span className="text-sm font-medium text-text-primary">Chef</span>
           {isProcessing && (
             <ProcessingIndicator startTime={chat.streaming.startTime} />
           )}
         </div>
 
-        {/* Right: keyboard hint + collapse */}
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="text-xs text-text-secondary">
+        {/* Right: new chat + dock + keyboard hint + collapse */}
+        <div className="flex shrink-0 items-center justify-self-end gap-1">
+          {!isPanelCollapsed && (
+            <>
+              <button
+                type="button"
+                onClick={() => { void handleNewChat() }}
+                disabled={localMessages.length === 0}
+                title="New chat"
+                aria-label="New chat"
+                className="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+                style={{ cursor: localMessages.length === 0 ? 'not-allowed' : 'pointer' }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                  <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setPanelDock(isRightDock ? 'bottom' : 'right') }}
+                title={isRightDock ? 'Dock to bottom' : 'Dock to right'}
+                aria-label={isRightDock ? 'Dock to bottom' : 'Dock to right'}
+                className="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+                style={{ cursor: 'pointer' }}
+              >
+                {isRightDock ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                    <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v7.5h13V4.25a.75.75 0 0 0-.75-.75H4.25ZM3.5 13.25v2.5c0 .414.336.75.75.75h11.5a.75.75 0 0 0 .75-.75v-2.5h-13Z" clipRule="evenodd" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                    <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v11.5A2.25 2.25 0 0 1 15.75 18H4.25A2.25 2.25 0 0 1 2 15.75V4.25ZM4.25 3.5a.75.75 0 0 0-.75.75v11.5c0 .414.336.75.75.75h7.5V3.5H4.25Zm9 0v13h2.5a.75.75 0 0 0 .75-.75V4.25a.75.75 0 0 0-.75-.75h-2.5Z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </button>
+            </>
+          )}
+          <span className="shrink-0 text-xs text-text-secondary">
             {isPanelCollapsed ? 'Cmd+J to expand' : 'Cmd+J'}
           </span>
           <button
