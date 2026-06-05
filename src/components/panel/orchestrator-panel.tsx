@@ -313,15 +313,20 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             togglePanel()
           }
         }}
-        className={`relative flex items-center justify-between px-3 py-1.5 select-none transition-colors ${
-          isPanelCollapsed ? 'hover:bg-surface-hover/60' : ''
+        className={`relative flex items-center justify-between gap-2 px-3 py-1.5 select-none transition-colors ${
+          isPanelCollapsed ? 'hover:bg-surface-hover/60' : 'border-b border-border-default'
         }`}
         style={{ cursor: 'pointer' }}
       >
-        {/* Left: History + Files buttons */}
-        <div className="flex items-center gap-1">
+        {/* Left: identity + sidebar toggles + view tabs */}
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-sm font-medium text-text-primary shrink-0">Chef</span>
+          {isProcessing && (
+            <ProcessingIndicator startTime={chat.streaming.startTime} />
+          )}
           {!isPanelCollapsed && (
             <>
+              <div className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
                 onClick={() => { setSidebarMode(sidebarMode === 'history' ? null : 'history') }}
@@ -373,15 +378,15 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   <path fillRule="evenodd" d="M1 2.75A.75.75 0 0 1 1.75 2h16.5a.75.75 0 0 1 0 1.5H18v8.75A2.75 2.75 0 0 1 15.25 15h-1.072l.798 3.06a.75.75 0 0 1-1.452.38L13.41 18H6.59l-.114.44a.75.75 0 0 1-1.452-.38L5.823 15H4.75A2.75 2.75 0 0 1 2 12.25V3.5h-.25A.75.75 0 0 1 1 2.75ZM7.373 15l-.391 1.5h6.036l-.392-1.5H7.373ZM13 7.5a.5.5 0 0 0-1 0v4a.5.5 0 0 0 1 0v-4Zm-3 2a.5.5 0 0 0-1 0v2a.5.5 0 0 0 1 0v-2Zm-2.5 1a.5.5 0 0 1 .5.5v.5a.5.5 0 0 1-1 0v-.5a.5.5 0 0 1 .5-.5Z" clipRule="evenodd" />
                 </svg>
               </button>
+              </div>
+              <div className="h-4 w-px shrink-0 bg-border-default" aria-hidden="true" />
+              <PanelTabs
+                aria-label="Orchestrator views"
+                value={viewMode}
+                onChange={setViewMode}
+                tabs={ORCHESTRATOR_TABS}
+              />
             </>
-          )}
-        </div>
-
-        {/* Center: Chef title + processing indicator */}
-        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
-          <span className="text-sm font-medium text-text-primary">Chef</span>
-          {isProcessing && (
-            <ProcessingIndicator startTime={chat.streaming.startTime} />
           )}
         </div>
 
@@ -488,19 +493,9 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               />
             )}
 
-            {/* Main chat / terminal area */}
+            {/* Main chat / terminal area (view switch lives in the header) */}
             <ChatErrorBoundary panelName="Orchestrator Chat">
               <div className="flex flex-1 flex-col overflow-hidden">
-                {/* Chat ↔ Terminal toggle */}
-                <div className="border-b border-border-default px-2 py-1">
-                  <PanelTabs
-                    aria-label="Orchestrator views"
-                    value={viewMode}
-                    onChange={setViewMode}
-                    tabs={ORCHESTRATOR_TABS}
-                  />
-                </div>
-
                 {viewMode === 'terminal' ? (
                   <OrchestratorTerminalView workspaceId={workspaceId} />
                 ) : viewMode === 'files' ? (

@@ -94,7 +94,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
-        .manage(session_registry);
+        .manage(session_registry)
+        // Tracks in-flight orchestrator API streams so they can be aborted.
+        // Required by `stream_orchestrator_chat` — without this the command
+        // panics with "state not managed for field `apiStreamRegistry`".
+        .manage(crate::commands::orchestrator::ApiStreamRegistry::default());
 
     #[cfg(feature = "webdriver")]
     {
