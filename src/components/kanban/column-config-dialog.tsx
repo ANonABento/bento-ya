@@ -222,7 +222,7 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
                 {t.charAt(0).toUpperCase() + t.slice(1)}
                 {tab === t && (
                   <motion.div
-                    layoutId="tab-indicator"
+                    layoutId="column-config-tab-indicator"
                     className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent"
                   />
                 )}
