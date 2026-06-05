@@ -26,6 +26,11 @@ const xtermMock = vi.hoisted(() => {
     open = vi.fn()
     dispose = vi.fn()
     scrollToBottom = vi.fn()
+    attachCustomKeyEventHandler = vi.fn()
+    getSelection = vi.fn(() => '')
+    clearSelection = vi.fn()
+    clear = vi.fn()
+    focus = vi.fn()
 
     constructor(options: Record<string, unknown>) {
       this.options = options
@@ -223,5 +228,49 @@ describe('TerminalView', () => {
     expect(await screen.findByText('No live terminal session')).toBeInTheDocument()
     expect(screen.queryByText('Spawning terminal')).not.toBeInTheDocument()
     expect(xtermMock.instances[0]?.writes).toEqual([])
+  })
+
+  // jsdom's userAgent isn't a Mac, so the handler uses the Ctrl+Shift bindings.
+  function keyHandler() {
+    const term = xtermMock.instances[0]
+    if (!term) throw new Error('expected terminal instance')
+    const handler = term.attachCustomKeyEventHandler.mock.calls[0]?.[0] as
+      | ((e: Partial<KeyboardEvent>) => boolean)
+      | undefined
+    if (!handler) throw new Error('expected a custom key handler')
+    return { term, handler }
+  }
+
+  it('opens the search box on Ctrl+Shift+F', async () => {
+    render(<TerminalView taskId="task-1" workingDir="/tmp/worktree" />)
+    await waitFor(() => { expect(ensurePtySession).toHaveBeenCalled() })
+
+    expect(screen.queryByTestId('agent-terminal-search')).not.toBeInTheDocument()
+    const { handler } = keyHandler()
+    let result: boolean | undefined
+    act(() => {
+      result = handler({ type: 'keydown', ctrlKey: true, shiftKey: true, key: 'f' })
+    })
+    // Returning false stops xterm forwarding the key to the PTY.
+    expect(result).toBe(false)
+    expect(screen.getByTestId('agent-terminal-search')).toBeInTheDocument()
+  })
+
+  it('copies the selection on Ctrl+Shift+C and leaves SIGINT alone with no selection', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+
+    render(<TerminalView taskId="task-1" workingDir="/tmp/worktree" />)
+    await waitFor(() => { expect(ensurePtySession).toHaveBeenCalled() })
+    const { term, handler } = keyHandler()
+
+    // With a selection → copy + consume the key.
+    term.getSelection.mockReturnValue('selected text')
+    expect(handler({ type: 'keydown', ctrlKey: true, shiftKey: true, key: 'c' })).toBe(false)
+    expect(writeText).toHaveBeenCalledWith('selected text')
+
+    // With no selection → pass through (so a bare Ctrl+C SIGINT is unaffected).
+    term.getSelection.mockReturnValue('')
+    expect(handler({ type: 'keydown', ctrlKey: true, shiftKey: true, key: 'c' })).toBe(true)
   })
 })
