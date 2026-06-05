@@ -8,6 +8,9 @@ import { useAgentTranscriptStore } from '@/stores/agent-transcript-store'
 import { holdTask, killTaskSession } from '@/lib/ipc/agent'
 import { agentInjectMessage, agentRestart, interactiveModeDevFlag } from '@/lib/ipc/agent-interactive'
 import { setTaskRuntimeModeOverride } from '@/lib/ipc/task'
+import { PanelTabs, type PanelTab } from '@/components/shared/panel-tabs'
+import { ActivityIcon, TerminalIcon, ChangesIcon, FilesIcon } from '@/components/shared/tab-icons'
+import { WorkspaceFilesView } from './workspace-files-view'
 import { signalPtyInterrupt } from '@/lib/ipc/terminal'
 import { useResolvedRuntimeMode } from '@/hooks/use-resolved-runtime-mode'
 import { useTaskDetail } from '@/hooks/use-task-detail'
@@ -26,7 +29,7 @@ type AgentPanelProps = {
   onClose?: () => void
 }
 
-type PanelView = 'activity' | 'terminal' | 'changes'
+type PanelView = 'activity' | 'terminal' | 'changes' | 'files'
 
 /**
  * Dispatch the agent panel by resolved runtime mode.
@@ -229,29 +232,13 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
           </>
         }
         viewSlot={
-          <div className="inline-flex min-w-0 shrink-0 items-center gap-1">
-            <ViewButton
-              active={activeView === 'activity'}
-              onClick={() => { setActiveView('activity') }}
-              testId="agent-panel-tab-transcript"
-            >
-              Activity
-            </ViewButton>
-            <ViewButton
-              active={activeView === 'terminal'}
-              onClick={() => { setActiveView('terminal') }}
-              testId="agent-panel-tab-terminal"
-            >
-              Terminal
-            </ViewButton>
-            <ViewButton
-              active={activeView === 'changes'}
-              onClick={() => { setActiveView('changes') }}
-              testId="agent-panel-tab-changes"
-            >
-              Changes
-            </ViewButton>
-          </div>
+          <PanelTabs
+            className="shrink-0"
+            aria-label="Agent panel views"
+            value={activeView}
+            onChange={setActiveView}
+            tabs={AGENT_PANEL_TABS}
+          />
         }
         errorSlot={
           session.error ? (
@@ -312,7 +299,7 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
             workingDir={workingDir}
             allowSpawn={isAgentRunning}
           />
-        ) : (
+        ) : activeView === 'changes' ? (
           <div className="h-full overflow-auto bg-bg p-2" data-testid="agent-panel-changes-view">
             <div className="space-y-2">
               <DiffSection
@@ -336,6 +323,8 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
               </div>
             </div>
           </div>
+        ) : (
+          <WorkspaceFilesView workspaceId={task.workspaceId} />
         )}
       </div>
     </div>
@@ -711,36 +700,12 @@ function RuntimeModeToggle({ task }: { task: Task }) {
   )
 }
 
-function ViewButton({
-  active,
-  onClick,
-  children,
-  testId,
-}: {
-  active: boolean
-  onClick: () => void
-  children: ReactNode
-  testId: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      data-testid={testId}
-      className={`relative inline-flex min-w-0 items-center gap-1.5 px-2 py-1.5 text-[11px] font-medium transition-colors ${
-        active
-          ? 'text-text-primary'
-          : 'text-text-secondary hover:text-text-primary'
-      }`}
-      style={{ cursor: 'pointer' }}
-    >
-      <span className="truncate">{children}</span>
-      {active && (
-        <span className="absolute inset-x-2 bottom-0 h-px rounded-full bg-accent" aria-hidden="true" />
-      )}
-    </button>
-  )
-}
+const AGENT_PANEL_TABS: readonly PanelTab<PanelView>[] = [
+  { value: 'activity', label: 'Activity', icon: <ActivityIcon />, testId: 'agent-panel-tab-transcript' },
+  { value: 'terminal', label: 'Terminal', icon: <TerminalIcon />, testId: 'agent-panel-tab-terminal' },
+  { value: 'changes', label: 'Changes', icon: <ChangesIcon />, testId: 'agent-panel-tab-changes' },
+  { value: 'files', label: 'Files', icon: <FilesIcon />, testId: 'agent-panel-tab-files' },
+]
 
 function HoldIcon() {
   return (

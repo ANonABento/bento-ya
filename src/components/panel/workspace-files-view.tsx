@@ -1,10 +1,10 @@
 /**
- * Orchestrator Files view — a workspace-level markdown/plan viewer that sits
- * alongside Chat and Terminal in the orchestrator panel. Master-detail: the
- * file tree (context / tickets / notes) on the left, a rendered preview on the
- * right. Reuses the same `scan_workspace_files` / `read_file_content` IPC and
- * components as the sidebar files browser — just laid out for the wider main
- * area so plans are comfortable to read next to the terminal.
+ * Workspace Files view — a workspace-level markdown/plan viewer. Master-detail:
+ * the file tree (context / tickets / notes) on the left, a rendered preview on
+ * the right. Reuses the same `scan_workspace_files` / `read_file_content` IPC
+ * and components as the sidebar files browser — just laid out for the wider
+ * main area so plans are comfortable to read next to the terminal. Shared by
+ * the orchestrator panel and the per-task agent panel (both pass a workspaceId).
  */
 
 import { useState } from 'react'
@@ -14,13 +14,13 @@ import { useWorkspaceFiles } from '@/hooks/use-workspace-files'
 import { EmptyState } from '@/components/shared/empty-state'
 import type { FileEntry } from '@/lib/ipc'
 
-export function OrchestratorFilesView({ workspaceId }: { workspaceId: string }) {
+export function WorkspaceFilesView({ workspaceId }: { workspaceId: string }) {
   const { groupedFiles, loading, refresh } = useWorkspaceFiles(workspaceId)
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null)
 
   return (
     <div
-      data-testid="orchestrator-files-view"
+      data-testid="workspace-files-view"
       className="flex min-h-0 flex-1 overflow-hidden"
     >
       {/* Left: file tree */}
