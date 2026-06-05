@@ -292,9 +292,14 @@ async fn handle_bridge_event(
                 None,
                 runtime_event,
             );
-            let _ = app.emit(
-                &format!("pty:{}:exit", task_id),
-                serde_json::json!({ "task_id": task_id, "exit_code": exit_code }),
+            // Use the typed helper so the payload stays camelCase in lockstep
+            // with the other `pty:{taskId}:exit` emitter (events::emit_pty_exit).
+            crate::events::emit_pty_exit(
+                app,
+                crate::events::PtyExitPayload {
+                    task_id: task_id.to_string(),
+                    exit_code: *exit_code,
+                },
             );
             let _ = app.emit(
                 "agent:complete",

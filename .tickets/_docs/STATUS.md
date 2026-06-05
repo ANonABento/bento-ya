@@ -2,6 +2,11 @@
 
 > Last updated: 2026-04-05
 >
+> ⚠️ **Currency note (2026-06-05):** the tiers below predate the source-of-truth
+> refactor (Fronts 1–3) and the terminal-harness B-series (B1–B4), which have all
+> since landed. For the authoritative "what's done / what's left" picture see
+> [`handoffs/REMAINING_WORK.md`](./handoffs/REMAINING_WORK.md).
+>
 > See also: [ARCHITECTURE.md](./ARCHITECTURE.md) for system overview
 
 ## Summary

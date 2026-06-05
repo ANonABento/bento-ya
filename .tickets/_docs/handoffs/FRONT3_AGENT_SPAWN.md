@@ -1,10 +1,20 @@
 # Handoff — Front 3: Unify the agent-spawn path (one `ResolvedAgentSpawn`)
 
-> **Status:** not started. This is the third and deepest leg of the
-> "single source of truth" refactor. Fronts 1 (task mutations) and 2 (entity
-> ops) are landed and green — see `git log` and the existing
-> `pipeline::create_task_service` / `move_task_service` / `update_task_service`
-> for the established pattern this front should mirror.
+> **Status: ✅ substantially complete (2026-06-05).** Step 1 (the
+> `ResolvedAgentSpawn` resolver) is landed: `pipeline::spawn::resolve()` plus the
+> shared `model_to_args` (b), `resolve_working_dir` (c), `task_md_default_prompt`
+> (d) helpers, and `persist_agent_session_started` for the agent_session writes
+> (e). The latent empty-`workspace_id` emit bug (e) is fixed across all
+> trigger-lifecycle emits. Helper names were disambiguated (2026-06-05) so the
+> remaining "duplication" reads as the by-design split it is.
+>
+> **What remains is optional and was judged not worth the risk:** Step 2 (collapse
+> the two argv families — terminal shell-string vs managed adapter args) touches
+> the live headless render for negative clarity gain, since the families encode
+> different sandbox/approval contracts. The full per-path agent_session-helper
+> merge (e) is similarly blocked by genuine reuse-vs-fresh / managed-vs-interactive
+> differences. Don't force a DRY merge there. The original plan follows for
+> reference.
 
 ## Why this exists
 

@@ -15,7 +15,7 @@ src/                                   src-tauri/src/
 │   ├── shared/      Reusable atoms    ├── pipeline/        ← Trigger engine
 │   ├── layout/      App shell         ├── chat/            ← tmux transport + bridge
 │   └── ...          Feature panels    ├── llm/             ← LLM integration
-├── hooks/                             ├── discord/         ← Discord bridge
+├── hooks/                             ├── config/          ← Settings + feature flags
 │   ├── chat-session/  Unified chat    ├── whisper/         ← Voice transcription
 │   └── use-*.ts       Feature hooks   └── git/             ← Git operations
 ├── stores/            Zustand state

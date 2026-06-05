@@ -1,6 +1,12 @@
 # KaitenCode Next Steps
 
 > Updated: 2026-05-08.
+>
+> ⚠️ **Currency note (2026-06-05):** the terminal-harness B-series (B1–B4) and
+> Front 3 (agent-spawn) referenced as pending have all landed. The current
+> open-work list lives in [`handoffs/REMAINING_WORK.md`](./handoffs/REMAINING_WORK.md)
+> (MCP bugs #3/#4, A2 casing, codex interactive verification, C-section product
+> gaps).
 
 ## Current State
 

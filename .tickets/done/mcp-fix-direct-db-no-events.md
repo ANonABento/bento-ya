@@ -1,5 +1,14 @@
 # MCP `mark_complete` / `add_dependency` / `remove_dependency` bypass the API → stale UI
 
+> ✅ **RESOLVED (verified 2026-06-05).** Fixed via option A. The routes
+> `/api/mark_complete` and `/api/set_dependencies` exist (the latter serves both
+> add/remove). `handle_mark_complete`, `handle_add_dependency`, and
+> `handle_remove_dependency` all `api_call(...)` first and fall back to direct DB
+> only under `allow_db_fallback()`. The API handlers emit `tasks:changed`
+> (`mark_complete_with_error`; `dependencies::set_task_dependencies`), so the UI
+> refreshes live. The `require_app()` check on `mark_complete` is now accurate.
+> Original ticket kept below for history.
+
 Found during MCP dogfood audit, 2026-05-12. See `.tickets/_docs/MCP_DOGFOOD_REPORT.md`.
 
 ## Symptom
