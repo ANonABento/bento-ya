@@ -66,7 +66,12 @@ outcome (no DB write) and let the caller loop — which *has* `app` — call
 the new outcome / test `move_task_to_column` directly. Medium effort; **best done
 as part of Front 3** since it shares the same `app`-threading constraint.
 
-### A2. Event-payload casing — `pty:{taskId}:exit` (tiny) — 🔲 STILL OPEN
+### A2. Event-payload casing — `pty:{taskId}:exit` (tiny) — ✅ DONE (2026-06-05)
+`PtyExitPayload` now has `#[serde(rename_all = "camelCase")]`; the frontend reads
+`payload.exitCode`. The second (raw-`json!`) emitter in `bridge.rs` was routed
+through the typed `events::emit_pty_exit` helper so the two emit sites can't drift
+again. The broader `agent:*` / `pipeline:step_progress` raw-`json!` typing remains
+a low-urgency follow-up. Original notes below.
 `PtyExitPayload` in `events.rs` has **no `#[serde(rename_all = "camelCase")]`**,
 so it emits snake_case `exit_code`. It works today only because the frontend
 reads `payload.exit_code` (`terminal-view.tsx`). It's the one event violating the
@@ -196,14 +201,14 @@ ticket each:
 ## Suggested order for the next agent(s)
 ~~Front 3, B1, B2, B3, B4~~ — **all landed (2026-06-05).** What's left, roughly
 by leverage:
-1. **MCP bug #3** (`mcp-fix-direct-db-no-events.md`) — route
-   `mark_complete`/`add_dependency`/`remove_dependency` through the API so they
-   emit `tasks:changed`. Small, scoped, removes a stale-UI footgun.
-2. **MCP bug #4** (`mcp-add-source-attribution.md`) — source attribution +
-   recursion guard on agent-spawned tasks (safety). Needs a migration.
-3. **A2** — `pty:{taskId}:exit` snake_case casing (tiny: add the serde rename +
-   one frontend read).
+1. ~~**MCP bug #3**~~ ✅ already done — all three handlers route through
+   `/api/mark_complete` + `/api/set_dependencies`, which emit `tasks:changed`
+   (verified 2026-06-05; ticket moved to `done/`).
+2. ~~**A2** — `pty:{taskId}:exit` casing~~ ✅ done 2026-06-05.
+3. **MCP bug #4** (`mcp-add-source-attribution.md`) — source attribution +
+   recursion guard on agent-spawned tasks (safety). Needs a migration. **The next
+   real chunk of work.**
 4. **B2 codex verification** — confirm codex `--resume` + `--append-system-prompt`
-   actually work in interactive mode.
+   actually work in interactive mode (needs the app + a codex binary).
 5. **C-section product gaps** — inert keyboard shortcuts, multi-provider stubs,
    `thinking_level` as a first-class attribute, voice un-gating.

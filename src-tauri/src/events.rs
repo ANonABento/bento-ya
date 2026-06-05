@@ -43,6 +43,7 @@ pub struct PtyOutputPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PtyExitPayload {
     pub task_id: String,
     pub exit_code: Option<i32>,

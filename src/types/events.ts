@@ -21,8 +21,8 @@ export interface PtyOutputPayload {
 }
 
 export interface PtyExitPayload {
-  task_id: string
-  exit_code: number | null
+  taskId: string
+  exitCode: number | null
 }
 
 export type AgentTranscriptEventType =

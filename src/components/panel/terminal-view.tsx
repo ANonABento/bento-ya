@@ -185,7 +185,7 @@ export function TerminalView({ taskId, workingDir, allowSpawn = true, ensure = e
     listenerPromises.push(
       listen<PtyExitPayload>(EventChannels.ptyExit(taskId), (payload) => {
         if (disposed) return
-        const code = String(payload.exit_code ?? 0)
+        const code = String(payload.exitCode ?? 0)
         term.write(`\r\n\x1b[90m--- Process exited (code ${code}) ---\x1b[0m\r\n`)
       }),
     )
