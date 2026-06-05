@@ -57,6 +57,29 @@ A tight script for showing KaitenCode live to a recruiter, on a **real project**
 
 ---
 
+## 3a. Demoing on **slothing** (the recommended board)
+
+slothing is already a real, working pipeline — use it as-is; don't rebuild it.
+
+**The pipeline (left → right):** `Icebox → Setup → Plan → Working → Verify → Merge main → Done`
+- **Working** auto-spawns a real agent on entry: `claude` / sonnet / effort max, prompt `Implement: {task.title}`, `auto_advance`, exits on `agent_complete` (max 2 retries). This is your money shot — drag a task in and an agent starts working in a live tmux session.
+- **Done** fires a `discord-notify` script on entry — a clean "and it notifies the team automatically" talking point.
+- **Done** already holds ~40 completed tasks — real history that shows the tool has actually been used, not a toy.
+- **Icebox/Plan** hold real launch work (`[CLAUDE APP]`, `[CLAUDE QA]`, `[CLAUDE SEC]`, the public-launch redesign) — point at these to show the kind of work it drives.
+
+**Cleanup before you present (2 min):**
+- The `write a poem about …` tasks in Working/Verify are test artifacts — move them to Done or delete them so the board reads professionally.
+- Optionally remove the **bento-ya** workspace so only slothing shows (workspace tab → delete; *destructive — it cascades its columns/tasks*, so only do it if you don't need that board).
+
+**Slothing-specific flow:**
+1. Open slothing → show the 7-stage pipeline and the 40-deep Done column.
+2. Chef **Chat** → "create a task to <small real thing>" → watch it land on the board.
+3. Drag a fresh task into **Working** → flip to its **Terminal** tab → the `claude` agent is implementing it live.
+4. **Files → Browse** → open a real slothing source file (syntax-highlighted) or **Plans** → `.tickets`/`.context`; hit **Open** to jump into VS Code.
+5. Mention the **Done → discord-notify** automation and `auto_advance` exit criteria as the "it runs itself" close.
+
+---
+
 ## 4. If something breaks live
 
 - **Chef chat errors** → reopen the panel; if persistent, fall back to dragging a task to trigger an agent instead.
