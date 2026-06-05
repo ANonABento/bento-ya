@@ -21,10 +21,11 @@ export function WorkspaceFilesView({ workspaceId }: { workspaceId: string }) {
   return (
     <div
       data-testid="workspace-files-view"
-      className="flex min-h-0 flex-1 overflow-hidden"
+      className="@container/files flex min-h-0 flex-1 overflow-hidden"
     >
-      {/* Left: file tree */}
-      <div className="flex w-60 shrink-0 flex-col border-r border-border-default">
+      {/* Left: file tree — narrower in tight panels (agent panel), roomier when
+          the container is wide (orchestrator) so the preview always has space. */}
+      <div className="flex w-44 shrink-0 flex-col border-r border-border-default @lg/files:w-60">
         <div className="flex items-center justify-between border-b border-border-default px-2 py-1">
           <span className="text-[11px] font-medium text-text-secondary">Plans &amp; files</span>
           <button

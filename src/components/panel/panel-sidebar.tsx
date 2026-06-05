@@ -1,17 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import type { ChatSession, FileEntry } from '@/lib/ipc'
-import { useWorkspaceFiles } from '@/hooks/use-workspace-files'
-import { FilesTree } from './files-tree'
-import { FilePreview } from './file-preview'
+import type { ChatSession } from '@/lib/ipc'
 
-type SidebarMode = 'history' | 'files' | null
+// Files now live in the dedicated Files tab (WorkspaceFilesView); the sidebar
+// is history-only to avoid two overlapping files affordances.
+type SidebarMode = 'history' | null
 
 type PanelSidebarProps = {
   mode: SidebarMode
   sessions: ChatSession[]
   activeSessionId?: string
-  workspaceId: string
   isCurrentChatEmpty?: boolean
   onNewChat?: () => void
   onSelectSession?: (session: ChatSession) => void
@@ -21,7 +19,6 @@ type PanelSidebarProps = {
 // Different constraints per mode
 const SIDEBAR_CONFIG = {
   history: { min: 160, max: 280, default: 200 },
-  files: { min: 200, max: 600, default: 280 },
 } as const
 
 const STORAGE_KEY = 'chef-sidebar-widths'
@@ -47,7 +44,6 @@ export function PanelSidebar({
   mode,
   sessions,
   activeSessionId,
-  workspaceId,
   isCurrentChatEmpty,
   onNewChat,
   onSelectSession,
@@ -120,24 +116,18 @@ export function PanelSidebar({
           <div className="flex flex-1 flex-col overflow-hidden">
             {/* Header */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
-              <span className="text-xs font-medium text-text-secondary">
-                {mode === 'history' ? 'History' : 'Files'}
-              </span>
+              <span className="text-xs font-medium text-text-secondary">History</span>
             </div>
 
             {/* Content */}
-            {mode === 'history' ? (
-              <HistoryContent
-                sessions={sessions}
-                activeSessionId={activeSessionId}
-                isCurrentChatEmpty={isCurrentChatEmpty}
-                onNewChat={onNewChat}
-                onSelectSession={onSelectSession}
-                onDeleteSession={onDeleteSession}
-              />
-            ) : (
-              <FilesContent workspaceId={workspaceId} />
-            )}
+            <HistoryContent
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              isCurrentChatEmpty={isCurrentChatEmpty}
+              onNewChat={onNewChat}
+              onSelectSession={onSelectSession}
+              onDeleteSession={onDeleteSession}
+            />
           </div>
 
           {/* Resize handle - outside overflow container */}
@@ -229,42 +219,5 @@ function HistoryContent({
         )}
       </div>
     </>
-  )
-}
-
-// Files sidebar content with tree and preview
-function FilesContent({ workspaceId }: { workspaceId: string }) {
-  const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null)
-
-  // Fetch files for the workspace
-  const { groupedFiles, loading } = useWorkspaceFiles(workspaceId)
-
-  const handleSelectFile = useCallback((file: FileEntry) => {
-    setSelectedFile(file)
-  }, [])
-
-  const handleClosePreview = useCallback(() => {
-    setSelectedFile(null)
-  }, [])
-
-  // Show preview when a file is selected
-  if (selectedFile) {
-    return (
-      <div className="flex-1 overflow-hidden">
-        <FilePreview workspaceId={workspaceId} file={selectedFile} onClose={handleClosePreview} />
-      </div>
-    )
-  }
-
-  // Show file tree
-  return (
-    <div className="flex-1 overflow-y-auto p-2">
-      <FilesTree
-        groupedFiles={groupedFiles}
-        selectedFile={selectedFile}
-        onSelectFile={handleSelectFile}
-        loading={loading}
-      />
-    </div>
   )
 }
