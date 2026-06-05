@@ -417,6 +417,42 @@ pub fn list_workspace_dir(
     list_dir_in_root(&root, rel_path.as_deref().unwrap_or(""))
 }
 
+/// Open a workspace file in an external editor — VS Code if available, else the
+/// OS default opener. Path is validated to stay inside the workspace root.
+#[tauri::command(rename_all = "camelCase")]
+pub fn open_in_editor(
+    state: State<AppState>,
+    workspace_id: String,
+    file_path: String,
+) -> Result<(), AppError> {
+    let root = state_workspace_root(state, &workspace_id)?;
+    let relative = ensure_relative_workspace_path(&file_path)?;
+    let abs = ensure_path_in_workspace(&root, &root.join(relative))?;
+    let abs = abs.to_string_lossy().to_string();
+
+    fn spawned(cmd: &str, args: &[&str]) -> bool {
+        std::process::Command::new(cmd).args(args).spawn().is_ok()
+    }
+
+    // Prefer VS Code; fall back to the OS default handler for the file.
+    if spawned("code", &["--reuse-window", &abs]) {
+        return Ok(());
+    }
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(target_os = "windows") {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    if spawned(opener, &[&abs]) {
+        return Ok(());
+    }
+    Err(AppError::InvalidInput(
+        "Couldn't open the file — install the `code` CLI or set a default editor.".to_string(),
+    ))
+}
+
 /// Open the native file picker and read the selected attachment files.
 #[tauri::command]
 pub async fn pick_attachment_files(app: AppHandle) -> Result<Vec<AttachmentFile>, AppError> {

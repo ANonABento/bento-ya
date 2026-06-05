@@ -336,6 +336,7 @@ pub fn run() {
             commands::files::scan_workspace_files,
             commands::files::read_file_content,
             commands::files::list_workspace_dir,
+            commands::files::open_in_editor,
             commands::files::create_note_file,
             commands::files::pick_attachment_files,
             // Script commands

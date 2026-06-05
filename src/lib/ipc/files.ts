@@ -43,6 +43,11 @@ export async function listWorkspaceDir(
   return invoke<DirEntry[]>('list_workspace_dir', { workspaceId, relPath })
 }
 
+/** Open a workspace file in VS Code (or the OS default editor). */
+export async function openInEditor(workspaceId: string, filePath: string): Promise<void> {
+  await invoke('open_in_editor', { workspaceId, filePath })
+}
+
 export async function createNoteFile(
   workspaceId: string,
   filename: string,
