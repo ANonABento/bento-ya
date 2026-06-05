@@ -20,6 +20,8 @@ type PanelTabsProps<T extends string> = {
   onChange: (value: T) => void
   /** Extra classes for the row container (e.g. border-b, padding). */
   className?: string
+  /** Icon-only (label as tooltip) — for tight headers like the agent panel. */
+  iconOnly?: boolean
   'aria-label'?: string
 }
 
@@ -28,6 +30,7 @@ export function PanelTabs<T extends string>({
   value,
   onChange,
   className = '',
+  iconOnly = false,
   'aria-label': ariaLabel,
 }: PanelTabsProps<T>) {
   return (
@@ -43,17 +46,19 @@ export function PanelTabs<T extends string>({
             key={tab.value}
             type="button"
             aria-pressed={active}
+            aria-label={iconOnly ? tab.label : undefined}
+            title={iconOnly ? tab.label : undefined}
             data-testid={tab.testId}
             onClick={() => { onChange(tab.value) }}
-            className={`relative inline-flex min-w-0 items-center gap-1.5 px-2 py-1.5 text-[11px] font-medium transition-colors ${
-              active ? 'text-text-primary' : 'text-text-secondary hover:text-text-primary'
-            }`}
+            className={`relative inline-flex min-w-0 items-center gap-1.5 py-1.5 text-[11px] font-medium transition-colors ${
+              iconOnly ? 'px-1.5' : 'px-2'
+            } ${active ? 'text-text-primary' : 'text-text-secondary hover:text-text-primary'}`}
             style={{ cursor: 'pointer' }}
           >
             {tab.icon}
-            <span className="truncate">{tab.label}</span>
+            {!iconOnly && <span className="truncate">{tab.label}</span>}
             {active && (
-              <span className="absolute inset-x-2 bottom-0 h-px rounded-full bg-accent" aria-hidden="true" />
+              <span className="absolute inset-x-1 bottom-0 h-px rounded-full bg-accent" aria-hidden="true" />
             )}
           </button>
         )

@@ -234,6 +234,7 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
         viewSlot={
           <PanelTabs
             className="shrink-0"
+            iconOnly
             aria-label="Agent panel views"
             value={activeView}
             onChange={setActiveView}
@@ -589,16 +590,15 @@ function PanelHeader({
             </button>
           )}
 
+          {/* Icon-only view tabs sit on the top row next to the close icon. */}
+          {viewSlot}
+
           <div className="min-w-0 flex-1" />
 
           <div className="inline-flex shrink-0 items-center gap-1 text-xs">
             {rightSlot}
           </div>
       </div>
-
-      {/* View tabs on their own full-width row so they never clip the runtime
-          controls (the agent panel is narrow). Mirrors the orchestrator. */}
-      {viewSlot && <div className="px-2 pb-1">{viewSlot}</div>}
 
       {errorSlot && <div className="px-3 pb-2">{errorSlot}</div>}
     </div>
