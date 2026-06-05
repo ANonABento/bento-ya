@@ -31,13 +31,35 @@ type TerminalViewProps = {
   ensure?: EnsureSessionFn
 }
 
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent)
+
 export function TerminalView({ taskId, workingDir, allowSpawn = true, ensure = ensurePtySession }: TerminalViewProps) {
   const terminalHostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
+  const searchAddonRef = useRef<SearchAddon | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const shouldStickToBottomRef = useRef(true)
   const [hasOutput, setHasOutput] = useState(false)
   const [missingSession, setMissingSession] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const runSearch = (query: string, direction: 'next' | 'prev', incremental = false) => {
+    const addon = searchAddonRef.current
+    if (!addon || !query) return
+    const opts = { incremental, caseSensitive: false }
+    if (direction === 'next') addon.findNext(query, opts)
+    else addon.findPrevious(query, opts)
+  }
+
+  const closeSearch = () => {
+    setSearchOpen(false)
+    setSearchQuery('')
+    searchAddonRef.current?.clearDecorations()
+    termRef.current?.clearSelection()
+    termRef.current?.focus()
+  }
   const terminalSettings = useSettingsStore((s) => s.global.terminal)
   const fontSize = sanitizeNumber(terminalSettings.fontSize, 12, 10, 24)
   const lineHeight = lineHeightRatio(terminalSettings.lineHeight, fontSize)
@@ -80,6 +102,44 @@ export function TerminalView({ taskId, workingDir, allowSpawn = true, ensure = e
     term.unicode.activeVersion = '11'
     termRef.current = term
     fitAddonRef.current = fitAddon
+    searchAddonRef.current = searchAddon
+
+    // Standard terminal-emulator shortcuts. On macOS the Cmd modifier is free
+    // (Ctrl+C stays SIGINT); elsewhere we use Ctrl+Shift so a bare Ctrl+C still
+    // interrupts. Returning false stops xterm forwarding the key to the PTY.
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true
+      const mod = IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && e.shiftKey
+      if (!mod) return true
+      const key = e.key.toLowerCase()
+      if (key === 'f') {
+        setSearchOpen(true)
+        return false
+      }
+      if (key === 'c') {
+        // Copy the selection if there is one; otherwise let it through (so a
+        // bare macOS Cmd+C with no selection is a harmless no-op, and Ctrl+C
+        // SIGINT on Linux never reaches here since we require Shift).
+        const selection = term.getSelection()
+        if (selection) {
+          void navigator.clipboard.writeText(selection)
+          return false
+        }
+        return true
+      }
+      if (key === 'v') {
+        void navigator.clipboard
+          .readText()
+          .then((text) => { if (text && !disposed) void writeToPty(taskId, text) })
+          .catch(() => { /* clipboard read unavailable — native paste still covers Cmd+V */ })
+        return false
+      }
+      if (key === 'k') {
+        term.clear()
+        return false
+      }
+      return true
+    })
 
     // Open terminal into DOM
     term.open(container)
@@ -309,8 +369,20 @@ export function TerminalView({ taskId, workingDir, allowSpawn = true, ensure = e
       term.dispose()
       if (termRef.current === term) termRef.current = null
       if (fitAddonRef.current === fitAddon) fitAddonRef.current = null
+      if (searchAddonRef.current === searchAddon) searchAddonRef.current = null
     }
   }, [allowSpawn, ensure, fontSize, lineHeight, scrollback, taskId, workingDir])
+
+  // Reset the search box when switching to a different terminal session.
+  useEffect(() => {
+    setSearchOpen(false)
+    setSearchQuery('')
+  }, [taskId])
+
+  // Focus the search input when the box opens.
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus()
+  }, [searchOpen])
 
   return (
     <div
@@ -319,6 +391,57 @@ export function TerminalView({ taskId, workingDir, allowSpawn = true, ensure = e
       aria-label="Agent terminal"
       className="relative flex h-full min-h-0 flex-col overflow-hidden bg-bg"
     >
+      {searchOpen && (
+        <div
+          data-testid="agent-terminal-search"
+          className="absolute right-3 top-2 z-10 flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 shadow-lg"
+        >
+          <input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value)
+              runSearch(e.target.value, 'next', true)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                runSearch(searchQuery, e.shiftKey ? 'prev' : 'next')
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                closeSearch()
+              }
+            }}
+            placeholder="Find"
+            aria-label="Search terminal"
+            className="w-40 bg-transparent text-xs text-text outline-none placeholder:text-text-secondary/60"
+          />
+          <button
+            type="button"
+            onClick={() => { runSearch(searchQuery, 'prev') }}
+            aria-label="Previous match"
+            className="rounded px-1 text-text-secondary hover:text-text"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            onClick={() => { runSearch(searchQuery, 'next') }}
+            aria-label="Next match"
+            className="rounded px-1 text-text-secondary hover:text-text"
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            onClick={closeSearch}
+            aria-label="Close search"
+            className="rounded px-1 text-text-secondary hover:text-text"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-hidden" style={{ padding: '4px 8px' }}>
         <div ref={terminalHostRef} data-testid="agent-terminal-host" className="agent-terminal-host h-full min-h-0 w-full overflow-hidden" />
       </div>
