@@ -9,6 +9,13 @@ export type FileEntry = {
   modifiedAt: number
 }
 
+export type DirEntry = {
+  /** Path relative to the workspace root, forward-slashed. */
+  path: string
+  name: string
+  isDir: boolean
+}
+
 export type AttachmentFile = {
   path: string
   name: string
@@ -25,6 +32,15 @@ export async function scanWorkspaceFiles(workspaceId: string): Promise<FileEntry
 
 export async function readFileContent(workspaceId: string, filePath: string): Promise<string> {
   return invoke<string>('read_file_content', { workspaceId, filePath })
+}
+
+/** List the immediate children of a workspace directory (empty/omitted relPath
+ *  = repo root) for the file browser's lazy tree. */
+export async function listWorkspaceDir(
+  workspaceId: string,
+  relPath?: string,
+): Promise<DirEntry[]> {
+  return invoke<DirEntry[]>('list_workspace_dir', { workspaceId, relPath })
 }
 
 export async function createNoteFile(
