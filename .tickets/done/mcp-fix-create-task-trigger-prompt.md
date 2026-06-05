@@ -1,5 +1,12 @@
 # MCP `create_task` doesn't expose `trigger_prompt`
 
+> ✅ **RESOLVED 2026-06-05.** The `create_task` inputSchema now advertises
+> `trigger_prompt` (plus `model`/`priority`/`dependencies`/`runtime_mode`), and
+> `handle_create_task` forwards it in the `api_call` body. `/api/create_task`
+> already persisted it via `create_task_service` before the on_entry trigger
+> fires, so no backend change was needed. Covered by
+> `test_create_task_persists_options`. Original ticket kept below for history.
+
 Found during MCP dogfood audit, 2026-05-12. See `.tickets/_docs/MCP_DOGFOOD_REPORT.md`.
 
 ## Symptom

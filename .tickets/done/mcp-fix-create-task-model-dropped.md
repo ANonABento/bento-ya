@@ -1,5 +1,14 @@
 # MCP `create_task` silently drops `model` parameter
 
+> ✅ **RESOLVED 2026-06-05.** The API side was fixed by the Front 1
+> `create_task_service` refactor (`CreateTaskReq` now carries `model` →
+> `NewTask.model`, persisted before `fire_trigger`). The MCP side now reads
+> `model` and forwards it in the `api_call` body (`handle_create_task`,
+> `mcp-server/src/main.rs`). The test-only DB fallback was made faithful and a
+> regression test added: `test_create_task_persists_options` asserts
+> `model`/`priority`/`trigger_prompt`/`dependencies` round-trip. Original ticket
+> kept below for history.
+
 Found during MCP dogfood audit, 2026-05-12. See `.tickets/_docs/MCP_DOGFOOD_REPORT.md`.
 
 ## Symptom

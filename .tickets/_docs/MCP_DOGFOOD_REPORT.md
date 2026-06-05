@@ -102,12 +102,12 @@ The current design intentionally pushes the responsibility to the **agent prompt
 
 ## Bugs / inconsistencies (filed as follow-ups)
 
-| # | What | Severity | File |
-|---|---|---|---|
-| 1 | `create_task` accepts `model` but the `/api/create_task` payload drops it | medium (silent no-op) | `.tickets/mcp-fix-create-task-model-dropped.md` |
-| 2 | `create_task` doesn't expose `trigger_prompt` (API supports it) | medium (feature gap) | `.tickets/mcp-fix-create-task-trigger-prompt.md` |
-| 3 | `mark_complete` / `add_dependency` / `remove_dependency` bypass the API → no `tasks:changed` | low (stale UI) | `.tickets/mcp-fix-direct-db-no-events.md` |
-| 4 | No source attribution / recursion guard | medium (safety) | `.tickets/mcp-add-source-attribution.md` |
+| # | What | Severity | File | Status |
+|---|---|---|---|---|
+| 1 | `create_task` accepts `model` but the `/api/create_task` payload drops it | medium (silent no-op) | `.tickets/done/mcp-fix-create-task-model-dropped.md` | ✅ fixed — `handle_create_task` forwards `model`; regression test `test_create_task_persists_options` |
+| 2 | `create_task` doesn't expose `trigger_prompt` (API supports it) | medium (feature gap) | `.tickets/done/mcp-fix-create-task-trigger-prompt.md` | ✅ fixed — schema + handler forward `trigger_prompt` (and `priority`/`dependencies`/`runtime_mode`) |
+| 3 | `mark_complete` / `add_dependency` / `remove_dependency` bypass the API → no `tasks:changed` | low (stale UI) | `.tickets/mcp-fix-direct-db-no-events.md` | open |
+| 4 | No source attribution / recursion guard | medium (safety) | `.tickets/mcp-add-source-attribution.md` | open |
 
 ## Recommendations
 

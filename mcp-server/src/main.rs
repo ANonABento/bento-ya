@@ -935,15 +935,31 @@ fn handle_create_task(conn: &Connection, args: &Value) -> Value {
         return json!({ "error": "Failed to reach app API — is the app running?" });
     }
 
-    // Test-only fallback: direct DB write
+    // Test-only fallback: direct DB write. Kept faithful to the fields the
+    // production `/api/create_task` path persists (model, priority,
+    // dependencies, trigger_prompt) so regression tests exercise the real
+    // forwarding contract — not a lossy stub. (runtime_mode_override is omitted
+    // only because the in-memory test schema predates that column.)
     let id = new_id();
     let ts = now();
     let position = max_task_position(conn, &col_id) + 1;
     match conn.execute(
         "INSERT INTO tasks (id, workspace_id, column_id, title, description, position, priority, \
-         pipeline_state, blocked, dependencies, retry_count, model, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'medium', 'idle', 0, '[]', 0, ?7, ?8, ?8)",
-        params![id, ws_id, col_id, title, description, position, model, ts],
+         pipeline_state, blocked, dependencies, trigger_prompt, retry_count, model, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'idle', 0, ?8, ?9, 0, ?10, ?11, ?11)",
+        params![
+            id,
+            ws_id,
+            col_id,
+            title,
+            description,
+            position,
+            priority.unwrap_or("medium"),
+            dependencies.unwrap_or("[]"),
+            trigger_prompt,
+            model,
+            ts
+        ],
     ) {
         Ok(_) => json!({
             "task": { "id": id, "title": title, "column": col_name },
@@ -2626,6 +2642,45 @@ mod tests {
         );
         assert!(result.get("error").is_none(), "Got error: {:?}", result);
         assert_eq!(result["task"]["title"], "New Task");
+    }
+
+    #[test]
+    fn test_create_task_persists_options() {
+        // Regression for the two MCP dogfood bugs: create_task used to drop
+        // `model` and not expose `trigger_prompt`. Assert the full create-option
+        // set forwarded by handle_create_task actually lands on the task row.
+        let conn = setup_test_db();
+        create_test_workspace(&conn);
+
+        let result = handle_create_task(
+            &conn,
+            &json!({
+                "workspace": "Test WS",
+                "column": "Backlog",
+                "title": "Optioned Task",
+                "model": "sonnet",
+                "priority": "high",
+                "trigger_prompt": "apply the patch and run tests",
+                "dependencies": "[\"dep-1\"]",
+            }),
+        );
+        assert!(result.get("error").is_none(), "Got error: {:?}", result);
+
+        let row: (Option<String>, String, Option<String>, String) = conn
+            .query_row(
+                "SELECT model, priority, trigger_prompt, dependencies FROM tasks WHERE title = ?1",
+                params!["Optioned Task"],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(row.0.as_deref(), Some("sonnet"), "model dropped");
+        assert_eq!(row.1, "high", "priority dropped");
+        assert_eq!(
+            row.2.as_deref(),
+            Some("apply the patch and run tests"),
+            "trigger_prompt dropped"
+        );
+        assert_eq!(row.3, "[\"dep-1\"]", "dependencies dropped");
     }
 
     #[test]
