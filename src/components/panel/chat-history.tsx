@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, memo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '@/lib/ipc'
 import { ToolCallItem, type ToolCallData } from './shared'
 
@@ -179,7 +180,7 @@ function MessageBubble({ message, isLatest }: MessageBubbleProps) {
       className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
     >
       <div
-        className={`max-w-[80%] rounded-xl px-3 py-2 ${
+        className={`w-fit max-w-[min(92%,56rem)] rounded-xl px-3.5 py-2.5 ${
           isUser
             ? 'bg-accent text-bg'
             : 'bg-surface-hover text-text-primary'
@@ -207,10 +208,19 @@ function MessageBubble({ message, isLatest }: MessageBubbleProps) {
 // Memoized markdown renderer for chat messages
 const MarkdownContent = memo(function MarkdownContent({ content }: { content: string }) {
   return (
-    <div className="text-sm markdown-content">
+    <div className="text-sm leading-relaxed markdown-content">
       <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
         components={{
-          p: ({ children }) => <p className="my-1">{children}</p>,
+          p: ({ children }) => <p className="my-1.5">{children}</p>,
+          table: ({ children }) => (
+            <div className="my-2 overflow-x-auto">
+              <table className="w-full border-collapse text-xs">{children}</table>
+            </div>
+          ),
+          th: ({ children }) => <th className="border border-border-default px-2 py-1 text-left font-semibold">{children}</th>,
+          td: ({ children }) => <td className="border border-border-default px-2 py-1">{children}</td>,
+          hr: () => <hr className="my-3 border-border-default" />,
           strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
           em: ({ children }) => <em className="italic">{children}</em>,
           ul: ({ children }) => <ul className="my-1 ml-4 list-disc">{children}</ul>,
