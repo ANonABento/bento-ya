@@ -976,6 +976,10 @@ fn execute_batch_wait(
 }
 
 /// Resolve working directory for a task: worktree_path (if set and exists) > workspace.repo_path.
+///
+/// This *picks* the spawn cwd; it does not validate untrusted input. For the
+/// input-guard counterpart (caller-supplied dir must match an allowed root),
+/// see `commands::agent::validate_requested_working_dir`.
 pub(crate) fn resolve_working_dir(task: &Task, workspace_repo_path: &str) -> String {
     if let Some(ref wt) = task.worktree_path {
         if !wt.is_empty() && std::path::Path::new(wt).exists() {
@@ -1789,6 +1793,11 @@ fn execute_spawn_cli(
     Ok(updated_task)
 }
 
+/// Full spawn-time runtime-mode resolver: applies the dev-flag gate and
+/// CLI-support check, and can return `interactive`. This is the one used when
+/// *spawning a fresh agent* (via `spawn::resolve`). For the narrower per-task
+/// chat-turn classifier (managed-or-terminal only, no interactive), see
+/// `commands::agent::chat_turn_runtime_mode`.
 pub(crate) fn normalize_agent_runtime_mode(
     runtime_mode: Option<&str>,
     cli_type: &str,
