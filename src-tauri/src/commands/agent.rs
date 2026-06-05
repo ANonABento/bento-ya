@@ -137,7 +137,14 @@ fn canonical_existing_dir(path: &str) -> Result<PathBuf, AppError> {
     Ok(canonical)
 }
 
-fn resolve_task_working_dir(
+/// **Validate** a caller-supplied working directory against the task's allowed
+/// roots: it must canonicalize to either the workspace repo root or the task's
+/// worktree, else this errors. This is a guard on untrusted input, distinct
+/// from the spawn-time *resolver*
+/// [`crate::pipeline::triggers::resolve_working_dir`], which simply *picks*
+/// worktree-or-repo with no validation. Don't collapse the two — this one's job
+/// is to reject anything outside the sandbox.
+fn validate_requested_working_dir(
     task: &db::Task,
     workspace: &db::Workspace,
     requested_working_dir: &str,
@@ -173,7 +180,7 @@ fn validate_task_launch_inputs(
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
     let task = db::get_task(&conn, task_id)?;
     let workspace = db::get_workspace(&conn, &task.workspace_id)?;
-    let working_dir = resolve_task_working_dir(&task, &workspace, working_dir)?;
+    let working_dir = validate_requested_working_dir(&task, &workspace, working_dir)?;
     let cli = validate_agent_cli_path(cli_path.unwrap_or("claude"))?;
     Ok((working_dir, cli))
 }
@@ -459,7 +466,7 @@ pub async fn send_task_input(
         }
 
         let tmux_name = tmux_session_name_for_task(&task_id);
-        let runtime_mode = normalize_agent_runtime_mode(
+        let runtime_mode = chat_turn_runtime_mode(
             previous_task
                 .agent_mode
                 .as_deref()
@@ -718,7 +725,19 @@ fn agent_input_source(source: &str) -> AgentInputSource {
     }
 }
 
-fn normalize_agent_runtime_mode(runtime_mode: Option<&str>) -> &'static str {
+/// Classify a per-task **chat-turn** into the two runtime modes this path can
+/// actually deliver: `managed` (semantic event stream) or `terminal` (raw `-p`
+/// turn). It deliberately does **not** return `interactive` — interactive
+/// follow-up input is routed through `agent_inject_message`
+/// (`tmux send-keys`), never through this turn path, so an `interactive` task
+/// collapses to `terminal` here as a defensive fallback.
+///
+/// This is intentionally narrower than the full spawn-time resolver
+/// [`crate::pipeline::triggers::normalize_agent_runtime_mode`], which also
+/// applies the dev-flag / CLI-support gating and can return `interactive`.
+/// They share no logic on purpose: this one answers "how do I deliver a chat
+/// turn?", that one answers "how should a fresh agent be spawned?".
+fn chat_turn_runtime_mode(runtime_mode: Option<&str>) -> &'static str {
     match runtime_mode {
         Some("managed") => "managed",
         _ => "terminal",
@@ -2112,9 +2131,12 @@ mod tests {
             agent_adapter_kind_from_db("claude_cli"),
             AgentAdapterKind::ClaudeCli
         );
-        assert_eq!(normalize_agent_runtime_mode(Some("managed")), "managed");
-        assert_eq!(normalize_agent_runtime_mode(Some("terminal")), "terminal");
-        assert_eq!(normalize_agent_runtime_mode(Some("surprise")), "terminal");
+        assert_eq!(chat_turn_runtime_mode(Some("managed")), "managed");
+        assert_eq!(chat_turn_runtime_mode(Some("terminal")), "terminal");
+        assert_eq!(chat_turn_runtime_mode(Some("surprise")), "terminal");
+        // Interactive never flows through the chat-turn path; it collapses to
+        // terminal here (real interactive input goes via agent_inject_message).
+        assert_eq!(chat_turn_runtime_mode(Some("interactive")), "terminal");
     }
 
     #[test]
