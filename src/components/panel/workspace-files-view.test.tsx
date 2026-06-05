@@ -24,11 +24,11 @@ vi.mock('./file-preview', () => ({
   FilePreview: ({ file }: { file: FileEntry }) => <div data-testid="file-preview">{file.name}</div>,
 }))
 
-import { OrchestratorFilesView } from './orchestrator-files-view'
+import { WorkspaceFilesView } from './workspace-files-view'
 
-describe('OrchestratorFilesView', () => {
+describe('WorkspaceFilesView', () => {
   it('shows an empty state until a file is selected, then renders its preview', () => {
-    render(<OrchestratorFilesView workspaceId="ws-1" />)
+    render(<WorkspaceFilesView workspaceId="ws-1" />)
 
     expect(screen.getByText('No file selected')).toBeInTheDocument()
     expect(screen.queryByTestId('file-preview')).not.toBeInTheDocument()
@@ -40,7 +40,7 @@ describe('OrchestratorFilesView', () => {
   })
 
   it('exposes a refresh control that rescans workspace files', () => {
-    render(<OrchestratorFilesView workspaceId="ws-1" />)
+    render(<WorkspaceFilesView workspaceId="ws-1" />)
     fireEvent.click(screen.getByLabelText('Refresh files'))
     expect(refresh).toHaveBeenCalled()
   })
