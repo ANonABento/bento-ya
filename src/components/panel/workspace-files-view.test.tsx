@@ -23,6 +23,9 @@ vi.mock('./files-tree', () => ({
 vi.mock('./file-preview', () => ({
   FilePreview: ({ file }: { file: FileEntry }) => <div data-testid="file-preview">{file.name}</div>,
 }))
+vi.mock('./file-browser', () => ({
+  FileBrowser: () => <div data-testid="file-browser" />,
+}))
 
 import { WorkspaceFilesView } from './workspace-files-view'
 
@@ -43,5 +46,17 @@ describe('WorkspaceFilesView', () => {
     render(<WorkspaceFilesView workspaceId="ws-1" />)
     fireEvent.click(screen.getByLabelText('Refresh files'))
     expect(refresh).toHaveBeenCalled()
+  })
+
+  it('toggles between the Plans tree and the repo Browse tree', () => {
+    render(<WorkspaceFilesView workspaceId="ws-1" />)
+
+    // Plans is the default.
+    expect(screen.getByTestId('pick-plan')).toBeInTheDocument()
+    expect(screen.queryByTestId('file-browser')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('files-mode-browse'))
+    expect(screen.getByTestId('file-browser')).toBeInTheDocument()
+    expect(screen.queryByTestId('pick-plan')).not.toBeInTheDocument()
   })
 })

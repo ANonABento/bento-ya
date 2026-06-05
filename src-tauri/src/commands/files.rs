@@ -18,6 +18,32 @@ pub struct FileEntry {
     pub modified_at: i64,
 }
 
+/// A single entry in a workspace directory listing (for the file browser).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DirEntry {
+    /// Path relative to the workspace root, forward-slashed.
+    pub path: String,
+    pub name: String,
+    pub is_dir: bool,
+}
+
+/// Directories never worth surfacing in the file browser (huge / noisy / VCS).
+const IGNORED_DIRS: &[&str] = &[
+    ".git",
+    ".worktrees",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".next",
+    ".turbo",
+    ".cache",
+    "coverage",
+    ".svelte-kit",
+    "__pycache__",
+];
+
 /// Dialog-selected attachment data returned to the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -339,6 +365,58 @@ pub fn read_file_content(
     read_file_content_in_root(&root, &file_path)
 }
 
+/// List the immediate children of a directory inside the workspace, for the
+/// file browser's lazy tree. `rel_path` empty / None = the repo root. Hidden
+/// directories in [`IGNORED_DIRS`] are skipped; everything else (including
+/// dotfiles) is returned, dirs first then alphabetical.
+fn list_dir_in_root(root: &Path, rel_path: &str) -> Result<Vec<DirEntry>, AppError> {
+    let dir = if rel_path.is_empty() {
+        root.to_path_buf()
+    } else {
+        let relative = ensure_relative_workspace_path(rel_path)?;
+        ensure_path_in_workspace(root, &root.join(relative))?
+    };
+    if !dir.is_dir() {
+        return Err(AppError::InvalidInput(format!(
+            "Not a directory: {}",
+            rel_path
+        )));
+    }
+
+    let mut entries: Vec<DirEntry> = Vec::new();
+    let read = fs::read_dir(&dir)
+        .map_err(|e| AppError::InvalidInput(format!("Failed to read directory: {}", e)))?;
+    for entry in read.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if is_dir && IGNORED_DIRS.contains(&name.as_str()) {
+            continue;
+        }
+        let path = if rel_path.is_empty() {
+            name.clone()
+        } else {
+            format!("{}/{}", rel_path.trim_end_matches('/'), name)
+        };
+        entries.push(DirEntry { path, name, is_dir });
+    }
+    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    });
+    Ok(entries)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn list_workspace_dir(
+    state: State<AppState>,
+    workspace_id: String,
+    rel_path: Option<String>,
+) -> Result<Vec<DirEntry>, AppError> {
+    let root = state_workspace_root(state, &workspace_id)?;
+    list_dir_in_root(&root, rel_path.as_deref().unwrap_or(""))
+}
+
 /// Open the native file picker and read the selected attachment files.
 #[tauri::command]
 pub async fn pick_attachment_files(app: AppHandle) -> Result<Vec<AttachmentFile>, AppError> {
@@ -414,6 +492,39 @@ mod tests {
 
         assert_eq!(created.name, "notes.md");
         assert_eq!(fs::read_to_string(repo.join("notes.md")).unwrap(), "hello");
+    }
+
+    #[test]
+    fn list_dir_in_root_skips_ignored_dirs_and_sorts_dirs_first() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        fs::create_dir(&repo).unwrap();
+        fs::write(repo.join("README.md"), "x").unwrap();
+        fs::create_dir(repo.join("src")).unwrap();
+        fs::write(repo.join("src").join("main.rs"), "fn main(){}").unwrap();
+        fs::create_dir(repo.join("node_modules")).unwrap();
+
+        let root = repo.canonicalize().unwrap();
+        let entries = list_dir_in_root(&root, "").unwrap();
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        // node_modules skipped; directory sorts before the file.
+        assert_eq!(names, vec!["src", "README.md"]);
+        assert!(entries[0].is_dir && !entries[1].is_dir);
+
+        // Nested listing builds forward-slashed relative paths.
+        let nested = list_dir_in_root(&root, "src").unwrap();
+        assert_eq!(nested.len(), 1);
+        assert_eq!(nested[0].path, "src/main.rs");
+        assert!(!nested[0].is_dir);
+    }
+
+    #[test]
+    fn list_dir_in_root_rejects_path_traversal() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        fs::create_dir(&repo).unwrap();
+        let root = repo.canonicalize().unwrap();
+        assert!(list_dir_in_root(&root, "../").is_err());
     }
 
     #[test]

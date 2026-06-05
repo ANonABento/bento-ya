@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import type { BundledLanguage, Highlighter, ThemedToken } from 'shiki'
+import {
+  detectLanguage,
+  tokenizeCode,
+  getCurrentShikiTheme,
+  type ShikiTheme,
+  type ThemedToken,
+} from '@/lib/shiki'
 
 // --- Types ---
 
@@ -29,8 +35,6 @@ type LineSelection = {
   hunkIndex: number
   lineIndex: number
 }
-
-type ShikiTheme = 'github-dark' | 'github-light'
 
 export interface DiffViewerProps {
   /** Raw unified diff string */
@@ -118,63 +122,6 @@ function parseDiff(raw: string): DiffFile[] {
   return files
 }
 
-// --- Shiki Lazy Loader ---
-
-const LANG_MAP: Record<string, BundledLanguage> = {
-  ts: 'typescript',
-  tsx: 'tsx',
-  js: 'javascript',
-  jsx: 'jsx',
-  rs: 'rust',
-  py: 'python',
-  css: 'css',
-  html: 'html',
-  json: 'json',
-  md: 'markdown',
-  toml: 'toml',
-  yaml: 'yaml',
-  yml: 'yaml',
-  sh: 'bash',
-  sql: 'sql',
-  svg: 'xml',
-  xml: 'xml',
-}
-
-function detectLanguage(filePath: string): BundledLanguage | null {
-  const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
-  return LANG_MAP[ext] ?? null
-}
-
-let highlighterPromise: Promise<Highlighter> | null = null
-const loadedLangs = new Set<string>()
-
-async function getHighlighter(): Promise<Highlighter> {
-  if (!highlighterPromise) {
-    highlighterPromise = import('shiki').then((mod) =>
-      mod.createHighlighter({ themes: ['github-dark', 'github-light'], langs: [] })
-    )
-  }
-  return highlighterPromise
-}
-
-async function tokenizeCode(
-  code: string,
-  lang: BundledLanguage,
-  theme: ShikiTheme,
-): Promise<ThemedToken[][] | null> {
-  try {
-    const hl = await getHighlighter()
-    if (!loadedLangs.has(lang)) {
-      await hl.loadLanguage(lang)
-      loadedLangs.add(lang)
-    }
-    const result = hl.codeToTokens(code, { lang, theme })
-    return result.tokens
-  } catch {
-    return null
-  }
-}
-
 // --- Helpers ---
 
 const LINE_BG = {
@@ -204,11 +151,6 @@ function formatDiffLine(line: DiffLine) {
 
 function selectionKey(selection: LineSelection) {
   return `${String(selection.fileIndex)}:${String(selection.hunkIndex)}:${String(selection.lineIndex)}`
-}
-
-function getCurrentShikiTheme(): ShikiTheme {
-  if (typeof document === 'undefined') return 'github-dark'
-  return document.documentElement.dataset.theme === 'light' ? 'github-light' : 'github-dark'
 }
 
 function getSelectionRange(files: DiffFile[], start: LineSelection, end: LineSelection) {
