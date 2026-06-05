@@ -214,4 +214,29 @@ describe('TaskCard quick-action keyboard behavior', () => {
     expect(useUIStore.getState().expandedTaskId).toBe('t1')
     expect(screen.getByLabelText('Edit task description')).toBeInTheDocument()
   })
+
+  it('shows a "spawned by" badge resolving the parent task title', () => {
+    const parent = mockKanbanTask({ id: 'parent-1', title: 'Orchestrator task' })
+    const child = mockKanbanTask({
+      id: 'child-1',
+      title: 'Agent-spawned task',
+      createdByTaskId: 'parent-1',
+      recursionDepth: 1,
+    })
+    resetStores(child)
+    // Both tasks in the store so the badge can resolve the parent's title.
+    useTaskStore.setState({ tasks: [parent, child], loaded: true })
+
+    render(<TaskCard task={child} />)
+
+    expect(screen.getByText('spawned by Orchestrator task')).toBeInTheDocument()
+  })
+
+  it('omits the "spawned by" badge for human-created tasks', () => {
+    const task = mockKanbanTask({ createdByTaskId: null })
+    resetStores(task)
+    render(<TaskCard task={task} />)
+
+    expect(screen.queryByText(/spawned by/i)).not.toBeInTheDocument()
+  })
 })

@@ -295,6 +295,14 @@ export const TaskCard = memo(function TaskCard({
     return names.length > 0 ? names.join(', ') : null
   }, [task.blocked, task.dependencies])
 
+  // MCP attribution: when this task was spawned by another task's agent, resolve
+  // the parent's title for the "spawned by …" badge (falls back to the id).
+  const spawnedByLabel = useMemo(() => {
+    if (!task.createdByTaskId) return null
+    const parent = useTaskStore.getState().tasks.find(t => t.id === task.createdByTaskId)
+    return parent?.title ?? task.createdByTaskId
+  }, [task.createdByTaskId])
+
   // Find next column for "move right" action
   const nextColumnId = useMemo(() => {
     const sorted = [...columns].sort((a, b) => a.position - b.position)
@@ -386,6 +394,7 @@ export const TaskCard = memo(function TaskCard({
     task.heldByUser ||
     titleWorkspaceName ||
     task.model ||
+    task.createdByTaskId ||
     (cardSettings.showPrBadge && task.prNumber) ||
     (cardSettings.showCommentCount && task.prCommentCount > 0) ||
     (cardSettings.showLabels && taskLabels.length > 0) ||
@@ -606,6 +615,18 @@ export const TaskCard = memo(function TaskCard({
             {task.heldByUser && (
               <span className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning">
                 Held
+              </span>
+            )}
+            {spawnedByLabel && (
+              <span
+                className="inline-flex max-w-[160px] items-center gap-1 truncate rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent"
+                title={`Spawned by an agent on "${spawnedByLabel}" (chain depth ${String(task.recursionDepth)})`}
+              >
+                <svg className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M8 1.5v4M8 10.5v4M3.5 8h-2M14.5 8h-2" strokeLinecap="round" />
+                  <circle cx="8" cy="8" r="2.5" />
+                </svg>
+                <span className="truncate">spawned by {spawnedByLabel}</span>
               </span>
             )}
             {titleWorkspaceName && (
