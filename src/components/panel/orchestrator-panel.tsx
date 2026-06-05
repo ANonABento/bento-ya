@@ -105,7 +105,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   })
 
   // Local UI state
-  const [sidebarMode, setSidebarMode] = useState<'history' | 'files' | 'dashboard' | 'v2-dashboard' | null>(null)
+  const [sidebarMode, setSidebarMode] = useState<'history' | 'dashboard' | 'v2-dashboard' | null>(null)
   const [viewMode, setViewMode] = useState<OrchestratorView>('chat')
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
@@ -341,24 +341,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               </button>
               <button
                 type="button"
-                onClick={() => { setSidebarMode(sidebarMode === 'files' ? null : 'files') }}
-                aria-label={sidebarMode === 'files' ? 'Hide files' : 'Show files'}
-                aria-pressed={sidebarMode === 'files'}
-                title="Files"
-                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
-                  sidebarMode === 'files'
-                    ? 'bg-surface-hover text-text-primary'
-                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-                }`}
-                style={{ cursor: 'pointer' }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
-                  <path d="M3.75 3A1.75 1.75 0 0 0 2 4.75v3.26a3.235 3.235 0 0 1 1.75-.51h12.5c.644 0 1.245.188 1.75.51V6.75A1.75 1.75 0 0 0 16.25 5h-4.836a.25.25 0 0 1-.177-.073L9.823 3.513A1.75 1.75 0 0 0 8.586 3H3.75Z" />
-                  <path fillRule="evenodd" d="M2 9.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 .75.75v5a1.75 1.75 0 0 1-1.75 1.75H3.75A1.75 1.75 0 0 1 2 14.25v-5Z" clipRule="evenodd" />
-                </svg>
-              </button>
-              <button
-                type="button"
                 onClick={() => { setSidebarMode(sidebarMode === 'dashboard' ? null : 'dashboard') }}
                 aria-label={sidebarMode === 'dashboard' ? 'Hide pipeline dashboard' : 'Show pipeline dashboard'}
                 aria-pressed={sidebarMode === 'dashboard'}
@@ -499,7 +481,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                 mode={sidebarMode}
                 sessions={sessions}
                 activeSessionId={activeSession?.id}
-                workspaceId={workspaceId}
                 isCurrentChatEmpty={localMessages.length === 0}
                 onNewChat={() => { void handleNewChat() }}
                 onSelectSession={(session) => { handleSelectSession(session) }}
