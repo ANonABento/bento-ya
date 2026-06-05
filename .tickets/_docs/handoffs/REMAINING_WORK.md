@@ -21,11 +21,37 @@ MCP, 394 frontend, tsc + lint clean):
 What follows is everything **not** done, each with enough to hand off cleanly.
 The big one (Front 3 — agent spawn) has its own doc: `FRONT3_AGENT_SPAWN.md`.
 
+> ### ✅ Update 2026-06-05 — most of this shipped
+> Since this index was written, the following all landed on `main` and are
+> verified (482 Rust lib tests, 18 MCP, real-app WebDriver pass):
+> - **Front 3 — agent spawn:** substantially complete. Shared `pipeline::spawn::resolve()`
+>   + `ResolvedAgentSpawn`, `model_to_args`, `task_md_default_prompt`,
+>   `resolve_working_dir`, `persist_agent_session_started` all exist and are used.
+>   The empty-`workspace_id` emit bug (A2(e)) is fixed across all trigger-lifecycle
+>   emits. Remaining bits (argv-family collapse (f), full session-helper merge) are
+>   by-design splits, not duplication — see `FRONT3_AGENT_SPAWN.md` notes.
+> - **A1 — chef move parity:** DONE. `execute_single_tool` returns
+>   `ToolOutcome::TaskMoveRequested`; the caller routes through `move_task_service`.
+> - **B1–B4** (Phase 2 create UI, Phase 3 interactive opt-in, Phase 4 chef terminal,
+>   Phase 5 CLI health check): all DONE.
+> - **CLAUDE.md discord drift:** fixed (diagram now lists `config/`).
+> - **MCP `create_task` model/trigger_prompt drops:** fixed (see
+>   `.tickets/done/mcp-fix-create-task-*.md`).
+>
+> **Still open:** A2 (the `pty:{taskId}:exit` snake_case casing — the (e) part is
+> done, the casing part isn't); the C-section product gaps; MCP bugs #3/#4
+> (`mcp-fix-direct-db-no-events.md`, `mcp-add-source-attribution.md`); the
+> interactive-mode codex verification (B2 known gaps). Item-level statuses below.
+
 ---
 
 ## A. Source-of-truth leftovers (small, ride-along cleanups)
 
-### A1. Chef `move_task` transition parity — DEFERRED, documented
+### A1. Chef `move_task` transition parity — ✅ DONE (2026-06-05)
+Implemented as designed: the move arm returns `ToolOutcome::TaskMoveRequested`
+(no DB write) and the caller loop calls `pipeline::move_task_service`. See
+`llm/executor.rs`. Original notes kept below for context.
+
 `move_task` is unified for Tauri + HTTP API via `pipeline::move_task_service`,
 but the **chef path** (`execute_single_tool` `"move_task"` arm in
 `llm/executor.rs`) still does a raw move (`move_task_to_column`) + the caller
@@ -40,7 +66,7 @@ outcome (no DB write) and let the caller loop — which *has* `app` — call
 the new outcome / test `move_task_to_column` directly. Medium effort; **best done
 as part of Front 3** since it shares the same `app`-threading constraint.
 
-### A2. Event-payload casing — `pty:{taskId}:exit` (tiny)
+### A2. Event-payload casing — `pty:{taskId}:exit` (tiny) — 🔲 STILL OPEN
 `PtyExitPayload` in `events.rs` has **no `#[serde(rename_all = "camelCase")]`**,
 so it emits snake_case `exit_code`. It works today only because the frontend
 reads `payload.exit_code` (`terminal-view.tsx`). It's the one event violating the
@@ -64,7 +90,11 @@ Full design in `/home/anonabento/.claude/plans/peppy-stargazing-locket.md`.
 Phase 1 (task-creation source-of-truth) is **done** (it became Front 1's
 foundation). Remaining phases:
 
-### B1. Phase 2 — Expose every agent option in the create UI
+### B1. Phase 2 — Expose every agent option in the create UI — ✅ DONE (2026-06-05)
+Shipped: shared `TaskOptionFields` widget + `TaskCreateDialog` (model / runtime /
+priority / target column / trigger prompt / dependencies), threaded through
+`addTask → ipc.createTask(options)`. Original notes below.
+
 Front 1 made `model` / `trigger_prompt` / `dependencies` / `priority` /
 `runtime_mode_override` first-class create params (backend `db::NewTask`, the
 `create_task` Tauri command, and the `createTask` IPC `CreateTaskOptions` bag all
@@ -75,7 +105,14 @@ accept them). **The UI doesn't surface them yet** — the inline add
 new-task surface set model / runtime mode / target column / priority /
 trigger prompt / dependencies. Pure frontend; the backend + IPC are ready.
 
-### B2. Phase 3 — Promote interactive mode (opt-in)
+### B2. Phase 3 — Promote interactive mode (opt-in) — ✅ DONE (2026-06-05)
+Shipped: `get_app_settings`/`update_app_settings` Tauri commands +
+`AppSettings.interactive_mode_enabled`, the Settings "Agent runtime" section
+(enable toggle + default runtime dropdown), onboarding step, and the per-chat
+`RuntimeModeToggle` in the agent panel header (writes `runtime_mode_override` +
+`agent_restart`). **Codex gaps below remain open** (resume + `--append-system-prompt`).
+Original notes below.
+
 Interactive mode is fully built but gated behind env var
 `KAITENCODE_INTERACTIVE_MODE_ENABLED` (read via `config::interactive_mode_enabled()`,
 3 call sites: `triggers.rs` resolver downgrade, the `interactive_dev_flag_required`
@@ -95,7 +132,12 @@ opt-in). Claude-first; codex stays best-effort.
 (`bridge.rs` `spawn_interactive_cli` warns + ignores `resume_id` for codex), and
 whether codex honors `--append-system-prompt` for the sentinel is unverified.
 
-### B3. Phase 4 — Chef terminal view (workspace-level terminal wrapper)
+### B3. Phase 4 — Chef terminal view (workspace-level terminal wrapper) — ✅ DONE (2026-06-05)
+Shipped: `ensure_chef_terminal` (keyed `chef_<workspace_id>`, repo-rooted shell),
+the `taskId`-keyed terminal IPC generalized to any session key,
+`OrchestratorTerminalView` + chat↔terminal toggle in the orchestrator panel.
+Original notes below.
+
 Let the user drive an interactive CLI at the **workspace** level inside
 KaitenCode (no external terminal). ChefSession (`chat/chef.rs`) is pipe-only
 today; the orchestrator panel renders chat bubbles. Per-task terminals already
@@ -108,7 +150,13 @@ terminal toggle in the orchestrator panel; generalize `pty:{taskId}:output` →
 `pty:{sessionId}:output`. Est. ~300 Rust + ~150 TSX. Reuse, don't reinvent — the
 registry already namespaces chef as `chef:{workspace_id}:{session_id}`.
 
-### B4. Phase 5 — CLI-compatibility verification layer
+### B4. Phase 5 — CLI-compatibility verification layer — ✅ DONE (2026-06-05)
+Shipped: `cli_detect::CLI_HEALTH_SPECS` + `check_cli_health()` command +
+`emit_cli_health` startup check + dismissible `CliHealthBanner`. Verified against
+real installed CLIs (claude 2.1.162, codex 0.131.0 — both "ok", no false drift).
+The live smoke-test (throwaway tmux round-trip) and the codex
+`--append-system-prompt` confirmation remain as follow-ups. Original notes below.
+
 Interactive mode shells directly into `claude`/`codex`; a CLI update can silently
 break the product. **Do:** a startup/diagnostic CLI health check (detect binary
 via `commands/cli_detect.rs` `find_cli`, run `--version`, parse `--help` to
@@ -139,16 +187,23 @@ ticket each:
   wired into the trigger path. If you want thinking-level as a first-class
   create option (Phase 2), it needs a DB column (migration after 045) + model
   struct field + CLI plumbing — a real slice, not a freebie.
-- **CLAUDE.md drift:** the architecture diagram lists a `discord/ ← Discord
-  bridge` module that no longer exists (added in migrations 018/019, removed by
-  026_remove_discord). Update the doc.
+- ~~**CLAUDE.md drift:** the architecture diagram lists a `discord/ ← Discord
+  bridge` module that no longer exists.~~ ✅ Fixed 2026-06-05 (diagram now lists
+  `config/`).
 
 ---
 
 ## Suggested order for the next agent(s)
-1. **Front 3** (`FRONT3_AGENT_SPAWN.md`) — fold in **A1** (chef move parity) and
-   **A2 (e)** (empty-`workspace_id` emit) since they share the `app`-threading
-   constraint.
-2. **B1** (Phase 2 UI) — small, unblocks the create-UX win; backend already ready.
-3. **B2** (interactive promotion) — depends on B1's shared runtime-mode picker.
-4. **B3 / B4** — independent; can parallelize after B2.
+~~Front 3, B1, B2, B3, B4~~ — **all landed (2026-06-05).** What's left, roughly
+by leverage:
+1. **MCP bug #3** (`mcp-fix-direct-db-no-events.md`) — route
+   `mark_complete`/`add_dependency`/`remove_dependency` through the API so they
+   emit `tasks:changed`. Small, scoped, removes a stale-UI footgun.
+2. **MCP bug #4** (`mcp-add-source-attribution.md`) — source attribution +
+   recursion guard on agent-spawned tasks (safety). Needs a migration.
+3. **A2** — `pty:{taskId}:exit` snake_case casing (tiny: add the serde rename +
+   one frontend read).
+4. **B2 codex verification** — confirm codex `--resume` + `--append-system-prompt`
+   actually work in interactive mode.
+5. **C-section product gaps** — inert keyboard shortcuts, multi-provider stubs,
+   `thinking_level` as a first-class attribute, voice un-gating.
