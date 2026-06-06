@@ -1271,7 +1271,7 @@ fn emit_completion_event(
 ///      drain.
 ///   3. Honors per-column `triggers.max_concurrent` — if a queued task's
 ///      column is at its column cap, skip it and try the next queued task.
-fn promote_queued_tasks(app: &AppHandle, workspace_id: &str) {
+pub(crate) fn promote_queued_tasks(app: &AppHandle, workspace_id: &str) {
     let conn = match Connection::open(db::db_path()) {
         Ok(c) => c,
         Err(e) => {
@@ -1294,7 +1294,10 @@ fn promote_queued_tasks(app: &AppHandle, workspace_id: &str) {
     let max_workspace =
         crate::config::effective_pipeline_settings(&workspace.config).max_concurrent_agents;
 
-    let running = db::get_running_agent_count(&conn, workspace_id).unwrap_or(0);
+    // Use the same broad active count the spawn gate uses (not just
+    // agent_status='running'), so we don't promote tasks the gate will simply
+    // re-queue. Empty excluded-id counts every active task in the workspace.
+    let running = db::get_active_execution_count_excluding(&conn, workspace_id, "").unwrap_or(0);
     if running >= max_workspace {
         return;
     }

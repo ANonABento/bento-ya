@@ -381,6 +381,21 @@ pub fn create_task_worktree(
         return Ok(wt_path.to_string_lossy().to_string());
     }
 
+    // Stale-metadata recovery: the directory is gone (checked above) but git may
+    // still track this worktree name (e.g. the user `rm -rf`'d .worktrees, a
+    // disk-cleanup tool removed it, or a previous prune was interrupted). In
+    // that case `repo.worktree(name, ...)` below hard-fails with "already
+    // exists" — and because `is_transient_setup_error` matches that string, the
+    // trigger retries forever against the same stale entry, leaving the task
+    // permanently un-spawnable. Prune the dangling registration first.
+    if let Ok(stale) = repo.find_worktree(&wt_name) {
+        let _ = stale.prune(Some(
+            git2::WorktreePruneOptions::new()
+                .valid(true)
+                .working_tree(true),
+        ));
+    }
+
     // Ensure parent dir exists
     if let Some(parent) = wt_path.parent() {
         std::fs::create_dir_all(parent)
@@ -782,6 +797,42 @@ mod tests {
         assert!(!tmp.join(".task.md").exists());
         // Summary mentions what happened
         assert!(summary.contains(".task.md"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Regression: if a worktree directory is removed out-of-band (manual
+    /// `rm -rf .worktrees`, disk cleanup, interrupted prune) while git still
+    /// tracks the worktree by name, re-creating it must succeed instead of
+    /// hard-failing forever with "already exists" (which made the owning task
+    /// permanently un-spawnable, since the trigger retries the same stale entry).
+    #[test]
+    fn test_create_task_worktree_recovers_from_stale_metadata() {
+        let tmp = std::env::temp_dir()
+            .join(format!("kaitencode-wt-stale-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        init_test_repo(&tmp);
+        let repo = tmp.to_str().unwrap();
+
+        let branch = create_task_branch_with_prefix(repo, "Stale WT", None, "kaitencode")
+            .expect("create branch");
+        let wt = create_task_worktree(repo, &branch, "task-stale").expect("first worktree");
+        assert!(std::path::Path::new(&wt).exists());
+
+        // Simulate out-of-band removal of the directory, leaving git metadata
+        // (.git/worktrees/<name>) registered — exactly the leak condition.
+        std::fs::remove_dir_all(&wt).unwrap();
+        assert!(!std::path::Path::new(&wt).exists());
+        assert!(
+            Repository::open(repo).unwrap().find_worktree(&worktree_name("task-stale")).is_ok(),
+            "precondition: git still tracks the stale worktree name"
+        );
+
+        // Recovery: must prune the dangling registration and recreate cleanly.
+        let wt2 = create_task_worktree(repo, &branch, "task-stale")
+            .expect("worktree recreation should succeed after pruning stale metadata");
+        assert!(std::path::Path::new(&wt2).exists());
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

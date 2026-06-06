@@ -108,39 +108,50 @@ pub struct CliCapabilities {
 fn get_search_paths() -> Vec<PathBuf> {
     let home = std::env::var("HOME").unwrap_or_default();
 
+    // Order matters: this is a first-match search. User-owned install dirs come
+    // BEFORE the system `/usr/local/bin`, because the native Claude/Codex
+    // installers and Homebrew put the newest binary in the user's dirs while a
+    // stale `npm -g` copy often lingers in `/usr/local/bin`. Preferring the user
+    // dirs makes "which binary does the app run" deterministic and matches what
+    // the user's own login shell resolves (avoids the two-installs footgun).
     vec![
-        // Standard PATH locations
+        // Claude Code's official installer location (highest priority).
+        PathBuf::from(format!("{}/.claude/local/bin", home)),
+        // User-specific locations.
+        PathBuf::from(format!("{}/.local/bin", home)),
+        PathBuf::from(format!("{}/bin", home)),
+        // Homebrew (Apple Silicon default, then Intel/Linuxbrew).
+        PathBuf::from("/opt/homebrew/bin"),
+        // Cargo binaries (for rust-based tools).
+        PathBuf::from(format!("{}/.cargo/bin", home)),
+        // System locations (a stale npm-global copy often lives here).
         PathBuf::from("/usr/local/bin"),
         PathBuf::from("/usr/bin"),
         PathBuf::from("/bin"),
-        PathBuf::from("/opt/homebrew/bin"),
         PathBuf::from("/snap/bin"),
         PathBuf::from("/var/lib/flatpak/exports/bin"),
         PathBuf::from(format!("{}/.local/share/flatpak/exports/bin", home)),
-        // User-specific locations
-        PathBuf::from(format!("{}/.local/bin", home)),
-        PathBuf::from(format!("{}/bin", home)),
-        // Claude Code specific
-        PathBuf::from(format!("{}/.claude/local/bin", home)),
-        // Conductor/Codex location
+        // Conductor/Codex location.
         PathBuf::from(format!(
             "{}/Library/Application Support/com.conductor.app/bin",
             home
         )),
-        // Cargo binaries (for rust-based tools)
-        PathBuf::from(format!("{}/.cargo/bin", home)),
-        // npm global binaries
+        // npm global binaries.
         PathBuf::from(format!("{}/.npm-global/bin", home)),
         PathBuf::from("/usr/local/lib/node_modules/.bin"),
-        // pip/pipx binaries (for aider)
+        // pip/pipx binaries (for aider).
         PathBuf::from(format!("{}/.local/pipx/venvs/aider-chat/bin", home)),
         PathBuf::from(format!("{}/Library/Python/3.11/bin", home)),
         PathBuf::from(format!("{}/Library/Python/3.12/bin", home)),
     ]
 }
 
-/// Try to find a CLI tool by name
-fn find_cli(name: &str) -> Option<String> {
+/// Try to find a CLI tool by name. Returns its absolute path if found.
+///
+/// `pub(crate)` so the trigger spawn path can resolve a bare `claude`/`codex`
+/// token to an absolute path before injecting it into a tmux pane (whose PATH,
+/// under a macOS GUI launch, omits the dirs these CLIs install into).
+pub(crate) fn find_cli(name: &str) -> Option<String> {
     // First try `which` command
     if let Ok(Some(output)) = command_output_with_timeout("which", &[name], CLI_PROBE_TIMEOUT) {
         if output.status.success() {

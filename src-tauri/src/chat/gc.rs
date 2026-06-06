@@ -10,12 +10,17 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 
+use tauri::AppHandle;
+
 use super::tmux_transport;
 use crate::config::AppSettings;
 use crate::db;
 
 /// Run one garbage collection cycle.
-pub fn collect(conn: &Connection) {
+///
+/// `app` is optional so unit tests can exercise the sweep without a Tauri
+/// runtime; when present, freed concurrency slots trigger queue promotion.
+pub fn collect(conn: &Connection, app: Option<&AppHandle>) {
     let settings = AppSettings::load();
     let sessions = tmux_transport::list_sessions();
 
@@ -121,16 +126,21 @@ pub fn collect(conn: &Connection) {
     // (e.g., OOM kill, manual tmux kill-session). Paused tasks (Phase 5)
     // are exempt — their suspended process still owns the session.
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT id, agent_session_id FROM tasks
+        "SELECT id, agent_session_id, workspace_id FROM tasks
          WHERE agent_status = 'running' AND agent_paused_at IS NULL",
     ) {
-        let stale: Vec<(String, Option<String>)> = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        let stale: Vec<(String, Option<String>, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
             .ok()
             .map(|rows| rows.filter_map(|r| r.ok()).collect())
             .unwrap_or_default();
 
-        for (task_id, session_id) in stale {
+        // Workspaces where we just freed a concurrency slot — drain their queues
+        // after the sweep so queued tasks don't wait on the next normal
+        // completion (which may never come).
+        let mut freed_workspaces: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for (task_id, session_id, workspace_id) in stale {
             let session_name = tmux_transport::session_name(&task_id);
             // Check if tmux session actually exists
             let session_exists = sessions.contains(&session_name);
@@ -152,6 +162,13 @@ pub fn collect(conn: &Connection) {
                         None,
                     );
                 }
+                freed_workspaces.insert(workspace_id);
+            }
+        }
+
+        if let Some(app) = app {
+            for workspace_id in freed_workspaces {
+                crate::pipeline::promote_queued_tasks(app, &workspace_id);
             }
         }
     }
@@ -160,7 +177,7 @@ pub fn collect(conn: &Connection) {
 /// Start the periodic garbage collector.
 /// Runs every `gc_interval_minutes` from settings (default 5).
 /// Note: interval changes via API take effect on the next cycle, not immediately.
-pub fn start_gc() {
+pub fn start_gc(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             let interval = {
@@ -173,7 +190,7 @@ pub fn start_gc() {
             // Open a fresh DB connection for each cycle
             if let Ok(conn) = Connection::open(db::db_path()) {
                 let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-                collect(&conn);
+                collect(&conn, Some(&app));
             }
         }
     });
@@ -190,7 +207,7 @@ mod tests {
         // Should not panic when no tmux sessions exist
         // (can't fully test without tmux, but verify it doesn't crash)
         let conn = Connection::open_in_memory().unwrap();
-        collect(&conn); // No-op since no tmux sessions
+        collect(&conn, None); // No-op since no tmux sessions
     }
 
     #[test]
@@ -223,7 +240,7 @@ mod tests {
         );
         assert!(tmux_transport::has_session(&task_id));
 
-        collect(&conn);
+        collect(&conn, None);
         thread::sleep(Duration::from_millis(150));
 
         assert!(!tmux_transport::has_session(&task_id));

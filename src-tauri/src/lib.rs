@@ -381,7 +381,7 @@ pub fn run() {
             start_nightly_worktree_sweep(app.handle().clone());
 
             // Start garbage collector for tmux sessions + agent resources
-            chat::gc::start_gc();
+            chat::gc::start_gc(app.handle().clone());
 
             // Clean up legacy 58-byte rate-limit stub logs and GC the
             // retained trigger_logs/ directory down to MAX_TRIGGER_LOGS.
@@ -673,38 +673,57 @@ fn recover_tmux_sessions(app: tauri::AppHandle) {
             // Codex has already returned to the prompt, so we can mark complete.
             if let Some(cmd) = pane_current_command(session_name) {
                 if matches!(cmd.as_str(), "bash" | "sh" | "zsh" | "fish") {
-                    eprintln!(
-                        "[startup] Adopting orphan-done session: {} (pane at {} prompt)",
-                        session_name, cmd
-                    );
-                    let app_clone = app.clone();
-                    let task_id_owned = task_id.to_string();
-                    // mark_complete may need its own DB connection + can fire
-                    // downstream column triggers; do it after we release the
-                    // outer lock by deferring with tokio::spawn.
-                    tauri::async_runtime::spawn(async move {
-                        let state: tauri::State<db::AppState> = app_clone.state();
-                        let conn = match state.db.lock() {
-                            Ok(c) => c,
-                            Err(e) => {
+                    // The pane is back at a shell prompt → the agent process
+                    // exited. But a prompt alone does NOT distinguish success
+                    // from failure: a non-zero (failed) agent also returns to
+                    // the prompt. Marking it complete-as-success unconditionally
+                    // would advance the pipeline / open a PR for a task that
+                    // actually failed. So only adopt-as-success when the
+                    // completion sentinel is present in the pane; otherwise clear
+                    // the stuck `running` status to idle and let the user inspect
+                    // or retry rather than asserting an outcome we can't verify.
+                    let pane = chat::bridge::capture_pane_scrollback(session_name);
+                    if chat::bridge::pane_contains_sentinel(&pane, task_id) {
+                        eprintln!(
+                            "[startup] Adopting orphan-done session: {} (completion sentinel present)",
+                            session_name
+                        );
+                        let app_clone = app.clone();
+                        let task_id_owned = task_id.to_string();
+                        // mark_complete may need its own DB connection + can fire
+                        // downstream column triggers; do it after we release the
+                        // outer lock by deferring with tokio::spawn.
+                        tauri::async_runtime::spawn(async move {
+                            let state: tauri::State<db::AppState> = app_clone.state();
+                            let conn = match state.db.lock() {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    log::warn!(
+                                        "[startup] orphan-adopt DB lock failed for {}: {}",
+                                        task_id_owned,
+                                        e
+                                    );
+                                    return;
+                                }
+                            };
+                            if let Err(e) =
+                                pipeline::mark_complete(&conn, &app_clone, &task_id_owned, true)
+                            {
                                 log::warn!(
-                                    "[startup] orphan-adopt DB lock failed for {}: {}",
+                                    "[startup] orphan-adopt mark_complete failed for {}: {:?}",
                                     task_id_owned,
                                     e
                                 );
-                                return;
                             }
-                        };
-                        if let Err(e) =
-                            pipeline::mark_complete(&conn, &app_clone, &task_id_owned, true)
-                        {
-                            log::warn!(
-                                "[startup] orphan-adopt mark_complete failed for {}: {:?}",
-                                task_id_owned,
-                                e
-                            );
-                        }
-                    });
+                        });
+                    } else {
+                        eprintln!(
+                            "[startup] Session {} at {} prompt but no completion sentinel — \
+                             leaving task {} idle (not asserting success)",
+                            session_name, cmd, task_id
+                        );
+                        let _ = db::update_task_agent_status(&conn, task_id, Some("idle"), None);
+                    }
                 }
             }
         } else {
