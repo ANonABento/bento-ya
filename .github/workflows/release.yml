@@ -77,14 +77,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-15
-            args: --target aarch64-apple-darwin --bundles dmg,app
-            rust-targets: aarch64-apple-darwin
-            name: macOS-arm64
-          - platform: macos-15-intel
-            args: --target x86_64-apple-darwin --bundles dmg,app
-            rust-targets: x86_64-apple-darwin
-            name: macOS-x64
+          # macOS builds are disabled until Apple Developer ID signing +
+          # notarization secrets are configured (APPLE_SIGNING_IDENTITY,
+          # APPLE_CERTIFICATE(+PASSWORD), APPLE_API_ISSUER/APPLE_API_KEY/
+          # APPLE_API_KEY_P8). Re-enable by un-commenting these two entries once
+          # those repo secrets exist — the rest of the job already handles them.
+          # - platform: macos-15
+          #   args: --target aarch64-apple-darwin --bundles dmg,app
+          #   rust-targets: aarch64-apple-darwin
+          #   name: macOS-arm64
+          # - platform: macos-15-intel
+          #   args: --target x86_64-apple-darwin --bundles dmg,app
+          #   rust-targets: x86_64-apple-darwin
+          #   name: macOS-x64
           - platform: ubuntu-22.04
             args: --bundles deb,appimage
             rust-targets: ''
