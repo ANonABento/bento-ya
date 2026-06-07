@@ -868,7 +868,7 @@ fn write_api_discovery_file(path: &std::path::Path, contents: &str) -> std::io::
 pub fn start(app: AppHandle) {
     if !local_api_enabled() {
         let _ = std::fs::remove_file(port_file_path());
-        log::info!("[api] Local HTTP API disabled; set KAITENCODE_LOCAL_API=1 to enable");
+        log::info!("[api] Local HTTP API disabled via KAITENCODE_LOCAL_API; MCP/automation clients won't be able to reach the app");
         return;
     }
 
@@ -967,15 +967,20 @@ pub fn cleanup() {
     let _ = std::fs::remove_file(port_file_path());
 }
 
+/// Whether to start the local HTTP API. Defaults to **ON**: the MCP server and
+/// Claude Code drive the board through it, so off-by-default silently breaks
+/// every MCP mutation. The server binds `127.0.0.1` only and authenticates with
+/// a per-process bearer token written to a `0600` discovery file, so enabling it
+/// by default is local-only and safe. Set `KAITENCODE_LOCAL_API=0` (or
+/// `false`/`no`/`off`) to opt out.
 fn local_api_enabled() -> bool {
-    std::env::var("KAITENCODE_LOCAL_API")
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(false)
+    match std::env::var("KAITENCODE_LOCAL_API") {
+        Ok(value) => !matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "no" | "off"
+        ),
+        Err(_) => true,
+    }
 }
 
 #[cfg(test)]
@@ -1010,10 +1015,11 @@ mod tests {
     }
 
     #[test]
-    fn local_api_disabled_by_default() {
+    fn local_api_enabled_by_default() {
         let _guard = ENV_LOCK.lock().expect("env lock");
         std::env::remove_var("KAITENCODE_LOCAL_API");
-        assert!(!local_api_enabled());
+        // On by default — MCP depends on it.
+        assert!(local_api_enabled());
     }
 
     #[test]
@@ -1022,6 +1028,16 @@ mod tests {
         for value in ["1", "true", "yes", "on"] {
             std::env::set_var("KAITENCODE_LOCAL_API", value);
             assert!(local_api_enabled(), "value {value}");
+        }
+        std::env::remove_var("KAITENCODE_LOCAL_API");
+    }
+
+    #[test]
+    fn local_api_respects_explicit_disable_values() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        for value in ["0", "false", "no", "off", "OFF", " false "] {
+            std::env::set_var("KAITENCODE_LOCAL_API", value);
+            assert!(!local_api_enabled(), "value {value:?}");
         }
         std::env::remove_var("KAITENCODE_LOCAL_API");
     }
