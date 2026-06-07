@@ -6,6 +6,22 @@
 
 ---
 
+> ### Update — 2026-06-07
+> Confirmed direction and a smaller first step:
+> - **Thread model = task (board mirror)**: every task → a thread in its
+>   column's channel. KaitenCode is the source; Discord mirrors it. (Confirms the
+>   existing design — no change.)
+> - **Thin MVP first**: build one vertical slice (connect + task→thread + agent
+>   output streaming in, KaitenCode → Discord only) before reply-routing / `#chef`
+>   / bidirectional sync. See [`MVP-PLAN.md`](./MVP-PLAN.md). The MVP maps to
+>   T052 + lite cuts of T053/T054/T056/T057; T058–T060 stay as later slices.
+> - **Architecture has moved since this was written**: the local HTTP API is now
+>   on by default, and interactive completion is advisory (the agent stays alive
+>   at its prompt — relevant to how a thread's agent keeps "talking"). The sidecar
+>   + chef integration points below are still accurate.
+
+---
+
 ## Vision
 
 Transform Discord into a remote cockpit for KaitenCode. Users can monitor agent progress, receive notifications, reply to agents, and manage the board through natural language - all from Discord (including mobile).

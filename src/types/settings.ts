@@ -17,6 +17,9 @@ export type AgentConfig = {
   modelSelection: string // 'auto' = orchestrator decides, or specific model ID
   /** Default permission mode for new agent chats. 'plan' = read-only safe mode, 'full' = bypassPermissions (dangerous). */
   defaultPermissionMode: 'plan' | 'full'
+  /** Show the built-in orchestrator (chef) panel. Turn off if you drive the
+   *  board from an external agent and don't need the in-app chef. */
+  orchestratorEnabled: boolean
 }
 
 export type AgentMode = {
@@ -167,6 +170,7 @@ export const DEFAULT_SETTINGS: Settings = {
     instructionsFile: '',
     modelSelection: 'auto',
     defaultPermissionMode: 'plan',
+    orchestratorEnabled: true,
   },
   modes: [
     { id: 'code', name: 'Code', icon: 'code', prompt: 'Write clean, maintainable code', tools: ['read', 'write', 'bash'], isBuiltIn: true },

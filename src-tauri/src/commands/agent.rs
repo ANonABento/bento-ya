@@ -1797,6 +1797,7 @@ pub async fn ensure_pty_session(
 /// (`write_to_pty`/`resize_pty`/`get_pty_scrollback`) and `pty:<key>:*` events
 /// as task terminals — only the spawn/attach entrypoint differs.
 #[tauri::command(rename_all = "camelCase")]
+#[allow(clippy::too_many_arguments)]
 pub async fn ensure_chef_terminal(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1805,6 +1806,7 @@ pub async fn ensure_chef_terminal(
     cols: u16,
     rows: u16,
     allow_spawn: Option<bool>,
+    shell_index: Option<u32>,
 ) -> Result<AgentInfo, String> {
     let repo_path = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
@@ -1812,7 +1814,13 @@ pub async fn ensure_chef_terminal(
             .map_err(|_| format!("workspace not found: {}", workspace_id))?
             .repo_path
     };
-    let key = format!("chef_{}", workspace_id);
+    // Shell 1 keeps the bare `chef_<ws>` key (back-compat with the single-shell
+    // session); additional shells are `chef_<ws>_<n>`. The key flows through the
+    // registry, bridge, and `pty:<key>:*` events unchanged.
+    let key = match shell_index {
+        Some(n) if n > 1 => format!("chef_{}_{}", workspace_id, n),
+        _ => format!("chef_{}", workspace_id),
+    };
     let allow_spawn = allow_spawn.unwrap_or(true);
     let mut registry = session_registry.lock().await;
 

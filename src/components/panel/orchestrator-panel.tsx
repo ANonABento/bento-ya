@@ -19,6 +19,8 @@ import { buildPromptWithAttachments } from '@/types'
 import { useCliPath } from '@/hooks/use-cli-path'
 import { ChatHistory } from './chat-history'
 import { OrchestratorTerminalView } from './orchestrator-terminal-view'
+import { killTaskSession } from '@/lib/ipc/agent'
+import { chefSessionKey } from '@/lib/ipc/terminal'
 import { WorkspaceFilesView } from './workspace-files-view'
 import { PanelTabs, type PanelTab } from '@/components/shared/panel-tabs'
 import { ChatIcon, TerminalIcon, FilesIcon } from '@/components/shared/tab-icons'
@@ -108,6 +110,9 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const [sidebarMode, setSidebarMode] = useState<'history' | 'dashboard' | 'v2-dashboard' | null>(null)
   const [viewMode, setViewMode] = useState<OrchestratorView>('chat')
   const [moreOpen, setMoreOpen] = useState(false)
+  // Chef terminal shells (1-based). `+` adds one while the Terminal view is active.
+  const [shells, setShells] = useState<number[]>([1])
+  const [activeShell, setActiveShell] = useState(1)
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -252,6 +257,41 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       console.error('[OrchestratorPanel] Failed to create new chat:', err)
     }
   }, [localMessages.length, activeSession, resetSession, createSession])
+
+  const handleAddShell = useCallback(() => {
+    setShells((prev) => {
+      const next = (prev.length ? Math.max(...prev) : 0) + 1
+      setActiveShell(next)
+      return [...prev, next]
+    })
+  }, [])
+
+  const handleCloseShell = useCallback((shell: number) => {
+    setShells((prev) => {
+      if (prev.length <= 1) return prev // never close the last shell
+      const remaining = prev.filter((s) => s !== shell)
+      setActiveShell((active) =>
+        active === shell ? (remaining[remaining.length - 1] ?? active) : active,
+      )
+      // Kill the underlying tmux session (chef shells are user-driven, no pipeline).
+      void killTaskSession(chefSessionKey(workspaceId, shell)).catch(() => {})
+      return remaining
+    })
+  }, [workspaceId])
+
+  // The `+` button is context-aware: it acts on whichever view is active.
+  const handlePlus = useCallback(() => {
+    if (viewMode === 'terminal') {
+      handleAddShell()
+    } else {
+      void handleNewChat()
+    }
+  }, [viewMode, handleAddShell, handleNewChat])
+
+  // `+` is shown on Chat (new chat) and Terminal (new shell); hidden on Files.
+  const plusVisible = viewMode !== 'files'
+  const plusDisabled = viewMode === 'chat' && localMessages.length === 0
+  const plusTitle = viewMode === 'terminal' ? 'New shell' : 'New chat'
 
   const handleSelectSession = useCallback((session: typeof activeSession) => {
     if (!session) return
@@ -426,19 +466,22 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
         <div className="flex shrink-0 items-center justify-self-end gap-1">
           {!isPanelCollapsed && (
             <>
-              <button
-                type="button"
-                onClick={() => { void handleNewChat() }}
-                disabled={localMessages.length === 0}
-                title="New chat"
-                aria-label="New chat"
-                className="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
-                style={{ cursor: localMessages.length === 0 ? 'not-allowed' : 'pointer' }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-                  <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
-                </svg>
-              </button>
+              {plusVisible && (
+                <button
+                  type="button"
+                  onClick={handlePlus}
+                  disabled={plusDisabled}
+                  title={plusTitle}
+                  aria-label={plusTitle}
+                  data-testid="orchestrator-plus"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+                  style={{ cursor: plusDisabled ? 'not-allowed' : 'pointer' }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                    <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
+                  </svg>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => { setPanelDock(isRightDock ? 'bottom' : 'right') }}
@@ -528,7 +571,13 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
             <ChatErrorBoundary panelName="Orchestrator Chat">
               <div className="flex flex-1 flex-col overflow-hidden">
                 {viewMode === 'terminal' ? (
-                  <OrchestratorTerminalView workspaceId={workspaceId} />
+                  <OrchestratorTerminalView
+                    workspaceId={workspaceId}
+                    shells={shells}
+                    activeShell={activeShell}
+                    onSelectShell={setActiveShell}
+                    onCloseShell={handleCloseShell}
+                  />
                 ) : viewMode === 'files' ? (
                   <WorkspaceFilesView workspaceId={workspaceId} />
                 ) : (

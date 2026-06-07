@@ -50,23 +50,29 @@ export type EnsureSessionFn = (
   allowSpawn: boolean,
 ) => Promise<EnsureSessionInfo>
 
-/** Registry key (and `pty:<key>:*` event prefix) for a workspace chef terminal. */
-export function chefSessionKey(workspaceId: string): string {
-  return `chef_${workspaceId}`
+/**
+ * Registry key (and `pty:<key>:*` event prefix) for a workspace chef terminal.
+ * Shell 1 keeps the bare `chef_<ws>` key (back-compat); additional shells are
+ * `chef_<ws>_<n>`. Must match the key construction in `ensure_chef_terminal`.
+ */
+export function chefSessionKey(workspaceId: string, shellIndex = 1): string {
+  return shellIndex > 1 ? `chef_${workspaceId}_${String(shellIndex)}` : `chef_${workspaceId}`
 }
 
 /**
- * Ensure the workspace-level chef terminal (a shell rooted at the repo) exists.
- * Mirrors `ensurePtySession` but keyed by workspace; the returned `taskId` is
- * the `chef_<workspaceId>` session key the generic PTY IPC + events use.
+ * Ensure a workspace-level chef terminal shell (a shell rooted at the repo)
+ * exists. Mirrors `ensurePtySession` but keyed by workspace + shell index; the
+ * returned `taskId` is the `chef_<workspaceId>[_n]` session key the generic PTY
+ * IPC + events use.
  */
 export async function ensureChefTerminal(
   workspaceId: string,
   cols: number,
   rows: number,
   allowSpawn = true,
+  shellIndex = 1,
 ): Promise<EnsureSessionInfo> {
-  return invoke('ensure_chef_terminal', { workspaceId, cols, rows, allowSpawn })
+  return invoke('ensure_chef_terminal', { workspaceId, cols, rows, allowSpawn, shellIndex })
 }
 
 export type TransportType = 'pipe' | 'pty'
