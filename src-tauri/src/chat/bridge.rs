@@ -2687,8 +2687,11 @@ impl InteractiveCli {
         }
     }
 
-    /// Slash command (without leading slash) the CLI accepts to exit the
-    /// REPL cleanly. Sent only on the sentinel-success path.
+    /// Slash command the CLI accepts to exit the REPL cleanly. No longer sent
+    /// automatically — interactive mode keeps the session alive after a
+    /// done-signal (see `watch_interactive_sentinel`). Retained for a future
+    /// manual "End session" control; kept tested so the mapping doesn't rot.
+    #[allow(dead_code)]
     pub(crate) fn exit_command(self) -> &'static str {
         match self {
             Self::Claude => "/exit",
@@ -3140,21 +3143,25 @@ async fn watch_interactive_sentinel(
         return;
     }
 
-    let success = sentinel_seen;
-    let exit_code: i32 = match (sentinel_seen, session_gone) {
-        (true, _) => 0,
-        (false, true) => 137,
-        (false, false) => 124,
-    };
+    // Interactive completion is ADVISORY, not authoritative. An interactive
+    // session is human-in-the-loop: the agent stays alive at its prompt so the
+    // user can keep the conversation going. So — unlike the headless path — we
+    // NEVER auto-advance the pipeline or auto-mark the task failed here: not on
+    // the 2h timeout, not when the session ends. We record output + telemetry,
+    // drop the task to `idle` (it is no longer generating), and — when the agent
+    // signaled done via the sentinel — emit an advisory event so the panel can
+    // offer an explicit "Advance column" control. The user owns the transition
+    // (via the `agent_advance` command). This is what makes interactive mode
+    // behave like a real terminal session rather than a one-shot pipeline step.
     let scrollback = capture_pane_scrollback(&session);
     let scrollback = truncate_for_scrollback(&scrollback);
     let last_output_tail = tail_bytes(&scrollback, LAST_OUTPUT_TAIL_BYTES);
 
     let completion_metadata = serde_json::json!({
-        "exitCode": exit_code,
         "sentinel": sentinel_seen,
         "sessionGone": session_gone,
         "runtimeMode": "interactive",
+        "advisory": true,
     })
     .to_string();
     let _ = crate::events::persist_and_emit_agent_transcript_event(
@@ -3165,22 +3172,9 @@ async fn watch_interactive_sentinel(
         None,
         Some(&completion_metadata),
     );
-    let _ = crate::events::persist_and_emit_agent_transcript_event(
-        &app,
-        &task_id,
-        session_id.as_deref(),
-        if success {
-            db::EVENT_AGENT_COMPLETED
-        } else {
-            db::EVENT_AGENT_FAILED
-        },
-        None,
-        Some(&completion_metadata),
-    );
 
     if let Ok(conn) = Connection::open(db::db_path()) {
         let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-
         if let Some(ref sid) = session_id {
             let _ = db::update_agent_session_output(
                 &conn,
@@ -3188,73 +3182,30 @@ async fn watch_interactive_sentinel(
                 Some(&last_output_tail),
                 Some(&scrollback),
             );
-        }
-
-        // Column guard — same protection as the headless path. If the user
-        // dragged the task while the watcher was sleeping, don't stomp on
-        // the new column's state.
-        let task_still_here = db::get_task(&conn, &task_id)
-            .ok()
-            .map(|t| trigger_column_id.as_deref() == Some(t.column_id.as_str()))
-            .unwrap_or(false);
-
-        if !task_still_here {
-            eprintln!(
-                "[bridge:interactive] task {} moved columns at completion; skipping mark_complete",
-                task_id
-            );
+            // Drop to idle only if we still own the task — a fresh agent may
+            // have taken over in another column. Never auto-advance / auto-fail.
+            let _ = db::clear_task_agent_status_for_session(&conn, &task_id, sid, "idle");
         } else {
-            let status_str = if success { "completed" } else { "failed" };
-            let _ = db::update_task_agent_status(&conn, &task_id, Some(status_str), None);
-            if let Ok(task) = db::get_task(&conn, &task_id) {
-                if let Some(ref sid) = task.agent_session_id {
-                    let _ = db::update_agent_session(
-                        &conn,
-                        sid,
-                        None,
-                        Some(status_str),
-                        Some(Some(exit_code as i64)),
-                        None,
-                        None,
-                        None,
-                    );
-                }
-            }
-
-            let duration_secs = start_time.elapsed().as_secs() as i64;
-            if let Ok(task) = db::get_task(&conn, &task_id) {
-                let model_name = task.model.as_deref().unwrap_or("unknown");
-                let column_name = db::get_column(&conn, &task.column_id)
-                    .map(|c| c.name)
-                    .unwrap_or_default();
-                let _ = db::insert_usage_record(
-                    &conn,
-                    &task.workspace_id,
-                    Some(&task_id),
-                    session_id.as_deref(),
-                    "anthropic",
-                    model_name,
-                    0,
-                    0,
-                    0.0,
-                    Some(&column_name),
-                    duration_secs,
-                );
-            }
-
-            if success {
-                let _ = pipeline::mark_complete(&conn, &app, &task_id, true);
-            } else {
-                let detail = if session_gone {
-                    "Interactive agent session ended before sentinel observed".to_string()
-                } else {
-                    "Interactive agent exceeded 2h timeout without emitting completion sentinel"
-                        .to_string()
-                };
-                let _ =
-                    pipeline::mark_complete_with_error(&conn, &app, &task_id, false, Some(&detail));
-            }
+            let _ = db::update_task_agent_status(&conn, &task_id, Some("idle"), None);
         }
+    }
+
+    if sentinel_seen {
+        // The agent printed the done-sentinel. Surface it as advisory: the
+        // session stays live and the panel offers "Advance column".
+        let _ = crate::events::persist_and_emit_agent_transcript_event(
+            &app,
+            &task_id,
+            session_id.as_deref(),
+            db::EVENT_AGENT_COMPLETED,
+            None,
+            Some(&completion_metadata),
+        );
+        let _ = app.emit(&format!("agent:{}:interactive_done", task_id), &task_id);
+        eprintln!(
+            "[bridge:interactive] task {} agent signaled done — advisory (session kept alive, awaiting user advance)",
+            task_id
+        );
     }
 
     pipeline::emit_tasks_changed(&app, &workspace_for_task(&task_id), "trigger_complete");
@@ -3293,16 +3244,12 @@ async fn watch_interactive_sentinel(
         }
     }
 
-    // Best-effort graceful shutdown of the still-running TUI. Claude
-    // accepts `/exit`; codex accepts `/quit`. If the user already moved
-    // the task or started a new spawn the next trigger will kill the
-    // session anyway, so we don't wait for the exit to complete.
-    if success && tmux_transport::has_session(&task_id) {
-        let _ = run_tmux(&["send-keys", "-t", &session, "-l", cli.exit_command()]);
-        let _ = run_tmux(&["send-keys", "-t", &session, "Enter"]);
-    }
-
+    // Interactive mode deliberately KEEPS the TUI alive after a done-signal so
+    // the user can continue the conversation — we do not send `/exit` here. The
+    // session is torn down by the next trigger, an explicit user advance
+    // (`agent_advance`), a Restart, or GC's idle sweep.
     let _ = cli_command;
+    let _ = cli;
 }
 
 // ─── Shell quoting helpers ────────────────────────────────────────────────

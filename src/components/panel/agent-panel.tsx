@@ -6,7 +6,7 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { parseWorkspaceConfig } from '@/types/workspace'
 import { useAgentTranscriptStore } from '@/stores/agent-transcript-store'
 import { holdTask, killTaskSession } from '@/lib/ipc/agent'
-import { agentInjectMessage, agentRestart, interactiveModeDevFlag } from '@/lib/ipc/agent-interactive'
+import { agentRestart, interactiveModeDevFlag } from '@/lib/ipc/agent-interactive'
 import { setTaskRuntimeModeOverride } from '@/lib/ipc/task'
 import { PanelTabs, type PanelTab } from '@/components/shared/panel-tabs'
 import { ActivityIcon, TerminalIcon, ChangesIcon, FilesIcon } from '@/components/shared/tab-icons'
@@ -16,7 +16,7 @@ import { useResolvedRuntimeMode } from '@/hooks/use-resolved-runtime-mode'
 import { useTaskDetail } from '@/hooks/use-task-detail'
 import { TerminalView } from './terminal-view'
 import { InteractiveAgentView } from './interactive-agent-view'
-import { ChatInput, type ChatInputMessage } from './shared'
+import { ChatInput } from './shared'
 import type { ModelId } from './shared/chat-input-types'
 import type { ThinkingLevel } from '@/components/shared/thinking-utils'
 import { AgentTranscript } from './agent-transcript'
@@ -428,24 +428,8 @@ function InteractivePanel({ task, onClose }: AgentPanelProps) {
     s.workspaces.find((w) => w.id === task.workspaceId)
   )
   const workingDir = task.worktreePath ?? workspace?.repoPath ?? ''
-  const [injecting, setInjecting] = useState(false)
-  const [injectError, setInjectError] = useState<string | null>(null)
   const [killBusy, setKillBusy] = useState(false)
   const [holdBusy, setHoldBusy] = useState(false)
-
-  const handleSend = useCallback(async (message: ChatInputMessage) => {
-    const content = message.content.trim()
-    if (!content) return
-    setInjecting(true)
-    setInjectError(null)
-    try {
-      await agentInjectMessage(task.id, content)
-    } catch (err) {
-      setInjectError(err instanceof Error ? err.message : String(err))
-    } finally {
-      window.setTimeout(() => { setInjecting(false) }, 200)
-    }
-  }, [task.id])
 
   const handleHoldToggle = async () => {
     if (holdBusy) return
@@ -503,18 +487,6 @@ function InteractivePanel({ task, onClose }: AgentPanelProps) {
             />
           </>
         }
-        errorSlot={
-          injectError ? (
-            <button
-              type="button"
-              onClick={() => { setInjectError(null) }}
-              className="truncate text-[11px] text-error hover:text-error/80"
-              title={injectError}
-            >
-              {injectError}
-            </button>
-          ) : null
-        }
       />
 
       <div className="relative flex min-h-0 flex-1 flex-col">
@@ -526,21 +498,13 @@ function InteractivePanel({ task, onClose }: AgentPanelProps) {
             agentPausedAt={task.agentPausedAt}
           />
         </div>
-        <ChatInput
-          config={{
-            placeholder: 'Message Claude…',
-            showModelSelector: false,
-            showThinkingSelector: false,
-            showVoiceInput: false,
-            showAttachments: false,
-            rows: 1,
-          }}
-          onSend={(message) => { void handleSend(message) }}
-          deliveryHint="Interactive · sends a literal line to the live agent"
-          submitLabel="Send"
-          isProcessing={injecting}
-          disabled={injecting}
-        />
+        <div
+          data-testid="interactive-input-hint"
+          className="border-t border-border-default bg-surface px-3 py-1.5 text-[11px] text-text-secondary/70"
+        >
+          Type directly in the terminal — <span className="text-text-secondary">/commands</span>,{' '}
+          <span className="text-text-secondary">@files</span>, Tab-complete and paste all work like a real terminal.
+        </div>
       </div>
     </div>
   )

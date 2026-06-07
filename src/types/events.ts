@@ -8,6 +8,8 @@ export const EventChannels = {
   ptyExit: (taskId: string) => `pty:${taskId}:exit` as const,
   agentTranscriptEvent: (taskId: string) => `agent:${taskId}:transcript_event` as const,
   agentStatus: (taskId: string) => `agent:${taskId}:status` as const,
+  /** Interactive agent printed its done-sentinel — advisory, session stays alive. */
+  agentInteractiveDone: (taskId: string) => `agent:${taskId}:interactive_done` as const,
   taskUpdated: (taskId: string) => `task:${taskId}:updated` as const,
   gitChanges: (taskId: string) => `git:${taskId}:changes` as const,
   workspaceUpdated: (id: string) => `workspace:${id}:updated` as const,

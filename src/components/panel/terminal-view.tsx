@@ -314,11 +314,18 @@ export function TerminalView({ taskId, workingDir, allowSpawn = true, ensure = e
       })
     })
 
-    // Observe container resize
+    // Observe container resize. Coalesce the burst of events a drag-resize
+    // fires into a single fit (+ one settle) — issuing resize_pty per event
+    // makes the hosted TUI flicker as it repaints mid-drag. scheduleFit's own
+    // `disposed` guard covers a timer that fires after teardown.
+    let resizeDebounceTimer: number | undefined
     const resizeObserver = new ResizeObserver(() => {
-      scheduleFit()
-      scheduleFit(120)
-      scheduleFit(320)
+      if (resizeDebounceTimer !== undefined) window.clearTimeout(resizeDebounceTimer)
+      resizeDebounceTimer = window.setTimeout(() => {
+        resizeDebounceTimer = undefined
+        scheduleFit()
+        scheduleFit(280)
+      }, 80)
     })
     resizeObserver.observe(container)
     let parent: HTMLElement | null = container.parentElement

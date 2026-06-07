@@ -114,6 +114,21 @@ pub fn ensure_tmux_server() -> Result<(), String> {
         .args(["set-option", "-s", "exit-empty", "off"])
         .output();
 
+    // Terminal-fidelity defaults for the agent TUIs we host. Set globally
+    // before any session is created so every pane inherits them.
+    //
+    // - history-limit: tmux defaults to ~2000 lines; a long agent run scrolls
+    //   its early output out of reach. 50k keeps a full session in scrollback.
+    //   (Only affects panes created AFTER it's set — hence here, pre-session.)
+    // - mouse: lets the user scroll/click inside the agent's TUI (pagers,
+    //   menus, selection) exactly like a real terminal.
+    let _ = Command::new("tmux")
+        .args(["set-option", "-g", "history-limit", "50000"])
+        .output();
+    let _ = Command::new("tmux")
+        .args(["set-option", "-g", "mouse", "on"])
+        .output();
+
     Ok(())
 }
 

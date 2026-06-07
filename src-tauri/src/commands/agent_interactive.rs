@@ -103,6 +103,26 @@ pub fn agent_inject_message(
     Ok(())
 }
 
+/// Advance the pipeline for an interactive task whose agent has signaled it is
+/// done. Interactive completion is *advisory* — the watcher keeps the session
+/// alive and never auto-advances — so this is the explicit, user-driven "I'm
+/// satisfied, move it on" action surfaced by the "Advance column" control. It
+/// runs the same `mark_complete(success = true)` the headless path runs.
+#[tauri::command(rename_all = "camelCase")]
+pub fn agent_advance(
+    app: AppHandle,
+    state: State<AppState>,
+    task_id: String,
+) -> Result<(), AppError> {
+    require_interactive_mode(&state, &task_id)?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    crate::pipeline::mark_complete(&conn, &app, &task_id, true)?;
+    Ok(())
+}
+
 /// Send Ctrl+C to the live agent. In interactive mode the agent returns
 /// to its prompt (alive). In headless mode this kills the underlying
 /// `claude -p` process (same as the existing Stop button).
