@@ -10,6 +10,7 @@ import { VoiceTab } from './tabs/voice-tab'
 import { AdvancedTab } from './tabs/advanced-tab'
 import { GitTab } from './tabs/git-tab'
 import { GithubTab } from './tabs/github-tab'
+import { DiscordTab } from './tabs/discord-tab'
 import { ShortcutsTab } from './tabs/shortcuts-tab'
 import { UpdatesTab } from './tabs/updates-tab'
 import { BatchesTab } from './tabs/batches-tab'
@@ -78,6 +79,7 @@ type TabId =
   | 'board'
   | 'voice'
   | 'github'
+  | 'discord'
   | 'batches'
   | 'updates'
   | 'advanced'
@@ -117,6 +119,7 @@ const TAB_GROUPS: TabGroup[] = [
     label: 'Integrations',
     tabs: [
       { id: 'github', label: 'GitHub', hint: 'Issue sync and column mapping' },
+      { id: 'discord', label: 'Discord', hint: 'Mirror the board to Discord threads' },
       { id: 'mcp', label: 'MCP Server', hint: 'Connect external agents to the board' },
       { id: 'batches', label: 'Batches', hint: 'Grouped task PR workflows' },
     ],
@@ -201,6 +204,8 @@ export function SettingsPanel() {
         return <VoiceTab />
       case 'github':
         return <GithubTab />
+      case 'discord':
+        return <DiscordTab />
       case 'batches':
         return <BatchesTab />
       case 'updates':

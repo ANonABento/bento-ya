@@ -1,0 +1,17 @@
+{
+  "name": "kaitencode-discord-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "KaitenCode Discord sidecar — discord.js bot driven over JSON stdin/stdout by the Rust DiscordBridge.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
