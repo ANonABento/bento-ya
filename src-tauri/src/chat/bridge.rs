@@ -1622,6 +1622,15 @@ async fn run_trigger_in_tmux(
     eprintln!("[bridge] Working dir: {}", working_dir);
     eprintln!("[bridge] Log file: {}", log_path);
 
+    // Discord MVP: mirror this task to a thread (best-effort, never blocks).
+    {
+        let app = app.clone();
+        let task_id = task_id.to_string();
+        tauri::async_runtime::spawn(async move {
+            crate::discord::notify::on_task_started(&app, &task_id).await;
+        });
+    }
+
     let command_metadata = serde_json::json!({
         "cli": cli_command,
         "workdir": working_dir,
@@ -2324,6 +2333,17 @@ async fn run_trigger_in_tmux(
     }
 
     pipeline::emit_tasks_changed(app, &workspace_for_task(task_id), "trigger_complete");
+
+    // Discord MVP: post the output tail + status into the task's thread
+    // (best-effort, never blocks completion).
+    {
+        let app = app.clone();
+        let task_id = task_id.to_string();
+        let output_tail = error_tail.clone();
+        tauri::async_runtime::spawn(async move {
+            crate::discord::notify::on_task_finished(&app, &task_id, success, &output_tail).await;
+        });
+    }
 
     // Phase 4 telemetry — every headless completion logs an event. The
     // source is `exit_code` regardless of success: we got an exit code

@@ -20,6 +20,8 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
 
+pub mod notify;
+
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 
 type Pending = Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, String>>>>>;
