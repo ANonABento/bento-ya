@@ -428,27 +428,6 @@ const CODEX_STREAM_PRETTY_JQ: &str = r#"
 ///     pretty-prints a compact terminal view via jq. If jq is unavailable,
 ///     it falls back to Codex's normal human-readable exec output.
 ///   - Other / unknown: passed through as-is.
-/// Resolve a CLI token to an absolute executable path for in-tmux execution.
-///
-/// Triggers run inside a tmux pane whose PATH is inherited from the tmux server.
-/// When KaitenCode is launched from a macOS GUI (Finder/Dock) — or any
-/// non-login context — that PATH is the minimal launchd default and omits the
-/// dirs `claude`/`codex` install into (`~/.claude/local/bin`, `~/.local/bin`,
-/// `/opt/homebrew/bin`, npm-global). A bare `claude` then fails with "command
-/// not found" inside the pane even though Settings detected the CLI. Resolving
-/// to the absolute path the detector finds makes execution PATH-independent and
-/// deterministic (it also pins which binary runs when more than one is
-/// installed). A token that already contains '/' (user-configured absolute or
-/// relative path) or that can't be resolved is returned unchanged, so a genuine
-/// misconfiguration surfaces as a real in-pane error rather than a silent
-/// rewrite.
-pub(crate) fn resolve_cli_exec(cli_command: &str) -> String {
-    if cli_command.contains('/') {
-        return cli_command.to_string();
-    }
-    crate::commands::cli_detect::find_cli(cli_command).unwrap_or_else(|| cli_command.to_string())
-}
-
 pub(crate) fn build_trigger_command(
     cli_command: &str,
     args: &[String],
@@ -473,6 +452,27 @@ pub(crate) fn build_trigger_command(
         cmd_parts.push(format!("'{}'", escaped));
     }
     cmd_parts.join(" ")
+}
+
+/// Resolve a CLI token to an absolute executable path for in-tmux execution.
+///
+/// Triggers run inside a tmux pane whose PATH is inherited from the tmux server.
+/// When KaitenCode is launched from a macOS GUI (Finder/Dock) or any non-login
+/// context, that PATH is the minimal launchd default and omits the user dirs
+/// `claude`/`codex` install into (the Claude installer dir, the local bin dir,
+/// Homebrew, npm-global). A bare `claude` then fails with "command not found"
+/// inside the pane even though Settings detected the CLI. Resolving to the
+/// absolute path the detector finds makes execution PATH-independent and
+/// deterministic, and pins which binary runs when more than one is installed.
+/// A token that already contains a path separator (user-configured absolute or
+/// relative path), or that cannot be resolved, is returned unchanged so a
+/// genuine misconfiguration surfaces as a real in-pane error, not a silent
+/// rewrite.
+pub(crate) fn resolve_cli_exec(cli_command: &str) -> String {
+    if cli_command.contains('/') {
+        return cli_command.to_string();
+    }
+    crate::commands::cli_detect::find_cli(cli_command).unwrap_or_else(|| cli_command.to_string())
 }
 
 /// Materialize a long shell command into a short `bash <script>` launcher.
@@ -1297,6 +1297,7 @@ fn workspace_for_task(task_id: &str) -> String {
         .unwrap_or_default()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn persist_agent_session_started(
     conn: &Connection,
     app: &AppHandle,
