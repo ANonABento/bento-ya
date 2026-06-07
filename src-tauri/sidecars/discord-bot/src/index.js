@@ -61,11 +61,14 @@ async function handleConnect(payload) {
   if (!token) throw new Error('missing token')
 
   client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-    ],
+    // MVP is one-direction (we create threads + post messages, which is REST +
+    // the non-privileged Guilds gateway intent). GuildMessages + the PRIVILEGED
+    // MessageContent intent are added in the reply-routing slice (T058) when we
+    // read thread replies. Requesting MessageContent here would make login fail
+    // ("disallowed intents") for any bot that doesn't have that privileged
+    // intent toggled on in the Developer Portal — so we keep it minimal, which
+    // lets an existing bot (e.g. choomfie) connect without portal changes.
+    intents: [GatewayIntentBits.Guilds],
   })
 
   // Resolve `connect` only once the gateway is ready, returning the bot
