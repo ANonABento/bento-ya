@@ -53,7 +53,7 @@ Packaged macOS and Linux builds expect these tools to be available on `PATH` for
 
 Desktop-launched apps on macOS/Linux may not inherit your shell dotfiles. First-run onboarding shows a system check for required tools. If a CLI is not detected, set its path in Settings > Agents & Models.
 
-The local HTTP API used by external automation is disabled by default in packaged apps. Start KaitenCode with `KAITENCODE_LOCAL_API=1` only when you intentionally want a local MCP/automation client to control the running app; the app writes a user-readable-only JSON discovery file with the selected port and a per-run bearer token to `~/.kaitencode/api.port` while enabled.
+The local HTTP API powers the MCP server and any external automation that drives the board, so it is **enabled by default**. It binds to `127.0.0.1` only and authenticates every request with a per-run bearer token, written along with the chosen port to a user-readable-only (`0600`) discovery file at `~/.kaitencode/api.port`. To opt out (no MCP/automation control), start KaitenCode with `KAITENCODE_LOCAL_API=0` (or `false`/`no`/`off`).
 
 ### Building
 
