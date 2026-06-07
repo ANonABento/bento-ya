@@ -27,6 +27,7 @@ import { OrchestratorPanel } from '@/components/panel/orchestrator-panel'
 import { useDnd } from '@/hooks/use-dnd'
 import { useChatPanel } from '@/hooks/use-chat-panel'
 import { useUIStore } from '@/stores/ui-store'
+import { useSettingsStore } from '@/stores/settings-store'
 import { CardPositionContext, useCardPositionProvider } from '@/hooks/use-card-positions'
 import { DepDragContext } from '@/hooks/use-dep-drag-context'
 import { BulkTaskToolbar } from '@/components/kanban/bulk-task-toolbar'
@@ -34,6 +35,7 @@ import { UsageBudgetBanner } from '@/components/usage/usage-budget-banner'
 
 export function Board() {
   const panelDock = useUIStore((s) => s.panelDock)
+  const orchestratorEnabled = useSettingsStore((s) => s.global.agent.orchestratorEnabled)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const columns = useColumnStore((s) => s.columns)
   const loadColumns = useColumnStore((s) => s.load)
@@ -291,13 +293,13 @@ export function Board() {
             </div>
 
             {/* Orchestrator panel - bottom dock */}
-            {activeWorkspaceId && panelDock === 'bottom' && (
+            {orchestratorEnabled && activeWorkspaceId && panelDock === 'bottom' && (
               <OrchestratorPanel workspaceId={activeWorkspaceId} />
             )}
           </div>
 
           {/* Orchestrator panel - right dock */}
-          {activeWorkspaceId && panelDock === 'right' && (
+          {orchestratorEnabled && activeWorkspaceId && panelDock === 'right' && (
             <OrchestratorPanel workspaceId={activeWorkspaceId} />
           )}
 

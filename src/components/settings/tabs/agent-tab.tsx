@@ -651,6 +651,17 @@ export function AgentTab() {
       >
         <div className="space-y-5">
           <SettingRow
+            label="Show orchestrator panel"
+            description="The in-app chef that manages the board via chat. Turn off if you drive the board from an external agent (MCP / API) and don't need it."
+          >
+            <Toggle
+              checked={agent.orchestratorEnabled}
+              onChange={(checked) => { updateAgent({ orchestratorEnabled: checked }) }}
+              aria-label="Show orchestrator panel"
+            />
+          </SettingRow>
+
+          <SettingRow
             label="Default model"
             description="Used when the orchestrator decides, or when triggers / tasks don't specify a model."
             vertical
