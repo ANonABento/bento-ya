@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  agentAdvance,
   agentInterrupt,
   agentPause,
   agentRestart,
@@ -49,6 +50,11 @@ export function InteractiveAgentView({
   const [switchingModel, setSwitchingModel] = useState(false)
   const [pauseBusy, setPauseBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Interactive completion is advisory: when the agent prints its done-sentinel
+  // the backend keeps the session alive and emits `interactive_done`. We surface
+  // an "Advance column" affordance instead of auto-advancing — the user decides.
+  const [doneSignaled, setDoneSignaled] = useState(false)
+  const [advancing, setAdvancing] = useState(false)
   const lastOutputAtRef = useRef<number>(Date.now())
   const resetTimeoutsRef = useRef<number[]>([])
   const isPaused = agentPausedAt != null
@@ -100,6 +106,42 @@ export function InteractiveAgentView({
       window.clearInterval(interval)
     }
   }, [taskId])
+
+  // Advisory done-signal: backend keeps the session alive and emits this when
+  // the agent prints its completion sentinel. Surface the "Advance" affordance.
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null
+    let cancelled = false
+    listen<string>(EventChannels.agentInteractiveDone(taskId), () => {
+      setDoneSignaled(true)
+    }).then((fn) => {
+      if (cancelled) { fn(); return }
+      unlisten = fn
+    }).catch((err: unknown) => {
+      console.warn('[interactive-agent-view] interactive_done listener failed:', err)
+    })
+    return () => { cancelled = true; if (unlisten) unlisten() }
+  }, [taskId])
+
+  // If the agent starts generating again (a fresh run / the user kept chatting),
+  // the stale "done" banner shouldn't linger.
+  useEffect(() => {
+    if (agentStatus === 'running') setDoneSignaled(false)
+  }, [agentStatus])
+
+  const handleAdvance = useCallback(async () => {
+    if (advancing) return
+    setAdvancing(true)
+    setError(null)
+    try {
+      await agentAdvance(taskId)
+      setDoneSignaled(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      scheduleReset(() => { setAdvancing(false) }, 400)
+    }
+  }, [advancing, scheduleReset, taskId])
 
   const status: LiveStatus =
     agentStatus === 'completed' || agentStatus === 'failed' || agentStatus === 'stopped'
@@ -200,6 +242,38 @@ export function InteractiveAgentView({
           data-testid="interactive-agent-view-error"
         >
           {error}
+        </div>
+      )}
+      {doneSignaled && status !== 'stopped' && (
+        <div
+          data-testid="interactive-agent-done-banner"
+          className="flex items-center justify-between gap-3 border-b border-running/30 bg-running/10 px-3 py-1.5"
+        >
+          <span className="text-[11px] text-running">
+            ✓ Agent signaled it's done. The session is still live — keep chatting, or advance the column when you're satisfied.
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { setDoneSignaled(false) }}
+              data-testid="interactive-agent-done-dismiss"
+              className="rounded px-2 py-0.5 text-[11px] text-text-secondary hover:text-text-primary"
+              style={{ cursor: 'pointer' }}
+            >
+              Dismiss
+            </button>
+            <button
+              type="button"
+              onClick={() => { void handleAdvance() }}
+              disabled={advancing}
+              data-testid="interactive-agent-advance"
+              title="Mark complete and run the column's exit/advance"
+              className="rounded border border-running/40 bg-running/15 px-2 py-0.5 text-[11px] font-medium text-running hover:bg-running/25 disabled:opacity-50"
+              style={{ cursor: advancing ? 'wait' : 'pointer' }}
+            >
+              {advancing ? 'Advancing…' : 'Advance column →'}
+            </button>
+          </div>
         </div>
       )}
       <div className="min-h-0 flex-1">

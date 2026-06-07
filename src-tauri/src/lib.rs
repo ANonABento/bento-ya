@@ -235,6 +235,7 @@ pub fn run() {
             // Interactive runtime mode (Phase 2)
             commands::agent_interactive::resolve_runtime_mode,
             commands::agent_interactive::agent_inject_message,
+            commands::agent_interactive::agent_advance,
             commands::agent_interactive::agent_interrupt,
             commands::agent_interactive::agent_switch_model,
             commands::agent_interactive::agent_restart,

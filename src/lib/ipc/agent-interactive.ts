@@ -39,6 +39,15 @@ export async function agentSwitchModel(taskId: string, model: string): Promise<v
   return invoke('agent_switch_model', { taskId, model })
 }
 
+/**
+ * Advance the pipeline for an interactive task whose agent signaled it's done.
+ * Interactive completion is advisory (the session stays alive), so this is the
+ * explicit user-driven "move it on" action behind the "Advance column" control.
+ */
+export async function agentAdvance(taskId: string): Promise<void> {
+  return invoke('agent_advance', { taskId })
+}
+
 /** Kill the current interactive agent and respawn with the same config. */
 export async function agentRestart(taskId: string): Promise<void> {
   return invoke('agent_restart', { taskId })

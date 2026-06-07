@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { InteractiveAgentView } from './interactive-agent-view'
 
 const interactiveMocks = vi.hoisted(() => ({
@@ -8,6 +8,7 @@ const interactiveMocks = vi.hoisted(() => ({
   agentSwitchModel: vi.fn().mockResolvedValue(undefined),
   agentPause: vi.fn().mockResolvedValue(undefined),
   agentResume: vi.fn().mockResolvedValue(undefined),
+  agentAdvance: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/lib/ipc/agent-interactive', () => ({
@@ -16,11 +17,21 @@ vi.mock('@/lib/ipc/agent-interactive', () => ({
   agentSwitchModel: interactiveMocks.agentSwitchModel,
   agentPause: interactiveMocks.agentPause,
   agentResume: interactiveMocks.agentResume,
+  agentAdvance: interactiveMocks.agentAdvance,
 }))
 
+// Capture event listeners by channel so tests can fire backend events.
+const listenHandlers = vi.hoisted(() => new Map<string, (e: { payload: unknown }) => void>())
 vi.mock('@/lib/ipc', () => ({
-  listen: vi.fn().mockResolvedValue(() => {}),
+  listen: vi.fn((channel: string, handler: (e: { payload: unknown }) => void) => {
+    listenHandlers.set(channel, handler)
+    return Promise.resolve(() => { listenHandlers.delete(channel) })
+  }),
 }))
+
+function fireInteractiveDone(taskId: string) {
+  listenHandlers.get(`agent:${taskId}:interactive_done`)?.({ payload: taskId })
+}
 
 vi.mock('./terminal-view', () => ({
   TerminalView: ({
@@ -45,8 +56,30 @@ describe('InteractiveAgentView', () => {
     interactiveMocks.agentSwitchModel.mockClear()
     interactiveMocks.agentPause.mockClear()
     interactiveMocks.agentResume.mockClear()
+    interactiveMocks.agentAdvance.mockClear()
+    listenHandlers.clear()
     // Auto-confirm restart dialog.
     vi.spyOn(window, 'confirm').mockReturnValue(true)
+  })
+
+  it('surfaces an advisory Advance affordance on interactive_done and calls agentAdvance', async () => {
+    render(
+      <InteractiveAgentView taskId="task-1" workingDir="/tmp" agentStatus="idle" />,
+    )
+    // No banner until the agent signals done.
+    expect(screen.queryByTestId('interactive-agent-done-banner')).not.toBeInTheDocument()
+
+    act(() => { fireInteractiveDone('task-1') })
+
+    const banner = await screen.findByTestId('interactive-agent-done-banner')
+    expect(banner).toBeInTheDocument()
+    // It's advisory — advancing must NOT have happened automatically.
+    expect(interactiveMocks.agentAdvance).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('interactive-agent-advance'))
+    await waitFor(() => {
+      expect(interactiveMocks.agentAdvance).toHaveBeenCalledWith('task-1')
+    })
   })
 
   it('renders control bar with status pill and terminal view', () => {

@@ -512,7 +512,7 @@ describe('AgentPanel mode dispatcher', () => {
     expect(screen.queryByTestId('agent-transcript')).not.toBeInTheDocument()
   })
 
-  it('routes chat input through agent_inject_message in interactive mode', async () => {
+  it('interactive mode uses the terminal as the sole input (no inject chat box)', () => {
     vi.mocked(useResolvedRuntimeMode).mockReturnValue({
       mode: 'interactive',
       render: null,
@@ -522,11 +522,14 @@ describe('AgentPanel mode dispatcher', () => {
       error: null,
     })
     renderPanel()
-    fireEvent.click(screen.getByRole('button', { name: 'Send transcript message' }))
-    await waitFor(() => {
-      expect(vi.mocked(agentInjectMessage)).toHaveBeenCalledWith('t1', 'hello agent')
-    })
-    // The headless chat-session send path must NOT fire.
+    // The terminal owns input; a hint points the user at it instead of a
+    // line-injecting chat box.
+    expect(screen.getByTestId('interactive-input-hint')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Send transcript message' })
+    ).not.toBeInTheDocument()
+    // The old inject path must no longer be wired.
+    expect(vi.mocked(agentInjectMessage)).not.toHaveBeenCalled()
     expect(sendMessageMock).not.toHaveBeenCalled()
   })
 
