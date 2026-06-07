@@ -138,6 +138,15 @@ pub fn check_runtime_prerequisites() -> Vec<RuntimePrerequisite> {
             &["--version"],
             "Install GitHub CLI from https://cli.github.com/ for PR automation.",
         ),
+        check_tool(
+            "jq",
+            "jq",
+            false,
+            "jq",
+            &["--version"],
+            "Install jq (`brew install jq` / your package manager) for a clean streaming \
+             agent view; without it the terminal falls back to raw JSON output.",
+        ),
     ]
 }
 
@@ -157,5 +166,8 @@ mod tests {
         assert!(checks
             .iter()
             .any(|check| check.id == "gh" && !check.required));
+        assert!(checks
+            .iter()
+            .any(|check| check.id == "jq" && !check.required));
     }
 }

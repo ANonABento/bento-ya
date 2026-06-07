@@ -151,7 +151,19 @@ fn dirs_home() -> PathBuf {
     std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."))
+        .unwrap_or_else(|_| {
+            // Neither HOME nor USERPROFILE set — a broken/headless environment.
+            // The old fallback was the current working directory ("."), which
+            // for a GUI app launched from Finder/Dock is often "/" — unwritable,
+            // so `create_dir_all` would panic and the app wouldn't start at all.
+            // Fall back to the OS temp dir (always writable) and warn loudly so
+            // it's diagnosable; set KAITENCODE_DATA_DIR to pin a real location.
+            log::error!(
+                "[db] Neither HOME nor USERPROFILE is set; falling back to the temp dir for app data. \
+                 Set KAITENCODE_DATA_DIR to choose a persistent location."
+            );
+            std::env::temp_dir()
+        })
 }
 
 /// Returns the path to the SQLite database file.

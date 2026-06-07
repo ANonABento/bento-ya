@@ -2278,7 +2278,7 @@ dependencies = [
 
 [[package]]
 name = "kaitencode"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "async-stream",
  "axum",
@@ -2312,7 +2312,7 @@ dependencies = [
 
 [[package]]
 name = "kaitencode-mcp"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "clap",

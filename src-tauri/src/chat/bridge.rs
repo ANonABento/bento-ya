@@ -454,6 +454,27 @@ pub(crate) fn build_trigger_command(
     cmd_parts.join(" ")
 }
 
+/// Resolve a CLI token to an absolute executable path for in-tmux execution.
+///
+/// Triggers run inside a tmux pane whose PATH is inherited from the tmux server.
+/// When KaitenCode is launched from a macOS GUI (Finder/Dock) or any non-login
+/// context, that PATH is the minimal launchd default and omits the user dirs
+/// `claude`/`codex` install into (the Claude installer dir, the local bin dir,
+/// Homebrew, npm-global). A bare `claude` then fails with "command not found"
+/// inside the pane even though Settings detected the CLI. Resolving to the
+/// absolute path the detector finds makes execution PATH-independent and
+/// deterministic, and pins which binary runs when more than one is installed.
+/// A token that already contains a path separator (user-configured absolute or
+/// relative path), or that cannot be resolved, is returned unchanged so a
+/// genuine misconfiguration surfaces as a real in-pane error, not a silent
+/// rewrite.
+pub(crate) fn resolve_cli_exec(cli_command: &str) -> String {
+    if cli_command.contains('/') {
+        return cli_command.to_string();
+    }
+    crate::commands::cli_detect::find_cli(cli_command).unwrap_or_else(|| cli_command.to_string())
+}
+
 /// Materialize a long shell command into a short `bash <script>` launcher.
 ///
 /// This is intentionally used for tmux injection paths. Sending the full
@@ -955,7 +976,7 @@ fn run_tmux(args: &[&str]) -> Result<String, String> {
 
 /// Capture pane scrollback (with escape sequences). Returns empty string on
 /// any error so callers can treat it as "no output captured".
-fn capture_pane_scrollback(session: &str) -> String {
+pub(crate) fn capture_pane_scrollback(session: &str) -> String {
     Command::new("tmux")
         .args(["capture-pane", "-t", session, "-p", "-e", "-J", "-S", "-"])
         .output()
@@ -1276,6 +1297,7 @@ fn workspace_for_task(task_id: &str) -> String {
         .unwrap_or_default()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn persist_agent_session_started(
     conn: &Connection,
     app: &AppHandle,
@@ -1471,8 +1493,12 @@ pub fn spawn_cli_trigger_task(
 
     tokio::spawn(async move {
         let start_time = std::time::Instant::now();
+        // Execute via the absolute path (PATH inside the tmux pane may not
+        // include the dir this CLI lives in); keep `cli_command` as the logical
+        // name for telemetry / adapter detection.
+        let cli_exec = resolve_cli_exec(&cli_command);
         let full_cmd =
-            build_trigger_command(&cli_command, &args, &initial_prompt, resume_id.as_deref());
+            build_trigger_command(&cli_exec, &args, &initial_prompt, resume_id.as_deref());
         let nonce = gen_nonce();
         let log_path = log_retention::new_trigger_log_path(&nonce);
         let log_path_str = log_path.display().to_string();
@@ -2203,6 +2229,10 @@ async fn run_trigger_in_tmux(
             if should_kill_session_after_completion(persistent_lifecycle) {
                 let _ = tmux_transport::kill_session(task_id);
             }
+            // This task is now idle until its scheduled retry — a slot just
+            // freed. Drain the queue so throughput doesn't collapse while we
+            // wait out the (possibly hours-long) rate-limit backoff.
+            pipeline::promote_queued_tasks(app, &workspace_for_task(task_id));
             return Ok(());
         }
 
@@ -2217,6 +2247,23 @@ async fn run_trigger_in_tmux(
                 "[bridge] Task {} moved columns during trigger — skipping mark_complete",
                 task_id
             );
+            // The task left this column mid-trigger, so we must NOT mark it
+            // complete. But our agent still counts as `running` against the
+            // workspace concurrency cap; left alone it leaks a slot forever and
+            // the queue stalls (board appears frozen). Free the slot — but only
+            // if a fresh agent hasn't already taken over this task in the
+            // destination column (guard on our session id) — then drain the
+            // queue so a waiting task can take the freed slot.
+            if let Some(sid) = session_id {
+                let cleared = db::clear_task_agent_status_for_session(&conn, task_id, sid, "idle")
+                    .unwrap_or(0);
+                let _ = db::update_agent_session(
+                    &conn, sid, None, Some("cancelled"), None, None, None, None,
+                );
+                if cleared > 0 {
+                    pipeline::promote_queued_tasks(app, &workspace_for_task(task_id));
+                }
+            }
         } else {
             let status_str = if success { "completed" } else { "failed" };
             let _ = db::update_task_agent_status(&conn, task_id, Some(status_str), None);
@@ -2533,6 +2580,28 @@ pub(crate) fn pane_contains_sentinel(pane_text: &str, task_id: &str) -> bool {
     })
 }
 
+/// Number of trailing non-empty lines [`pane_tail_contains_sentinel`] inspects.
+/// Generous enough to survive a shell prompt + a few lines of trailing output
+/// landing after the sentinel between polls, but far short of a full transcript.
+const INTERACTIVE_SENTINEL_TAIL_LINES: usize = 40;
+
+/// Like [`pane_contains_sentinel`] but only inspects the last
+/// `INTERACTIVE_SENTINEL_TAIL_LINES` non-empty lines of the pane. A model that
+/// prints the sentinel line early in a long response shouldn't be able to mark
+/// the task done before it has actually finished; the genuine completion
+/// sentinel lands at the very end, just before the prompt returns.
+pub(crate) fn pane_tail_contains_sentinel(pane_text: &str, task_id: &str) -> bool {
+    let stripped = strip_ansi(pane_text);
+    let tail = stripped
+        .lines()
+        .rev()
+        .filter(|l| !l.trim().is_empty())
+        .take(INTERACTIVE_SENTINEL_TAIL_LINES)
+        .collect::<Vec<_>>()
+        .join("\n");
+    pane_contains_sentinel(&tail, task_id)
+}
+
 /// Detect whether Claude Code's TUI input box is visible in the captured
 /// pane. Claude Code draws a rounded box around the input row using the
 /// `╭`/`│`/`╰` box-drawing characters. We accept any of those as evidence
@@ -2658,9 +2727,12 @@ pub(crate) fn spawn_interactive_cli(
     let _ = tmux_transport::kill_session(task_id);
 
     let session = tmux_session_name(task_id);
+    // Execute via the absolute path — the tmux pane's PATH (esp. under a macOS
+    // GUI launch) may not include the dir this CLI lives in. See resolve_cli_exec.
+    let cli_exec = resolve_cli_exec(cli_command);
     let argv = match cli {
         InteractiveCli::Claude => build_interactive_claude_argv(
-            cli_command,
+            &cli_exec,
             user_args,
             task_id,
             resume_id,
@@ -2672,7 +2744,7 @@ pub(crate) fn spawn_interactive_cli(
                     "[bridge:interactive] resume_id ignored for codex (interactive resume not wired in Phase 3)"
                 );
             }
-            build_interactive_codex_argv(cli_command, user_args, task_id, include_sentinel)
+            build_interactive_codex_argv(&cli_exec, user_args, task_id, include_sentinel)
         }
     };
 
@@ -3021,7 +3093,12 @@ async fn watch_interactive_sentinel(
         }
 
         let pane = capture_pane_scrollback(&session);
-        if pane_contains_sentinel(&pane, &task_id) {
+        // Only inspect the tail. The real sentinel is emitted right before the
+        // agent returns to its prompt, so it lives near the end of the
+        // scrollback. Scanning the whole buffer would let a model that echoes
+        // the sentinel line early (e.g. while reasoning aloud about what it will
+        // print when done) trigger a premature completion.
+        if pane_tail_contains_sentinel(&pane, &task_id) {
             sentinel_seen = true;
             eprintln!(
                 "[bridge:interactive] sentinel observed for task {}",
@@ -3033,12 +3110,16 @@ async fn watch_interactive_sentinel(
 
     if moved_columns {
         // Don't run completion handling — the new column's trigger owns the
-        // task now. Just clear the running flag so the GC sweep doesn't
-        // re-mark this task as failed.
+        // task now. Clear the running flag so the GC sweep doesn't re-mark this
+        // task as failed AND so our slot doesn't leak against the concurrency
+        // cap. Guard on our session id so we don't clobber a fresh agent the
+        // destination column may have spawned; then drain the queue.
         if let Ok(conn) = Connection::open(db::db_path()) {
             let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
-            let _ = db::update_task_agent_status(&conn, &task_id, Some("idle"), None);
             if let Some(ref sid) = session_id {
+                let cleared =
+                    db::clear_task_agent_status_for_session(&conn, &task_id, sid, "idle")
+                        .unwrap_or(0);
                 let _ = db::update_agent_session(
                     &conn,
                     sid,
@@ -3049,6 +3130,11 @@ async fn watch_interactive_sentinel(
                     None,
                     None,
                 );
+                if cleared > 0 {
+                    pipeline::promote_queued_tasks(&app, &workspace_for_task(&task_id));
+                }
+            } else {
+                let _ = db::update_task_agent_status(&conn, &task_id, Some("idle"), None);
             }
         }
         return;
@@ -3690,6 +3776,50 @@ mod tests {
         // Document the current behavior so a future tightening (e.g. require
         // sentinel to be the LAST non-empty line) is an intentional change.
         assert!(pane_contains_sentinel(pane, "task-7"));
+    }
+
+    #[test]
+    fn test_resolve_cli_exec_passes_through_explicit_path() {
+        // A user-configured absolute/relative path must be used verbatim — never
+        // re-resolved (they may be pointing at a specific install on purpose).
+        assert_eq!(resolve_cli_exec("/opt/homebrew/bin/claude"), "/opt/homebrew/bin/claude");
+        assert_eq!(resolve_cli_exec("./local/codex"), "./local/codex");
+    }
+
+    #[test]
+    fn test_resolve_cli_exec_passes_through_unresolvable_bare_name() {
+        // A bare name we can't find anywhere is returned unchanged so the user
+        // sees a real "command not found" in-pane instead of a silent rewrite.
+        let bogus = "kaitencode-no-such-cli-xyz";
+        assert_eq!(resolve_cli_exec(bogus), bogus);
+    }
+
+    #[test]
+    fn test_pane_tail_sentinel_ignores_early_echo() {
+        // Regression: the model prints the sentinel line early (while reasoning
+        // about what it will emit when done), then continues working for many
+        // more lines. The tail-scan watcher must NOT complete prematurely.
+        let mut pane = String::from("<<<KAITENCODE_DONE:task-7>>>\n");
+        for i in 0..80 {
+            pane.push_str(&format!("still working line {}\n", i));
+        }
+        assert!(
+            !pane_tail_contains_sentinel(&pane, "task-7"),
+            "an early sentinel echo scrolled out of the tail must not complete"
+        );
+    }
+
+    #[test]
+    fn test_pane_tail_sentinel_matches_when_near_end() {
+        // The genuine completion case: sentinel lands at the end, just before
+        // the prompt returns (a couple trailing lines after it are fine).
+        let mut pane = String::new();
+        for i in 0..80 {
+            pane.push_str(&format!("doing work line {}\n", i));
+        }
+        pane.push_str("<<<KAITENCODE_DONE:task-7>>>\n");
+        pane.push_str("user@host:~/repo$ \n");
+        assert!(pane_tail_contains_sentinel(&pane, "task-7"));
     }
 
     #[test]

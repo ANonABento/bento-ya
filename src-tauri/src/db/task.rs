@@ -640,6 +640,28 @@ pub fn get_running_agent_count(conn: &Connection, workspace_id: &str) -> SqlResu
     )
 }
 
+/// Reset a task's `agent_status` ONLY if it still references `session_id`.
+///
+/// Used when a stale completion handler discovers its task moved columns
+/// mid-trigger. If the destination column spawned a fresh agent, the task's
+/// `agent_session_id` has already advanced to the new session, so a blind
+/// `agent_status='idle'` write would clobber the new agent's `running` state.
+/// Guarding on the session id makes the slot-freeing reset a no-op in that case.
+/// Returns the number of rows updated (0 if a newer session took over).
+pub fn clear_task_agent_status_for_session(
+    conn: &Connection,
+    task_id: &str,
+    session_id: &str,
+    new_status: &str,
+) -> SqlResult<usize> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET agent_status = ?1, updated_at = ?2 \
+         WHERE id = ?3 AND agent_session_id = ?4",
+        params![new_status, ts, task_id, session_id],
+    )
+}
+
 /// Count tasks with agent_status = 'running' in a single column of a workspace.
 /// Used for per-column concurrency caps (e.g. serialize Merge main).
 pub fn get_running_agent_count_in_column(
@@ -650,6 +672,34 @@ pub fn get_running_agent_count_in_column(
     conn.query_row(
         "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND column_id = ?2 AND agent_status = 'running'",
         params![workspace_id, column_id],
+        |row| row.get(0),
+    )
+}
+
+/// Count active, non-queued task executions across the whole workspace,
+/// excluding one task.
+///
+/// The workspace concurrency gate needs this broader count for the same reason
+/// the column gate does: a terminal-/interactive-mode agent sits in
+/// `pipeline_state='triggered'`/`'running'` before its `agent_status` is set to
+/// `'running'` (that write happens asynchronously inside the spawned task). A
+/// gate that only counts `agent_status='running'` therefore undercounts during
+/// a burst of simultaneous fires and over-spawns past the cap. Excludes the
+/// task currently being evaluated so it isn't counted against its own slot.
+pub fn get_active_execution_count_excluding(
+    conn: &Connection,
+    workspace_id: &str,
+    excluded_task_id: &str,
+) -> SqlResult<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM tasks \
+         WHERE workspace_id = ?1 \
+           AND id != ?2 \
+           AND archived_at IS NULL \
+           AND COALESCE(agent_status, '') != 'queued' \
+           AND (agent_status = 'running' \
+                OR pipeline_state IN ('triggered', 'running', 'evaluating', 'advancing', 'rate_limited'))",
+        params![workspace_id, excluded_task_id],
         |row| row.get(0),
     )
 }
@@ -846,6 +896,44 @@ mod tests {
         let workspace = crate::db::insert_workspace(conn, "WS", "/tmp/ws").unwrap();
         let column = crate::db::insert_column(conn, &workspace.id, "Backlog", 0).unwrap();
         insert_task(conn, &workspace.id, &column.id, "Task", None).unwrap()
+    }
+
+    #[test]
+    fn clear_agent_status_for_session_frees_slot_when_session_matches() {
+        let conn = crate::db::init_test().unwrap();
+        let task = seed_task(&conn);
+        update_task_agent_session(&conn, &task.id, Some("sess-A")).unwrap();
+        update_task_agent_status(&conn, &task.id, Some("running"), None).unwrap();
+
+        let rows =
+            clear_task_agent_status_for_session(&conn, &task.id, "sess-A", "idle").unwrap();
+
+        assert_eq!(rows, 1, "matching session should update exactly one row");
+        let reloaded = get_task(&conn, &task.id).unwrap();
+        assert_eq!(reloaded.agent_status.as_deref(), Some("idle"));
+    }
+
+    #[test]
+    fn clear_agent_status_for_session_is_noop_when_a_newer_session_took_over() {
+        // Regression: a stale completion handler must NOT clobber the `running`
+        // status of a fresh agent that took over the task in another column.
+        let conn = crate::db::init_test().unwrap();
+        let task = seed_task(&conn);
+        // A new agent (session B) now owns the task and is running.
+        update_task_agent_session(&conn, &task.id, Some("sess-B")).unwrap();
+        update_task_agent_status(&conn, &task.id, Some("running"), None).unwrap();
+
+        // The OLD handler (session A) tries to free the slot.
+        let rows =
+            clear_task_agent_status_for_session(&conn, &task.id, "sess-A", "idle").unwrap();
+
+        assert_eq!(rows, 0, "stale session must not match the new owner");
+        let reloaded = get_task(&conn, &task.id).unwrap();
+        assert_eq!(
+            reloaded.agent_status.as_deref(),
+            Some("running"),
+            "the new agent's running status must be preserved"
+        );
     }
 
     #[test]

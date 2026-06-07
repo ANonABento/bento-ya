@@ -1110,8 +1110,27 @@ fn ensure_task_worktree(
 ) -> Result<Task, AppError> {
     let mut task = task.clone();
 
-    // Step 1: Ensure task has a branch
-    if task.branch_name.as_deref().unwrap_or("").is_empty() {
+    // Step 1: Ensure task has a branch that actually exists in THIS repo.
+    //
+    // A task may carry a stale `branch_name` — e.g. a legacy `bentoya/` prefix,
+    // or a branch that belonged to a different repo/worktree and was never
+    // created here. Trusting a recorded-but-missing branch makes
+    // `create_task_worktree` hard-fail on `find_branch`, which surfaces to the
+    // user as "failed to spawn cli" with no recovery short of retry-from-start
+    // (the only path that nulls `branch_name`). So treat a missing branch the
+    // same as no branch and (re)create it from base.
+    let recorded_branch = task.branch_name.as_deref().unwrap_or("").to_string();
+    let branch_missing = recorded_branch.is_empty()
+        || !branch_manager::branch_exists(repo_path, &recorded_branch).unwrap_or(false);
+    if branch_missing {
+        if !recorded_branch.is_empty() {
+            log::warn!(
+                "[triggers] Task {} references branch '{}' which does not exist in {}; recreating from base",
+                task.id,
+                recorded_branch,
+                repo_path
+            );
+        }
         let base = validate_setup_base_branch(base_branch, &task.id)?;
         let slug = branch_manager::slugify(&task.title);
         match branch_manager::create_task_branch_with_prefix(
@@ -1526,7 +1545,13 @@ fn execute_spawn_cli(
     // Two-layer cap: workspace-wide, then column-scoped. If either is at or
     // above its limit, mark this task as queued instead of spawning.
     let max_concurrent = pipeline_settings.max_concurrent_agents;
-    let running_count = db::get_running_agent_count(conn, &task.workspace_id).unwrap_or(0);
+    // Count the broad active set (not just agent_status='running') excluding this
+    // task. `agent_status='running'` is written asynchronously after spawn, so a
+    // burst of simultaneous fires would each read a stale count and over-spawn
+    // past the cap. The pre-`running` pipeline states close that window — same
+    // approach the column-scoped gate below uses.
+    let running_count =
+        db::get_active_execution_count_excluding(conn, &task.workspace_id, &task.id).unwrap_or(0);
 
     if running_count >= max_concurrent {
         log::info!(
@@ -4552,6 +4577,59 @@ mod tests {
         .expect("branch creation should succeed with explicit base");
 
         assert_eq!(branch, "kaitencode/implement-feature");
+    }
+
+    /// Regression: a task carrying a stale `branch_name` — e.g. a legacy
+    /// `bentoya/` prefix, or a branch that belonged to another repo/worktree and
+    /// was never created here — must NOT permanently break worktree creation.
+    ///
+    /// The bug: `ensure_task_worktree` only created a branch when `branch_name`
+    /// was empty, then called `create_task_worktree`, which hard-fails on
+    /// `find_branch` for a missing branch. That surfaced to the user as
+    /// "failed to spawn cli" with no recovery short of retry-from-start.
+    ///
+    /// The fix detects the missing branch (`branch_exists` → false) and
+    /// recreates it from base before the worktree. This test pins that contract
+    /// on the underlying git layer (sidestepping the AppHandle-typed wrapper).
+    #[test]
+    fn test_worktree_recovers_from_stale_missing_branch() {
+        use crate::git::branch_manager;
+        let tmp = tempfile::tempdir().unwrap();
+        init_test_repo(tmp.path());
+        let repo = tmp.path().to_str().unwrap();
+        let settings = make_test_pipeline_settings();
+
+        // Bug condition: a recorded branch that does not exist in this repo.
+        let stale = "bentoya/deliberately-missing-branch";
+        assert!(
+            !branch_manager::branch_exists(repo, stale).unwrap(),
+            "precondition: stale branch must be absent"
+        );
+
+        // The original failure: a worktree on a missing branch is a hard error.
+        assert!(
+            branch_manager::create_task_worktree(repo, stale, "task-stale").is_err(),
+            "worktree on a missing branch should fail (this is the bug we recover from)"
+        );
+
+        // The recovery `ensure_task_worktree` now performs: detect the missing
+        // branch, recreate it from base, then create the worktree successfully.
+        assert!(!branch_manager::branch_exists(repo, stale).unwrap());
+        let fresh = branch_manager::create_task_branch_with_prefix(
+            repo,
+            "Implement Feature",
+            Some(&settings.default_base_branch),
+            &settings.branch_prefix,
+        )
+        .expect("recreate branch from base");
+        assert_eq!(fresh, "kaitencode/implement-feature");
+
+        let wt = branch_manager::create_task_worktree(repo, &fresh, "task-stale")
+            .expect("worktree creation should now succeed after branch recovery");
+        assert!(
+            std::path::Path::new(&wt).exists(),
+            "worktree dir should exist"
+        );
     }
 
     /// Bogus base branch → hard fail (Bug D test on the underlying git layer).
