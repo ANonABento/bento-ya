@@ -10,8 +10,10 @@ import type { ResourceProfile } from '@/types/column'
 import { useColumnStore } from '@/stores/column-store'
 import { getColumnTriggers } from '@/types/column'
 import { ICONS, COLUMN_COLORS } from './column-config-constants'
-import { TriggersTab } from './column-trigger-editor'
+import { ActionEditor } from './column-trigger-action-editors'
 import { ExitTab } from './column-exit-editor'
+import { AutomationSentence } from './column-automation-sentence'
+import { automationSummary } from './column-recipes'
 
 /** Auto-suggest an icon based on column name keywords */
 function suggestIcon(name: string): string | null {
@@ -58,7 +60,6 @@ type ColumnConfigDialogProps = {
   onDelete?: () => void
 }
 
-type Tab = 'general' | 'triggers' | 'exit'
 type ResourceProfileOption = ResourceProfile | 'auto'
 
 const RESOURCE_PROFILE_OPTIONS: Array<{ value: ResourceProfileOption; label: string; hint: string }> = [
@@ -74,23 +75,21 @@ const RESOURCE_PROFILE_OPTIONS: Array<{ value: ResourceProfileOption; label: str
 export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDialogProps) {
   const updateColumnAsync = useColumnStore((s) => s.updateColumnAsync)
 
-  const [tab, setTab] = useState<Tab>('general')
   const [name, setName] = useState(column.name)
   const [icon, setIcon] = useState(column.icon || 'list')
   const [color, setColor] = useState(column.color || '#E8A87C')
   const [userPickedIcon, setUserPickedIcon] = useState(false)
   const [userPickedColor, setUserPickedColor] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
 
-  // Reset the delete-confirm state after 3s if the user doesn't follow through —
-  // prevents a stale "armed" state if focus moves away.
+  // Reset the delete-confirm state after 3s if the user doesn't follow through.
   useEffect(() => {
     if (!confirmDelete) return
     const t = setTimeout(() => { setConfirmDelete(false) }, 3000)
     return () => { clearTimeout(t) }
   }, [confirmDelete])
 
-  // Reset manual override flags when dialog opens for a different column
   useEffect(() => {
     setUserPickedIcon(false)
     setUserPickedColor(false)
@@ -98,7 +97,6 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
 
   const handleNameChange = useCallback((newName: string) => {
     setName(newName)
-    // Auto-suggest icon/color only if user hasn't manually picked them
     if (!userPickedIcon) {
       const suggested = suggestIcon(newName)
       if (suggested) setIcon(suggested)
@@ -109,9 +107,7 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
     }
   }, [userPickedIcon, userPickedColor])
 
-  const initialTriggers = useMemo((): ColumnTriggers => {
-    return getColumnTriggers(column)
-  }, [column])
+  const initialTriggers = useMemo((): ColumnTriggers => getColumnTriggers(column), [column])
 
   const [onEntry, setOnEntry] = useState<TriggerAction>(initialTriggers.on_entry || { type: 'none' })
   const [onExit, setOnExit] = useState<TriggerAction>(initialTriggers.on_exit || { type: 'none' })
@@ -180,105 +176,81 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
         >
           {/* Header */}
           <div className="border-b border-border-default px-6 py-4">
-            <h2 className="text-lg font-semibold text-text-primary">
-              Configure Column
-            </h2>
+            <h2 className="text-lg font-semibold text-text-primary">Configure Column</h2>
           </div>
 
-          {/* Tabs */}
-          <div role="tablist" aria-label="Column configuration sections" className="flex border-b border-border-default px-6">
-            {(['general', 'triggers', 'exit'] as Tab[]).map((t) => (
-              <button
-                key={t}
-                id={`column-config-tab-${t}`}
-                role="tab"
-                type="button"
-                aria-selected={tab === t}
-                aria-controls={`column-config-panel-${t}`}
-                tabIndex={tab === t ? 0 : -1}
-                onClick={() => { setTab(t) }}
-                onKeyDown={(e) => {
-                  // Roving-tabindex arrow navigation per ARIA Authoring Practices.
-                  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-                  e.preventDefault()
-                  const tabs = ['general', 'triggers', 'exit'] as const
-                  const idx = tabs.indexOf(t)
-                  const nextIdx = e.key === 'ArrowRight'
-                    ? (idx + 1) % tabs.length
-                    : (idx - 1 + tabs.length) % tabs.length
-                  const next = tabs[nextIdx] ?? 'general'
-                  setTab(next)
-                  // Focus the newly-selected tab so the visual + DOM focus agree.
-                  setTimeout(() => {
-                    document.getElementById(`column-config-tab-${next}`)?.focus()
-                  }, 0)
-                }}
-                className={`px-4 py-3 text-sm font-medium transition-colors relative ${
-                  tab === t
-                    ? 'text-accent'
-                    : 'text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                {t.charAt(0).toUpperCase() + t.slice(1)}
-                {tab === t && (
-                  <motion.div
-                    layoutId="column-config-tab-indicator"
-                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent"
-                  />
-                )}
-              </button>
-            ))}
-          </div>
-
-          {/* Content */}
           <form onSubmit={(e) => { void handleSubmit(e) }} className="flex-1 overflow-y-auto">
-            <div className="p-6">
-              {tab === 'general' && (
-                <div role="tabpanel" id="column-config-panel-general" aria-labelledby="column-config-tab-general">
-                <GeneralTab
-                  name={name}
-                  setName={handleNameChange}
-                  icon={icon}
-                  setIcon={(v) => { setUserPickedIcon(true); setIcon(v) }}
-                  color={color}
-                  setColor={(v) => { setUserPickedColor(true); setColor(v) }}
-                  maxConcurrent={maxConcurrent}
-                  setMaxConcurrent={setMaxConcurrent}
-                  resourceProfile={resourceProfile}
-                  setResourceProfile={setResourceProfile}
-                />
-                </div>
-              )}
-              {tab === 'triggers' && (
-                <div role="tabpanel" id="column-config-panel-triggers" aria-labelledby="column-config-tab-triggers">
-                <TriggersTab
-                  columnName={column.name}
+            <div className="space-y-6 p-6">
+              {/* Identity */}
+              <IdentityFields
+                name={name}
+                setName={handleNameChange}
+                icon={icon}
+                setIcon={(v) => { setUserPickedIcon(true); setIcon(v) }}
+                color={color}
+                setColor={(v) => { setUserPickedColor(true); setColor(v) }}
+              />
+
+              {/* Automation */}
+              <section className="border-t border-border-default pt-5">
+                <h3 className="mb-3 text-sm font-semibold text-text-primary">Automation</h3>
+                <AutomationSentence
                   onEntry={onEntry}
                   setOnEntry={setOnEntry}
-                  onExit={onExit}
-                  setOnExit={setOnExit}
-                  setExitCriteria={setExitCriteria}
-                />
-                </div>
-              )}
-              {tab === 'exit' && (
-                <div role="tabpanel" id="column-config-panel-exit" aria-labelledby="column-config-tab-exit">
-                <ExitTab
                   exitCriteria={exitCriteria}
                   setExitCriteria={setExitCriteria}
                 />
-                </div>
-              )}
+              </section>
+
+              {/* Advanced */}
+              <section className="border-t border-border-default pt-5">
+                <button
+                  type="button"
+                  onClick={() => { setAdvancedOpen((o) => !o) }}
+                  aria-expanded={advancedOpen}
+                  className="flex w-full items-center justify-between text-sm font-semibold text-text-primary"
+                  style={{ cursor: 'pointer' }}
+                >
+                  <span>Advanced</span>
+                  <span className="text-xs font-normal text-text-secondary/70">
+                    {advancedOpen ? 'Hide' : 'Entry/exit actions, exit details, capacity ▾'}
+                  </span>
+                </button>
+
+                {advancedOpen && (
+                  <div className="mt-4 space-y-6">
+                    <div>
+                      <h4 className="mb-2 text-xs font-medium text-text-secondary">On entry — full action editor</h4>
+                      <ActionEditor action={onEntry} setAction={setOnEntry} />
+                    </div>
+                    <div>
+                      <h4 className="mb-2 text-xs font-medium text-text-secondary">On exit — before the task leaves</h4>
+                      <ActionEditor action={onExit} setAction={setOnExit} showMoveColumn />
+                    </div>
+                    <div>
+                      <h4 className="mb-2 text-xs font-medium text-text-secondary">Exit details — retries, timeout, auto-advance</h4>
+                      <ExitTab exitCriteria={exitCriteria} setExitCriteria={setExitCriteria} />
+                    </div>
+                    <CapacityFields
+                      maxConcurrent={maxConcurrent}
+                      setMaxConcurrent={setMaxConcurrent}
+                      resourceProfile={resourceProfile}
+                      setResourceProfile={setResourceProfile}
+                    />
+                  </div>
+                )}
+              </section>
             </div>
 
-            {/* Actions — DOM order is Cancel, Save, Delete (safe → destructive) so
-                keyboard focus reaches Cancel/Save before the destructive Delete.
-                `order-*` classes restore the visual left-Delete / right-Save layout. */}
+            {/* Actions — DOM order Cancel, Save, Delete (safe → destructive). */}
             <div className="flex items-center gap-2 border-t border-border-default px-6 py-4">
+              <span className="mr-auto truncate text-xs text-text-secondary/70" title={automationSummary(onEntry, exitCriteria)}>
+                ▸ {automationSummary(onEntry, exitCriteria)}
+              </span>
               <button
                 type="button"
                 onClick={onClose}
-                className="order-2 ml-auto rounded-lg px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
+                className="order-2 rounded-lg px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
               >
                 Cancel
               </button>
@@ -318,19 +290,15 @@ export function ColumnConfigDialog({ column, onClose, onDelete }: ColumnConfigDi
   )
 }
 
-// ─── General Tab ────────────────────────────────────────────────────────────
+// ─── Identity ───────────────────────────────────────────────────────────────
 
-function GeneralTab({
+function IdentityFields({
   name,
   setName,
   icon,
   setIcon,
   color,
   setColor,
-  maxConcurrent,
-  setMaxConcurrent,
-  resourceProfile,
-  setResourceProfile,
 }: {
   name: string
   setName: (v: string) => void
@@ -338,20 +306,11 @@ function GeneralTab({
   setIcon: (v: string) => void
   color: string
   setColor: (v: string) => void
-  maxConcurrent: number | undefined
-  setMaxConcurrent: (v: number | undefined) => void
-  resourceProfile: ResourceProfile | undefined
-  setResourceProfile: (v: ResourceProfile | undefined) => void
 }) {
-  const shouldSuggestSingleLane = resourceProfile === 'heavy' || resourceProfile === 'exclusive'
-
   return (
-    <div className="space-y-5">
-      {/* Name */}
+    <div className="space-y-4">
       <div>
-        <label className="mb-1.5 block text-sm font-medium text-text-secondary">
-          Name
-        </label>
+        <label className="mb-1.5 block text-sm font-medium text-text-secondary">Name</label>
         <input
           type="text"
           value={name}
@@ -360,37 +319,29 @@ function GeneralTab({
         />
       </div>
 
-      {/* Icon & Color */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-text-secondary">
-            Icon
-          </label>
+          <label className="mb-1.5 block text-sm font-medium text-text-secondary">Icon</label>
           <select
             value={icon}
             onChange={(e) => { setIcon(e.target.value) }}
             className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
           >
             {ICONS.map((i) => (
-              <option key={i.value} value={i.value}>
-                {i.label}
-              </option>
+              <option key={i.value} value={i.value}>{i.label}</option>
             ))}
           </select>
         </div>
-
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-text-secondary">
-            Color
-          </label>
+          <label className="mb-1.5 block text-sm font-medium text-text-secondary">Color</label>
           <div role="radiogroup" aria-label="Column color" className="flex flex-wrap gap-2">
-            {Object.entries(COLUMN_COLORS).map(([name, c], idx, all) => (
+            {Object.entries(COLUMN_COLORS).map(([cname, c], idx, all) => (
               <button
                 key={c}
                 type="button"
                 role="radio"
                 aria-checked={color === c}
-                aria-label={`Color: ${name}`}
+                aria-label={`Color: ${cname}`}
                 tabIndex={color === c ? 0 : -1}
                 onClick={() => { setColor(c) }}
                 onKeyDown={(e) => {
@@ -415,82 +366,87 @@ function GeneralTab({
           </div>
         </div>
       </div>
+    </div>
+  )
+}
 
-      {/* Capacity */}
-      <div className="border-t border-border-default pt-5">
-        <div className="mb-3">
-          <h3 className="text-sm font-semibold text-text-primary">Capacity</h3>
-          <p className="mt-0.5 text-xs text-text-secondary/70">Column resource profile and concurrency.</p>
+// ─── Capacity (advanced) ────────────────────────────────────────────────────
+
+function CapacityFields({
+  maxConcurrent,
+  setMaxConcurrent,
+  resourceProfile,
+  setResourceProfile,
+}: {
+  maxConcurrent: number | undefined
+  setMaxConcurrent: (v: number | undefined) => void
+  resourceProfile: ResourceProfile | undefined
+  setResourceProfile: (v: ResourceProfile | undefined) => void
+}) {
+  const shouldSuggestSingleLane = resourceProfile === 'heavy' || resourceProfile === 'exclusive'
+  return (
+    <div>
+      <h4 className="mb-2 text-xs font-medium text-text-secondary">Capacity — concurrency for this column</h4>
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-text-secondary">Resource profile</label>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5">
+            {RESOURCE_PROFILE_OPTIONS.map((option) => {
+              const selected = option.value === (resourceProfile ?? 'auto')
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => { setResourceProfile(option.value === 'auto' ? undefined : option.value) }}
+                  className={`min-h-14 rounded-lg border px-2 py-2 text-left transition-colors ${
+                    selected
+                      ? 'border-accent bg-accent/10 text-text-primary'
+                      : 'border-border-default bg-bg text-text-secondary hover:border-border-hover hover:text-text-primary'
+                  }`}
+                  aria-pressed={selected}
+                >
+                  <span className="block text-sm font-medium leading-4">{option.label}</span>
+                  <span className="mt-1 block text-[11px] leading-3 text-text-secondary/70">{option.hint}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-text-secondary">
-              Resource profile
-            </label>
-            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5">
-              {RESOURCE_PROFILE_OPTIONS.map((option) => {
-                const selected = option.value === (resourceProfile ?? 'auto')
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      setResourceProfile(option.value === 'auto' ? undefined : option.value)
-                    }}
-                    className={`min-h-14 rounded-lg border px-2 py-2 text-left transition-colors ${
-                      selected
-                        ? 'border-accent bg-accent/10 text-text-primary'
-                        : 'border-border-default bg-bg text-text-secondary hover:border-border-hover hover:text-text-primary'
-                    }`}
-                    aria-pressed={selected}
-                  >
-                    <span className="block text-sm font-medium leading-4">{option.label}</span>
-                    <span className="mt-1 block text-[11px] leading-3 text-text-secondary/70">{option.hint}</span>
-                  </button>
-                )
-              })}
-            </div>
+            <label className="mb-1.5 block text-xs font-medium text-text-secondary">Max concurrent agents</label>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              placeholder="Unlimited"
+              value={maxConcurrent ?? ''}
+              onChange={(e) => {
+                const v = e.target.value
+                if (v === '') { setMaxConcurrent(undefined); return }
+                const n = Number.parseInt(v, 10)
+                setMaxConcurrent(Number.isFinite(n) && n > 0 ? n : undefined)
+              }}
+              className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none sm:max-w-40"
+            />
           </div>
-
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-text-secondary">
-                Max concurrent agents
-              </label>
-              <input
-                type="number"
-                min={1}
-                step={1}
-                placeholder="Unlimited"
-                value={maxConcurrent ?? ''}
-                onChange={(e) => {
-                  const v = e.target.value
-                  if (v === '') { setMaxConcurrent(undefined); return }
-                  const n = Number.parseInt(v, 10)
-                  setMaxConcurrent(Number.isFinite(n) && n > 0 ? n : undefined)
-                }}
-                className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none sm:max-w-40"
-              />
-            </div>
-
-            {shouldSuggestSingleLane && maxConcurrent !== 1 && (
-              <button
-                type="button"
-                onClick={() => { setMaxConcurrent(1) }}
-                className="rounded-lg border border-border-default px-3 py-2 text-sm font-medium text-text-primary hover:bg-surface-hover"
-              >
-                Set to 1
-              </button>
-            )}
-          </div>
-
           {shouldSuggestSingleLane && maxConcurrent !== 1 && (
-            <p className="text-xs text-warning">
-              {resourceProfile === 'exclusive' ? 'Exclusive' : 'Heavy'} columns usually run best at 1.
-            </p>
+            <button
+              type="button"
+              onClick={() => { setMaxConcurrent(1) }}
+              className="rounded-lg border border-border-default px-3 py-2 text-sm font-medium text-text-primary hover:bg-surface-hover"
+            >
+              Set to 1
+            </button>
           )}
         </div>
+
+        {shouldSuggestSingleLane && maxConcurrent !== 1 && (
+          <p className="text-xs text-warning">
+            {resourceProfile === 'exclusive' ? 'Exclusive' : 'Heavy'} columns usually run best at 1.
+          </p>
+        )}
       </div>
     </div>
   )
