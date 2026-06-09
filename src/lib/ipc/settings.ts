@@ -19,6 +19,11 @@ export interface AppSettings {
   default_runtime_mode: string
   /** Opt-in gate for interactive runtime mode (Phase 3). */
   interactive_mode_enabled: boolean
+  /** Startup CLI-version warning floors. null/"" = accept any version. */
+  claude_min_version: string | null
+  codex_min_version: string | null
+  /** Max depth of an agent-spawned task chain (MCP recursion guard). */
+  mcp_max_recursion_depth: number
 }
 
 export async function getAppSettings(): Promise<AppSettings> {

@@ -8,6 +8,7 @@ import { McpTab } from './tabs/mcp-tab'
 import { BoardTab } from './tabs/board-tab'
 import { VoiceTab } from './tabs/voice-tab'
 import { AdvancedTab } from './tabs/advanced-tab'
+import { SystemTab } from './tabs/system-tab'
 import { GitTab } from './tabs/git-tab'
 import { GithubTab } from './tabs/github-tab'
 import { DiscordTab } from './tabs/discord-tab'
@@ -81,6 +82,7 @@ type TabId =
   | 'github'
   | 'discord'
   | 'batches'
+  | 'runtime'
   | 'updates'
   | 'advanced'
 
@@ -128,6 +130,7 @@ const TAB_GROUPS: TabGroup[] = [
     id: 'system',
     label: 'System',
     tabs: [
+      { id: 'runtime', label: 'Runtime', hint: 'Global defaults, sessions, GC, limits' },
       { id: 'advanced', label: 'Advanced', hint: 'Terminal, panels, performance, git, shortcuts' },
       { id: 'updates', label: 'Updates', hint: 'Check for app updates' },
     ],
@@ -208,6 +211,8 @@ export function SettingsPanel() {
         return <DiscordTab />
       case 'batches':
         return <BatchesTab />
+      case 'runtime':
+        return <SystemTab />
       case 'updates':
         return <UpdatesTab />
       case 'advanced':
