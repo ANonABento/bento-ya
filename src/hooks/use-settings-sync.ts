@@ -54,25 +54,34 @@ export function useSettingsSync() {
     void loadSettings()
   }, [activeWorkspaceId, loadWorkspaceSettings])
 
-  // Save workspace settings to backend (debounced)
+  // Save workspace settings to backend (debounced).
   const saveSettings = useCallback(async (workspaceId: string, settings: WorkspaceSettings) => {
-    // Filter to only workspace-specific settings
+    // Only the nested {agent,git,voice,model} slices are workspace-synced.
     const workspaceSpecificSettings: WorkspaceSettings = {}
-
     if (settings.agent) workspaceSpecificSettings.agent = { ...settings.agent, envVars: {} }
     if (settings.git) workspaceSpecificSettings.git = settings.git
     if (settings.voice) workspaceSpecificSettings.voice = settings.voice
     if (settings.model) workspaceSpecificSettings.model = settings.model
 
-    // Skip if nothing to save
     if (Object.keys(workspaceSpecificSettings).length === 0) return
 
-    const configJson = JSON.stringify(workspaceSpecificSettings)
-
-    // Skip if unchanged
-    if (configJson === lastSavedRef.current) return
-
     try {
+      // MERGE into the current config rather than replacing it. The Workspace
+      // tab writes flat keys (defaultModel, maxConcurrentAgents, autoAdvance, …)
+      // to the SAME config JSON; serializing only our nested slices used to
+      // overwrite the whole blob and wipe those flat keys (and vice-versa).
+      // Re-read right before write to minimise the clobber window.
+      const current = await getWorkspace(workspaceId)
+      const existing: Record<string, unknown> =
+        current.config && current.config !== '{}'
+          ? (JSON.parse(current.config) as Record<string, unknown>)
+          : {}
+      const merged = { ...existing, ...workspaceSpecificSettings }
+      const configJson = JSON.stringify(merged)
+
+      // Skip if our merge wouldn't change anything.
+      if (configJson === lastSavedRef.current) return
+
       await updateWorkspaceConfig(workspaceId, configJson)
       lastSavedRef.current = configJson
     } catch (error) {
