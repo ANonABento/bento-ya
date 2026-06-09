@@ -9,6 +9,7 @@ pub mod commands;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod discord;
 pub mod events;
 pub mod git;
 pub mod github_sync;
@@ -98,7 +99,9 @@ pub fn run() {
         // Tracks in-flight orchestrator API streams so they can be aborted.
         // Required by `stream_orchestrator_chat` — without this the command
         // panics with "state not managed for field `apiStreamRegistry`".
-        .manage(crate::commands::orchestrator::ApiStreamRegistry::default());
+        .manage(crate::commands::orchestrator::ApiStreamRegistry::default())
+        // The single managed Discord sidecar bridge (None until enabled).
+        .manage(crate::discord::shared());
 
     #[cfg(feature = "webdriver")]
     {
@@ -243,6 +246,11 @@ pub fn run() {
             commands::agent_interactive::list_completion_events,
             commands::agent_interactive::agent_pause,
             commands::agent_interactive::agent_resume,
+            // Discord integration (MVP)
+            commands::discord::discord_get_config,
+            commands::discord::discord_status,
+            commands::discord::discord_test_connection,
+            commands::discord::discord_save_config,
             // Global app settings (Phase 3 — Agent runtime)
             commands::settings::get_app_settings,
             commands::settings::update_app_settings,
@@ -383,6 +391,26 @@ pub fn run() {
 
             // Start garbage collector for tmux sessions + agent resources
             chat::gc::start_gc(app.handle().clone());
+
+            // Auto-start the Discord sidecar bridge if it was left enabled.
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let settings = crate::config::AppSettings::load();
+                    if settings.discord_enabled && !settings.discord_bot_token.trim().is_empty() {
+                        let state = app_handle.state::<crate::discord::SharedDiscord>();
+                        if let Err(e) = crate::commands::discord::reconcile_bridge(
+                            &app_handle,
+                            &state,
+                            &settings,
+                        )
+                        .await
+                        {
+                            log::warn!("[discord] startup reconcile failed: {e}");
+                        }
+                    }
+                });
+            }
 
             // Clean up legacy 58-byte rate-limit stub logs and GC the
             // retained trigger_logs/ directory down to MAX_TRIGGER_LOGS.

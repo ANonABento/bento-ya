@@ -139,6 +139,15 @@ pub struct AppSettings {
     /// own task is already at this depth is refused. Default 3 (human → agent →
     /// agent → agent, then stop). See `mcp-add-source-attribution` ticket.
     pub mcp_max_recursion_depth: i64,
+    /// Discord MVP — whether to run the Discord sidecar bot. Opt-in; off by
+    /// default. See `.tickets/discord/MVP-PLAN.md`.
+    pub discord_enabled: bool,
+    /// Discord bot token (stored in settings.json for the MVP; encryption-at-rest
+    /// is a flagged follow-up). Empty = not configured.
+    pub discord_bot_token: String,
+    /// Discord channel id where per-task threads are created. MVP uses a single
+    /// channel for all task threads; per-column channels are a later slice.
+    pub discord_thread_channel_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -302,6 +311,9 @@ impl Default for AppSettings {
             claude_min_version: None,
             codex_min_version: None,
             mcp_max_recursion_depth: 3,
+            discord_enabled: false,
+            discord_bot_token: String::new(),
+            discord_thread_channel_id: String::new(),
         }
     }
 }

@@ -17,6 +17,7 @@ pub mod chat_session;
 pub mod checklist;
 pub mod column;
 pub mod completion_events;
+pub mod discord;
 pub mod github_sync;
 pub mod history;
 pub mod label;
@@ -41,6 +42,7 @@ pub use chat_message::*;
 pub use chat_session::*;
 pub use checklist::*;
 pub use column::*;
+pub use discord::*;
 pub use github_sync::*;
 pub use history::*;
 pub use label::*;
@@ -394,6 +396,10 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
             "046_task_source_attribution",
             include_str!("migrations/046_task_source_attribution.sql"),
         ),
+        (
+            "047_discord_task_threads",
+            include_str!("migrations/047_discord_task_threads.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {
@@ -523,8 +529,9 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // Includes split 019, 030 + Phase 4 (044, 045) + 046 attribution.
-        assert_eq!(count, 48);
+        // Includes split 019, 030 + Phase 4 (044, 045) + 046 attribution
+        // + 047 discord_task_threads.
+        assert_eq!(count, 49);
     }
 
     #[test]
