@@ -211,7 +211,9 @@ export const DEFAULT_SETTINGS: Settings = {
     pushToTalk: true,
   },
   git: {
-    branchPrefix: 'feat/',
+    // Match the backend DEFAULT_BRANCH_PREFIX ('kaitencode/') and
+    // workspaceDefaults.branchPrefix — these were three different defaults.
+    branchPrefix: 'kaitencode/',
     autoPr: false,
     prTemplate: '',
     mergeStrategy: 'squash',
