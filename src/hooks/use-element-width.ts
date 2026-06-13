@@ -16,6 +16,12 @@ export function useElementWidth(): [(node: HTMLElement | null) => void, number] 
     observerRef.current = null
     if (!node) return
 
+    // No ResizeObserver (old webview / jsdom): measure once, skip live updates.
+    if (typeof ResizeObserver === 'undefined') {
+      setWidth(node.getBoundingClientRect().width)
+      return
+    }
+
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0]
       if (!entry) return

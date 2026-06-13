@@ -1,7 +1,7 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import ReactMarkdown from 'react-markdown'
 import type { AgentTranscriptEvent } from '@/types/events'
+import { ChatMarkdown } from './chat-flat'
 
 type QueuedMessage = {
   id: string
@@ -503,7 +503,7 @@ function TranscriptItem({ item, isLatest }: { item: RenderItem; isLatest: boolea
       return (
         <EntryShell isLatest={isLatest} border="border-accent/50">
           <EntryMeta label="> user" tone="user" detail={item.detail} timestamp={item.timestamp} />
-          <MarkdownBlock content={item.content} muted />
+          <ChatMarkdown content={item.content} muted />
         </EntryShell>
       )
     case 'assistant':
@@ -512,7 +512,7 @@ function TranscriptItem({ item, isLatest }: { item: RenderItem; isLatest: boolea
           <EntryMeta label={item.source === 'agent_output' ? 'agent output' : 'agent'} tone="agent" timestamp={item.timestamp} />
           {item.source === 'agent_output'
             ? <AgentOutputBlock content={item.content} storageKeyPrefix={`agent-transcript:agent-output:${item.id}`} />
-            : <MarkdownBlock content={item.content} />}
+            : <ChatMarkdown content={item.content} />}
         </EntryShell>
       )
     case 'thinking':
@@ -671,7 +671,7 @@ function AgentOutputBlock({ content, storageKeyPrefix }: { content: string; stor
 function AgentOutputSectionView({ section, storageKey }: { section: AgentOutputSection; storageKey: string }) {
   switch (section.type) {
     case 'text':
-      return <MarkdownBlock content={section.content} />
+      return <ChatMarkdown content={section.content} />
     case 'thinking':
       return (
         <div className="text-sm italic text-text-secondary">
@@ -745,7 +745,7 @@ function ActionDisclosure({
             exit={{ height: 0, opacity: 0 }}
             className="max-h-[40vh] overflow-auto break-words border-t border-border-default/70 px-3 py-2"
           >
-            <MarkdownBlock content={detail ?? ''} muted />
+            <ChatMarkdown content={detail ?? ''} muted />
           </motion.div>
         )}
       </AnimatePresence>
@@ -850,7 +850,7 @@ function QueuedEntry({ content }: { content: string }) {
   return (
     <EntryShell isLatest border="border-accent/30">
       <EntryMeta label="> user" tone="queued" detail="queued" />
-      <MarkdownBlock content={content} muted />
+      <ChatMarkdown content={content} muted />
     </EntryShell>
   )
 }
@@ -886,52 +886,6 @@ function EntryMeta({
     </div>
   )
 }
-
-const MarkdownBlock = memo(function MarkdownBlock({
-  content,
-  muted = false,
-}: {
-  content: string
-  muted?: boolean
-}) {
-  return (
-    <div className={`break-words text-sm leading-relaxed ${muted ? 'text-text-primary/90' : 'text-text-primary'}`}>
-      <ReactMarkdown
-        components={{
-          p: ({ children }) => <p className="my-1 whitespace-pre-wrap break-words">{children}</p>,
-          h1: ({ children }) => <h1 className="mb-2 mt-3 text-base font-semibold">{children}</h1>,
-          h2: ({ children }) => <h2 className="mb-2 mt-3 text-sm font-semibold text-text-primary">{children}</h2>,
-          h3: ({ children }) => <h3 className="mb-1 mt-2 text-sm font-semibold text-text-primary">{children}</h3>,
-          ul: ({ children }) => <ul className="my-1 ml-5 list-disc space-y-0.5">{children}</ul>,
-          ol: ({ children }) => <ol className="my-1 ml-5 list-decimal space-y-0.5">{children}</ol>,
-          li: ({ children }) => <li className="pl-1">{children}</li>,
-          code: ({ children }) => (
-            <code className="rounded bg-surface px-1 py-0.5 text-[0.9em] text-accent">
-              {children}
-            </code>
-          ),
-          pre: ({ children }) => (
-            <pre className="my-2 overflow-auto whitespace-pre-wrap break-words rounded border border-border-default bg-surface p-3 text-xs leading-relaxed">
-              {children}
-            </pre>
-          ),
-          blockquote: ({ children }) => (
-            <blockquote className="my-2 border-l border-border-default pl-3 text-text-secondary">
-              {children}
-            </blockquote>
-          ),
-          a: ({ children, href }) => (
-            <a href={href} className="text-accent underline underline-offset-2">
-              {children}
-            </a>
-          ),
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
-  )
-})
 
 function parseMetadata(metadataJson: string | null): Record<string, unknown> {
   if (!metadataJson) return {}

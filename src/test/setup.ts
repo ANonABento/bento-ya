@@ -26,6 +26,19 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 })
 
+// Mock ResizeObserver (jsdom has none) — used by useElementWidth for responsive
+// panel headers. A no-op observer is enough; tests don't assert on live resize.
+class ResizeObserverMock {
+  observe() { /* no-op */ }
+  unobserve() { /* no-op */ }
+  disconnect() { /* no-op */ }
+}
+Object.defineProperty(globalThis, 'ResizeObserver', {
+  writable: true,
+  configurable: true, // allow tests to vi.stubGlobal their own ResizeObserver
+  value: ResizeObserverMock,
+})
+
 // Mock localStorage
 const localStorageMock = {
   store: {} as Record<string, string>,
