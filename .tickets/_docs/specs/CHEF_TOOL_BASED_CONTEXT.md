@@ -37,9 +37,20 @@ state.
   threading) and shares the rusqlite build for WAL-safe concurrent reads, so
   read tools work without the app for the DB, but mutations still route through
   `/api/*`.
-- **Unknown to verify first:** does `claude -p` (headless, `--output-format
-  stream-json`) actually honor `--mcp-config` and emit tool-use events we already
-  parse? Prove this with a throwaway spike before committing.
+- **VERIFIED 2026-06-13 (spike):** `claude -p --mcp-config <json>
+  --allowedTools "mcp__kaitencode__get_workspaces,..." --output-format stream-json`
+  loads `kaitencode-mcp`, the model calls `mcp__kaitencode__get_workspaces`, the
+  tool_result (real DB data) comes back, and the answer is correct. The
+  tool_use/tool_result events appear in the stream-json (transcript already renders
+  tool calls). claude 2.1.177. → **Option A is GO.**
+  - Nuance: in the spike, claude had the *user's* global MCP servers loaded too, so
+    it went through `ToolSearch` (deferred-tool discovery) before the real call.
+    Chef should spawn with an **isolated** config (only kaitencode, via
+    `--strict-mcp-config` + `--mcp-config`) so there's no ToolSearch indirection and
+    the tool is directly available. Also pre-approve the read tools with
+    `--allowedTools` (no permission prompt in headless).
+  - Note: pass the prompt on **stdin** (the E2BIG fix already does) — a positional
+    prompt makes claude wait ~3s for stdin ("no stdin data received in 3s").
 
 ### Option B — extend the action protocol with a read action
 Add a `get_board` "action" the model emits (like the existing `create_task`
