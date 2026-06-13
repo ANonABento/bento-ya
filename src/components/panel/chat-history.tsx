@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, memo } from 'react'
 import { motion } from 'motion/react'
 import type { ChatMessage } from '@/lib/ipc'
 import { ToolCallItem, type ToolCallData } from './shared'
@@ -149,7 +149,9 @@ function formatAction(action: ParsedAction): string {
   }
 }
 
-function MessageEntry({ message, assistantLabel, isLatest }: MessageEntryProps) {
+// Memoized: while a response streams, the parent re-renders on every token but
+// the settled history messages don't change — skip re-rendering them.
+const MessageEntry = memo(function MessageEntry({ message, assistantLabel, isLatest }: MessageEntryProps) {
   if (message.role === 'system') {
     return <ChatDivider isLatest={isLatest}>{message.content}</ChatDivider>
   }
@@ -170,7 +172,7 @@ function MessageEntry({ message, assistantLabel, isLatest }: MessageEntryProps) 
       {displayText && <ChatMarkdown content={displayText} />}
     </ChatEntry>
   )
-}
+})
 
 function ActionList({ actions }: { actions: ParsedAction[] }) {
   return (
