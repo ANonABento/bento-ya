@@ -224,6 +224,7 @@ pub async fn start_agent(
         system_prompt: String::new(),
         working_dir: Some(working_dir.clone()),
         effort_level: None,
+        ..Default::default()
     };
 
     let session = registry
@@ -641,6 +642,7 @@ pub async fn send_task_input(
                 system_prompt: String::new(),
                 working_dir: Some(working_dir.clone()),
                 effort_level: effort_level.clone(),
+                ..Default::default()
             };
 
             let session = registry
@@ -1623,6 +1625,7 @@ pub async fn switch_agent_transport(
             system_prompt: String::new(),
             working_dir: Some(validated_working_dir),
             effort_level: None,
+            ..Default::default()
         };
 
         let session = registry
@@ -1757,6 +1760,7 @@ pub async fn ensure_pty_session(
         system_prompt: String::new(),
         working_dir: Some(working_dir.clone()),
         effort_level: None,
+        ..Default::default()
     };
 
     let session = registry
@@ -1875,6 +1879,7 @@ pub async fn ensure_chef_terminal(
         system_prompt: String::new(),
         working_dir: Some(repo_path.clone()),
         effort_level: None,
+        ..Default::default()
     };
     let session = registry
         .get_or_create(&key, config, TransportType::Pty)

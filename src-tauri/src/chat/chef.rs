@@ -105,6 +105,12 @@ impl ChefSession {
         }
     }
 
+    /// Tool-based CLI system prompt: no embedded board (the model reads it via the
+    /// `get_board` MCP tool). Only valid for `ChefMode::Cli`.
+    pub fn build_system_prompt_tools(&self, workspace: &Workspace, columns: &[Column]) -> String {
+        context::build_cli_system_prompt_tools(workspace, columns)
+    }
+
     /// Build the board context JSON for injection into messages.
     pub fn build_board_context(
         &self,
@@ -228,6 +234,7 @@ mod tests {
             system_prompt: String::new(),
             working_dir: None,
             effort_level: None,
+            ..Default::default()
         }
     }
 

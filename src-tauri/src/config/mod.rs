@@ -51,6 +51,20 @@ fn interactive_mode_env_enabled() -> bool {
     }
 }
 
+/// Opt-in flag for the tool-based chef context: the chef reads the board via the
+/// kaitencode-mcp `get_board` tool instead of embedding the whole board in the
+/// prompt. Env-only for now (`KAITENCODE_CHEF_TOOLS=1`); falls back to the
+/// embedded board when off, or when the mcp binary can't be located.
+pub fn chef_tools_enabled() -> bool {
+    match std::env::var("KAITENCODE_CHEF_TOOLS") {
+        Ok(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => false,
+    }
+}
+
 pub fn env_var(new_key: &str, deprecated_key: &str) -> Result<String, std::env::VarError> {
     std::env::var(new_key).or_else(|new_err| match std::env::var(deprecated_key) {
         Ok(value) => {

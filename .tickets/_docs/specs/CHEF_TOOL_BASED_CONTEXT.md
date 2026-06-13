@@ -1,7 +1,19 @@
 # Spec — Tool-based board context for the chef (orchestrator)
 
-> Status: **PLANNED.** The quick dedup (board no longer double-sent) shipped first
-> (2026-06-13). This is the real fix that follows it.
+> Status: **IMPLEMENTED behind `KAITENCODE_CHEF_TOOLS=1`** (2026-06-13). Verified
+> end-to-end: the chef calls `mcp__kaitencode__get_board` with the workspace id and
+> answers from the live board. Default-off; falls back to the embedded board when
+> the flag is off OR `kaitencode-mcp` can't be located.
+>
+> **Open follow-ups before promoting to default:**
+> - **Bundle `kaitencode-mcp`** with the app (tauri `externalBin`/resources) — it
+>   isn't shipped today, so the feature only works where the binary is on PATH or a
+>   sibling of the exe (dev). Resolution: `commands/orchestrator/stream_cli.rs::locate_kaitencode_mcp`.
+> - The chef still runs `ToolSearch` before the real tool call (a built-in of the
+>   installed claude, not removed by `--strict-mcp-config`) — harmless, just an extra step.
+> - Writes still use the action-block protocol; only reads moved to the tool. Moving
+>   writes to MCP too (create_task/move_task) is a separate, larger step.
+> - API chef (`stream_api.rs`) unchanged — this is CLI-only.
 
 ## Problem
 

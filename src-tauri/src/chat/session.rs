@@ -41,13 +41,20 @@ pub enum SessionState {
 }
 
 /// Configuration for creating a session (stored, reused across messages).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SessionConfig {
     pub cli_path: String,
     pub model: String,
     pub system_prompt: String,
     pub working_dir: Option<String>,
     pub effort_level: Option<String>,
+    /// Read-only MCP tooling for the chef (claude `--mcp-config` path). When set,
+    /// the prompt passes `--strict-mcp-config --mcp-config <path>` and the message
+    /// drops the embedded board (the model fetches it via `get_board`). `None` for
+    /// per-task agents.
+    pub mcp_config_path: Option<String>,
+    /// Tool names to allow-list (`--allowedTools`) when `mcp_config_path` is set.
+    pub allowed_tools: Vec<String>,
 }
 
 /// Unified chat session wrapping a transport with lifecycle management.
@@ -331,6 +338,8 @@ impl UnifiedChatSession {
             self.config.effort_level.as_deref(),
             self.resume_id.as_deref(),
             message,
+            self.config.mcp_config_path.as_deref(),
+            &self.config.allowed_tools,
         );
 
         SpawnConfig {
@@ -348,6 +357,7 @@ impl UnifiedChatSession {
 /// Returns `(argv, stdin_data)`. For claude the message is delivered on stdin
 /// (returned as `Some`) and kept off argv so a long conversation can't exceed
 /// Linux's 128 KiB per-arg limit (E2BIG). Codex keeps the message on argv.
+#[allow(clippy::too_many_arguments)]
 fn build_pipe_args_for_cli(
     cli_path: &str,
     model: &str,
@@ -355,6 +365,8 @@ fn build_pipe_args_for_cli(
     effort_level: Option<&str>,
     resume_id: Option<&str>,
     message: &str,
+    mcp_config_path: Option<&str>,
+    allowed_tools: &[String],
 ) -> (Vec<String>, Option<String>) {
     let cli_name = cli_path.rsplit('/').next().unwrap_or(cli_path);
     match cli_name {
@@ -362,10 +374,23 @@ fn build_pipe_args_for_cli(
             CodexCliAdapter::managed_turn_args(model, resume_id, message),
             None,
         ),
-        _ => (
-            ClaudeCliAdapter::managed_turn_args_stdin(model, system_prompt, effort_level, resume_id),
-            Some(message.to_string()),
-        ),
+        _ => {
+            let mut args =
+                ClaudeCliAdapter::managed_turn_args_stdin(model, system_prompt, effort_level, resume_id);
+            // Chef read-only MCP tooling. `--strict-mcp-config` ignores the user's
+            // global ~/.claude MCP servers so only this isolated server loads (no
+            // ToolSearch indirection); `--allowedTools` pre-approves the read tools.
+            if let Some(cfg) = mcp_config_path {
+                args.push("--strict-mcp-config".to_string());
+                args.push("--mcp-config".to_string());
+                args.push(cfg.to_string());
+                if !allowed_tools.is_empty() {
+                    args.push("--allowedTools".to_string());
+                    args.push(allowed_tools.join(","));
+                }
+            }
+            (args, Some(message.to_string()))
+        }
     }
 }
 
@@ -380,6 +405,7 @@ mod tests {
             system_prompt: "You are helpful".to_string(),
             working_dir: None,
             effort_level: None,
+            ..Default::default()
         }
     }
 
@@ -424,6 +450,31 @@ mod tests {
         // claude: the message is delivered on stdin, NOT argv (avoids E2BIG).
         assert_eq!(config.stdin_data.as_deref(), Some("Hello world"));
         assert!(!config.args.contains(&"Hello world".to_string()));
+    }
+
+    #[test]
+    fn test_build_pipe_spawn_config_with_mcp_tools() {
+        // Chef tool-based context: claude gets the isolated MCP config + allow-list,
+        // and the board-bearing prompt is no longer needed on argv.
+        let mut cfg = test_config();
+        cfg.mcp_config_path = Some("/tmp/chef-mcp.json".to_string());
+        cfg.allowed_tools = vec![
+            "mcp__kaitencode__get_board".to_string(),
+            "mcp__kaitencode__get_workspaces".to_string(),
+        ];
+        let session = UnifiedChatSession::new(cfg, TransportType::Pipe);
+
+        let config = session.build_pipe_spawn_config("what's in Review?");
+        assert!(config.args.contains(&"--strict-mcp-config".to_string()));
+        let mcp_idx = config.args.iter().position(|a| a == "--mcp-config").unwrap();
+        assert_eq!(config.args[mcp_idx + 1], "/tmp/chef-mcp.json");
+        let allow_idx = config.args.iter().position(|a| a == "--allowedTools").unwrap();
+        assert_eq!(
+            config.args[allow_idx + 1],
+            "mcp__kaitencode__get_board,mcp__kaitencode__get_workspaces"
+        );
+        // Prompt still rides stdin.
+        assert_eq!(config.stdin_data.as_deref(), Some("what's in Review?"));
     }
 
     #[test]

@@ -40,6 +40,7 @@ pub(super) async fn stream_via_api(
             system_prompt: String::new(),
             working_dir: None,
             effort_level: None,
+            ..Default::default()
         },
     );
 

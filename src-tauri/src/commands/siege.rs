@@ -336,6 +336,7 @@ pub async fn start_siege(
             system_prompt: String::new(),
             working_dir: Some(workspace.repo_path.clone()),
             effort_level: None,
+            ..Default::default()
         };
 
         let session = registry
@@ -584,6 +585,7 @@ pub async fn continue_siege(
             system_prompt: String::new(),
             working_dir: Some(workspace.repo_path.clone()),
             effort_level: None,
+            ..Default::default()
         };
 
         // Kill existing session for this task if any, then create fresh

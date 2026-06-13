@@ -32,12 +32,33 @@ pub(super) async fn stream_via_unified_cli(
     let (full_response, captured_cli_session_id) = {
         let mut registry = session_registry.lock().await;
 
+        // Tool-based board context (opt-in): the chef reads the board via the
+        // kaitencode-mcp `get_board` tool instead of embedding it in the prompt.
+        // Falls back to the embedded board if disabled or the binary isn't found.
+        let (mcp_config_path, allowed_tools) = if crate::config::chef_tools_enabled() {
+            match resolve_chef_mcp() {
+                Some((path, tools)) => (Some(path), tools),
+                None => {
+                    log::warn!(
+                        "KAITENCODE_CHEF_TOOLS is set but kaitencode-mcp was not found; \
+                         falling back to the embedded board"
+                    );
+                    (None, Vec::new())
+                }
+            }
+        } else {
+            (None, Vec::new())
+        };
+        let tools_active = mcp_config_path.is_some();
+
         let config = SessionConfig {
             cli_path: cli_path.to_string(),
             model: model.to_string(),
             system_prompt: String::new(),
             working_dir: None,
             effort_level: None,
+            mcp_config_path,
+            allowed_tools,
         };
         let prompt_builder = ChefSession::new_cli(workspace_id.to_string(), config.clone());
 
@@ -72,9 +93,26 @@ pub(super) async fn stream_via_unified_cli(
             (workspace, columns, tasks)
         };
 
-        let system_prompt = prompt_builder.build_system_prompt(&workspace, &columns, &tasks);
+        let system_prompt = if tools_active {
+            // No embedded board — the model reads it via get_board.
+            prompt_builder.build_system_prompt_tools(&workspace, &columns)
+        } else {
+            prompt_builder.build_system_prompt(&workspace, &columns, &tasks)
+        };
         session.set_system_prompt(system_prompt);
-        let full_message = prompt_builder.augment_message(message, &workspace, &columns, &tasks);
+
+        let full_message = if tools_active {
+            // Board fetched on demand via the tool — send only the user's text.
+            message.to_string()
+        } else if session.resume_id().is_some() {
+            // The board lives in the system prompt (rebuilt fresh each turn). Only on
+            // a --resume turn does Claude reuse the original session's stale system
+            // prompt, so only then prepend the board; otherwise it's pure duplication
+            // that bloats the prompt toward the argv/E2BIG limit.
+            prompt_builder.augment_message(message, &workspace, &columns, &tasks)
+        } else {
+            message.to_string()
+        };
 
         let ws_id = workspace_id.to_string();
         let chat_session_id = session_id.to_string();
@@ -273,4 +311,46 @@ fn emit_orchestrator_cli_event(
         | ChatEvent::Result(_)
         | ChatEvent::Unknown => {}
     }
+}
+
+/// Read-only MCP tools the chef may call (board reads only — writes still go
+/// through the action-block protocol).
+const CHEF_READ_TOOLS: &[&str] = &[
+    "get_workspaces",
+    "get_board",
+    "get_task",
+    "list_scripts",
+    "list_pipeline_templates",
+    "get_pipeline_template",
+];
+
+/// Resolve the chef's read-only MCP setup: locate the `kaitencode-mcp` binary,
+/// write an isolated `--mcp-config` JSON to the data dir, and return its path plus
+/// the allow-listed tool names. `None` if the binary can't be found (caller falls
+/// back to the embedded board).
+fn resolve_chef_mcp() -> Option<(String, Vec<String>)> {
+    let mcp_bin = locate_kaitencode_mcp()?;
+    let cfg = serde_json::json!({
+        "mcpServers": { "kaitencode": { "command": mcp_bin } }
+    });
+    let path = crate::db::data_dir().join("chef-mcp.json");
+    std::fs::write(&path, serde_json::to_string_pretty(&cfg).ok()?).ok()?;
+    let allowed = CHEF_READ_TOOLS
+        .iter()
+        .map(|t| format!("mcp__kaitencode__{t}"))
+        .collect();
+    Some((path.to_string_lossy().into_owned(), allowed))
+}
+
+/// Locate the `kaitencode-mcp` binary: PATH first, then a sibling of the running
+/// executable (dev: `target/release/kaitencode-mcp`).
+fn locate_kaitencode_mcp() -> Option<String> {
+    if let Some(p) = crate::commands::cli_detect::find_cli("kaitencode-mcp") {
+        return Some(p);
+    }
+    let exe = std::env::current_exe().ok()?;
+    let sibling = exe.parent()?.join("kaitencode-mcp");
+    sibling
+        .exists()
+        .then(|| sibling.to_string_lossy().into_owned())
 }

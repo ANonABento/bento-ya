@@ -158,6 +158,46 @@ Current tasks:
     )
 }
 
+/// Tool-based variant of [`build_cli_system_prompt`]: omits the embedded task
+/// snapshot. The chef reads the board on demand via the `get_board` MCP tool, so
+/// the prompt stays small regardless of board size. Writes still use the action
+/// protocol (`CLI_OPERATION_PROMPT`).
+pub fn build_cli_system_prompt_tools(workspace: &Workspace, columns: &[Column]) -> String {
+    let ordered_columns = ordered_columns(columns);
+    let column_names: Vec<&str> = ordered_columns.iter().map(|c| c.name.as_str()).collect();
+    let columns_str = column_names.join(", ");
+
+    format!(
+        r#"You are the orchestrator for "{workspace_name}", a Kanban board.
+
+Columns: {columns}
+
+This board's workspace id is `{workspace_id}`. You do NOT have the task list in
+this prompt — read it with the `get_board` tool (pass `workspace_id`). Call
+`get_board` whenever you need current tasks, never assume board state, and call it
+again after you change something to confirm the result. `get_task` and
+`get_workspaces` are also available.
+
+{board_schema}
+
+{operation_guidance}
+
+## Style
+- Be concise. Short answers.
+- No emojis.
+- Use markdown for formatting (bold, lists, code).
+- Ask clarifying questions if the request is ambiguous.
+
+{cli_operation_prompt}"#,
+        workspace_name = workspace.name,
+        workspace_id = workspace.id,
+        columns = columns_str,
+        board_schema = BOARD_SCHEMA_PROMPT,
+        operation_guidance = OPERATION_GUIDANCE_PROMPT,
+        cli_operation_prompt = CLI_OPERATION_PROMPT
+    )
+}
+
 /// Build board context JSON to inject into the conversation
 pub fn build_board_context(
     workspace: &Workspace,
