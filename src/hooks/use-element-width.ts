@@ -47,10 +47,21 @@ export function useElementWidth(): [(node: HTMLElement | null) => void, number] 
  */
 export type PanelDensity = 'regular' | 'compact' | 'mini'
 
-export function panelDensity(width: number): PanelDensity {
+/**
+ * Map a measured header width to a density tier. Thresholds are per-header
+ * because the labelled layouts differ in width: the agent header (4 tab labels +
+ * runtime label + Hold) needs ~640px before its labels fit, while the chef
+ * header (3 short tabs) fits around ~480px. The breakpoint must sit at or above
+ * the labelled layout's natural width — otherwise the row stays "regular" while
+ * flexbox truncates/clips it on the way down.
+ */
+export function panelDensity(
+  width: number,
+  { compactBelow = 640, miniBelow = 360 }: { compactBelow?: number; miniBelow?: number } = {},
+): PanelDensity {
   if (width === 0) return 'regular'
-  if (width < 360) return 'mini'
-  if (width < 470) return 'compact'
+  if (width < miniBelow) return 'mini'
+  if (width < compactBelow) return 'compact'
   return 'regular'
 }
 

@@ -506,8 +506,10 @@ function PanelHeader({
   return (
     <PanelDensityContext.Provider value={density}>
     <div className="border-b border-border-default bg-bg">
-      {/* Controls row: close + runtime/session controls. */}
-      <div ref={rowRef} className="flex min-w-0 items-center gap-2 px-3 pt-2 pb-1">
+      {/* Controls row: close + runtime/session controls. Fixed height so the
+          header never changes vertical size between label and icon states —
+          all controls are h-7 and vertically centered within it. */}
+      <div ref={rowRef} className="flex h-10 min-w-0 items-center gap-2 px-3">
           {onClose && (
             <button
               type="button"

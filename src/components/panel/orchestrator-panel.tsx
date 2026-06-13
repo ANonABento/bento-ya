@@ -110,7 +110,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   // Measure the header so its tabs drop to icons and the Cmd+J hint hides at
   // narrow widths instead of overlapping the centered "Chef" title.
   const [headerRef, headerWidth] = useElementWidth()
-  const headerDensity = panelDensity(headerWidth)
+  const headerDensity = panelDensity(headerWidth, { compactBelow: 480 })
 
   // Local UI state
   const [sidebarMode, setSidebarMode] = useState<'history' | 'dashboard' | 'v2-dashboard' | null>(null)
