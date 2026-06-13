@@ -612,7 +612,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                       processingStartTime={chat.streaming.startTime}
                       thinkingContent={chat.streaming.thinkingContent}
                       toolCalls={toolCalls}
-                      onCancel={() => { void handleCancel() }}
                       queuedMessages={chat.queue}
                     />
                     <ChatInput

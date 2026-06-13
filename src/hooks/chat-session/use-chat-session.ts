@@ -361,13 +361,14 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
         content,
         createdAt: new Date().toISOString(),
       }
-      setMessages((prev) => [...prev, optimisticMessage])
 
       // Orchestrator chat is still request/response driven on the frontend.
       // Agent chat is runtime-driven: send immediately so the backend can
       // persist live vs queued delivery as semantic transcript state.
       if (isProcessingRef.current) {
         if (mode === 'agent' && taskId) {
+          // Agent delivers immediately even while busy — show it now.
+          setMessages((prev) => [...prev, optimisticMessage])
           try {
             await ipc.sendTaskInput(taskId, effectiveContent, workingDir, cliPath, model, effortLevel)
           } catch (err) {
@@ -377,10 +378,13 @@ export function useChatSession(config: ChatSessionConfig): ChatSessionState & Ch
           }
           return
         }
+        // Orchestrator queues the turn — the QueuedEntry represents it, so do NOT
+        // also add an optimistic message (that rendered the same turn twice).
         setQueue((prev) => [...prev, { id: `queued-${String(Date.now())}`, content: effectiveContent, model, effortLevel }])
         return
       }
 
+      setMessages((prev) => [...prev, optimisticMessage])
       try {
         isProcessingRef.current = true
         setStreaming({ isStreaming: true, content: '', thinkingContent: '', toolCalls: [], startTime: Date.now() })

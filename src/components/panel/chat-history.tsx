@@ -16,7 +16,6 @@ type ChatHistoryProps = {
   processingStartTime?: number | null
   thinkingContent?: string
   toolCalls?: ToolCallData[]
-  onCancel?: () => void
   queuedMessages?: QueuedMessage[]
   emptyState?: React.ReactNode
   /** Role label for assistant turns (the chef chat shows "chef"). */
@@ -30,7 +29,6 @@ export function ChatHistory({
   processingStartTime = null,
   thinkingContent = '',
   toolCalls = [],
-  onCancel,
   queuedMessages = [],
   emptyState,
   assistantLabel = 'chef',
@@ -91,7 +89,6 @@ export function ChatHistory({
           startTime={processingStartTime}
           thinkingContent={thinkingContent}
           toolCalls={toolCalls}
-          onCancel={onCancel}
           queueCount={queuedMessages.length}
           assistantLabel={assistantLabel}
         />
@@ -194,7 +191,6 @@ type StreamingEntryProps = {
   startTime?: number | null
   thinkingContent?: string
   toolCalls?: ToolCallData[]
-  onCancel?: () => void
   queueCount?: number
   assistantLabel: string
 }
@@ -204,7 +200,6 @@ function StreamingEntry({
   startTime,
   thinkingContent = '',
   toolCalls = [],
-  onCancel,
   queueCount = 0,
   assistantLabel,
 }: StreamingEntryProps) {
@@ -235,24 +230,7 @@ function StreamingEntry({
   ].filter(Boolean).join(' · ')
 
   return (
-    <ChatEntry
-      tone="running"
-      label={assistantLabel}
-      detail={detail}
-      isLatest
-      headerRight={
-        onCancel ? (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded border border-border-default px-2 py-0.5 text-[10px] text-text-secondary transition-colors hover:border-error/40 hover:text-error"
-            style={{ cursor: 'pointer' }}
-          >
-            Cancel
-          </button>
-        ) : null
-      }
-    >
+    <ChatEntry tone="running" label={assistantLabel} detail={detail} isLatest>
       <div className="space-y-2">
         {hasThinking && (
           <div className="border-l-2 border-accent/30 pl-2">
@@ -319,10 +297,20 @@ function TypingDots() {
   )
 }
 
+// Pending (not-yet-sent) turn. Visually distinct from sent messages: a muted,
+// dashed, indented wrap with a "Queued" pill — so it reads as "waiting", not
+// "delivered".
 function QueuedEntry({ content }: { content: string }) {
   return (
-    <ChatEntry tone="queued" label="you" detail="queued">
-      <ChatMarkdown content={content} muted />
-    </ChatEntry>
+    <div className="ml-3 rounded-md border border-dashed border-border-default bg-surface/30 px-3 py-2 opacity-70">
+      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-text-secondary/70">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-3 w-3" aria-hidden="true">
+          <circle cx="8" cy="8" r="6" />
+          <path d="M8 5v3l2 1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        Queued
+      </div>
+      <div className="whitespace-pre-wrap break-words text-sm text-text-secondary">{content}</div>
+    </div>
   )
 }
