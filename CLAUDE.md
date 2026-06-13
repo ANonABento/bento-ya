@@ -231,9 +231,11 @@ mcp-server/
 
 **App requirement:** Most mutation tools route through the Tauri app's HTTP API (port and bearer token discovered via `~/.kaitencode/api.port`) so triggers fire and `tasks:changed` events flow to the UI. If the app isn't running, those tools error out (production builds disable direct-DB fallback; only `cfg!(test)` allows it). Read-only tools work without the app.
 
-**Known gaps (see `.tickets/_docs/MCP_DOGFOOD_REPORT.md`):**
-- `mark_complete`, `add_dependency`, `remove_dependency` bypass the API and write the DB directly — no `tasks:changed` event, so the UI doesn't refresh in real-time.
-- No recursion guard / source attribution on MCP-created tasks. See `.tickets/_docs/MCP_SELF_TASK_WORKFLOW.md` for a safe self-task pattern.
+**Resolved (was a gap, now fixed):** `mark_complete`, `add_dependency`, `remove_dependency` now route through `/api/mark_complete` + `/api/set_dependencies` (emit `tasks:changed`); source attribution + recursion guard shipped (migration 046 — `created_by_task_id`/`created_by_agent_session_id`, `mcp_max_recursion_depth`). See `.tickets/_docs/MCP_SELF_TASK_WORKFLOW.md` for the self-task pattern.
+
+**Remaining gaps:**
+- **No checklist tools.** Checklist is Tauri-IPC-only (15 commands in `commands/checklist.rs`), with zero `/api/*` routes — so no MCP tool can reach it yet. Adding `checklist_update`/`get_checklist` requires a new `/api/*` route first.
+- **UI-only ops without MCP coverage:** `update_column`/`delete_column`/`reorder_columns`, `update_script`/`delete_script`, per-task runtime-mode override, and agent control (`inject_message`/`interrupt`/`pause`/`restart`/`switch_model`) — each needs an `/api/*` route before an MCP tool.
 
 ## Type System
 
