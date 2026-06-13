@@ -38,6 +38,11 @@ pub struct SpawnConfig {
     pub cols: u16,
     /// Initial terminal size (PTY only, ignored by pipe)
     pub rows: u16,
+    /// Data to write to the child's stdin after spawn (pipe transport only).
+    /// Used to pass the prompt to `claude -p` via stdin instead of argv, so a
+    /// long conversation/board can't blow past Linux's 128 KiB per-arg limit
+    /// (E2BIG). `None` => stdin is null (the default for PTY/interactive).
+    pub stdin_data: Option<String>,
 }
 
 /// Events sent from a transport to the session layer.

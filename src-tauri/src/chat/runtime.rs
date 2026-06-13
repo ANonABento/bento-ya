@@ -237,6 +237,21 @@ impl ClaudeCliAdapter {
         resume_id: Option<&str>,
         message: &str,
     ) -> Vec<String> {
+        let mut args = Self::managed_turn_args_stdin(model, system_prompt, effort_level, resume_id);
+        args.push(message.to_string());
+        args
+    }
+
+    /// Same as [`managed_turn_args`] but WITHOUT the positional message — the
+    /// prompt is delivered on stdin instead (`claude -p` reads stdin when no
+    /// positional prompt is given). The pipe transport uses this so a large
+    /// prompt can't trip Linux's 128 KiB per-argv-string limit (E2BIG).
+    pub fn managed_turn_args_stdin(
+        model: &str,
+        system_prompt: &str,
+        effort_level: Option<&str>,
+        resume_id: Option<&str>,
+    ) -> Vec<String> {
         let mut args = vec!["--print".to_string()];
         args.extend(CLAUDE_STREAM_OUTPUT_FLAGS.iter().map(|s| s.to_string()));
         args.extend([
@@ -256,7 +271,6 @@ impl ClaudeCliAdapter {
             args.push(id.to_string());
         }
 
-        args.push(message.to_string());
         args
     }
 }

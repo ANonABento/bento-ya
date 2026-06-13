@@ -260,6 +260,7 @@ impl UnifiedChatSession {
             env_vars: None,
             cols,
             rows,
+            stdin_data: None,
         };
 
         let mut transport = TmuxTransport::new(&self.session_name);
@@ -323,7 +324,7 @@ impl UnifiedChatSession {
     // -- Internal helpers --
 
     fn build_pipe_spawn_config(&self, message: &str) -> SpawnConfig {
-        let args = build_pipe_args_for_cli(
+        let (args, stdin_data) = build_pipe_args_for_cli(
             &self.config.cli_path,
             &self.config.model,
             &self.config.system_prompt,
@@ -339,10 +340,14 @@ impl UnifiedChatSession {
             env_vars: None,
             cols: 80,
             rows: 24,
+            stdin_data,
         }
     }
 }
 
+/// Returns `(argv, stdin_data)`. For claude the message is delivered on stdin
+/// (returned as `Some`) and kept off argv so a long conversation can't exceed
+/// Linux's 128 KiB per-arg limit (E2BIG). Codex keeps the message on argv.
 fn build_pipe_args_for_cli(
     cli_path: &str,
     model: &str,
@@ -350,16 +355,16 @@ fn build_pipe_args_for_cli(
     effort_level: Option<&str>,
     resume_id: Option<&str>,
     message: &str,
-) -> Vec<String> {
+) -> (Vec<String>, Option<String>) {
     let cli_name = cli_path.rsplit('/').next().unwrap_or(cli_path);
     match cli_name {
-        "codex" => CodexCliAdapter::managed_turn_args(model, resume_id, message),
-        _ => ClaudeCliAdapter::managed_turn_args(
-            model,
-            system_prompt,
-            effort_level,
-            resume_id,
-            message,
+        "codex" => (
+            CodexCliAdapter::managed_turn_args(model, resume_id, message),
+            None,
+        ),
+        _ => (
+            ClaudeCliAdapter::managed_turn_args_stdin(model, system_prompt, effort_level, resume_id),
+            Some(message.to_string()),
         ),
     }
 }
@@ -416,7 +421,30 @@ mod tests {
         assert!(config.args.contains(&"--print".to_string()));
         assert!(config.args.contains(&"--resume".to_string()));
         assert!(config.args.contains(&"resume-abc".to_string()));
-        assert_eq!(config.args.last().unwrap(), "Hello world");
+        // claude: the message is delivered on stdin, NOT argv (avoids E2BIG).
+        assert_eq!(config.stdin_data.as_deref(), Some("Hello world"));
+        assert!(!config.args.contains(&"Hello world".to_string()));
+    }
+
+    #[test]
+    fn test_build_pipe_spawn_config_large_prompt_goes_to_stdin() {
+        // Regression: a long chef conversation / big board produced a >128 KiB
+        // argv string and exec() failed with E2BIG. The prompt must ride stdin,
+        // and every individual argv string must stay under the kernel limit.
+        const MAX_ARG_STRLEN: usize = 128 * 1024;
+        let session = UnifiedChatSession::new(test_config(), TransportType::Pipe);
+
+        let huge = "x".repeat(512 * 1024); // 512 KiB — well past the per-arg cap
+        let config = session.build_pipe_spawn_config(&huge);
+
+        assert_eq!(config.stdin_data.as_deref(), Some(huge.as_str()));
+        for arg in &config.args {
+            assert!(
+                arg.len() < MAX_ARG_STRLEN,
+                "argv string of {} bytes would trip E2BIG",
+                arg.len()
+            );
+        }
     }
 
     #[test]

@@ -61,14 +61,33 @@ impl ChatTransport for PipeTransport {
             }
         }
 
-        // No stdin needed - message is in args
-        cmd.stdin(std::process::Stdio::null());
+        // The prompt is delivered on stdin (when present) rather than argv, so a
+        // large prompt can't exceed Linux's 128 KiB per-arg limit (E2BIG).
+        let stdin_data = config.stdin_data.clone();
+        if stdin_data.is_some() {
+            cmd.stdin(std::process::Stdio::piped());
+        } else {
+            cmd.stdin(std::process::Stdio::null());
+        }
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
 
         let mut child = cmd
             .spawn()
             .map_err(|e| format!("Failed to spawn CLI: {}", e))?;
+
+        // Stream the prompt to stdin and close it so the CLI sees EOF and starts.
+        // Done on a task (not inline) so a prompt larger than the pipe buffer
+        // (~64 KiB) can't deadlock against a child that blocks before draining.
+        if let Some(prompt) = stdin_data {
+            if let Some(mut stdin) = child.stdin.take() {
+                tokio::spawn(async move {
+                    use tokio::io::AsyncWriteExt as _;
+                    let _ = stdin.write_all(prompt.as_bytes()).await;
+                    let _ = stdin.shutdown().await;
+                });
+            }
+        }
 
         // Spawn stderr reader
         if let Some(stderr) = child.stderr.take() {

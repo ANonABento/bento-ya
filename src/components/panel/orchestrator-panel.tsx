@@ -36,7 +36,7 @@ import { PanelSidebar } from './panel-sidebar'
 import { PipelineDashboard } from './pipeline-dashboard'
 import { PipelineV2Dashboard } from './pipeline-v2-dashboard'
 import { ChatErrorBoundary } from './chat-error-boundary'
-import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls } from './shared'
+import { ErrorBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls } from './shared'
 
 type OrchestratorPanelProps = {
   workspaceId: string
@@ -123,8 +123,9 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
 
-  // Sync hook error to local state (like AgentPanel does)
-  const error = localError ?? chat.error ?? cliDetectionError
+  // Single error surface: stream errors, send/spawn failures, and CLI-detection
+  // all funnel into one banner (no separate retry/dismiss banner).
+  const error = localError ?? chat.error ?? chat.failedMessage?.error ?? cliDetectionError
   useEffect(() => {
     if (chat.error) setLocalError(chat.error)
   }, [chat.error])
@@ -596,19 +597,12 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   <>
                     {/* CLI Detection Indicator */}
                     {cliDetecting && <CliDetectingBanner />}
-                    {/* Error Banner */}
-                    {error && !chat.failedMessage && !cliDetecting && (
+                    {/* Single error banner (covers stream errors + send/spawn
+                        failures). Dismiss clears every error source. */}
+                    {error && !cliDetecting && (
                       <ErrorBanner
                         error={error}
-                        onDismiss={() => { setLocalError(null); chat.clearError(); }}
-                      />
-                    )}
-                    {/* Failed message with retry/dismiss */}
-                    {chat.failedMessage && (
-                      <FailedMessageBanner
-                        error={chat.failedMessage.error}
-                        onRetry={() => { void chat.retryFailed() }}
-                        onDismiss={chat.dismissFailed}
+                        onDismiss={() => { setLocalError(null); chat.clearError(); chat.dismissFailed() }}
                       />
                     )}
                     <ChatHistory
