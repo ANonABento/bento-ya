@@ -23,6 +23,7 @@ import { killTaskSession } from '@/lib/ipc/agent'
 import { chefSessionKey } from '@/lib/ipc/terminal'
 import { WorkspaceFilesView } from './workspace-files-view'
 import { PanelTabs, type PanelTab } from '@/components/shared/panel-tabs'
+import { useElementWidth, panelDensity, PanelDensityContext } from '@/hooks/use-element-width'
 import { ChatIcon, TerminalIcon, FilesIcon } from '@/components/shared/tab-icons'
 
 type OrchestratorView = 'chat' | 'terminal' | 'files'
@@ -105,6 +106,11 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     onResize: isRightDock ? setPanelWidth : setPanelHeight,
     disabled: isPanelCollapsed,
   })
+
+  // Measure the header so its tabs drop to icons and the Cmd+J hint hides at
+  // narrow widths instead of overlapping the centered "Chef" title.
+  const [headerRef, headerWidth] = useElementWidth()
+  const headerDensity = panelDensity(headerWidth)
 
   // Local UI state
   const [sidebarMode, setSidebarMode] = useState<'history' | 'dashboard' | 'v2-dashboard' | null>(null)
@@ -342,7 +348,9 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       >
 
       {/* Header - clickable to toggle. */}
+      <PanelDensityContext.Provider value={headerDensity}>
       <div
+        ref={headerRef}
         onClick={handleHeaderClick}
         role="button"
         aria-label={isPanelCollapsed ? 'Expand orchestrator panel' : 'Collapse orchestrator panel'}
@@ -364,6 +372,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
           {!isPanelCollapsed && (
             <>
               <PanelTabs
+                responsive
                 aria-label="Orchestrator views"
                 value={viewMode}
                 onChange={setViewMode}
@@ -502,9 +511,11 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               </button>
             </>
           )}
-          <span className="shrink-0 text-xs text-text-secondary">
-            {isPanelCollapsed ? 'Cmd+J to expand' : 'Cmd+J'}
-          </span>
+          {(isPanelCollapsed || headerDensity === 'regular') && (
+            <span className="shrink-0 text-xs text-text-secondary">
+              {isPanelCollapsed ? 'Cmd+J to expand' : 'Cmd+J'}
+            </span>
+          )}
           <button
             type="button"
             onClick={togglePanel}
@@ -540,6 +551,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
           </button>
         </div>
       </div>
+      </PanelDensityContext.Provider>
 
       {/* Content - only shown when expanded */}
       <AnimatePresence>

@@ -6,6 +6,7 @@
  */
 
 import type { ReactNode } from 'react'
+import { usePanelDensity } from '@/hooks/use-element-width'
 
 export type PanelTab<T extends string> = {
   value: T
@@ -22,6 +23,12 @@ type PanelTabsProps<T extends string> = {
   className?: string
   /** Icon-only (label as tooltip) — for tight headers like the agent panel. */
   iconOnly?: boolean
+  /**
+   * Drop labels (icon-only) automatically when the surrounding `PanelHeader`
+   * reports a non-`regular` density. Shows labels when there's room, icons when
+   * tight — without the caller threading width through.
+   */
+  responsive?: boolean
   'aria-label'?: string
 }
 
@@ -31,8 +38,11 @@ export function PanelTabs<T extends string>({
   onChange,
   className = '',
   iconOnly = false,
+  responsive = false,
   'aria-label': ariaLabel,
 }: PanelTabsProps<T>) {
+  const density = usePanelDensity()
+  const showIconsOnly = iconOnly || (responsive && density !== 'regular')
   return (
     <div
       role="group"
@@ -46,17 +56,17 @@ export function PanelTabs<T extends string>({
             key={tab.value}
             type="button"
             aria-pressed={active}
-            aria-label={iconOnly ? tab.label : undefined}
-            title={iconOnly ? tab.label : undefined}
+            aria-label={showIconsOnly ? tab.label : undefined}
+            title={showIconsOnly ? tab.label : undefined}
             data-testid={tab.testId}
             onClick={() => { onChange(tab.value) }}
             className={`relative inline-flex min-w-0 items-center gap-1.5 py-1.5 text-[11px] font-medium transition-colors ${
-              iconOnly ? 'px-1.5' : 'px-2'
+              showIconsOnly ? 'px-1.5' : 'px-2'
             } ${active ? 'text-text-primary' : 'text-text-secondary hover:text-text-primary'}`}
             style={{ cursor: 'pointer' }}
           >
             {tab.icon}
-            {!iconOnly && <span className="truncate">{tab.label}</span>}
+            {!showIconsOnly && <span className="truncate">{tab.label}</span>}
             {active && (
               <span className="absolute inset-x-1 bottom-0 h-px rounded-full bg-accent" aria-hidden="true" />
             )}
