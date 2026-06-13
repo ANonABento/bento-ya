@@ -104,6 +104,11 @@ impl ChatTransport for PipeTransport {
         self.alive.store(true, Ordering::SeqCst);
         self.child = Some(child);
 
+        // Debug recorder: capture the exact outgoing invocation (command + args,
+        // which include --system-prompt + the MCP flags) and the stdin prompt.
+        let debug_id =
+            super::debug::record_spawn(&config.command, &config.args, config.stdin_data.as_deref());
+
         let (event_tx, event_rx) = mpsc::channel::<TransportEvent>(256);
         let alive_flag = Arc::clone(&self.alive);
 
@@ -130,6 +135,9 @@ impl ChatTransport for PipeTransport {
                         break;
                     }
                     Ok(Ok(_)) => {
+                        // Capture the raw line for the debug inspector before parsing.
+                        super::debug::record_line(debug_id, &line);
+
                         // Skip assistant events to avoid double-counting with streaming deltas
                         let is_assistant_event = line.contains("\"type\":\"assistant\"")
                             || line.contains("\"type\": \"assistant\"");

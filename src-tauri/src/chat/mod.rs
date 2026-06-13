@@ -14,6 +14,7 @@
 
 pub mod bridge;
 pub mod chef;
+pub mod debug;
 pub mod events;
 pub mod gc;
 pub mod log_retention;

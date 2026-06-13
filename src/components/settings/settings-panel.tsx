@@ -15,6 +15,7 @@ import { DiscordTab } from './tabs/discord-tab'
 import { ShortcutsTab } from './tabs/shortcuts-tab'
 import { UpdatesTab } from './tabs/updates-tab'
 import { BatchesTab } from './tabs/batches-tab'
+import { DebugTab } from './tabs/debug-tab'
 
 // SVG Icons for settings tabs
 const icons: Record<string, React.ReactNode> = {
@@ -85,6 +86,7 @@ type TabId =
   | 'runtime'
   | 'updates'
   | 'advanced'
+  | 'debug'
 
 type TabDef = {
   id: TabId
@@ -132,6 +134,7 @@ const TAB_GROUPS: TabGroup[] = [
     tabs: [
       { id: 'runtime', label: 'Runtime', hint: 'Global defaults, sessions, GC, limits' },
       { id: 'advanced', label: 'Advanced', hint: 'Terminal, panels, performance, git, shortcuts' },
+      { id: 'debug', label: 'Debug', hint: 'Inspect CLI prompts, args, and tool calls' },
       { id: 'updates', label: 'Updates', hint: 'Check for app updates' },
     ],
   },
@@ -213,6 +216,8 @@ export function SettingsPanel() {
         return <BatchesTab />
       case 'runtime':
         return <SystemTab />
+      case 'debug':
+        return <DebugTab />
       case 'updates':
         return <UpdatesTab />
       case 'advanced':
