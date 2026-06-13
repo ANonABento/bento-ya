@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { AgentTranscriptEvent } from '@/types/events'
-import { ChatMarkdown } from './chat-flat'
+import { ChatMarkdown, ChatEntry, ChatDivider } from './chat-flat'
 
 type QueuedMessage = {
   id: string
@@ -76,7 +76,7 @@ export function AgentTranscript({
     <div
       ref={scrollRef}
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto bg-bg px-4 py-3 font-mono"
+      className="flex-1 overflow-y-auto bg-bg px-4 py-3"
       data-testid="agent-transcript"
     >
       {isEmpty ? (
@@ -498,28 +498,35 @@ function runStatusDetail(items: RenderItem[]): string | undefined {
 function TranscriptItem({ item, isLatest }: { item: RenderItem; isLatest: boolean }) {
   switch (item.kind) {
     case 'meta':
-      return <MetaEntry item={item} isLatest={isLatest} />
+      return (
+        <ChatDivider isLatest={isLatest}>
+          {item.label}{item.detail ? ` · ${item.detail}` : ''}
+        </ChatDivider>
+      )
     case 'user':
       return (
-        <EntryShell isLatest={isLatest} border="border-accent/50">
-          <EntryMeta label="> user" tone="user" detail={item.detail} timestamp={item.timestamp} />
+        <ChatEntry tone="user" label="> user" detail={item.detail} timestamp={item.timestamp} isLatest={isLatest}>
           <ChatMarkdown content={item.content} muted />
-        </EntryShell>
+        </ChatEntry>
       )
     case 'assistant':
       return (
-        <EntryShell isLatest={isLatest} border="border-border-default">
-          <EntryMeta label={item.source === 'agent_output' ? 'agent output' : 'agent'} tone="agent" timestamp={item.timestamp} />
+        <ChatEntry
+          tone="agent"
+          label={item.source === 'agent_output' ? 'agent output' : 'agent'}
+          timestamp={item.timestamp}
+          isLatest={isLatest}
+        >
           {item.source === 'agent_output'
             ? <AgentOutputBlock content={item.content} storageKeyPrefix={`agent-transcript:agent-output:${item.id}`} />
             : <ChatMarkdown content={item.content} />}
-        </EntryShell>
+        </ChatEntry>
       )
     case 'thinking':
       return (
-        <EntryShell isLatest={isLatest} border="border-border-default">
+        <ChatEntry tone="agent" isLatest={isLatest}>
           <CollapsibleBlock label="thinking" content={item.content} storageKey={`agent-transcript:thinking:${item.id}`} />
-        </EntryShell>
+        </ChatEntry>
       )
     case 'tool':
       return <ToolEntry item={item} isLatest={isLatest} />
@@ -527,58 +534,21 @@ function TranscriptItem({ item, isLatest }: { item: RenderItem; isLatest: boolea
       return <CommandEntry item={item} isLatest={isLatest} />
     case 'end':
       return (
-        <EntryShell isLatest={isLatest} border={item.status === 'completed' ? 'border-running/50' : item.status === 'cancelled' ? 'border-warning/50' : 'border-error/50'}>
-          <EntryMeta
-            label={item.status === 'completed' ? 'agent completed' : item.status === 'cancelled' ? 'agent cancelled' : 'agent failed'}
-            tone={item.status === 'completed' ? 'running' : item.status === 'cancelled' ? 'queued' : 'error'}
-            detail={item.detail}
-            timestamp={item.timestamp}
-          />
-        </EntryShell>
+        <ChatEntry
+          tone={item.status === 'completed' ? 'running' : item.status === 'cancelled' ? 'warning' : 'error'}
+          label={item.status === 'completed' ? 'agent completed' : item.status === 'cancelled' ? 'agent cancelled' : 'agent failed'}
+          detail={item.detail}
+          timestamp={item.timestamp}
+          isLatest={isLatest}
+        />
       )
   }
-}
-
-function EntryShell({
-  children,
-  isLatest,
-  border,
-}: {
-  children: ReactNode
-  isLatest: boolean
-  border: string
-}) {
-  return (
-    <motion.article
-      initial={isLatest ? { opacity: 0, y: 4 } : false}
-      animate={{ opacity: 1, y: 0 }}
-      className={`border-l pl-3 ${border}`}
-    >
-      {children}
-    </motion.article>
-  )
-}
-
-function MetaEntry({ item, isLatest }: { item: Extract<RenderItem, { kind: 'meta' }>; isLatest: boolean }) {
-  return (
-    <motion.div
-      initial={isLatest ? { opacity: 0, y: 4 } : false}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex items-center gap-3 py-0.5"
-    >
-      <div className="h-px flex-1 bg-border-default" />
-      <span className="max-w-full truncate text-[10px] text-text-secondary">
-        {item.label}{item.detail ? ` · ${item.detail}` : ''}
-      </span>
-      <div className="h-px flex-1 bg-border-default" />
-    </motion.div>
-  )
 }
 
 function ToolEntry({ item, isLatest }: { item: Extract<RenderItem, { kind: 'tool' }>; isLatest: boolean }) {
   const detail = item.detail?.trim()
   return (
-    <EntryShell isLatest={isLatest} border="border-border-default">
+    <ChatEntry tone="agent" isLatest={isLatest}>
       <ActionDisclosure
         title={item.name}
         detail={detail}
@@ -586,14 +556,14 @@ function ToolEntry({ item, isLatest }: { item: Extract<RenderItem, { kind: 'tool
         timestamp={item.timestamp}
         storageKey={`agent-transcript:tool:${item.id}:${item.name}`}
       />
-    </EntryShell>
+    </ChatEntry>
   )
 }
 
 function CommandEntry({ item, isLatest }: { item: Extract<RenderItem, { kind: 'command' }>; isLatest: boolean }) {
   const detail = joinDetails(item.content, item.detail)?.trim()
   return (
-    <EntryShell isLatest={isLatest} border="border-border-default">
+    <ChatEntry tone="agent" isLatest={isLatest}>
       <ActionDisclosure
         title={item.name}
         detail={detail}
@@ -601,7 +571,7 @@ function CommandEntry({ item, isLatest }: { item: Extract<RenderItem, { kind: 'c
         timestamp={item.timestamp}
         storageKey={`agent-transcript:command:${item.id}:${item.name}`}
       />
-    </EntryShell>
+    </ChatEntry>
   )
 }
 
@@ -656,7 +626,8 @@ function AgentOutputBlock({ content, storageKeyPrefix }: { content: string; stor
   const sections = useMemo(() => parseAgentOutputSections(cleanTmuxTailForTranscript(content)), [content])
 
   return (
-    <div className="space-y-2">
+    // Raw tmux tail — keep monospace so terminal alignment survives.
+    <div className="space-y-2 font-mono">
       {sections.map((section, index) => (
         <AgentOutputSectionView
           key={`${section.type}-${String(index)}`}
@@ -826,11 +797,15 @@ function PendingSemanticRunEntry({
     return () => { clearInterval(interval) }
   }, [startTime])
 
+  const detail = `starting${elapsed > 0 ? ` · ${String(elapsed)}s` : ''}${queueCount > 0 ? ` · ${String(queueCount)} queued` : ''}`
   return (
-    <EntryShell isLatest border="border-running/50">
-      <div className="flex items-center justify-between gap-3">
-        <EntryMeta label="agent" tone="running" detail={`starting${elapsed > 0 ? ` · ${String(elapsed)}s` : ''}${queueCount > 0 ? ` · ${String(queueCount)} queued` : ''}`} />
-        {onCancel && (
+    <ChatEntry
+      tone="running"
+      label="agent"
+      detail={detail}
+      isLatest
+      headerRight={
+        onCancel ? (
           <button
             type="button"
             onClick={onCancel}
@@ -839,51 +814,19 @@ function PendingSemanticRunEntry({
           >
             Cancel
           </button>
-        )}
-      </div>
+        ) : null
+      }
+    >
       <div className="text-sm text-text-secondary">waiting for transcript events...</div>
-    </EntryShell>
+    </ChatEntry>
   )
 }
 
 function QueuedEntry({ content }: { content: string }) {
   return (
-    <EntryShell isLatest border="border-accent/30">
-      <EntryMeta label="> user" tone="queued" detail="queued" />
+    <ChatEntry tone="queued" label="> user" detail="queued" isLatest>
       <ChatMarkdown content={content} muted />
-    </EntryShell>
-  )
-}
-
-function EntryMeta({
-  label,
-  tone,
-  timestamp,
-  detail,
-}: {
-  label: string
-  tone: 'user' | 'agent' | 'running' | 'queued' | 'error'
-  timestamp?: string
-  detail?: string
-}) {
-  const toneClass = {
-    user: 'text-accent',
-    agent: 'text-text-secondary',
-    running: 'text-running',
-    queued: 'text-accent/70',
-    error: 'text-error',
-  }[tone]
-
-  return (
-    <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px]">
-      <span className={`font-semibold ${toneClass}`}>{label}</span>
-      {detail && <span className="min-w-0 break-words text-text-secondary/70">{detail}</span>}
-      {timestamp && (
-        <time className="text-text-secondary/50">
-          {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </time>
-      )}
-    </div>
+    </ChatEntry>
   )
 }
 

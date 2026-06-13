@@ -12,13 +12,14 @@ import { motion } from 'motion/react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-export type ChatTone = 'user' | 'agent' | 'running' | 'queued' | 'error' | 'system'
+export type ChatTone = 'user' | 'agent' | 'running' | 'queued' | 'warning' | 'error' | 'system'
 
 const TONE_BORDER: Record<ChatTone, string> = {
   user: 'border-accent/50',
   agent: 'border-border-default',
   running: 'border-running/50',
   queued: 'border-accent/30',
+  warning: 'border-warning/50',
   error: 'border-error/50',
   system: 'border-border-default',
 }
@@ -28,6 +29,7 @@ const TONE_LABEL: Record<ChatTone, string> = {
   agent: 'text-text-secondary',
   running: 'text-running',
   queued: 'text-accent/70',
+  warning: 'text-warning',
   error: 'text-error',
   system: 'text-text-secondary',
 }
