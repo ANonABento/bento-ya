@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, memo } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { motion } from 'motion/react'
 import type { ChatMessage } from '@/lib/ipc'
 import { ToolCallItem, type ToolCallData } from './shared'
+import { ChatEntry, ChatDivider, ChatMarkdown } from './chat-flat'
 
 type QueuedMessage = {
   id: string
@@ -17,9 +16,10 @@ type ChatHistoryProps = {
   processingStartTime?: number | null
   thinkingContent?: string
   toolCalls?: ToolCallData[]
-  onCancel?: () => void
   queuedMessages?: QueuedMessage[]
   emptyState?: React.ReactNode
+  /** Role label for assistant turns (the chef chat shows "chef"). */
+  assistantLabel?: string
 }
 
 export function ChatHistory({
@@ -29,9 +29,9 @@ export function ChatHistory({
   processingStartTime = null,
   thinkingContent = '',
   toolCalls = [],
-  onCancel,
   queuedMessages = [],
   emptyState,
+  assistantLabel = 'chef',
 }: ChatHistoryProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -74,39 +74,43 @@ export function ChatHistory({
   const isProcessing = processingStartTime !== null
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
+    <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto bg-bg px-4 py-3">
       {messages.map((msg, index) => (
-        <MessageBubble key={msg.id} message={msg} isLatest={index === messages.length - 1 && !isProcessing && queuedMessages.length === 0} />
+        <MessageEntry
+          key={msg.id}
+          message={msg}
+          assistantLabel={assistantLabel}
+          isLatest={index === messages.length - 1 && !isProcessing && queuedMessages.length === 0}
+        />
       ))}
       {isProcessing && (
-        <StreamingBubble
+        <StreamingEntry
           content={streamingContent}
           startTime={processingStartTime}
           thinkingContent={thinkingContent}
           toolCalls={toolCalls}
-          onCancel={onCancel}
           queueCount={queuedMessages.length}
+          assistantLabel={assistantLabel}
         />
       )}
-      {/* Queued messages shown as pending */}
       {queuedMessages.map((queued) => (
-        <QueuedBubble key={queued.id} content={queued.content} />
+        <QueuedEntry key={queued.id} content={queued.content} />
       ))}
     </div>
   )
 }
 
-type MessageBubbleProps = {
+type MessageEntryProps = {
   message: ChatMessage
+  assistantLabel: string
   isLatest: boolean
 }
 
-// Parse action blocks from message content and extract display text + actions
-function parseMessageContent(content: string): { displayText: string; actions: Array<{ action: string; title?: string; column?: string; task_id?: string }> } {
-  const actions: Array<{ action: string; title?: string; column?: string; task_id?: string }> = []
-  let displayText = content
+type ParsedAction = { action: string; title?: string; column?: string; task_id?: string }
 
-  // Find and extract all ```action blocks
+// Parse ```action blocks from message content; return display text + actions.
+function parseMessageContent(content: string): { displayText: string; actions: ParsedAction[] } {
+  const actions: ParsedAction[] = []
   const actionBlockRegex = /```action\s*\n?([\s\S]*?)```/g
   let match
 
@@ -116,21 +120,18 @@ function parseMessageContent(content: string): { displayText: string; actions: A
       if (!captured) continue
       const parsed: unknown = JSON.parse(captured.trim())
       if (Array.isArray(parsed)) {
-        actions.push(...(parsed as Array<{ action: string; title?: string; column?: string; task_id?: string }>))
+        actions.push(...(parsed as ParsedAction[]))
       }
     } catch {
       // Invalid JSON, ignore
     }
   }
 
-  // Remove action blocks from display text
-  displayText = content.replace(actionBlockRegex, '').trim()
-
+  const displayText = content.replace(actionBlockRegex, '').trim()
   return { displayText, actions }
 }
 
-// Format action for display
-function formatAction(action: { action: string; title?: string; column?: string; task_id?: string }): string {
+function formatAction(action: ParsedAction): string {
   switch (action.action) {
     case 'create_task':
       return `Created "${action.title ?? 'task'}"${action.column ? ` in ${action.column}` : ''}`
@@ -145,129 +146,63 @@ function formatAction(action: { action: string; title?: string; column?: string;
   }
 }
 
-function MessageBubble({ message, isLatest }: MessageBubbleProps) {
-  const isUser = message.role === 'user'
-  const isSystem = message.role === 'system'
-
-  if (isSystem) {
-    const isModelSwitch = message.content.startsWith('Switched to ')
-    return (
-      <motion.div
-        initial={isLatest ? { opacity: 0, y: 5 } : false}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex items-center gap-2 my-1"
-      >
-        <div className="flex-1 border-t border-border-default" />
-        <span className={`shrink-0 px-2 py-0.5 text-[10px] ${
-          isModelSwitch
-            ? 'rounded border border-border-default text-text-secondary'
-            : 'rounded-full bg-surface-hover text-text-secondary'
-        }`}>
-          {message.content}
-        </span>
-        <div className="flex-1 border-t border-border-default" />
-      </motion.div>
-    )
+// Memoized: while a response streams, the parent re-renders on every token but
+// the settled history messages don't change — skip re-rendering them.
+const MessageEntry = memo(function MessageEntry({ message, assistantLabel, isLatest }: MessageEntryProps) {
+  if (message.role === 'system') {
+    return <ChatDivider isLatest={isLatest}>{message.content}</ChatDivider>
   }
 
-  // Parse action blocks for assistant messages
-  const { displayText, actions } = isUser ? { displayText: message.content, actions: [] } : parseMessageContent(message.content)
+  const isUser = message.role === 'user'
+  const { displayText, actions } = isUser
+    ? { displayText: message.content, actions: [] as ParsedAction[] }
+    : parseMessageContent(message.content)
 
   return (
-    <motion.div
-      initial={isLatest ? { opacity: 0, y: 5 } : false}
-      animate={{ opacity: 1, y: 0 }}
-      className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+    <ChatEntry
+      tone={isUser ? 'user' : 'agent'}
+      label={isUser ? 'you' : assistantLabel}
+      timestamp={message.createdAt}
+      isLatest={isLatest}
     >
-      <div
-        className={`w-fit max-w-[min(92%,56rem)] rounded-xl px-3.5 py-2.5 ${
-          isUser
-            ? 'bg-accent text-bg'
-            : 'bg-surface-hover text-text-primary'
-        }`}
-      >
-        {/* Show executed actions with checkmarks */}
-        {actions.length > 0 && (
-          <div className="mb-2 space-y-1">
-            {actions.map((action, idx) => (
-              <div key={idx} className="flex items-center gap-2 text-xs rounded bg-bg/50 px-2 py-1">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-green-400 shrink-0">
-                  <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
-                </svg>
-                <span className="text-text-secondary">{formatAction(action)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {displayText && <MarkdownContent content={displayText} />}
-      </div>
-    </motion.div>
-  )
-}
-
-// Memoized markdown renderer for chat messages
-const MarkdownContent = memo(function MarkdownContent({ content }: { content: string }) {
-  return (
-    <div className="text-sm leading-relaxed markdown-content">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          p: ({ children }) => <p className="my-1.5">{children}</p>,
-          table: ({ children }) => (
-            <div className="my-2 overflow-x-auto">
-              <table className="w-full border-collapse text-xs">{children}</table>
-            </div>
-          ),
-          th: ({ children }) => <th className="border border-border-default px-2 py-1 text-left font-semibold">{children}</th>,
-          td: ({ children }) => <td className="border border-border-default px-2 py-1">{children}</td>,
-          hr: () => <hr className="my-3 border-border-default" />,
-          strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-          em: ({ children }) => <em className="italic">{children}</em>,
-          ul: ({ children }) => <ul className="my-1 ml-4 list-disc">{children}</ul>,
-          ol: ({ children }) => <ol className="my-1 ml-4 list-decimal">{children}</ol>,
-          li: ({ children }) => <li className="my-0.5">{children}</li>,
-          h1: ({ children }) => <h1 className="text-lg font-bold my-2">{children}</h1>,
-          h2: ({ children }) => <h2 className="text-base font-bold my-2">{children}</h2>,
-          h3: ({ children }) => <h3 className="text-sm font-bold my-1">{children}</h3>,
-          code: ({ className, children }) => {
-            const isInline = !className
-            return isInline ? (
-              <code className="text-accent bg-bg/50 px-1 py-0.5 rounded text-[0.85em]">{children}</code>
-            ) : (
-              <code className={className}>{children}</code>
-            )
-          },
-          pre: ({ children }) => (
-            <pre className="my-2 p-2 bg-bg/50 rounded overflow-x-auto text-xs">{children}</pre>
-          ),
-          a: ({ href, children }) => (
-            <a href={href} className="text-accent underline hover:opacity-80" target="_blank" rel="noopener noreferrer">
-              {children}
-            </a>
-          ),
-          blockquote: ({ children }) => (
-            <blockquote className="border-l-2 border-accent/50 pl-2 my-2 text-text-secondary italic">
-              {children}
-            </blockquote>
-          ),
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
+      {actions.length > 0 && <ActionList actions={actions} />}
+      {displayText && <ChatMarkdown content={displayText} />}
+    </ChatEntry>
   )
 })
 
-type StreamingBubbleProps = {
+function ActionList({ actions }: { actions: ParsedAction[] }) {
+  return (
+    <div className="mb-2 space-y-1">
+      {actions.map((action, idx) => (
+        <div key={idx} className="flex items-center gap-2 rounded bg-surface/40 px-2 py-1 text-xs">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0 text-running">
+            <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
+          </svg>
+          <span className="text-text-secondary">{formatAction(action)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+type StreamingEntryProps = {
   content: string
   startTime?: number | null
   thinkingContent?: string
   toolCalls?: ToolCallData[]
-  onCancel?: () => void
   queueCount?: number
+  assistantLabel: string
 }
 
-function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls = [], onCancel, queueCount = 0 }: StreamingBubbleProps) {
+function StreamingEntry({
+  content,
+  startTime,
+  thinkingContent = '',
+  toolCalls = [],
+  queueCount = 0,
+  assistantLabel,
+}: StreamingEntryProps) {
   const [elapsed, setElapsed] = useState(0)
   const [isThinkingExpanded, setIsThinkingExpanded] = useState(false)
 
@@ -276,35 +211,34 @@ function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls =
       setElapsed(0)
       return
     }
-
-    // Set initial elapsed
     setElapsed(Math.floor((Date.now() - startTime) / 1000))
-
     const interval = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTime) / 1000))
     }, 1000)
-
-    return () => { clearInterval(interval); }
+    return () => { clearInterval(interval) }
   }, [startTime])
 
   const hasThinking = thinkingContent.length > 0
   const hasToolCalls = toolCalls.length > 0
   const hasContent = content.length > 0
 
+  const statusLabel = hasContent ? 'Typing' : hasToolCalls ? 'Using tools' : hasThinking ? 'Thinking' : 'Processing'
+  const detail = [
+    statusLabel,
+    elapsed > 0 ? `${String(elapsed)}s` : null,
+    queueCount > 0 ? `${String(queueCount)} queued` : null,
+  ].filter(Boolean).join(' · ')
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 5 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex justify-start"
-    >
-      <div className="max-w-[80%] rounded-xl px-3 py-2 bg-surface-hover text-text-primary space-y-2">
-        {/* Thinking block - collapsible */}
+    <ChatEntry tone="running" label={assistantLabel} detail={detail} isLatest>
+      <div className="space-y-2">
         {hasThinking && (
           <div className="border-l-2 border-accent/30 pl-2">
             <button
               type="button"
-              onClick={() => { setIsThinkingExpanded(!isThinkingExpanded); }}
-              className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors"
+              onClick={() => { setIsThinkingExpanded(!isThinkingExpanded) }}
+              className="flex items-center gap-1 text-xs text-text-secondary transition-colors hover:text-text-primary"
+              style={{ cursor: 'pointer' }}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -316,24 +250,12 @@ function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls =
               </svg>
               <span className="italic">Thinking...</span>
             </button>
-            <AnimatePresence>
-              {isThinkingExpanded && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  className="overflow-hidden"
-                >
-                  <p className="mt-1 text-xs text-text-secondary/80 whitespace-pre-wrap">
-                    {thinkingContent}
-                  </p>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {isThinkingExpanded && (
+              <p className="mt-1 whitespace-pre-wrap text-xs text-text-secondary/80">{thinkingContent}</p>
+            )}
           </div>
         )}
 
-        {/* Tool calls */}
         {hasToolCalls && (
           <div className="space-y-1">
             {toolCalls.map((tool) => (
@@ -350,71 +272,45 @@ function StreamingBubble({ content, startTime, thinkingContent = '', toolCalls =
           </div>
         )}
 
-        {/* Streaming content or typing indicator */}
         {hasContent ? (
-          <MarkdownContent content={content} />
+          <ChatMarkdown content={content} />
         ) : !hasThinking && !hasToolCalls ? (
           <TypingDots />
         ) : null}
-
-        {/* Status line with cancel button */}
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs text-text-secondary flex items-center gap-1.5">
-            {hasContent ? 'Typing' : hasToolCalls ? 'Using tools' : hasThinking ? 'Thinking' : 'Processing'}
-            {elapsed > 0 ? ` · ${String(elapsed)}s` : ''}
-            {queueCount > 0 && (
-              <span className="text-accent"> · {String(queueCount)} queued</span>
-            )}
-          </p>
-          {onCancel && (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="text-xs text-text-secondary hover:text-red-400 transition-colors"
-            >
-              Cancel
-            </button>
-          )}
-        </div>
       </div>
-    </motion.div>
+    </ChatEntry>
   )
 }
 
 function TypingDots() {
   return (
     <div className="flex items-center gap-1 py-1">
-      <motion.span
-        className="h-2 w-2 rounded-full bg-accent"
-        animate={{ opacity: [0.3, 1, 0.3] }}
-        transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
-      />
-      <motion.span
-        className="h-2 w-2 rounded-full bg-accent"
-        animate={{ opacity: [0.3, 1, 0.3] }}
-        transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
-      />
-      <motion.span
-        className="h-2 w-2 rounded-full bg-accent"
-        animate={{ opacity: [0.3, 1, 0.3] }}
-        transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
-      />
+      {[0, 0.2, 0.4].map((delay) => (
+        <motion.span
+          key={delay}
+          className="h-2 w-2 rounded-full bg-accent"
+          animate={{ opacity: [0.3, 1, 0.3] }}
+          transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut', delay }}
+        />
+      ))}
     </div>
   )
 }
 
-// Queued message bubble - shows as pending user message
-function QueuedBubble({ content }: { content: string }) {
+// Pending (not-yet-sent) turn. Visually distinct from sent messages: a muted,
+// dashed, indented wrap with a "Queued" pill — so it reads as "waiting", not
+// "delivered".
+function QueuedEntry({ content }: { content: string }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 5 }}
-      animate={{ opacity: 0.6, y: 0 }}
-      className="flex justify-end"
-    >
-      <div className="max-w-[80%] rounded-xl px-3 py-2 bg-accent/50 text-bg border border-dashed border-accent/30">
-        <p className="text-sm whitespace-pre-wrap">{content}</p>
-        <p className="text-xs mt-1 opacity-70">Queued</p>
+    <div className="ml-3 rounded-md border border-dashed border-border-default bg-surface/30 px-3 py-2 opacity-70">
+      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-text-secondary/70">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-3 w-3" aria-hidden="true">
+          <circle cx="8" cy="8" r="6" />
+          <path d="M8 5v3l2 1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        Queued
       </div>
-    </motion.div>
+      <div className="whitespace-pre-wrap break-words text-sm text-text-secondary">{content}</div>
+    </div>
   )
 }

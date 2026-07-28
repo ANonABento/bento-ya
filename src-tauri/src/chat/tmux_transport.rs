@@ -129,6 +129,26 @@ pub fn ensure_tmux_server() -> Result<(), String> {
         .args(["set-option", "-g", "mouse", "on"])
         .output();
 
+    // Color fidelity. Set explicitly (not relying on the user's ~/.tmux.conf or a
+    // GUI-launch environment) so the hosted agent TUIs render in full color and
+    // alternate-screen / clear works:
+    // - default-terminal: what TERM panes see; tmux-256color advertises 256-color
+    //   + smcup/rmcup (alternate screen) + clear capabilities. Only applies to
+    //   sessions created AFTER it's set — hence here, pre-session.
+    // - terminal-overrides …:RGB: pass 24-bit truecolor through to the attached
+    //   client (xterm.js attaches as xterm-256color; see attach_in_pty).
+    let _ = Command::new("tmux")
+        .args(["set-option", "-g", "default-terminal", "tmux-256color"])
+        .output();
+    let _ = Command::new("tmux")
+        .args([
+            "set-option",
+            "-ga",
+            "terminal-overrides",
+            ",xterm-256color:RGB,*256col*:RGB",
+        ])
+        .output();
+
     Ok(())
 }
 
@@ -361,6 +381,9 @@ impl TmuxTransport {
         let output = Command::new("tmux")
             .args(&args)
             .envs(config.env_vars.as_ref().cloned().unwrap_or_default())
+            // Panes inherit TERM from default-terminal (tmux-256color); COLORTERM
+            // lets truecolor-aware apps inside the pane emit 24-bit color.
+            .env("COLORTERM", "truecolor")
             .output()
             .map_err(|e| format!("Failed to create tmux session: {}", e))?;
 
@@ -380,9 +403,19 @@ impl TmuxTransport {
         let (pty, pts) =
             pty_process::blocking::open().map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-        // Build tmux attach command
+        // Build tmux attach command. The attach client renders tmux's output into
+        // the xterm.js PTY, so ITS environment decides whether tmux emits color +
+        // clear/alternate-screen sequences. On a GUI launch TERM is unset, which
+        // makes tmux downgrade to a colorless dumb terminal — hence set it here
+        // explicitly. `-2` forces tmux to assume 256-color support.
         let mut cmd = pty_process::blocking::Command::new("tmux");
-        cmd = cmd.arg("attach-session").arg("-t").arg(&name);
+        cmd = cmd
+            .env("TERM", "xterm-256color")
+            .env("COLORTERM", "truecolor")
+            .arg("-2")
+            .arg("attach-session")
+            .arg("-t")
+            .arg(&name);
 
         let child = cmd
             .spawn(pts)

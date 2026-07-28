@@ -285,13 +285,14 @@ describe('AgentPanel session controls', () => {
   it('shows Activity, Terminal, and Changes tabs in headless mode without tab badges', () => {
     renderPanel()
 
-    // Icon-only tabs in the header; their accessible name comes from aria-label.
+    // Responsive tabs: at regular density labels are visible text (the accessible
+    // name comes from the label, not aria-label).
     const tabs = [
       screen.getByRole('button', { name: 'Activity' }),
       screen.getByRole('button', { name: 'Terminal' }),
       screen.getByRole('button', { name: 'Changes' }),
     ]
-    expect(tabs.map((tab) => tab.getAttribute('aria-label'))).toEqual(['Activity', 'Terminal', 'Changes'])
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Activity', 'Terminal', 'Changes'])
     expect(screen.queryByRole('button', { name: 'Context' })).not.toBeInTheDocument()
     expect(screen.queryByText('live')).not.toBeInTheDocument()
     expect(screen.queryByText(/\+\d+/)).not.toBeInTheDocument()

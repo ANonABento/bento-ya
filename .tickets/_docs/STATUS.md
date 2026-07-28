@@ -42,7 +42,7 @@ Phase 6 🟡 — CliSessionManager removed, but AgentRunner + PtyManager still u
 
 ### MCP Server (kaitencode-mcp)
 
-Standalone Rust binary (19 tools), shares Cargo workspace with Tauri app for WAL-compatible concurrent DB access. 17 unit tests.
+Standalone Rust binary (25 tools), shares Cargo workspace with Tauri app for WAL-compatible concurrent DB access. 18+ unit tests.
 
 ### Database
 

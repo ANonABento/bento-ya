@@ -9,6 +9,12 @@ import { holdTask, killTaskSession } from '@/lib/ipc/agent'
 import { agentRestart, interactiveModeDevFlag } from '@/lib/ipc/agent-interactive'
 import { setTaskRuntimeModeOverride } from '@/lib/ipc/task'
 import { PanelTabs, type PanelTab } from '@/components/shared/panel-tabs'
+import {
+  useElementWidth,
+  panelDensity,
+  PanelDensityContext,
+  usePanelDensity,
+} from '@/hooks/use-element-width'
 import { ActivityIcon, TerminalIcon, ChangesIcon, FilesIcon } from '@/components/shared/tab-icons'
 import { WorkspaceFilesView } from './workspace-files-view'
 import { signalPtyInterrupt } from '@/lib/ipc/terminal'
@@ -207,34 +213,18 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
       <PanelHeader
         onClose={onClose}
         rightSlot={
-          <>
-            <RuntimeModeToggle task={task} />
-            <button
-              type="button"
-              onClick={() => { void handleHoldToggle() }}
-              disabled={holdBusy}
-              data-testid="agent-panel-hold-button"
-              title={task.heldByUser ? 'Release auto-advance hold' : 'Hold auto-advance for this task'}
-              className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11px] font-medium transition-colors disabled:opacity-50 ${
-                task.heldByUser
-                  ? 'border-warning/40 bg-warning/10 text-warning'
-                  : 'border-border-default bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-              }`}
-              style={{ cursor: holdBusy ? 'wait' : 'pointer' }}
-            >
-              <HoldIcon />
-              {task.heldByUser ? 'Held' : 'Hold'}
-            </button>
-            <PanelOverflowMenu
-              killBusy={killBusy}
-              onKill={() => { void handleKill() }}
-            />
-          </>
+          <AgentHeaderControls
+            task={task}
+            holdBusy={holdBusy}
+            onHoldToggle={() => { void handleHoldToggle() }}
+            killBusy={killBusy}
+            onKill={() => { void handleKill() }}
+          />
         }
         viewSlot={
           <PanelTabs
             className="shrink-0"
-            iconOnly
+            responsive
             aria-label="Agent panel views"
             value={activeView}
             onChange={setActiveView}
@@ -463,29 +453,13 @@ function InteractivePanel({ task, onClose }: AgentPanelProps) {
       <PanelHeader
         onClose={onClose}
         rightSlot={
-          <>
-            <RuntimeModeToggle task={task} />
-            <button
-              type="button"
-              onClick={() => { void handleHoldToggle() }}
-              disabled={holdBusy}
-              data-testid="agent-panel-hold-button"
-              title={task.heldByUser ? 'Release auto-advance hold' : 'Hold auto-advance for this task'}
-              className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11px] font-medium transition-colors disabled:opacity-50 ${
-                task.heldByUser
-                  ? 'border-warning/40 bg-warning/10 text-warning'
-                  : 'border-border-default bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-              }`}
-              style={{ cursor: holdBusy ? 'wait' : 'pointer' }}
-            >
-              <HoldIcon />
-              {task.heldByUser ? 'Held' : 'Hold'}
-            </button>
-            <PanelOverflowMenu
-              killBusy={killBusy}
-              onKill={() => { void handleKill() }}
-            />
-          </>
+          <AgentHeaderControls
+            task={task}
+            holdBusy={holdBusy}
+            onHoldToggle={() => { void handleHoldToggle() }}
+            killBusy={killBusy}
+            onKill={() => { void handleKill() }}
+          />
         }
       />
 
@@ -525,10 +499,17 @@ function PanelHeader({
   viewSlot,
   errorSlot,
 }: PanelHeaderProps) {
+  // Measure the controls row so tabs + right-side controls collapse in step
+  // (regular → icons → overflow) instead of overlapping at narrow panel widths.
+  const [rowRef, rowWidth] = useElementWidth()
+  const density = panelDensity(rowWidth)
   return (
+    <PanelDensityContext.Provider value={density}>
     <div className="border-b border-border-default bg-bg">
-      {/* Controls row: close + runtime/session controls. */}
-      <div className="flex min-w-0 items-center gap-2 px-3 pt-2 pb-1">
+      {/* Controls row: close + runtime/session controls. Fixed height so the
+          header never changes vertical size between label and icon states —
+          all controls are h-7 and vertically centered within it. */}
+      <div ref={rowRef} className="flex h-10 min-w-0 items-center gap-2 px-3">
           {onClose && (
             <button
               type="button"
@@ -566,6 +547,7 @@ function PanelHeader({
 
       {errorSlot && <div className="px-3 pb-2">{errorSlot}</div>}
     </div>
+    </PanelDensityContext.Provider>
   )
 }
 
@@ -582,7 +564,18 @@ const RUNTIME_CHOICES: { value: RuntimeChoice; label: string }[] = [
   { value: 'interactive', label: 'Interactive (live TUI)' },
 ]
 
-function RuntimeModeToggle({ task }: { task: Task }) {
+type RuntimeVariant = 'button' | 'compact' | 'menu'
+
+function RuntimeModeToggle({
+  task,
+  variant = 'button',
+  onAfterSelect,
+}: {
+  task: Task
+  /** `button` = labelled (regular), `compact` = icon-only, `menu` = flat list inside the overflow menu (mini). */
+  variant?: RuntimeVariant
+  onAfterSelect?: () => void
+}) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [interactiveAllowed, setInteractiveAllowed] = useState(true)
@@ -605,6 +598,7 @@ function RuntimeModeToggle({ task }: { task: Task }) {
 
   const handleSelect = async (choice: RuntimeChoice) => {
     setOpen(false)
+    onAfterSelect?.()
     if (choice === current) return
     setBusy(true)
     try {
@@ -621,6 +615,42 @@ function RuntimeModeToggle({ task }: { task: Task }) {
     }
   }
 
+  const choiceButtons = RUNTIME_CHOICES.map((choice) => {
+    const disabled = choice.value === 'interactive' && !interactiveAllowed
+    return (
+      <button
+        key={choice.value || 'inherit'}
+        type="button"
+        disabled={disabled}
+        onClick={() => { void handleSelect(choice.value) }}
+        className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[11px] transition-colors disabled:opacity-40 ${
+          current === choice.value
+            ? 'text-text-primary'
+            : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+        }`}
+        style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
+        title={disabled ? 'Enable interactive mode in Settings → Agent' : undefined}
+      >
+        <span className="truncate">{choice.label}</span>
+        {current === choice.value && <span className="ml-2 text-accent">✓</span>}
+        {disabled && <span className="ml-2 text-[10px] text-text-secondary/60">off</span>}
+      </button>
+    )
+  })
+
+  // Mini: render choices directly inside the overflow menu (no own dropdown).
+  if (variant === 'menu') {
+    return (
+      <div>
+        <div className="px-2 pb-0.5 pt-1 text-[10px] font-medium uppercase tracking-wide text-text-secondary/60">
+          Runtime
+        </div>
+        {choiceButtons}
+      </div>
+    )
+  }
+
+  const iconOnly = variant === 'compact'
   return (
     <div className="relative">
       <button
@@ -629,43 +659,159 @@ function RuntimeModeToggle({ task }: { task: Task }) {
         disabled={busy}
         aria-expanded={open}
         aria-label="Runtime mode"
-        title="Switch runtime mode for this task"
+        title={`Runtime: ${label} — click to switch`}
         data-testid="agent-panel-runtime-toggle"
-        className="inline-flex h-7 items-center gap-1 rounded-md border border-border-default bg-surface px-2 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+        className={`inline-flex h-7 items-center gap-1 rounded-md border border-border-default bg-surface text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50 ${
+          iconOnly ? 'w-7 justify-center px-0' : 'px-2'
+        }`}
         style={{ cursor: busy ? 'wait' : 'pointer' }}
       >
-        <span className="truncate">{label}</span>
-        <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-          <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-        </svg>
+        {iconOnly ? (
+          <RuntimeIcon />
+        ) : (
+          <>
+            <span className="truncate">{label}</span>
+            <svg className="h-3 w-3 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+            </svg>
+          </>
+        )}
       </button>
       {open && (
         <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-md border border-border-default bg-bg p-1 shadow-lg">
-          {RUNTIME_CHOICES.map((choice) => {
-            const disabled = choice.value === 'interactive' && !interactiveAllowed
-            return (
-              <button
-                key={choice.value || 'inherit'}
-                type="button"
-                disabled={disabled}
-                onClick={() => { void handleSelect(choice.value) }}
-                className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[11px] transition-colors disabled:opacity-40 ${
-                  current === choice.value
-                    ? 'text-text-primary'
-                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-                }`}
-                style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
-                title={disabled ? 'Enable interactive mode in Settings → Agent' : undefined}
-              >
-                <span className="truncate">{choice.label}</span>
-                {current === choice.value && <span className="ml-2 text-accent">✓</span>}
-                {disabled && <span className="ml-2 text-[10px] text-text-secondary/60">off</span>}
-              </button>
-            )
-          })}
+          {choiceButtons}
         </div>
       )}
     </div>
+  )
+}
+
+function RuntimeIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+      <rect x="2" y="3" width="12" height="9" rx="1.5" />
+      <path d="M4.5 6 6 7.5 4.5 9M8 9.5h2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+// Right-side header controls (runtime · hold · overflow), responsive to the
+// density reported by PanelHeader: regular = labelled inline, compact = icons
+// inline, mini = everything folded into the overflow (⋯) menu so nothing
+// overlaps at narrow panel widths.
+function AgentHeaderControls({
+  task,
+  holdBusy,
+  onHoldToggle,
+  killBusy,
+  onKill,
+}: {
+  task: Task
+  holdBusy: boolean
+  onHoldToggle: () => void
+  killBusy: boolean
+  onKill: () => void
+}) {
+  const density = usePanelDensity()
+
+  const killItem = (close: () => void) => (
+    <button
+      type="button"
+      onClick={() => { close(); onKill() }}
+      disabled={killBusy}
+      data-testid="agent-panel-kill-button"
+      className="flex w-full items-center rounded px-2 py-1.5 text-left text-[11px] font-medium text-error hover:bg-error/10 disabled:opacity-50"
+      style={{ cursor: killBusy ? 'wait' : 'pointer' }}
+    >
+      Kill session
+    </button>
+  )
+
+  if (density === 'mini') {
+    return (
+      <PanelOverflowMenu>
+        {(close) => (
+          <>
+            <RuntimeModeToggle task={task} variant="menu" onAfterSelect={close} />
+            <div className="my-1 h-px bg-border-default" />
+            <HoldButton
+              held={task.heldByUser}
+              busy={holdBusy}
+              onToggle={() => { close(); onHoldToggle() }}
+              variant="menu"
+            />
+            <div className="my-1 h-px bg-border-default" />
+            {killItem(close)}
+          </>
+        )}
+      </PanelOverflowMenu>
+    )
+  }
+
+  const compact = density === 'compact'
+  return (
+    <>
+      <RuntimeModeToggle task={task} variant={compact ? 'compact' : 'button'} />
+      <HoldButton
+        held={task.heldByUser}
+        busy={holdBusy}
+        onToggle={onHoldToggle}
+        variant={compact ? 'compact' : 'full'}
+      />
+      <PanelOverflowMenu>{(close) => killItem(close)}</PanelOverflowMenu>
+    </>
+  )
+}
+
+type HoldVariant = 'full' | 'compact' | 'menu'
+
+function HoldButton({
+  held,
+  busy,
+  onToggle,
+  variant,
+}: {
+  held: boolean
+  busy: boolean
+  onToggle: () => void
+  variant: HoldVariant
+}) {
+  const title = held ? 'Release auto-advance hold' : 'Hold auto-advance for this task'
+  if (variant === 'menu') {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={busy}
+        data-testid="agent-panel-hold-button"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+        style={{ cursor: busy ? 'wait' : 'pointer' }}
+      >
+        <HoldIcon />
+        {held ? 'Release hold' : 'Hold auto-advance'}
+      </button>
+    )
+  }
+  const compact = variant === 'compact'
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={busy}
+      data-testid="agent-panel-hold-button"
+      title={title}
+      className={`inline-flex h-7 items-center gap-1.5 rounded-md border text-[11px] font-medium transition-colors disabled:opacity-50 ${
+        compact ? 'w-7 justify-center px-0' : 'px-2'
+      } ${
+        held
+          ? 'border-warning/40 bg-warning/10 text-warning'
+          : 'border-border-default bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+      }`}
+      style={{ cursor: busy ? 'wait' : 'pointer' }}
+    >
+      <HoldIcon />
+      {!compact && (held ? 'Held' : 'Hold')}
+    </button>
   )
 }
 
@@ -684,14 +830,16 @@ function HoldIcon() {
   )
 }
 
+// Generic ⋯ overflow menu shell. Children receive a `close` callback so items
+// can dismiss the menu on activation. The agent header composes its contents
+// (kill always; runtime + hold folded in at `mini` density).
 function PanelOverflowMenu({
-  killBusy,
-  onKill,
+  children,
 }: {
-  killBusy: boolean
-  onKill: () => void
+  children: (close: () => void) => ReactNode
 }) {
   const [open, setOpen] = useState(false)
+  const close = useCallback(() => { setOpen(false) }, [])
 
   return (
     <div className="relative">
@@ -701,7 +849,7 @@ function PanelOverflowMenu({
         aria-expanded={open}
         aria-label="Agent actions"
         title="Agent actions"
-        className="flex h-7 w-7 items-center justify-center rounded-md border border-border-default bg-surface text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border-default bg-surface text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
         style={{ cursor: 'pointer' }}
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -709,20 +857,8 @@ function PanelOverflowMenu({
         </svg>
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-md border border-border-default bg-bg p-1 shadow-lg">
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false)
-              onKill()
-            }}
-            disabled={killBusy}
-            data-testid="agent-panel-kill-button"
-            className="flex w-full items-center rounded px-2 py-1.5 text-left text-[11px] font-medium text-error hover:bg-error/10 disabled:opacity-50"
-            style={{ cursor: killBusy ? 'wait' : 'pointer' }}
-          >
-            Kill session
-          </button>
+        <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-md border border-border-default bg-bg p-1 shadow-lg">
+          {children(close)}
         </div>
       )}
     </div>

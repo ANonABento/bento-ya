@@ -105,6 +105,12 @@ impl ChefSession {
         }
     }
 
+    /// Tool-based CLI system prompt: no embedded board (the model reads it via the
+    /// `get_board` MCP tool). Only valid for `ChefMode::Cli`.
+    pub fn build_system_prompt_tools(&self, workspace: &Workspace, columns: &[Column]) -> String {
+        context::build_cli_system_prompt_tools(workspace, columns)
+    }
+
     /// Build the board context JSON for injection into messages.
     pub fn build_board_context(
         &self,
@@ -169,8 +175,16 @@ impl ChefSession {
         let system_prompt = self.build_system_prompt(&workspace, &columns, &tasks);
         self.session.set_system_prompt(system_prompt);
 
-        // Augment message with board context
-        let augmented = self.augment_message(message, &workspace, &columns, &tasks);
+        // The board lives in the system prompt (rebuilt fresh every turn). Only on
+        // a `--resume` turn does Claude reuse the ORIGINAL session's system prompt
+        // (stale board) — so only then do we also prepend the current board to the
+        // message. On a fresh turn the system prompt already carries it; prepending
+        // would just double the payload (and grow it toward the argv/E2BIG limit).
+        let augmented = if self.session.resume_id().is_some() {
+            self.augment_message(message, &workspace, &columns, &tasks)
+        } else {
+            message.to_string()
+        };
 
         // Delegate to base session
         self.session.send_message(&augmented, on_event).await
@@ -220,6 +234,7 @@ mod tests {
             system_prompt: String::new(),
             working_dir: None,
             effort_level: None,
+            ..Default::default()
         }
     }
 

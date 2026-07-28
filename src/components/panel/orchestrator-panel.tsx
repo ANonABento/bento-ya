@@ -23,6 +23,7 @@ import { killTaskSession } from '@/lib/ipc/agent'
 import { chefSessionKey } from '@/lib/ipc/terminal'
 import { WorkspaceFilesView } from './workspace-files-view'
 import { PanelTabs, type PanelTab } from '@/components/shared/panel-tabs'
+import { useElementWidth, panelDensity, PanelDensityContext } from '@/hooks/use-element-width'
 import { ChatIcon, TerminalIcon, FilesIcon } from '@/components/shared/tab-icons'
 
 type OrchestratorView = 'chat' | 'terminal' | 'files'
@@ -35,7 +36,7 @@ import { PanelSidebar } from './panel-sidebar'
 import { PipelineDashboard } from './pipeline-dashboard'
 import { PipelineV2Dashboard } from './pipeline-v2-dashboard'
 import { ChatErrorBoundary } from './chat-error-boundary'
-import { ErrorBanner, FailedMessageBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls } from './shared'
+import { ErrorBanner, CliDetectingBanner, ChatInput, type ChatInputMessage, mapToolCalls } from './shared'
 
 type OrchestratorPanelProps = {
   workspaceId: string
@@ -106,6 +107,11 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
     disabled: isPanelCollapsed,
   })
 
+  // Measure the header so its tabs drop to icons and the Cmd+J hint hides at
+  // narrow widths instead of overlapping the centered "Chef" title.
+  const [headerRef, headerWidth] = useElementWidth()
+  const headerDensity = panelDensity(headerWidth, { compactBelow: 480 })
+
   // Local UI state
   const [sidebarMode, setSidebarMode] = useState<'history' | 'dashboard' | 'v2-dashboard' | null>(null)
   const [viewMode, setViewMode] = useState<OrchestratorView>('chat')
@@ -117,8 +123,9 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
 
-  // Sync hook error to local state (like AgentPanel does)
-  const error = localError ?? chat.error ?? cliDetectionError
+  // Single error surface: stream errors, send/spawn failures, and CLI-detection
+  // all funnel into one banner (no separate retry/dismiss banner).
+  const error = localError ?? chat.error ?? chat.failedMessage?.error ?? cliDetectionError
   useEffect(() => {
     if (chat.error) setLocalError(chat.error)
   }, [chat.error])
@@ -342,7 +349,9 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
       >
 
       {/* Header - clickable to toggle. */}
+      <PanelDensityContext.Provider value={headerDensity}>
       <div
+        ref={headerRef}
         onClick={handleHeaderClick}
         role="button"
         aria-label={isPanelCollapsed ? 'Expand orchestrator panel' : 'Collapse orchestrator panel'}
@@ -364,6 +373,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
           {!isPanelCollapsed && (
             <>
               <PanelTabs
+                responsive
                 aria-label="Orchestrator views"
                 value={viewMode}
                 onChange={setViewMode}
@@ -502,9 +512,11 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
               </button>
             </>
           )}
-          <span className="shrink-0 text-xs text-text-secondary">
-            {isPanelCollapsed ? 'Cmd+J to expand' : 'Cmd+J'}
-          </span>
+          {(isPanelCollapsed || headerDensity === 'regular') && (
+            <span className="shrink-0 text-xs text-text-secondary">
+              {isPanelCollapsed ? 'Cmd+J to expand' : 'Cmd+J'}
+            </span>
+          )}
           <button
             type="button"
             onClick={togglePanel}
@@ -540,6 +552,7 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
           </button>
         </div>
       </div>
+      </PanelDensityContext.Provider>
 
       {/* Content - only shown when expanded */}
       <AnimatePresence>
@@ -584,19 +597,12 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                   <>
                     {/* CLI Detection Indicator */}
                     {cliDetecting && <CliDetectingBanner />}
-                    {/* Error Banner */}
-                    {error && !chat.failedMessage && !cliDetecting && (
+                    {/* Single error banner (covers stream errors + send/spawn
+                        failures). Dismiss clears every error source. */}
+                    {error && !cliDetecting && (
                       <ErrorBanner
                         error={error}
-                        onDismiss={() => { setLocalError(null); chat.clearError(); }}
-                      />
-                    )}
-                    {/* Failed message with retry/dismiss */}
-                    {chat.failedMessage && (
-                      <FailedMessageBanner
-                        error={chat.failedMessage.error}
-                        onRetry={() => { void chat.retryFailed() }}
-                        onDismiss={chat.dismissFailed}
+                        onDismiss={() => { setLocalError(null); chat.clearError(); chat.dismissFailed() }}
                       />
                     )}
                     <ChatHistory
@@ -606,7 +612,6 @@ export function OrchestratorPanel({ workspaceId }: OrchestratorPanelProps) {
                       processingStartTime={chat.streaming.startTime}
                       thinkingContent={chat.streaming.thinkingContent}
                       toolCalls={toolCalls}
-                      onCancel={() => { void handleCancel() }}
                       queuedMessages={chat.queue}
                     />
                     <ChatInput

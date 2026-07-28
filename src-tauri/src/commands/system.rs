@@ -150,6 +150,17 @@ pub fn check_runtime_prerequisites() -> Vec<RuntimePrerequisite> {
     ]
 }
 
+/// Recent CLI chat turns (what we sent + what came back) for the Debug tab.
+#[tauri::command]
+pub fn get_chat_debug() -> Vec<crate::chat::debug::DebugTurn> {
+    crate::chat::debug::snapshot()
+}
+
+#[tauri::command]
+pub fn clear_chat_debug() {
+    crate::chat::debug::clear();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

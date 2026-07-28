@@ -422,6 +422,7 @@ mod tests {
             system_prompt: "test".to_string(),
             working_dir: None,
             effort_level: None,
+            ..Default::default()
         }
     }
 

@@ -325,6 +325,8 @@ pub fn run() {
             commands::cli_detect::check_cli_update,
             commands::cli_detect::check_cli_health,
             commands::system::check_runtime_prerequisites,
+            commands::system::get_chat_debug,
+            commands::system::clear_chat_debug,
             // Checklist commands
             commands::checklist::create_checklist,
             commands::checklist::update_checklist,

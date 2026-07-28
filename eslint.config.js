@@ -13,7 +13,12 @@ export default tseslint.config(
       ecmaVersion: 2020,
       globals: globals.browser,
       parserOptions: {
-        projectService: true,
+        // allowDefaultProject lets root config files (vite.config.ts) lint
+        // without being in tsconfig's include — otherwise the project service
+        // rejects them ("not found by the project service").
+        projectService: {
+          allowDefaultProject: ['*.config.ts'],
+        },
         tsconfigRootDir: import.meta.dirname,
       },
     },

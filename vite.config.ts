@@ -17,6 +17,29 @@ export default defineConfig({
     dedupe: ['react', 'react-dom'],
   },
   clearScreen: false,
+  build: {
+    rollupOptions: {
+      output: {
+        // Split heavy vendors out of the single ~1.5 MB app chunk so the webview
+        // parses them in parallel and they cache across app updates. NOTE: do not
+        // match shiki here — it is dynamically imported (per-language async
+        // chunks) and a static rule would defeat that lazy load.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (/[\\/](react-markdown|remark-|micromark|mdast|hast|unist|unified|vfile|property-information|character-entities|decode-named-character|trim-lines|markdown-table|space-separated-tokens|comma-separated-tokens|ccount|longest-streak|zwitch|html-url-attributes)/.test(id)) {
+            return 'markdown'
+          }
+          if (/[\\/](react-dom|scheduler)[\\/]/.test(id) || /[\\/]react[\\/]/.test(id)) {
+            return 'react-vendor'
+          }
+          if (id.includes('@xterm')) return 'xterm'
+          if (id.includes('@dnd-kit')) return 'dnd'
+          if (/[\\/]motion[\\/]|framer-motion/.test(id)) return 'motion'
+          return undefined
+        },
+      },
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,
