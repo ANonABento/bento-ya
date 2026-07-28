@@ -67,11 +67,13 @@ jobs:
       - name: IPC registration check
         run: pnpm run test:ipc
 
-      - name: Dependency audit
-        run: pnpm audit --audit-level moderate
-
       - name: Frontend tests
         run: pnpm exec vitest run
+
+      # Runs last so a new advisory never masks the test results.
+      # Suppressions live in package.json → pnpm.auditConfig.ignoreGhsas.
+      - name: Dependency audit
+        run: pnpm audit --audit-level moderate
 
   notify-failure:
     name: Notify failure

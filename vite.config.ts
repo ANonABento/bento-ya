@@ -18,6 +18,11 @@ export default defineConfig({
   },
   clearScreen: false,
   build: {
+    // Vite's default 'modules' target, with Safari raised 14 -> 15: esbuild >=0.28
+    // works around a Safari 14 destructuring bug via a transform it cannot apply to
+    // @dnd-kit's code, so a safari14 target fails the build. Safari 15 shipped for
+    // macOS Big Sur, so this does not narrow real support.
+    target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari15'],
     rollupOptions: {
       output: {
         // Split heavy vendors out of the single ~1.5 MB app chunk so the webview
