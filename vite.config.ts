@@ -5,6 +5,16 @@ import path from 'path'
 
 const host = process.env.TAURI_DEV_HOST
 
+// Vite's default 'modules' target, with Safari raised 14 -> 15: esbuild >=0.28
+// works around a Safari 14 destructuring bug via a transform it cannot apply to
+// @dnd-kit's code, so a safari14 target fails. Safari 15 shipped for macOS Big
+// Sur, so this does not narrow real support.
+//
+// This MUST be applied to the dep optimizer as well as the build: optimizeDeps
+// has its own esbuild target and does NOT inherit build.target, so setting only
+// the latter leaves `vite dev` failing on @dnd-kit while `vite build` passes.
+const ESBUILD_TARGET = ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari15']
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -17,12 +27,19 @@ export default defineConfig({
     dedupe: ['react', 'react-dom'],
   },
   clearScreen: false,
+  // Dev-mode dependency pre-bundling. Without this, `vite dev` (and therefore
+  // `tauri dev` and the WebDriver E2E harness) dies on @dnd-kit.
+  optimizeDeps: {
+    // Scan ONLY the real entry point. Vite's default dep scan globs every HTML
+    // file in the project root, which here means docs/ mockups, the Playwright
+    // report, site/, and Tauri's codegen assets — any of which can kill the dev
+    // server with an unrelated parse error (a docs page using top-level await
+    // did exactly that). None of them are app entry points.
+    entries: ['index.html'],
+    esbuildOptions: { target: ESBUILD_TARGET },
+  },
   build: {
-    // Vite's default 'modules' target, with Safari raised 14 -> 15: esbuild >=0.28
-    // works around a Safari 14 destructuring bug via a transform it cannot apply to
-    // @dnd-kit's code, so a safari14 target fails the build. Safari 15 shipped for
-    // macOS Big Sur, so this does not narrow real support.
-    target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari15'],
+    target: ESBUILD_TARGET,
     rollupOptions: {
       output: {
         // Split heavy vendors out of the single ~1.5 MB app chunk so the webview
