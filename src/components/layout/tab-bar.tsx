@@ -391,24 +391,33 @@ export function TabBar() {
             Below `sm` only the essentials (Settings + Cost) stay — the rest
             collapse to keep the centered tab cluster from colliding with the
             right-side icons. New workspace / checklist / archived view stay
-            reachable via Cmd+T, Cmd+K, and the command palette respectively. */}
+            reachable via Cmd+T, Cmd+K, and the command palette respectively.
+
+            Everything except Settings is a board/workspace concern — new
+            workspace, that workspace's checklist, its archived tasks, its
+            spend. None of them mean anything while you're looking at a global
+            agent roster, so they come out rather than sit there inert. */}
         <div className="ml-auto flex items-center gap-1">
-          <span className="hidden sm:contents">
-            <AddTabButton
-              onClick={() => {
-                setShowAddDialog(true)
-              }}
-            />
-            <ChecklistButton />
-            <ShowArchivedButton />
-          </span>
-          {activeWorkspaceId && (
-            <CostBadge
-              workspaceId={activeWorkspaceId}
-              onOpenDashboard={() => {
-                setShowDashboard(true)
-              }}
-            />
+          {activeSection === 'board' && (
+            <>
+              <span className="hidden sm:contents">
+                <AddTabButton
+                  onClick={() => {
+                    setShowAddDialog(true)
+                  }}
+                />
+                <ChecklistButton />
+                <ShowArchivedButton />
+              </span>
+              {activeWorkspaceId && (
+                <CostBadge
+                  workspaceId={activeWorkspaceId}
+                  onOpenDashboard={() => {
+                    setShowDashboard(true)
+                  }}
+                />
+              )}
+            </>
           )}
           <SettingsButton />
         </div>

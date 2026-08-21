@@ -39,20 +39,37 @@ const GRADIENTS: { from: string; to: string }[] = [
 const inputClass =
   'w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none'
 
+/**
+ * One labelled control. Short inputs sit two-up in the form grid; anything
+ * that needs room (textareas, lists) takes `full` and spans the row.
+ */
 function Field({
   label,
   hint,
+  full = false,
   children,
 }: {
   label: string
   hint?: string
+  full?: boolean
   children: ReactNode
 }) {
   return (
-    <div>
+    <div className={full ? 'sm:col-span-2' : undefined}>
       <label className="mb-1 block text-xs font-medium text-text-secondary">{label}</label>
       {children}
       {hint && <p className="mt-1 text-xs text-text-secondary/70">{hint}</p>}
+    </div>
+  )
+}
+
+/** Group heading inside the form, so twelve controls read as three groups. */
+function FormSection({ title }: { title: string }) {
+  return (
+    <div className="sm:col-span-2">
+      <h4 className="border-b border-border-default pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-text-secondary/70">
+        {title}
+      </h4>
     </div>
   )
 }
@@ -176,7 +193,7 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
         aria-modal="true"
         aria-label={agent ? 'Edit agent' : 'New agent'}
         data-testid="agent-editor"
-        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl border border-border-default bg-bg shadow-2xl"
+        className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl border border-border-default bg-bg shadow-2xl"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border-default px-5 py-4">
@@ -198,7 +215,8 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
 
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto p-5">
-          <div className="space-y-4">
+          <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
+            <FormSection title="Identity" />
             <Field label="Name">
               <input
                 className={inputClass}
@@ -241,7 +259,20 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
               </select>
             </Field>
 
-            <Field label="Portrait">
+            {llm && (
+              <Field label="Model" hint="Leave blank to use the CLI's default.">
+                <input
+                  className={inputClass}
+                  value={llm.model}
+                  onChange={(e) => {
+                    patchLlm({ model: e.target.value })
+                  }}
+                  placeholder="e.g. opus"
+                />
+              </Field>
+            )}
+
+            <Field label="Portrait" full>
               <div className="flex gap-2">
                 {GRADIENTS.map((g) => (
                   <button
@@ -266,7 +297,8 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
 
             {llm && (
               <>
-                <Field label="System prompt">
+                <FormSection title="Behaviour" />
+                <Field label="System prompt" full>
                   <textarea
                     className={`${inputClass} min-h-20 resize-y`}
                     value={llm.systemPrompt}
@@ -277,18 +309,8 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
                   />
                 </Field>
 
-                <Field label="Model" hint="Leave blank to use the CLI's default.">
-                  <input
-                    className={inputClass}
-                    value={llm.model}
-                    onChange={(e) => {
-                      patchLlm({ model: e.target.value })
-                    }}
-                    placeholder="e.g. opus"
-                  />
-                </Field>
-
-                <Field label="MCP config path">
+                <FormSection title="Tools" />
+                <Field label="MCP config path" full>
                   <input
                     className={inputClass}
                     value={llm.mcpConfigPath}
@@ -302,6 +324,7 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
                 <Field
                   label="Allowed tools"
                   hint="One per line. Only applies when an MCP config is set."
+                  full
                 >
                   <textarea
                     className={`${inputClass} min-h-16 resize-y font-mono text-xs`}
@@ -312,7 +335,7 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
                   />
                 </Field>
 
-                <Field label="Skills">
+                <Field label="Skills" full>
                   {skills.length === 0 ? (
                     <p className="text-xs text-text-secondary">
                       No skills defined yet. Add them in Settings → Skills.
@@ -351,7 +374,8 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
 
             {script && (
               <>
-                <Field label="Command">
+                <FormSection title="Execution" />
+                <Field label="Command" full>
                   <input
                     className={inputClass}
                     value={script.command}
@@ -363,7 +387,7 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
                   />
                 </Field>
 
-                <Field label="Arguments" hint="One per line.">
+                <Field label="Arguments" hint="One per line." full>
                   <textarea
                     className={`${inputClass} min-h-16 resize-y font-mono text-xs`}
                     value={script.args.join('\n')}
@@ -373,7 +397,7 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
                   />
                 </Field>
 
-                <Field label="Environment" hint="One KEY=value per line.">
+                <Field label="Environment" hint="One KEY=value per line." full>
                   <textarea
                     className={`${inputClass} min-h-16 resize-y font-mono text-xs`}
                     value={envToLines(script.env)}
@@ -386,7 +410,7 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
             )}
 
             {error && (
-              <p className="rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-xs text-error">
+              <p className="rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-xs text-error sm:col-span-2">
                 {error}
               </p>
             )}
