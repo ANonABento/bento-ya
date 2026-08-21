@@ -191,10 +191,13 @@ the tag inside `agents.config` — `roster::parse_and_validate` is the only guar
 and `update_agent` validates the *post-merge* state; and an `allowed_tools` list
 without an `mcp_config_path` is silently inert at spawn time, so it's rejected.
 
-**Nav rail.** `ui-store.activeSection` (`'board' | 'roster'`, persisted) drives
-`layout/nav-rail.tsx`. Deliberately **not** `viewMode`, which means "is the chat
-panel open" and is load-bearing via `isChatOpen`. Orchestrator is not a section
-yet — it's still a dock panel inside `Board` with its own geometry.
+**Section nav.** `ui-store.activeSection` (`'board' | 'roster'`, persisted)
+drives `layout/section-switcher.tsx`, which renders as icon buttons on the LEFT
+of the workspace tab bar — same recipe as the right-hand cluster
+(`h-8 w-8`, motion scale, 20x20 solid icon, `bg-accent/15 text-accent` active).
+Deliberately **not** `viewMode`, which means "is the chat panel open" and is
+load-bearing via `isChatOpen`. Orchestrator is not a section yet — it's still a
+dock panel inside `Board` with its own geometry.
 
 **Not wired yet (v2):** columns referencing an agent, execution, skill injection
 into the CLI, MCP/`/api/*` tools, RAG. Spec:
