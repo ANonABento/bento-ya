@@ -2,7 +2,28 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 import { RosterView } from './roster-view'
 import { useRosterStore } from '@/stores/roster-store'
-import type { Agent } from '@/types'
+import * as ipc from '@/lib/ipc'
+import type { Agent, AgentUsage } from '@/types'
+
+vi.mock('@/lib/ipc', async (orig) => ({
+  ...(await orig<typeof ipc>()),
+  getAgentUsage: vi.fn(),
+}))
+
+const usageMock = vi.mocked(ipc.getAgentUsage)
+
+function usedBy(...rows: Partial<AgentUsage>[]) {
+  usageMock.mockResolvedValue(
+    rows.map((r, i) => ({
+      workspaceId: 'ws-1',
+      workspaceName: 'Alpha',
+      columnId: `col-${String(i)}`,
+      columnName: 'Working',
+      hook: 'on_entry',
+      ...r,
+    })),
+  )
+}
 
 function agent(overrides: Partial<Agent> = {}): Agent {
   return {
@@ -54,6 +75,36 @@ describe('RosterView', () => {
   beforeEach(() => {
     cleanup()
     vi.clearAllMocks()
+    usageMock.mockResolvedValue([])
+  })
+
+  it('the dossier says where an agent actually runs', async () => {
+    usedBy({ columnName: 'Working' }, { columnName: 'Review', workspaceName: 'Beta' })
+    seed([agent()])
+    render(<RosterView />)
+    fireEvent.click(screen.getByTestId('agent-tile-a1'))
+    expect(await screen.findByText('Working')).toBeInTheDocument()
+    expect(screen.getByText('Review')).toBeInTheDocument()
+    expect(screen.getByText('Beta')).toBeInTheDocument()
+  })
+
+  it('the dossier says so plainly when nothing uses the agent', async () => {
+    seed([agent()])
+    render(<RosterView />)
+    fireEvent.click(screen.getByTestId('agent-tile-a1'))
+    expect(await screen.findByText(/Not attached to a column yet/)).toBeInTheDocument()
+  })
+
+  it('the delete confirmation names the columns that would break', async () => {
+    usedBy({ columnName: 'Working', workspaceName: 'Alpha' })
+    seed([agent()])
+    render(<RosterView />)
+    fireEvent.click(screen.getByTestId('agent-tile-a1'))
+    await screen.findByText('Working')
+    fireEvent.click(screen.getByTestId('agent-delete'))
+    expect(
+      await screen.findByText(/Working \(Alpha\) still runs this agent/),
+    ).toBeInTheDocument()
   })
 
   it('filters the grid by runtime', () => {

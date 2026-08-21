@@ -8,6 +8,7 @@ use crate::config::{self, EffectivePipelineSettings};
 use crate::db::{self, Column, Task, Workspace};
 use crate::error::AppError;
 use crate::git::branch_manager;
+use crate::roster;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -103,6 +104,11 @@ impl<'a> Drop for SetupLockGuard<'a> {
 pub enum TriggerActionV2 {
     AutoSetup,
     SpawnCli {
+        /// Id into the global `agents` table. When set, the agent supplies the
+        /// CLI, instructions, tools and its preferred model, and the fields
+        /// below are ignored except `model` — see `pipeline::spawn::resolve`.
+        #[serde(default)]
+        agent_id: Option<String>,
         #[serde(default)]
         cli: Option<String>,
         #[serde(default)]
@@ -263,6 +269,54 @@ pub fn parse_column_triggers(triggers_json: Option<&str>) -> ColumnTriggersV2 {
     triggers_json
         .and_then(|json| serde_json::from_str::<ColumnTriggersV2>(json).ok())
         .unwrap_or_default()
+}
+
+/// Where an agent is currently attached: one column, named for a human.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentUsage {
+    pub workspace_id: String,
+    pub workspace_name: String,
+    pub column_id: String,
+    pub column_name: String,
+    /// `"on_entry"` or `"on_exit"`.
+    pub hook: String,
+}
+
+/// Every column across every workspace whose triggers name this agent.
+///
+/// Agents are global, so this deliberately sweeps all workspaces — deleting an
+/// agent from the Roster is not scoped to whichever board happens to be open.
+pub fn columns_using_agent(conn: &Connection, agent_id: &str) -> Vec<AgentUsage> {
+    let Ok(workspaces) = db::list_workspaces(conn) else {
+        return Vec::new();
+    };
+    let mut usages = Vec::new();
+    for workspace in workspaces {
+        let Ok(columns) = db::list_columns(conn, &workspace.id) else {
+            continue;
+        };
+        for column in columns {
+            let triggers = parse_column_triggers(column.triggers.as_deref());
+            for (hook, action) in [
+                ("on_entry", triggers.on_entry.as_ref()),
+                ("on_exit", triggers.on_exit.as_ref()),
+            ] {
+                if let Some(TriggerActionV2::SpawnCli { agent_id: id, .. }) = action {
+                    if id.as_deref().map(str::trim) == Some(agent_id) {
+                        usages.push(AgentUsage {
+                            workspace_id: workspace.id.clone(),
+                            workspace_name: workspace.name.clone(),
+                            column_id: column.id.clone(),
+                            column_name: column.name.clone(),
+                            hook: hook.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    usages
 }
 
 // ─── Runtime mode resolver (Phase 2) ──────────────────────────────────────
@@ -708,6 +762,7 @@ fn execute_action(
 ) -> Result<Task, AppError> {
     match action {
         TriggerActionV2::SpawnCli {
+            agent_id,
             cli,
             command,
             prompt_template,
@@ -722,6 +777,7 @@ fn execute_action(
             task,
             column,
             other_column,
+            agent_id.as_deref(),
             cli.as_deref(),
             command.as_deref(),
             prompt_template.as_deref(),
@@ -999,6 +1055,34 @@ pub(crate) fn resolve_model_override(
         .or_else(|| trigger_model.and_then(non_empty_trimmed))
         .or_else(|| default_model.and_then(non_empty_trimmed))
         .map(ToString::to_string)
+}
+
+/// Look up the skills an agent references, dropping ids that no longer exist.
+///
+/// Deliberately lenient: a deleted skill shows in the dossier as "missing
+/// skill" rather than breaking the agent, and the same should hold at spawn
+/// time — losing one capability is not a reason to fail the column.
+fn resolve_agent_skills(conn: &Connection, agent: &db::Agent) -> Vec<db::Skill> {
+    let Ok(config) = roster::parse_and_validate(&agent.runtime, &agent.config) else {
+        return Vec::new();
+    };
+    let Some(llm) = config.llm() else {
+        return Vec::new();
+    };
+    llm.skill_ids
+        .iter()
+        .filter_map(|id| match db::get_skill(conn, id) {
+            Ok(skill) => Some(skill),
+            Err(_) => {
+                log::warn!(
+                    "[triggers] Agent '{}' references skill '{}', which no longer exists — skipping it",
+                    agent.name,
+                    id
+                );
+                None
+            }
+        })
+        .collect()
 }
 
 fn non_empty_trimmed(value: &str) -> Option<&str> {
@@ -1530,6 +1614,7 @@ fn execute_spawn_cli(
     task: &Task,
     column: &Column,
     other_column: Option<&Column>,
+    agent_id: Option<&str>,
     cli: Option<&str>,
     command: Option<&str>,
     prompt_template: Option<&str>,
@@ -1637,6 +1722,30 @@ fn execute_spawn_cli(
     // Resolve cli / model / runtime-mode / prompt / cwd precedence in one
     // place (see pipeline::spawn::resolve). All side effects below — worktree
     // .task.md, DB writes, event emission, dispatch — stay here in the caller.
+    // Load the attached agent, if the column names one. A column pointing at a
+    // deleted agent fails loudly here rather than silently falling back to a
+    // bare CLI — the whole reason to attach an agent is that its instructions
+    // and tools matter, and running without them is not a lesser success.
+    let agent_plan = match agent_id.map(str::trim).filter(|id| !id.is_empty()) {
+        Some(id) => {
+            let agent = db::get_agent(conn, id).map_err(|_| {
+                AppError::NotFound(format!(
+                    "Column '{}' is set to run agent '{}', which no longer exists",
+                    column.name, id
+                ))
+            })?;
+            // Dangling skill ids are dropped, not fatal — matching how the
+            // dossier renders them as "missing skill" rather than refusing to
+            // open. A removed skill shouldn't stop the column running.
+            let skills = resolve_agent_skills(conn, &agent);
+            Some(
+                roster::plan::plan_for(&agent, &skills)
+                    .map_err(|e| AppError::InvalidInput(format!("Agent '{}': {}", agent.name, e)))?,
+            )
+        }
+        None => None,
+    };
+
     let resolved = spawn::resolve(
         &task,
         column,
@@ -1650,13 +1759,15 @@ fn execute_spawn_cli(
             runtime_mode,
             model,
         },
+        agent_plan.as_ref(),
         &pipeline_settings.default_agent_cli,
         pipeline_settings.default_model.as_deref(),
     )?;
-    let cli_type = resolved.cli_type;
-    let initial_prompt = resolved.initial_prompt;
-    let runtime_mode = resolved.runtime_mode;
-    let resolved_model = resolved.model;
+    let cli_type = resolved.cli_type.clone();
+    let initial_prompt = resolved.initial_prompt.clone();
+    let runtime_mode = resolved.runtime_mode.clone();
+    let resolved_model = resolved.model.clone();
+    let is_script_agent = resolved.is_script_agent;
 
     let mut working_dir = resolved.working_dir;
 
@@ -1706,6 +1817,30 @@ fn execute_spawn_cli(
             log::warn!("Failed to write .task.md for task {}: {}", task.id, e);
         }
 
+        // The attached agent's instructions ride the same convention: a file
+        // in the working dir, referenced from the prompt. See `roster::plan`
+        // for why they don't go through a system-prompt flag.
+        let agent_md_path =
+            std::path::Path::new(&working_dir).join(roster::plan::AGENT_INSTRUCTIONS_FILE);
+        match resolved.agent_instructions.as_deref() {
+            Some(instructions) => {
+                if let Err(e) = std::fs::write(&agent_md_path, instructions) {
+                    log::warn!(
+                        "Failed to write {} for task {}: {}",
+                        roster::plan::AGENT_INSTRUCTIONS_FILE,
+                        task.id,
+                        e
+                    );
+                }
+            }
+            // Worktrees are reused across columns, so a stale file from a
+            // previous column's agent would otherwise keep instructing this
+            // one. Removing it is the only way "no agent" actually means it.
+            None => {
+                let _ = std::fs::remove_file(&agent_md_path);
+            }
+        }
+
         // Exclude .task.md from git (avoid agent committing it)
         let exclude_path = std::path::Path::new(&working_dir)
             .join(".git")
@@ -1716,7 +1851,22 @@ fn execute_spawn_cli(
                 if !content.contains(".task.md") {
                     let _ = std::fs::write(
                         &exclude_path,
-                        format!("{}\n.task.md\n.task-handoff.md\n", content.trim_end()),
+                        format!(
+                            "{}\n.task.md\n.task-handoff.md\n{}\n",
+                            content.trim_end(),
+                            roster::plan::AGENT_INSTRUCTIONS_FILE
+                        ),
+                    );
+                } else if !content.contains(roster::plan::AGENT_INSTRUCTIONS_FILE) {
+                    // Worktrees created before agents existed already list
+                    // .task.md, so the branch above never fires for them.
+                    let _ = std::fs::write(
+                        &exclude_path,
+                        format!(
+                            "{}\n{}\n",
+                            content.trim_end(),
+                            roster::plan::AGENT_INSTRUCTIONS_FILE
+                        ),
                     );
                 }
             }
@@ -1772,9 +1922,24 @@ fn execute_spawn_cli(
         Some(format!("CLI trigger: {}", cli_type)),
     );
 
-    let mut cli_args = spawn::model_to_args(resolved_model.as_deref());
-    if let Some(flags) = flags {
-        cli_args.extend(flags.iter().cloned());
+    // A script agent's command has no `--model` to speak of, and the column's
+    // free-text `flags` were written for a CLI it isn't. Its own args are the
+    // whole argv.
+    let mut cli_args = if is_script_agent {
+        resolved.agent_args.clone()
+    } else {
+        let mut args = spawn::model_to_args(resolved_model.as_deref());
+        args.extend(resolved.agent_args.iter().cloned());
+        if let Some(flags) = flags {
+            args.extend(flags.iter().cloned());
+        }
+        args
+    };
+    cli_args.retain(|a| !a.is_empty());
+
+    // Script agents contribute environment overrides; nothing else does.
+    for (key, value) in &resolved.agent_env {
+        env_vars.insert(key.clone(), value.clone());
     }
 
     if runtime_mode == "managed" {
@@ -1813,13 +1978,25 @@ fn execute_spawn_cli(
         // reusing it breaks zsh with `getcwd: cannot access parent
         // directories`. See `pipeline::column_is_terminal` for the
         // definition of "terminal".
+        // A script agent gets its prompt through `$TRIGGER_PROMPT`, not argv.
+        // The generic branch of `build_trigger_command` appends the prompt as a
+        // positional argument, which is right for a CLI that takes one and
+        // wrong for `./render.sh --preset high` — a script with strict argument
+        // parsing would simply fail on the extra word. The env var is already
+        // set above, and is how `run_script` has always passed it.
+        let launch_prompt = if is_script_agent {
+            String::new()
+        } else {
+            initial_prompt
+        };
+
         bridge::spawn_cli_trigger_task(
             app.clone(),
             task.id.clone(),
             cli_type,
             cli_args,
             working_dir,
-            initial_prompt,
+            launch_prompt,
             Some(env_vars),
             is_terminal_column,
         );
@@ -3329,6 +3506,64 @@ mod tests {
     use super::*;
     use crate::db;
 
+    fn set_triggers(conn: &Connection, column_id: &str, agent_id: Option<&str>) {
+        let json = serde_json::to_string(&ColumnTriggersV2 {
+            on_entry: Some(TriggerActionV2::SpawnCli {
+                agent_id: agent_id.map(str::to_string),
+                cli: None,
+                command: None,
+                prompt_template: None,
+                prompt: None,
+                flags: None,
+                use_queue: None,
+                runtime_mode: None,
+                model: None,
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+        db::update_column(conn, column_id, None, None, None, None, None, Some(&json)).unwrap();
+    }
+
+    #[test]
+    fn columns_using_agent_sweeps_every_workspace() {
+        // Agents are global, so deleting one has to account for boards the
+        // user doesn't happen to have open.
+        let conn = db::init_test().unwrap();
+        let ws_a = db::insert_workspace(&conn, "Alpha", "/tmp/a").unwrap();
+        let ws_b = db::insert_workspace(&conn, "Beta", "/tmp/b").unwrap();
+        let col_a = db::insert_column(&conn, &ws_a.id, "Working", 0).unwrap();
+        let col_b = db::insert_column(&conn, &ws_b.id, "Review", 0).unwrap();
+        let col_c = db::insert_column(&conn, &ws_b.id, "Idle", 1).unwrap();
+
+        set_triggers(&conn, &col_a.id, Some("agent-1"));
+        set_triggers(&conn, &col_b.id, Some("agent-1"));
+        set_triggers(&conn, &col_c.id, Some("agent-2"));
+
+        let usage = columns_using_agent(&conn, "agent-1");
+        assert_eq!(usage.len(), 2);
+        let names: Vec<_> = usage.iter().map(|u| u.column_name.as_str()).collect();
+        assert!(names.contains(&"Working"));
+        assert!(names.contains(&"Review"));
+        assert!(usage.iter().all(|u| u.hook == "on_entry"));
+        // The workspace name travels with it, so the dialog can tell apart two
+        // columns that happen to share a name.
+        assert!(usage.iter().any(|u| u.workspace_name == "Alpha"));
+        assert!(usage.iter().any(|u| u.workspace_name == "Beta"));
+    }
+
+    #[test]
+    fn columns_without_that_agent_are_not_reported() {
+        let conn = db::init_test().unwrap();
+        let ws = db::insert_workspace(&conn, "Alpha", "/tmp/a").unwrap();
+        let col = db::insert_column(&conn, &ws.id, "Working", 0).unwrap();
+        set_triggers(&conn, &col.id, None);
+        assert!(columns_using_agent(&conn, "agent-1").is_empty());
+        // A column with no triggers at all must not blow up the sweep.
+        db::insert_column(&conn, &ws.id, "Bare", 1).unwrap();
+        assert!(columns_using_agent(&conn, "agent-1").is_empty());
+    }
+
     #[test]
     fn test_validate_triggers_json() {
         // Empty / "{}" means "no triggers" — valid.
@@ -3423,6 +3658,7 @@ mod tests {
     fn make_spawn_cli_triggers(runtime_mode: Option<&str>) -> ColumnTriggersV2 {
         ColumnTriggersV2 {
             on_entry: Some(TriggerActionV2::SpawnCli {
+                agent_id: None,
                 cli: Some("claude".to_string()),
                 command: None,
                 prompt_template: None,
@@ -3733,6 +3969,7 @@ mod tests {
 
         let triggers = ColumnTriggersV2 {
             on_entry: Some(TriggerActionV2::SpawnCli {
+                agent_id: None,
                 cli: Some("claude".to_string()),
                 command: None,
                 prompt_template: None,
@@ -3805,6 +4042,7 @@ mod tests {
 
         let triggers = ColumnTriggersV2 {
             on_entry: Some(TriggerActionV2::SpawnCli {
+                agent_id: None,
                 cli: Some("claude".to_string()),
                 command: None,
                 prompt_template: None,
@@ -3843,6 +4081,7 @@ mod tests {
 
         let triggers = ColumnTriggersV2 {
             on_entry: Some(TriggerActionV2::SpawnCli {
+                agent_id: None,
                 cli: Some("claude".to_string()),
                 command: Some("/start-task".to_string()),
                 prompt_template: None,
@@ -3880,6 +4119,7 @@ mod tests {
 
         let triggers = ColumnTriggersV2 {
             on_entry: Some(TriggerActionV2::SpawnCli {
+                agent_id: None,
                 cli: None,
                 command: None,
                 prompt_template: None,

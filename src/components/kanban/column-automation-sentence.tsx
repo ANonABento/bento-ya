@@ -1,4 +1,6 @@
+import { useEffect } from 'react'
 import type { ActionType, ExitCriteria, ExitCriteriaType, SpawnCliAction, TriggerAction } from '@/types'
+import { useRosterStore } from '@/stores/roster-store'
 import { CLI_TYPES } from './column-config-constants'
 import {
   ACTION_CLAUSES,
@@ -7,6 +9,13 @@ import {
   SENTENCE_MODELS,
   defaultActionForType,
 } from './column-recipes'
+
+/**
+ * Sentinel for "no roster agent — just run a bare CLI", the pre-agents
+ * behaviour. Not the empty string: an empty `<option>` value is easy to
+ * confuse with "nothing selected".
+ */
+const BARE_CLI = '__bare_cli__'
 
 type Props = {
   onEntry: TriggerAction
@@ -47,6 +56,32 @@ function Token({
 export function AutomationSentence({ onEntry, setOnEntry, exitCriteria, setExitCriteria }: Props) {
   const actionType = onEntry.type
   const spawn = onEntry.type === 'spawn_cli' ? onEntry : null
+
+  const agents = useRosterStore((s) => s.agents)
+  const loadRoster = useRosterStore((s) => s.load)
+  useEffect(() => { void loadRoster() }, [loadRoster])
+
+  const attachedAgent = spawn?.agent_id
+    ? agents.find((a) => a.id === spawn.agent_id)
+    : undefined
+  const isScriptAgent = attachedAgent?.runtime === 'script'
+
+  const agentOptions = [
+    ...agents.map((a) => ({ value: a.id, label: a.name })),
+    // An agent the column names but the roster no longer has. Shown rather
+    // than silently resetting the column to a bare CLI, which would look like
+    // it still worked.
+    ...(spawn?.agent_id && !attachedAgent
+      ? [{ value: spawn.agent_id, label: 'missing agent' }]
+      : []),
+    { value: BARE_CLI, label: 'a bare CLI' },
+  ]
+
+  // With an agent attached, "auto" no longer means the workspace default — it
+  // means whatever the agent asked for. Say so.
+  const modelOptionsWithAgentDefault = SENTENCE_MODELS.map((m) =>
+    m.value === '' ? { ...m, label: "the agent's model" } : m,
+  )
 
   const setActionType = (t: string) => { setOnEntry(defaultActionForType(t as ActionType)) }
   const setSpawn = (patch: Partial<SpawnCliAction>) => {
@@ -97,17 +132,42 @@ export function AutomationSentence({ onEntry, setOnEntry, exitCriteria, setExitC
           <>
             <span>using</span>
             <Token
-              ariaLabel="CLI"
-              value={spawn.cli ?? 'claude'}
-              onChange={(v) => { setSpawn({ cli: v as SpawnCliAction['cli'] }) }}
-              options={CLI_TYPES}
+              ariaLabel="Agent"
+              value={spawn.agent_id ?? BARE_CLI}
+              onChange={(v) => {
+                setSpawn(
+                  v === BARE_CLI
+                    ? { agent_id: undefined, cli: spawn.cli ?? 'claude' }
+                    : { agent_id: v },
+                )
+              }}
+              options={agentOptions}
             />
-            <Token
-              ariaLabel="Model"
-              value={spawn.model ?? ''}
-              onChange={(v) => { setSpawn({ model: v || undefined }) }}
-              options={SENTENCE_MODELS}
-            />
+            {/* The CLI token is deliberately gone once an agent is chosen: the
+                agent owns its runtime, and offering a control that silently
+                loses would misrepresent what actually runs. Model stays,
+                because a column overriding the model is the one exception the
+                Kaiten Agents spec allows. */}
+            {!attachedAgent && (
+              <Token
+                ariaLabel="CLI"
+                value={spawn.cli ?? 'claude'}
+                onChange={(v) => { setSpawn({ cli: v as SpawnCliAction['cli'] }) }}
+                options={CLI_TYPES}
+              />
+            )}
+            {isScriptAgent ? (
+              // A script agent has no model to pick, and showing "auto" next to
+              // one implies a choice that doesn't exist.
+              <span className="mx-0.5 text-text-secondary/70">as-is</span>
+            ) : (
+              <Token
+                ariaLabel="Model"
+                value={spawn.model ?? ''}
+                onChange={(v) => { setSpawn({ model: v || undefined }) }}
+                options={attachedAgent ? modelOptionsWithAgentDefault : SENTENCE_MODELS}
+              />
+            )}
           </>
         )}
 

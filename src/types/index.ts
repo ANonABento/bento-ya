@@ -26,7 +26,7 @@ export type { TaskTemplate } from './task-template'
 export type { AgentSession, AgentStatus, AgentMode, AgentMessage } from './agent'
 export type {
   Agent, AgentRuntime, AgentConfig, LlmConfig, ScriptRuntimeConfig,
-  AgentAvatar, Skill, RuntimeDescriptor,
+  AgentAvatar, Skill, RuntimeDescriptor, AgentUsage,
 } from './roster'
 export {
   parseAgentConfig, parseAgentAvatar, deriveInitials, defaultConfigFor,

@@ -8,6 +8,7 @@
 
 use crate::db::{self, Agent, AppState, Skill};
 use crate::error::AppError;
+use crate::pipeline::triggers::{columns_using_agent, AgentUsage};
 use crate::roster;
 use tauri::State;
 
@@ -105,9 +106,38 @@ pub fn update_agent(
     )?)
 }
 
+/// Which columns currently run this agent.
+///
+/// Agents are global, so this sweeps every workspace, not just the open board.
+/// The Roster shows the count on the dossier and names the columns in the
+/// delete confirmation — a column pointing at a deleted agent fails its
+/// trigger, and finding that out at 3am is worse than a slightly busier dialog.
+#[tauri::command]
+pub fn get_agent_usage(state: State<AppState>, id: String) -> Result<Vec<AgentUsage>, AppError> {
+    let conn = conn!(state);
+    Ok(columns_using_agent(&conn, &id))
+}
+
 #[tauri::command]
 pub fn delete_agent(state: State<AppState>, id: String) -> Result<(), AppError> {
     let conn = conn!(state);
+    // Deliberately *not* blocked when columns still reference it. The UI names
+    // them in the confirmation, and forbidding the delete outright would leave
+    // no way to remove an agent from a workspace you no longer have open.
+    // `execute_spawn_cli` fails loudly and by name if one is later fired.
+    let usage = columns_using_agent(&conn, &id);
+    if !usage.is_empty() {
+        log::info!(
+            "[roster] Deleting agent '{}' still attached to {} column(s): {}",
+            id,
+            usage.len(),
+            usage
+                .iter()
+                .map(|u| format!("{}/{}", u.workspace_name, u.column_name))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     Ok(db::delete_agent(&conn, &id)?)
 }
 

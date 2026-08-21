@@ -20,7 +20,14 @@ export type ResourceProfile = 'light' | 'standard' | 'heavy' | 'exclusive'
 
 export interface SpawnCliAction {
   type: 'spawn_cli'
-  /** CLI to spawn */
+  /**
+   * Id of an agent from the Roster. When set, the agent supplies the CLI,
+   * instructions, tools and its preferred model; every field below is ignored
+   * except `model`, which a column may still override. Enforced in
+   * `pipeline::spawn::resolve` on the Rust side.
+   */
+  agent_id?: string
+  /** CLI to spawn. Ignored when `agent_id` is set — the agent owns this. */
   cli?: CliType
   /** Slash command to run: /start-task, /loop-review, /code-check */
   command?: string

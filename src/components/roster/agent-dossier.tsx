@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import type { Agent, LlmConfig, ScriptRuntimeConfig } from '@/types'
+import type { Agent, AgentUsage, LlmConfig, ScriptRuntimeConfig } from '@/types'
 import { parseAgentAvatar, parseAgentConfig } from '@/types'
 import { useRosterStore } from '@/stores/roster-store'
 
@@ -267,11 +267,14 @@ export function AgentDossier({
   onEdit,
   onDuplicate,
   onDelete,
+  usage,
 }: {
   agent: Agent
   onEdit: () => void
   onDuplicate: () => void
   onDelete: () => void
+  /** Columns currently running this agent, across every workspace. */
+  usage: AgentUsage[]
 }) {
   const avatar = parseAgentAvatar(agent.avatar, agent.name)
   const config = parseAgentConfig(agent.config, agent.runtime)
@@ -336,6 +339,35 @@ export function AgentDossier({
 
       <div className="flex-1 px-6 py-5">
         <div className="grid items-start gap-3 xl:grid-cols-2">
+          {/* Where this agent actually runs. First card because "is this thing
+              wired up?" is the question you open a dossier to answer. */}
+          <Section title="Columns" count={usage.length}>
+            {usage.length > 0 ? (
+              <ul className="flex flex-col gap-1">
+                {usage.map((u) => (
+                  <li
+                    key={`${u.columnId}-${u.hook}`}
+                    className="flex items-baseline justify-between gap-3"
+                  >
+                    <span className="min-w-0 truncate text-sm text-text-primary">
+                      {u.columnName}
+                      <span className="ml-1.5 text-xs text-text-secondary">
+                        {u.workspaceName}
+                      </span>
+                    </span>
+                    <span className="shrink-0 font-mono text-2xs uppercase tracking-wider text-text-secondary">
+                      {u.hook === 'on_exit' ? 'on exit' : 'on entry'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <Empty>
+                Not attached to a column yet. Pick it in a column&apos;s automation sentence.
+              </Empty>
+            )}
+          </Section>
+
           {config.runtime === 'script' ? (
             <ScriptSections config={config} />
           ) : (
