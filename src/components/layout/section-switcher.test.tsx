@@ -1,26 +1,24 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
-import { NavRail } from './nav-rail'
+import { SectionSwitcher } from './section-switcher'
 import { useUIStore } from '@/stores/ui-store'
 
-describe('NavRail', () => {
+describe('SectionSwitcher', () => {
   beforeEach(() => {
     cleanup()
     useUIStore.setState({ activeSection: 'board' })
   })
 
   it('marks the active section and switches on click', () => {
-    render(<NavRail />)
+    render(<SectionSwitcher />)
 
-    const board = screen.getByTestId('nav-rail-board')
-    const roster = screen.getByTestId('nav-rail-roster')
-    expect(board).toHaveAttribute('aria-current', 'page')
-    expect(roster).not.toHaveAttribute('aria-current')
+    expect(screen.getByTestId('section-board')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('section-roster')).toHaveAttribute('aria-pressed', 'false')
 
-    fireEvent.click(roster)
+    fireEvent.click(screen.getByTestId('section-roster'))
 
     expect(useUIStore.getState().activeSection).toBe('roster')
-    expect(screen.getByTestId('nav-rail-roster')).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByTestId('section-roster')).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('does not disturb viewMode', () => {
@@ -28,9 +26,9 @@ describe('NavRail', () => {
     // chat panel open" and is load-bearing via isChatOpen. Conflating them
     // would close the chat panel every time you switched sections.
     useUIStore.setState({ viewMode: 'chat', activeTaskId: 't1' })
-    render(<NavRail />)
+    render(<SectionSwitcher />)
 
-    fireEvent.click(screen.getByTestId('nav-rail-roster'))
+    fireEvent.click(screen.getByTestId('section-roster'))
 
     expect(useUIStore.getState().viewMode).toBe('chat')
     expect(useUIStore.getState().activeTaskId).toBe('t1')
