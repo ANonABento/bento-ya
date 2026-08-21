@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import type { Agent, AgentConfig, AgentRuntime, LlmConfig, ScriptRuntimeConfig } from '@/types'
 import { defaultConfigFor, deriveInitials, parseAgentAvatar, parseAgentConfig } from '@/types'
 import { useRosterStore } from '@/stores/roster-store'
@@ -7,12 +8,15 @@ import * as ipc from '@/lib/ipc'
 /**
  * Create/edit modal for an agent.
  *
- * `agent: Agent | null` discriminates create from edit (the script-editor
+ * `agent: Agent | null` discriminates create from edit (the `script-editor`
  * pattern); the parent owns the refetch via `onSave`. Duplicate is create with
  * a prefilled `seed`.
  *
- * The form's shape follows the selected runtime, mirroring the dossier — that
- * is the whole point of the runtime-typed config.
+ * The form's shape follows the selected runtime, mirroring the dossier — the
+ * point of a runtime-typed config is that you never see fields that can't apply.
+ *
+ * Chrome (header / scrollable body / footer) matches `script-editor.tsx` so the
+ * two editors in this app are the same object.
  */
 
 type Props = {
@@ -32,17 +36,26 @@ const GRADIENTS: { from: string; to: string }[] = [
   { from: '#122b3a', to: '#1a4a6b' },
 ]
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+const inputClass =
+  'w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none'
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string
+  hint?: string
+  children: ReactNode
+}) {
   return (
-    <label className="mb-3 block">
-      <span className="mb-1 block text-xs font-medium text-text-secondary">{label}</span>
+    <div>
+      <label className="mb-1 block text-xs font-medium text-text-secondary">{label}</label>
       {children}
-    </label>
+      {hint && <p className="mt-1 text-xs text-text-secondary/70">{hint}</p>}
+    </div>
   )
 }
-
-const inputClass =
-  'w-full rounded-md border border-border-default bg-surface px-2.5 py-1.5 text-[13px] text-text-primary outline-none focus:border-accent'
 
 /** Newline-separated text <-> string[], so lists stay editable as plain text. */
 const linesToList = (v: string) =>
@@ -71,9 +84,7 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
   const skills = useRosterStore((s) => s.skills)
   const runtimes = useRosterStore((s) => s.runtimes)
 
-  const [name, setName] = useState(
-    source ? (agent ? source.name : `${source.name} copy`) : '',
-  )
+  const [name, setName] = useState(source ? (agent ? source.name : `${source.name} copy`) : '')
   const [role, setRole] = useState(source?.role ?? '')
   const [runtime, setRuntime] = useState<AgentRuntime>(source?.runtime ?? 'claude')
   const [config, setConfig] = useState<AgentConfig>(
@@ -132,14 +143,22 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
       }
       onSave()
     } catch (err) {
-      // Surface the backend's validation message verbatim — it explains
-      // things the form can't infer (e.g. a tool allow-list needing an MCP
-      // config to apply to).
+      // Surface the backend's validation message verbatim — it explains things
+      // the form can't infer (e.g. a tool allow-list needing an MCP config).
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSaving(false)
     }
   }
+
+  const runtimeOptions =
+    runtimes.length > 0
+      ? runtimes
+      : [
+          { kind: 'claude' as const, label: 'Claude' },
+          { kind: 'codex' as const, label: 'Codex' },
+          { kind: 'script' as const, label: 'Script' },
+        ]
 
   return (
     <div
@@ -157,201 +176,230 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
         aria-modal="true"
         aria-label={agent ? 'Edit agent' : 'New agent'}
         data-testid="agent-editor"
-        className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-y-auto rounded-xl border border-border-default bg-bg p-5 shadow-2xl"
+        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl border border-border-default bg-bg shadow-2xl"
       >
-        <h3 className="mb-4 text-base font-semibold text-text-primary">
-          {agent ? 'Edit agent' : 'New agent'}
-        </h3>
-
-        <Field label="Name">
-          <input
-            className={inputClass}
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value)
-            }}
-            placeholder="Code Smith"
-            data-testid="agent-name-input"
-          />
-        </Field>
-
-        <Field label="What it does">
-          <input
-            className={inputClass}
-            value={role}
-            onChange={(e) => {
-              setRole(e.target.value)
-            }}
-            placeholder="Implements the task in its worktree"
-          />
-        </Field>
-
-        <Field label="Runtime">
-          <select
-            className={inputClass}
-            value={runtime}
-            onChange={(e) => {
-              changeRuntime(e.target.value as AgentRuntime)
-            }}
-            data-testid="agent-runtime-select"
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-border-default px-5 py-4">
+          <h3 className="text-base font-semibold text-text-primary">
+            {agent ? 'Edit agent' : 'New agent'}
+          </h3>
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Close"
             style={{ cursor: 'pointer' }}
+            className="rounded p-1 text-text-secondary transition-colors hover:bg-surface hover:text-text-primary"
           >
-            {(runtimes.length > 0
-              ? runtimes
-              : [
-                  { kind: 'claude' as const, label: 'Claude' },
-                  { kind: 'codex' as const, label: 'Codex' },
-                  { kind: 'script' as const, label: 'Script' },
-                ]
-            ).map((r) => (
-              <option key={r.kind} value={r.kind}>
-                {r.label}
-              </option>
-            ))}
-          </select>
-        </Field>
+            <svg viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+              <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" />
+            </svg>
+          </button>
+        </div>
 
-        <Field label="Portrait">
-          <div className="flex gap-2">
-            {GRADIENTS.map((g) => (
-              <button
-                key={g.from}
-                type="button"
-                onClick={() => {
-                  setGradient(g)
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="space-y-4">
+            <Field label="Name">
+              <input
+                className={inputClass}
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value)
                 }}
-                aria-label={`Portrait colour ${g.from}`}
-                style={{
-                  cursor: 'pointer',
-                  background: `linear-gradient(140deg, ${g.from}, ${g.to})`,
-                }}
-                className={`h-8 w-8 rounded-md border-2 ${
-                  gradient?.from === g.from ? 'border-accent' : 'border-transparent'
-                }`}
+                placeholder="e.g. Code Smith"
+                autoFocus
+                data-testid="agent-name-input"
               />
-            ))}
+            </Field>
+
+            <Field label="What it does">
+              <input
+                className={inputClass}
+                value={role}
+                onChange={(e) => {
+                  setRole(e.target.value)
+                }}
+                placeholder="e.g. Implements the task in its worktree"
+              />
+            </Field>
+
+            <Field label="Runtime">
+              <select
+                className={inputClass}
+                value={runtime}
+                onChange={(e) => {
+                  changeRuntime(e.target.value as AgentRuntime)
+                }}
+                data-testid="agent-runtime-select"
+                style={{ cursor: 'pointer' }}
+              >
+                {runtimeOptions.map((r) => (
+                  <option key={r.kind} value={r.kind}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Portrait">
+              <div className="flex gap-2">
+                {GRADIENTS.map((g) => (
+                  <button
+                    key={g.from}
+                    type="button"
+                    onClick={() => {
+                      setGradient(g)
+                    }}
+                    aria-label={`Portrait colour ${g.from}`}
+                    aria-pressed={gradient?.from === g.from}
+                    style={{
+                      cursor: 'pointer',
+                      background: `linear-gradient(140deg, ${g.from}, ${g.to})`,
+                    }}
+                    className={`h-8 w-8 rounded-lg border-2 transition-colors ${
+                      gradient?.from === g.from ? 'border-accent' : 'border-transparent'
+                    }`}
+                  />
+                ))}
+              </div>
+            </Field>
+
+            {llm && (
+              <>
+                <Field label="System prompt">
+                  <textarea
+                    className={`${inputClass} min-h-20 resize-y`}
+                    value={llm.systemPrompt}
+                    onChange={(e) => {
+                      patchLlm({ systemPrompt: e.target.value })
+                    }}
+                    placeholder="e.g. Implement the task described in .task.md"
+                  />
+                </Field>
+
+                <Field label="Model" hint="Leave blank to use the CLI's default.">
+                  <input
+                    className={inputClass}
+                    value={llm.model}
+                    onChange={(e) => {
+                      patchLlm({ model: e.target.value })
+                    }}
+                    placeholder="e.g. opus"
+                  />
+                </Field>
+
+                <Field label="MCP config path">
+                  <input
+                    className={inputClass}
+                    value={llm.mcpConfigPath}
+                    onChange={(e) => {
+                      patchLlm({ mcpConfigPath: e.target.value })
+                    }}
+                    placeholder="e.g. /path/to/mcp.json"
+                  />
+                </Field>
+
+                <Field
+                  label="Allowed tools"
+                  hint="One per line. Only applies when an MCP config is set."
+                >
+                  <textarea
+                    className={`${inputClass} min-h-16 resize-y font-mono text-xs`}
+                    value={llm.allowedTools.join('\n')}
+                    onChange={(e) => {
+                      patchLlm({ allowedTools: linesToList(e.target.value) })
+                    }}
+                  />
+                </Field>
+
+                <Field label="Skills">
+                  {skills.length === 0 ? (
+                    <p className="text-xs text-text-secondary">
+                      No skills defined yet. Add them in Settings → Skills.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-1.5">
+                      {skills.map((s) => {
+                        const checked = llm.skillIds.includes(s.id)
+                        return (
+                          <label
+                            key={s.id}
+                            className="flex items-center gap-2 text-sm text-text-primary"
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                patchLlm({
+                                  skillIds: checked
+                                    ? llm.skillIds.filter((id) => id !== s.id)
+                                    : [...llm.skillIds, s.id],
+                                })
+                              }}
+                              className="h-3.5 w-3.5 rounded accent-accent"
+                            />
+                            {s.name}
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                </Field>
+              </>
+            )}
+
+            {script && (
+              <>
+                <Field label="Command">
+                  <input
+                    className={inputClass}
+                    value={script.command}
+                    onChange={(e) => {
+                      patchScript({ command: e.target.value })
+                    }}
+                    placeholder="e.g. ./render.sh"
+                    data-testid="agent-command-input"
+                  />
+                </Field>
+
+                <Field label="Arguments" hint="One per line.">
+                  <textarea
+                    className={`${inputClass} min-h-16 resize-y font-mono text-xs`}
+                    value={script.args.join('\n')}
+                    onChange={(e) => {
+                      patchScript({ args: linesToList(e.target.value) })
+                    }}
+                  />
+                </Field>
+
+                <Field label="Environment" hint="One KEY=value per line.">
+                  <textarea
+                    className={`${inputClass} min-h-16 resize-y font-mono text-xs`}
+                    value={envToLines(script.env)}
+                    onChange={(e) => {
+                      patchScript({ env: linesToEnv(e.target.value) })
+                    }}
+                  />
+                </Field>
+              </>
+            )}
+
+            {error && (
+              <p className="rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-xs text-error">
+                {error}
+              </p>
+            )}
           </div>
-        </Field>
+        </div>
 
-        {llm && (
-          <>
-            <Field label="System prompt">
-              <textarea
-                className={`${inputClass} min-h-20 resize-y`}
-                value={llm.systemPrompt}
-                onChange={(e) => {
-                  patchLlm({ systemPrompt: e.target.value })
-                }}
-                placeholder="You implement the task described in .task.md"
-              />
-            </Field>
-            <Field label="Model (blank = CLI default)">
-              <input
-                className={inputClass}
-                value={llm.model}
-                onChange={(e) => {
-                  patchLlm({ model: e.target.value })
-                }}
-                placeholder="opus"
-              />
-            </Field>
-            <Field label="MCP config path">
-              <input
-                className={inputClass}
-                value={llm.mcpConfigPath}
-                onChange={(e) => {
-                  patchLlm({ mcpConfigPath: e.target.value })
-                }}
-                placeholder="/path/to/mcp.json"
-              />
-            </Field>
-            <Field label="Allowed tools (one per line — needs an MCP config)">
-              <textarea
-                className={`${inputClass} min-h-16 resize-y font-mono text-xs`}
-                value={llm.allowedTools.join('\n')}
-                onChange={(e) => {
-                  patchLlm({ allowedTools: linesToList(e.target.value) })
-                }}
-              />
-            </Field>
-            <Field label="Skills">
-              {skills.length === 0 ? (
-                <p className="text-xs italic text-text-secondary">
-                  No skills defined yet — create them in Settings → Skills.
-                </p>
-              ) : (
-                <div className="flex flex-col gap-1">
-                  {skills.map((s) => {
-                    const checked = llm.skillIds.includes(s.id)
-                    return (
-                      <label key={s.id} className="flex items-center gap-2 text-[13px]">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {
-                            patchLlm({
-                              skillIds: checked
-                                ? llm.skillIds.filter((id) => id !== s.id)
-                                : [...llm.skillIds, s.id],
-                            })
-                          }}
-                        />
-                        <span className="text-text-primary">{s.name}</span>
-                      </label>
-                    )
-                  })}
-                </div>
-              )}
-            </Field>
-          </>
-        )}
-
-        {script && (
-          <>
-            <Field label="Command">
-              <input
-                className={inputClass}
-                value={script.command}
-                onChange={(e) => {
-                  patchScript({ command: e.target.value })
-                }}
-                placeholder="./render.sh"
-                data-testid="agent-command-input"
-              />
-            </Field>
-            <Field label="Arguments (one per line)">
-              <textarea
-                className={`${inputClass} min-h-16 resize-y font-mono text-xs`}
-                value={script.args.join('\n')}
-                onChange={(e) => {
-                  patchScript({ args: linesToList(e.target.value) })
-                }}
-              />
-            </Field>
-            <Field label="Environment (KEY=value, one per line)">
-              <textarea
-                className={`${inputClass} min-h-16 resize-y font-mono text-xs`}
-                value={envToLines(script.env)}
-                onChange={(e) => {
-                  patchScript({ env: linesToEnv(e.target.value) })
-                }}
-              />
-            </Field>
-          </>
-        )}
-
-        {error && (
-          <p className="mb-3 rounded-md border border-error/40 bg-error/10 px-2.5 py-1.5 text-xs text-error">
-            {error}
-          </p>
-        )}
-
-        <div className="mt-2 flex justify-end gap-2">
+        {/* Footer actions */}
+        <div className="flex justify-end gap-2 border-t border-border-default px-5 py-3">
           <button
             type="button"
             onClick={onCancel}
             style={{ cursor: 'pointer' }}
-            className="rounded-lg border border-border-default px-3 py-1.5 text-[13px] text-text-primary hover:bg-surface-hover"
+            className="rounded-lg border border-border-default px-4 py-2 text-sm text-text-secondary transition-colors hover:text-text-primary"
           >
             Cancel
           </button>
@@ -363,9 +411,9 @@ export function AgentEditor({ agent, seed, onSave, onCancel }: Props) {
             disabled={saving}
             data-testid="agent-save"
             style={{ cursor: 'pointer' }}
-            className="rounded-lg bg-accent px-3 py-1.5 text-[13px] font-semibold text-bg disabled:opacity-50"
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg transition-opacity disabled:opacity-50"
           >
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? 'Saving…' : agent ? 'Save agent' : 'Create agent'}
           </button>
         </div>
       </div>

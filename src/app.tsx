@@ -14,7 +14,6 @@ import { useAgentStreamingSync } from '@/hooks/use-agent-streaming-sync'
 import { useAutoDetectClis } from '@/hooks/use-cli-path'
 import { useUpdater } from '@/hooks/use-updater'
 import { Board } from '@/components/layout/board'
-import { NavRail } from '@/components/layout/nav-rail'
 import { RosterView } from '@/components/roster/roster-view'
 import { CliHealthBanner } from '@/components/layout/cli-health-banner'
 import { WorkspaceSetup } from '@/components/layout/workspace-setup'
@@ -174,16 +173,10 @@ function App() {
           <SkeletonLoader />
         ) : showSetup ? (
           <WorkspaceSetup />
+        ) : activeSection === 'roster' ? (
+          <RosterView />
         ) : (
-          // The rail sits inside the content slot, below the workspace tab bar
-          // and after the setup/error branches — there is nothing to navigate
-          // between until a workspace exists.
-          <div className="flex h-full min-h-0">
-            <NavRail />
-            <div className="min-w-0 flex-1 overflow-hidden">
-              {activeSection === 'roster' ? <RosterView /> : <Board />}
-            </div>
-          </div>
+          <Board />
         )}
       </main>
 

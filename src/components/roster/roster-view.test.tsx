@@ -90,7 +90,7 @@ describe('RosterView', () => {
     seed([agent()])
     render(<RosterView />)
     expect(screen.queryByTestId('agent-dossier')).not.toBeInTheDocument()
-    expect(screen.getByText(/select an agent/i)).toBeInTheDocument()
+    expect(screen.getByText(/pick an agent/i)).toBeInTheDocument()
   })
 
   it('drops the selection when the selected agent is filtered out', () => {

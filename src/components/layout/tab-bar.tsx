@@ -23,6 +23,7 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { useChecklistStore } from '@/stores/checklist-store'
 import { useTaskStore } from '@/stores/task-store'
 import { Tooltip } from '@/components/shared/tooltip'
+import { SectionSwitcher } from './section-switcher'
 import type { Workspace } from '@/types'
 import { CostBadge, MetricsDashboard } from '@/components/usage'
 import { AddWorkspaceDialog } from './add-workspace-dialog'
@@ -328,6 +329,10 @@ export function TabBar() {
   return (
     <>
       <header className="relative z-20 flex h-10 shrink-0 items-center border-b border-border-default bg-surface px-2">
+        {/* Left: section switcher (Board / Roster). Same button recipe as the
+            right-hand cluster so the header reads as one row of controls. */}
+        <SectionSwitcher />
+
         {/* Center: tabs - absolutely positioned for true centering */}
         <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1">
           <DndContext
