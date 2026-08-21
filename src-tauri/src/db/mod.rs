@@ -400,6 +400,10 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
             "047_discord_task_threads",
             include_str!("migrations/047_discord_task_threads.sql"),
         ),
+        (
+            "048_interactive_done_advisory",
+            include_str!("migrations/048_interactive_done_advisory.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {
@@ -530,8 +534,8 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
         // Includes split 019, 030 + Phase 4 (044, 045) + 046 attribution
-        // + 047 discord_task_threads.
-        assert_eq!(count, 49);
+        // + 047 discord_task_threads + 048 interactive_done_advisory.
+        assert_eq!(count, 50);
     }
 
     #[test]

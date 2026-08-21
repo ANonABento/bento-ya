@@ -240,3 +240,32 @@ describe('TaskCard quick-action keyboard behavior', () => {
     expect(screen.queryByText(/spawned by/i)).not.toBeInTheDocument()
   })
 })
+
+describe('TaskCard interactive done advisory', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows "Ready to advance" once the agent has signaled done', async () => {
+    // The point of persisting this stamp (migration 048) is that the board
+    // can show it even when the agent panel was never open — the
+    // `interactive_done` event alone only reaches a mounted listener.
+    const task = mockKanbanTask({ agentDoneSignaledAt: 1_700_000_000_123 })
+    resetStores(task)
+    await setupInvokeMock()
+
+    render(<TaskCard task={task} />)
+
+    expect(screen.getByText(/ready to advance/i)).toBeInTheDocument()
+  })
+
+  it('stays quiet when the agent has not signaled done', async () => {
+    const task = mockKanbanTask({ agentDoneSignaledAt: null })
+    resetStores(task)
+    await setupInvokeMock()
+
+    render(<TaskCard task={task} />)
+
+    expect(screen.queryByText(/ready to advance/i)).not.toBeInTheDocument()
+  })
+})

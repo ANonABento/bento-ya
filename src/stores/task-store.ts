@@ -112,6 +112,7 @@ function createOptimisticTask(
     createdByTaskId: null,
     createdByAgentSessionId: null,
     recursionDepth: 0,
+    agentDoneSignaledAt: null,
     queuedAt: null,
     position: columnPositions.length > 0 ? Math.max(...columnPositions) + 1 : 0,
     createdAt: now,

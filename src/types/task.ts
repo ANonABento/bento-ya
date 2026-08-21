@@ -87,6 +87,11 @@ export type Task = {
   createdByAgentSessionId: string | null
   /** Depth in an agent-spawned task chain. 0 for human/UI-created tasks. */
   recursionDepth: number
+  /** Interactive mode — Unix ms when the agent emitted the done-sentinel.
+   *  Advisory: the session stays live and the user decides when to advance.
+   *  Persisted (migration 048) so it survives the agent panel being closed.
+   *  null = not signaled for the current run. */
+  agentDoneSignaledAt: number | null
   labels: Label[]                  // Workspace-scoped labels (loaded via JOIN)
   position: number
   createdAt: string

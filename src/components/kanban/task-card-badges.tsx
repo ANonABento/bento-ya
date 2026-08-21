@@ -77,6 +77,30 @@ export function PrStatusIndicator({ task, settings }: { task: Task; settings: ty
 }
 
 // Siege loop badge indicator
+/**
+ * "Agent signaled done" advisory badge (interactive mode).
+ *
+ * Interactive completion never auto-advances — the agent stays live at its
+ * prompt and the user decides. Before migration 048 that signal was a Tauri
+ * event only, so it existed just while the agent panel was mounted; close the
+ * panel and a finished agent looked idle. The persisted stamp is what lets
+ * the card say so.
+ */
+export function AgentDoneBadge({ task }: { task: Task }) {
+  if (task.agentDoneSignaledAt === null) return null
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded bg-running/10 px-1.5 py-0.5 text-[10px] font-medium text-running"
+      title="The agent signaled it finished. Its session is still live — open the task to review, then advance the column."
+    >
+      <svg className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path d="M3 8.5l3.5 3.5L13 5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      Ready to advance
+    </span>
+  )
+}
+
 export function SiegeBadge({ task }: { task: Task }) {
   if (!task.siegeActive) return null
 

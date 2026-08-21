@@ -124,6 +124,7 @@ The legacy DB tokens `'terminal'` and `'managed'` are both headless variants (te
 - Same `kaitencode_<task_id>` tmux session — the Terminal panel and the panel's interactive view both attach to it
 - 2h hard timeout fires `mark_complete_with_error` if the sentinel never lands
 - Completion paths emit telemetry rows to `agent_completion_events` (sentinel / exit_code / manual / timeout / kill) for the Phase 6 fallback decision
+- The done-advisory is **persisted** on `tasks.agent_done_signaled_at` (epoch ms, migration 048) as well as emitted, so a "Ready to advance" badge shows on the card even if the panel was never open. Written next to the idle drop in `watch_interactive_sentinel`; cleared in `mark_complete` (the `agent_advance` path) and in `persist_agent_session_started` (a new run supersedes it).
 
 **Per-task control surfaces (interactive mode)** — Tauri commands in `commands::agent_interactive`:
 - `agent_inject_message(task_id, message)` — `tmux send-keys -l <message>` + Enter; route the agent panel's input box to this when mode = interactive (otherwise the input would silently spawn a parallel `-p` call)

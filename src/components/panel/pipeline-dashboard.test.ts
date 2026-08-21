@@ -80,6 +80,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
       createdByTaskId: null,
       createdByAgentSessionId: null,
       recursionDepth: 0,
+      agentDoneSignaledAt: null,
     position: 0,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
