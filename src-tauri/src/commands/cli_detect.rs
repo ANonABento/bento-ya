@@ -457,7 +457,15 @@ const CLI_HEALTH_SPECS: &[CliHealthSpec] = &[
         binary: "codex",
         version_args: &["--version"],
         probes: &[
-            FlagProbe { help_args: &["--help"], flags: &["exec"] },
+            // Top-level: the headless entry point (`exec`) plus the two
+            // things the *interactive* path depends on — `resume` (a
+            // subcommand, not a flag) and `--model`. The interactive argv
+            // used to go unprobed here, which is exactly why a bogus
+            // `--append-system-prompt` shipped unnoticed: codex has no such
+            // flag, so every sentinel-carrying column died at startup.
+            // Do not add `--append-system-prompt` to this list — its absence
+            // is the correct state, not drift.
+            FlagProbe { help_args: &["--help"], flags: &["exec", "resume", "--model"] },
             FlagProbe {
                 help_args: &["exec", "--help"],
                 flags: &["--json", "--skip-git-repo-check", "sandbox"],

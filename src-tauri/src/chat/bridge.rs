@@ -2486,11 +2486,115 @@ const INTERACTIVE_SENTINEL_SUFFIX: &str = ">>>";
 /// Cadence of the pane scrape that looks for the sentinel.
 const INTERACTIVE_SENTINEL_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
-/// Time budget for Claude Code's startup banner to show its input prompt.
-/// 5s is enough on a warm machine; if the binary is cold or fails to launch
-/// we bail rather than blindly injecting keystrokes into a dead session.
-const INTERACTIVE_READY_TIMEOUT: Duration = Duration::from_secs(5);
+/// Outer budget for a CLI to reach a usable prompt. Generous on purpose: a
+/// cold binary, a first-run auth flow, or a self-update can take far longer
+/// than a warm start. Exceeding it is deliberately NOT fatal — see
+/// `ReadinessVerdict::GiveUp` and the call site in `spawn_interactive_cli`.
+/// The old 5s budget hard-killed the session on every one of those cases.
+const INTERACTIVE_READY_TIMEOUT: Duration = Duration::from_secs(60);
 const INTERACTIVE_READY_POLL_INTERVAL: Duration = Duration::from_millis(100);
+/// Floor before quiescence may declare readiness, so we never mistake the
+/// empty pane of a not-yet-exec'd process for a settled prompt.
+const INTERACTIVE_READY_MIN_GRACE: Duration = Duration::from_millis(500);
+/// How long the pane must stop changing before we call it settled. Long
+/// enough to sit through a spinner frame, short enough to stay responsive.
+const INTERACTIVE_READY_QUIESCENCE: Duration = Duration::from_millis(750);
+
+/// What the readiness poller should do next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReadinessVerdict {
+    /// A prompt is up (glyph match) or the pane has settled. Inject now.
+    Ready,
+    /// Still changing, still inside the budget. Keep polling.
+    Waiting,
+    /// Budget exhausted. Inject anyway and leave the pane alive — whatever
+    /// the CLI printed (an unknown-flag error, an auth prompt) is the most
+    /// useful thing we can show the user, and killing it destroys it.
+    GiveUp,
+}
+
+/// Tracks pane quiescence across readiness polls.
+///
+/// Deliberately clock-free: the caller supplies `elapsed`, so this is a pure
+/// state machine and unit-testable without tmux or sleeps.
+#[derive(Debug, Default)]
+pub(crate) struct ReadinessTracker {
+    last_hash: Option<u64>,
+    /// `elapsed` at which the pane content last changed.
+    last_change: Duration,
+    /// Whether we have ever seen non-blank pane content.
+    saw_output: bool,
+}
+
+impl ReadinessTracker {
+    fn hash_pane(pane: &str) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        pane.hash(&mut h);
+        h.finish()
+    }
+
+    /// Fold one observation in and decide what to do next.
+    ///
+    /// `glyph_seen` is the per-CLI fast path (Claude's `╭`/`╰` box, codex's
+    /// banner). It short-circuits to `Ready` — quiescence is the fallback for
+    /// when a CLI changes its UI or starts too slowly for a fixed budget.
+    pub(crate) fn observe(
+        &mut self,
+        pane: &str,
+        elapsed: Duration,
+        glyph_seen: bool,
+    ) -> ReadinessVerdict {
+        if glyph_seen {
+            return ReadinessVerdict::Ready;
+        }
+
+        let hash = Self::hash_pane(pane);
+        if self.last_hash != Some(hash) {
+            self.last_hash = Some(hash);
+            self.last_change = elapsed;
+        }
+        if !pane.trim().is_empty() {
+            self.saw_output = true;
+        }
+
+        let settled_for = elapsed.saturating_sub(self.last_change);
+        if self.saw_output
+            && elapsed >= INTERACTIVE_READY_MIN_GRACE
+            && settled_for >= INTERACTIVE_READY_QUIESCENCE
+        {
+            return ReadinessVerdict::Ready;
+        }
+
+        if elapsed >= INTERACTIVE_READY_TIMEOUT {
+            return ReadinessVerdict::GiveUp;
+        }
+
+        ReadinessVerdict::Waiting
+    }
+}
+
+/// How an interactive spawn should continue a previous session.
+///
+/// The two CLIs are genuinely asymmetric here, so the enum makes that
+/// explicit instead of hiding it behind an `Option<String>` that silently
+/// means different things per CLI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InteractiveResume {
+    /// Start a fresh session.
+    None,
+    /// Resume an explicitly identified session. Claude: `--resume <id>`.
+    /// Codex: `resume <SESSION_ID>`. Requires an id we captured earlier.
+    #[allow(dead_code)]
+    Id(String),
+    /// Continue the most recent session for this working directory.
+    /// Codex-only (`resume --last`): codex does not surface its interactive
+    /// session ids to us, and `resume` filters by cwd unless `--all` is
+    /// passed, so "the last session in this worktree" is both the correct
+    /// and the only available handle. Claude has no equivalent — it needs a
+    /// real id — so this degrades to a fresh session there.
+    Last,
+}
 
 /// Build the system-prompt fragment that asks claude to emit the sentinel
 /// when it considers the task done. Only appended for exit criteria that
@@ -2500,6 +2604,24 @@ pub(crate) fn interactive_sentinel_system_prompt(task_id: &str) -> String {
         "When you have finished the user's task, output exactly this line on its own and nothing else: {}{}{}",
         INTERACTIVE_SENTINEL_PREFIX, task_id, INTERACTIVE_SENTINEL_SUFFIX
     )
+}
+
+/// Fold the sentinel instruction into the initial prompt, for CLIs that have
+/// no system-prompt flag to carry it (codex — verified against 0.145.0, which
+/// has no `--append-system-prompt`).
+///
+/// MUST stay newline-free. The initial prompt is delivered as a single
+/// `tmux send-keys -l` payload, and a literal newline inside it submits the
+/// line early in a TUI — so the instruction is appended on the same line
+/// rather than as the `"<task>\n\nWhen done…"` block shape you might expect.
+pub(crate) fn append_sentinel_to_prompt(prompt: &str, task_id: &str) -> String {
+    let instruction = interactive_sentinel_system_prompt(task_id);
+    let base = prompt.trim_end();
+    if base.is_empty() {
+        instruction
+    } else {
+        format!("{} {}", base, instruction)
+    }
 }
 
 /// Build the argv that `tmux new-session` will run as the session's command
@@ -2654,16 +2776,20 @@ pub(crate) fn pane_has_codex_prompt(pane_text: &str) -> bool {
 
 /// Build the argv for an interactive `codex` REPL invocation.
 ///
-/// Shape (Phase 3 working assumption — verify against `codex --help` for
-/// your release):
-///   codex [user_args] \
-///         [--append-system-prompt <sentinel>]    (when include_sentinel)
+/// Shape (verified against codex-cli 0.145.0):
+///   codex [resume [--last | <SESSION_ID>]] [user_args]
 ///
-/// Notes / assumptions documented in the Phase 3 status section:
-/// - No `exec` subcommand — interactive REPL is the default mode.
-/// - No `--resume <id>` — codex's resume on the REPL path is unverified
-///   across releases. Phase 4 will revisit once we have a confirmed
-///   release matrix. Header sentinel is the only Phase 3 codex injection.
+/// Notes:
+/// - No `exec` subcommand — the interactive REPL is the default mode.
+/// - **There is no `--append-system-prompt` flag on codex.** Earlier phases
+///   assumed one by analogy with claude; `codex --help` has no such option,
+///   so passing it made codex exit at startup with an unknown-flag error the
+///   moment a column used `agent_complete`/`manual_approval` exit criteria.
+///   The sentinel now rides the initial prompt instead — see
+///   `append_sentinel_to_prompt`.
+/// - `resume` is a subcommand, not a flag, and must come immediately after
+///   the binary. It filters by cwd unless `--all` is passed, so `--last`
+///   inside a task worktree resumes exactly that task's session.
 /// - Sandbox / approval-policy flags from the headless path are NOT
 ///   passed here — those alter the `codex exec` non-interactive
 ///   pipeline, not the REPL. If codex rejects an unknown flag at
@@ -2672,17 +2798,26 @@ pub(crate) fn pane_has_codex_prompt(pane_text: &str) -> bool {
 pub(crate) fn build_interactive_codex_argv(
     cli_command: &str,
     user_args: &[String],
-    task_id: &str,
-    include_sentinel: bool,
+    resume: &InteractiveResume,
 ) -> Vec<String> {
     let mut argv: Vec<String> = Vec::new();
     argv.push(cli_command.to_string());
+    match resume {
+        InteractiveResume::None => {}
+        InteractiveResume::Last => {
+            argv.push("resume".to_string());
+            argv.push("--last".to_string());
+        }
+        InteractiveResume::Id(id) => {
+            let id = id.trim();
+            if !id.is_empty() {
+                argv.push("resume".to_string());
+                argv.push(id.to_string());
+            }
+        }
+    }
     for a in user_args {
         argv.push(a.clone());
-    }
-    if include_sentinel {
-        argv.push("--append-system-prompt".to_string());
-        argv.push(interactive_sentinel_system_prompt(task_id));
     }
     argv
 }
@@ -2740,7 +2875,7 @@ pub(crate) fn spawn_interactive_cli(
     user_args: &[String],
     initial_prompt: &str,
     working_dir: &str,
-    resume_id: Option<&str>,
+    resume: &InteractiveResume,
     include_sentinel: bool,
     env_vars: &HashMap<String, String>,
 ) -> Result<(), String> {
@@ -2753,21 +2888,34 @@ pub(crate) fn spawn_interactive_cli(
     // Execute via the absolute path — the tmux pane's PATH (esp. under a macOS
     // GUI launch) may not include the dir this CLI lives in. See resolve_cli_exec.
     let cli_exec = resolve_cli_exec(cli_command);
+    // Claude carries the sentinel as a system prompt (isolated from the user's
+    // text). Codex has no such flag, so its sentinel rides the prompt instead.
+    let mut prompt_to_inject = initial_prompt.to_string();
     let argv = match cli {
-        InteractiveCli::Claude => build_interactive_claude_argv(
-            &cli_exec,
-            user_args,
-            task_id,
-            resume_id,
-            include_sentinel,
-        ),
+        InteractiveCli::Claude => {
+            let resume_id = match resume {
+                InteractiveResume::Id(id) => Some(id.as_str()),
+                InteractiveResume::None => None,
+                InteractiveResume::Last => {
+                    log::warn!(
+                        "[bridge:interactive] claude has no `--resume --last` equivalent (it needs an explicit session id); starting a fresh session"
+                    );
+                    None
+                }
+            };
+            build_interactive_claude_argv(
+                &cli_exec,
+                user_args,
+                task_id,
+                resume_id,
+                include_sentinel,
+            )
+        }
         InteractiveCli::Codex => {
-            if resume_id.map(str::trim).is_some_and(|id| !id.is_empty()) {
-                log::warn!(
-                    "[bridge:interactive] resume_id ignored for codex (interactive resume not wired in Phase 3)"
-                );
+            if include_sentinel {
+                prompt_to_inject = append_sentinel_to_prompt(&prompt_to_inject, task_id);
             }
-            build_interactive_codex_argv(&cli_exec, user_args, task_id, include_sentinel)
+            build_interactive_codex_argv(&cli_exec, user_args, resume)
         }
     };
 
@@ -2806,12 +2954,18 @@ pub(crate) fn spawn_interactive_cli(
         ));
     }
 
-    // Poll for the input prompt before injecting. If we send keystrokes
-    // before the CLI finishes its startup banner the keys land in the void.
-    let deadline = std::time::Instant::now() + INTERACTIVE_READY_TIMEOUT;
-    let mut ready = false;
-    let mut last_pane_len = 0usize;
-    while std::time::Instant::now() < deadline {
+    // Wait for the CLI to be able to take input before injecting — keystrokes
+    // sent during a startup banner land in the void.
+    //
+    // Two signals, in priority order: the per-CLI prompt glyph (fast, exact),
+    // then pane quiescence (slow, but survives a CLI changing its UI). If
+    // neither lands inside the budget we inject anyway and leave the session
+    // up: a slow cold start, a first-run auth prompt, or an unknown-flag error
+    // are all things the user needs to SEE, and the old behaviour — kill the
+    // session, report a hard trigger failure — destroyed exactly that evidence.
+    let started = std::time::Instant::now();
+    let mut tracker = ReadinessTracker::default();
+    loop {
         std::thread::sleep(INTERACTIVE_READY_POLL_INTERVAL);
         if !tmux_transport::has_session(task_id) {
             return Err(format!(
@@ -2820,22 +2974,23 @@ pub(crate) fn spawn_interactive_cli(
             ));
         }
         let pane = capture_pane_scrollback(&session);
-        last_pane_len = pane.len();
-        let prompt_seen = match cli {
+        let glyph_seen = match cli {
             InteractiveCli::Claude => pane_has_claude_prompt(&pane),
             InteractiveCli::Codex => pane_has_codex_prompt(&pane),
         };
-        if prompt_seen {
-            ready = true;
-            break;
+        match tracker.observe(&pane, started.elapsed(), glyph_seen) {
+            ReadinessVerdict::Ready => break,
+            ReadinessVerdict::Waiting => continue,
+            ReadinessVerdict::GiveUp => {
+                log::warn!(
+                    "[bridge:interactive] {} never showed a ready prompt within {:?} (last pane: {} bytes) — injecting anyway and leaving the session alive so the pane stays inspectable",
+                    cli_command,
+                    INTERACTIVE_READY_TIMEOUT,
+                    pane.len()
+                );
+                break;
+            }
         }
-    }
-    if !ready {
-        let _ = tmux_transport::kill_session(task_id);
-        return Err(format!(
-            "interactive {} did not reach a ready prompt within {:?} (last pane: {} bytes)",
-            cli_command, INTERACTIVE_READY_TIMEOUT, last_pane_len
-        ));
     }
 
     // Small extra settle before injecting — gives codex's REPL a moment
@@ -2844,8 +2999,8 @@ pub(crate) fn spawn_interactive_cli(
         std::thread::sleep(Duration::from_millis(300));
     }
 
-    if !initial_prompt.is_empty() {
-        run_tmux(&["send-keys", "-t", &session, "-l", initial_prompt])
+    if !prompt_to_inject.is_empty() {
+        run_tmux(&["send-keys", "-t", &session, "-l", &prompt_to_inject])
             .map_err(|e| format!("send-keys (literal) for interactive prompt failed: {}", e))?;
         run_tmux(&["send-keys", "-t", &session, "Enter"])
             .map_err(|e| format!("send-keys Enter for interactive prompt failed: {}", e))?;
@@ -2883,8 +3038,9 @@ pub fn spawn_interactive_trigger_task(
     initial_prompt: String,
     env_vars: Option<HashMap<String, String>>,
     include_sentinel: bool,
+    resume: InteractiveResume,
 ) {
-    let (session_id, trigger_column_id, resume_id) = {
+    let (session_id, trigger_column_id) = {
         if let Ok(conn) = Connection::open(db::db_path()) {
             let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
             let task_snapshot = db::get_task(&conn, &task_id).ok();
@@ -2930,15 +3086,15 @@ pub fn spawn_interactive_trigger_task(
                         None,
                         Some(&metadata),
                     );
-                    (Some(session.id), trigger_column_id, None::<String>)
+                    (Some(session.id), trigger_column_id)
                 }
                 Err(e) => {
                     log::error!("[bridge:interactive] failed to create agent session: {}", e);
-                    (None, trigger_column_id, None)
+                    (None, trigger_column_id)
                 }
             }
         } else {
-            (None, None, None)
+            (None, None)
         }
     };
 
@@ -2969,17 +3125,32 @@ pub fn spawn_interactive_trigger_task(
                 return;
             }
         };
-        let spawn_result = spawn_interactive_cli(
-            cli,
-            &task_id,
-            &cli_command,
-            &args,
-            &initial_prompt,
-            &working_dir,
-            resume_id.as_deref(),
-            include_sentinel,
-            &env_vars,
-        );
+        // The readiness wait inside `spawn_interactive_cli` is a blocking
+        // sleep loop that can now run for up to a minute, so it must not sit
+        // on a tokio worker thread.
+        let spawn_result = {
+            let task_id = task_id.clone();
+            let cli_command = cli_command.clone();
+            let args = args.clone();
+            let initial_prompt = initial_prompt.clone();
+            let working_dir = working_dir.clone();
+            let env_vars = env_vars.clone();
+            tokio::task::spawn_blocking(move || {
+                spawn_interactive_cli(
+                    cli,
+                    &task_id,
+                    &cli_command,
+                    &args,
+                    &initial_prompt,
+                    &working_dir,
+                    &resume,
+                    include_sentinel,
+                    &env_vars,
+                )
+            })
+            .await
+            .unwrap_or_else(|e| Err(format!("interactive spawn task panicked: {}", e)))
+        };
 
         if let Err(error_detail) = spawn_result {
             handle_interactive_spawn_failure(
@@ -3807,6 +3978,106 @@ mod tests {
     }
 
     #[test]
+    fn test_readiness_glyph_is_a_fast_path() {
+        // A prompt glyph wins immediately, no matter how little time has
+        // passed or how much the pane is still churning.
+        let mut t = ReadinessTracker::default();
+        assert_eq!(
+            t.observe("╭──╮", Duration::from_millis(100), true),
+            ReadinessVerdict::Ready
+        );
+    }
+
+    #[test]
+    fn test_readiness_waits_while_pane_is_changing() {
+        // The regression this guards: a CLI whose UI we can't glyph-match
+        // used to be hard-killed at 5s. It must keep waiting instead.
+        let mut t = ReadinessTracker::default();
+        let mut elapsed = Duration::from_millis(0);
+        for i in 0..40 {
+            elapsed += Duration::from_millis(100);
+            let pane = format!("loading frame {}", i);
+            assert_eq!(
+                t.observe(&pane, elapsed, false),
+                ReadinessVerdict::Waiting,
+                "still changing at {:?}",
+                elapsed
+            );
+        }
+        assert!(elapsed > Duration::from_secs(3), "past the old 5s-ish budget");
+    }
+
+    #[test]
+    fn test_readiness_ready_once_pane_settles() {
+        let mut t = ReadinessTracker::default();
+        assert_eq!(
+            t.observe("codex booting", Duration::from_millis(100), false),
+            ReadinessVerdict::Waiting
+        );
+        // Same content, but not yet past the minimum grace.
+        assert_eq!(
+            t.observe("codex booting", Duration::from_millis(400), false),
+            ReadinessVerdict::Waiting
+        );
+        // Unchanged for longer than the quiescence window, past the grace.
+        assert_eq!(
+            t.observe("codex booting", Duration::from_millis(1_000), false),
+            ReadinessVerdict::Ready
+        );
+    }
+
+    #[test]
+    fn test_readiness_blank_pane_never_counts_as_settled() {
+        // An empty pane is a process that hasn't drawn yet, not a settled
+        // prompt — injecting into it would send keys into the void.
+        let mut t = ReadinessTracker::default();
+        assert_eq!(
+            t.observe("   ", Duration::from_secs(5), false),
+            ReadinessVerdict::Waiting
+        );
+        assert_eq!(
+            t.observe("   ", Duration::from_secs(30), false),
+            ReadinessVerdict::Waiting
+        );
+    }
+
+    #[test]
+    fn test_readiness_gives_up_instead_of_hanging_forever() {
+        // Past the outer budget with a pane that never stops changing, the
+        // verdict is GiveUp — which the caller treats as "inject anyway and
+        // leave the session alive", NOT as a kill.
+        let mut t = ReadinessTracker::default();
+        assert_eq!(
+            t.observe("frame a", INTERACTIVE_READY_TIMEOUT, false),
+            ReadinessVerdict::GiveUp
+        );
+    }
+
+    #[test]
+    fn test_readiness_quiescence_resets_when_pane_changes_again() {
+        let mut t = ReadinessTracker::default();
+        t.observe("step one", Duration::from_millis(100), false);
+        // Nearly settled...
+        assert_eq!(
+            t.observe("step one", Duration::from_millis(800), false),
+            ReadinessVerdict::Waiting
+        );
+        // ...then the CLI draws again, which must restart the settle window.
+        assert_eq!(
+            t.observe("step two", Duration::from_millis(850), false),
+            ReadinessVerdict::Waiting
+        );
+        assert_eq!(
+            t.observe("step two", Duration::from_millis(1_000), false),
+            ReadinessVerdict::Waiting
+        );
+        assert_eq!(
+            t.observe("step two", Duration::from_millis(1_700), false),
+            ReadinessVerdict::Ready
+        );
+    }
+
+    #[test]
     fn test_exit_criteria_needs_sentinel() {
         assert!(exit_criteria_needs_sentinel(Some("agent_complete")));
         assert!(exit_criteria_needs_sentinel(Some("manual_approval")));
@@ -3823,8 +4094,7 @@ mod tests {
         let argv = build_interactive_codex_argv(
             "codex",
             &["--model".to_string(), "gpt-5".to_string()],
-            "task-1",
-            false,
+            &InteractiveResume::None,
         );
         assert_eq!(argv[0], "codex");
         assert!(
@@ -3843,25 +4113,87 @@ mod tests {
             argv
         );
         assert!(
-            !argv.iter().any(|a| a == "--append-system-prompt"),
-            "no sentinel when include_sentinel=false: {:?}",
+            !argv.iter().any(|a| a == "resume"),
+            "no resume subcommand when starting fresh: {:?}",
             argv
         );
     }
 
     #[test]
-    fn test_build_interactive_codex_argv_appends_sentinel_when_requested() {
-        let argv = build_interactive_codex_argv("codex", &[], "task-zzz", true);
-        let pos = argv
-            .iter()
-            .position(|a| a == "--append-system-prompt")
-            .expect("must have --append-system-prompt when include_sentinel=true");
-        let payload = argv.get(pos + 1).expect("system-prompt payload");
-        assert!(
-            payload.contains("<<<KAITENCODE_DONE:task-zzz>>>"),
-            "codex system-prompt must embed sentinel marker: {}",
-            payload
+    fn test_build_interactive_codex_argv_never_uses_append_system_prompt() {
+        // codex-cli 0.145.0 has NO `--append-system-prompt` flag. Passing it
+        // made codex exit at startup with an unknown-flag error for every
+        // column using `agent_complete`/`manual_approval` exit criteria.
+        // The sentinel rides the prompt instead — see the test below.
+        for resume in [
+            InteractiveResume::None,
+            InteractiveResume::Last,
+            InteractiveResume::Id("abc".to_string()),
+        ] {
+            let argv = build_interactive_codex_argv("codex", &[], &resume);
+            assert!(
+                !argv.iter().any(|a| a == "--append-system-prompt"),
+                "codex has no --append-system-prompt flag: {:?}",
+                argv
+            );
+        }
+    }
+
+    #[test]
+    fn test_build_interactive_codex_argv_resume_last_is_first_subcommand() {
+        // `resume` is a subcommand, not a flag — it must come immediately
+        // after the binary, before any user args.
+        let argv = build_interactive_codex_argv(
+            "codex",
+            &["--model".to_string(), "gpt-5".to_string()],
+            &InteractiveResume::Last,
         );
+        assert_eq!(argv[0], "codex");
+        assert_eq!(argv[1], "resume");
+        assert_eq!(argv[2], "--last");
+        assert_eq!(argv[3], "--model", "user args must follow the subcommand");
+    }
+
+    #[test]
+    fn test_build_interactive_codex_argv_resume_by_id() {
+        let argv = build_interactive_codex_argv(
+            "codex",
+            &[],
+            &InteractiveResume::Id("  session-42  ".to_string()),
+        );
+        assert_eq!(argv, vec!["codex", "resume", "session-42"]);
+
+        // A blank id is not a resume request — fall back to a fresh session
+        // rather than handing codex an empty positional.
+        let argv = build_interactive_codex_argv("codex", &[], &InteractiveResume::Id("  ".into()));
+        assert_eq!(argv, vec!["codex"]);
+    }
+
+    #[test]
+    fn test_append_sentinel_to_prompt_embeds_marker_without_newlines() {
+        let out = append_sentinel_to_prompt("Do the thing.", "task-zzz");
+        assert!(
+            out.contains("<<<KAITENCODE_DONE:task-zzz>>>"),
+            "prompt must carry the sentinel marker: {}",
+            out
+        );
+        assert!(out.starts_with("Do the thing."), "task text must lead: {}", out);
+        // Load-bearing: the prompt is injected as one `send-keys -l` payload,
+        // so any newline we add would submit the line early in the TUI.
+        assert!(
+            !out.contains('\n'),
+            "sentinel suffix must not introduce a newline: {:?}",
+            out
+        );
+    }
+
+    #[test]
+    fn test_append_sentinel_to_prompt_handles_empty_and_trailing_space() {
+        let out = append_sentinel_to_prompt("", "task-1");
+        assert_eq!(out, interactive_sentinel_system_prompt("task-1"));
+        // No double space when the caller's prompt already ends in whitespace.
+        let out = append_sentinel_to_prompt("Do it.   ", "task-1");
+        assert!(!out.contains("  "), "no doubled spacing: {:?}", out);
     }
 
     #[test]
@@ -4195,6 +4527,57 @@ mod tests {
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
+    }
+
+    #[test]
+    fn tmux_interactive_spawn_survives_a_cli_with_no_prompt_glyph() {
+        // Regression for the readiness hard-kill.
+        //
+        // A pane that never prints the word "codex" can't satisfy the codex
+        // glyph fast path. The old code polled for 5s, missed, and then
+        // KILLED the tmux session — turning "this CLI looks unfamiliar" into
+        // a hard trigger failure with no pane left to diagnose. Quiescence
+        // must now carry it: the pane settles, we inject, the session lives.
+        //
+        // Codex dispatch (not Claude) because the claude builder always adds
+        // `--dangerously-skip-permissions`, which `sh` would reject.
+        if !tmux_available() {
+            eprintln!("tmux not available, skipping");
+            return;
+        }
+        let _tmux_guard = tmux_transport::tmux_test_lock_blocking();
+        let task_id = format!("test-ready-{}", uuid::Uuid::new_v4());
+        let _ = tmux_transport::kill_session(&task_id);
+        tmux_transport::ensure_tmux_server().expect("tmux server");
+
+        let env_vars = HashMap::new();
+        let result = spawn_interactive_cli(
+            InteractiveCli::Codex,
+            &task_id,
+            "sh",
+            // Print something, then idle so the pane goes quiet and stays up.
+            &["-c".to_string(), "echo ready-ish; sleep 30".to_string()],
+            "hello-prompt",
+            "/tmp",
+            &InteractiveResume::None,
+            false,
+            &env_vars,
+        );
+
+        assert!(result.is_ok(), "spawn should succeed via quiescence: {:?}", result);
+        assert!(
+            tmux_transport::has_session(&task_id),
+            "session must stay alive — killing it is what destroyed the evidence"
+        );
+
+        let pane = strip_ansi(&capture_pane_scrollback(&tmux_session_name(&task_id)));
+        assert!(
+            pane.contains("hello-prompt"),
+            "the initial prompt should have been injected: {}",
+            pane
+        );
+
+        let _ = tmux_transport::kill_session(&task_id);
     }
 
     #[tokio::test]

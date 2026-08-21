@@ -28,38 +28,37 @@ replaces the terminal.
 - Settings runtime tab (PR #262): backend `AppSettings` via System → Runtime.
 - MCP: 25 tools; source attribution + recursion guard (migration 046);
   mark_complete/dependencies route through `/api/*`.
+- Interactive codex parity + adaptive readiness: codex's `--append-system-prompt`
+  was invalid (**confirmed** against codex-cli 0.145.0 — no such flag), so every
+  sentinel-carrying column killed the session at startup; the sentinel now rides
+  the prompt. `resume --last` wired for codex restart. Readiness is quiescence-based
+  with a 60s budget and **never** hard-kills — exhausting it injects anyway and
+  leaves the pane inspectable. `CLI_HEALTH_SPECS` now probes the interactive
+  codex path so the same drift can't ship silently again.
 
 ---
 
 ## 🔴 Critical now (blocks comfortable daily-driving)
 
-1. **Interactive readiness hard-kill.** Readiness is a 5s glyph-scrape that
-   *hard-kills* the tmux session on slow cold start / CLI UI change
-   (`chat/bridge.rs` ~2469/2610). Make it quiescence-based (adaptive), not a fixed
-   budget. → board task "Interactive: adaptive readiness".
-2. **Interactive codex parity.** `--append-system-prompt` likely invalid for
-   interactive codex (would fail to start); `--resume` not wired (`spawn_interactive_cli`
-   warns + ignores `resume_id`). Verify against a real codex binary; drop/guard the
-   bad flag. Claude is solid. → board task "Interactive: codex parity".
-3. **Two-claude footgun (env hygiene).** Stale `/usr/local/bin/claude` (2.1.138 npm
+1. **Two-claude footgun (env hygiene).** Stale `/usr/local/bin/claude` (2.1.138 npm
    copy) can win in some PATHs. App now resolves absolute paths correctly, but
    `rm /usr/local/bin/claude` removes the ambiguity. One-liner, do it.
 
 ## 🟡 Important (rough edges, not blockers)
 
-4. **Interactive completion is panel-bound.** The "agent done" advisory only fires
+2. **Interactive completion is panel-bound.** The "agent done" advisory only fires
    while the panel is attached — no persisted flag / card badge. Needs a migration
    + badge so it survives panel close. → board task "Interactive: persist advisory".
-5. **`effort_level` not wired into the trigger path.** It's a real DB field + has a
+3. **`effort_level` not wired into the trigger path.** It's a real DB field + has a
    `thinking-selector.tsx` and works in the interactive chat panel, but no
    `effort_level`→CLI plumbing in `pipeline/spawn.rs` (the headless `spawn_cli`
    path). Either wire `--effort`/`-c model_reasoning_effort` into the trigger
    command or document it as interactive-only.
-6. **Checklist as per-workspace roadmap + MCP surface.** Checklist has zero
+4. **Checklist as per-workspace roadmap + MCP surface.** Checklist has zero
    `/api/*` routes and zero MCP tools. Make it agent-readable/maintainable so it
    can serve as the project roadmap. **Spec:** [specs/CHECKLIST_AS_ROADMAP.md](./specs/CHECKLIST_AS_ROADMAP.md).
    Planned, deferred 2026-06-12.
-7. **MCP UI-only gaps.** No MCP tool for `update_column`/`delete_column`/
+5. **MCP UI-only gaps.** No MCP tool for `update_column`/`delete_column`/
    `reorder_columns`, `update_script`/`delete_script`, per-task runtime-mode
    override, or agent control (inject/interrupt/pause/restart/switch-model). Each
    needs an `/api/*` route first. Add as needed (the checklist spec establishes the
@@ -81,13 +80,15 @@ replaces the terminal.
 
 ## Needs testing (no automated coverage)
 
-- Interactive codex round-trip (resume, append-system-prompt, sentinel) on a real
-  binary — gates item #2.
+- Interactive codex round-trip (`resume --last`, prompt-carried sentinel) against
+  a real binary. The argv is now verified against codex-cli 0.145.0 and unit-tested,
+  but the end-to-end spawn → inject → sentinel → advance loop still has no
+  automated coverage.
 - Live CLI smoke test (throwaway-tmux round-trip) — designed in B4, not built.
 - Discord thread streaming end-to-end.
 - 5-agent-per-workspace concurrency under real load (queue promotion).
 
 ## Suggested order
 
-`#1 readiness` → `#2 codex parity` (+ its testing) → `#3 rm stale claude` (free) →
-`#4 persist advisory` → `#5 effort wiring` → `#6 checklist/roadmap MCP` → `#7 MCP gaps`.
+`#1 rm stale claude` (free) → `#2 persist advisory` → `#3 effort wiring` →
+`#4 checklist/roadmap MCP` → `#5 MCP gaps`.
