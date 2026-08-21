@@ -144,11 +144,13 @@ function LlmSections({ config }: { config: LlmConfig }) {
 
   return (
     <>
-      <Section title="Instructions" wide>
+      <Section title="Instructions">
         {config.systemPrompt ? (
-          // Prose gets a measure cap: the pane is wide enough to run ~150
-          // characters per line, which is well past comfortable reading.
-          <p className="max-w-prose whitespace-pre-wrap break-words text-sm leading-relaxed text-text-primary">
+          // Deliberately NOT spanning both columns: a full-width card ran the
+          // prose to ~150 characters, and capping the text inside a full-width
+          // card just made it look cropped. One column is ~75ch — the right
+          // measure — so the card itself carries it.
+          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-text-primary">
             {config.systemPrompt}
           </p>
         ) : (
