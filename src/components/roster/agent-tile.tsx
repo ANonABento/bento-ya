@@ -47,14 +47,14 @@ export function AgentTile({
           {avatar.initials}
         </span>
         {selected && (
-          <span className="absolute left-2 top-2 rounded bg-accent px-1.5 py-0.5 text-[10px] font-medium text-bg">
+          <span className="absolute left-2 top-2 rounded bg-accent px-1.5 py-0.5 text-xs font-medium text-bg">
             Selected
           </span>
         )}
       </div>
       <div className="px-3 py-2">
         <div className="truncate text-sm font-medium text-text-primary">{agent.name}</div>
-        <div className="mt-1 font-mono text-[10px] uppercase tracking-wider text-text-secondary">
+        <div className="mt-1 font-mono text-xs uppercase tracking-wider text-text-secondary">
           {agent.runtime}
         </div>
       </div>

@@ -147,7 +147,7 @@ export function WorkspaceTab() {
           <div className="space-y-3 rounded-lg border border-accent/40 bg-accent/5 p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-wider text-text-secondary/70">Name</div>
+                <div className="text-xs uppercase tracking-wider text-text-secondary/70">Name</div>
                 <p className="truncate text-sm font-semibold text-text-primary">{workspace.name}</p>
               </div>
               <span className="shrink-0 rounded-full bg-accent/20 px-2 py-0.5 text-xs font-medium text-accent">
@@ -155,7 +155,7 @@ export function WorkspaceTab() {
               </span>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-text-secondary/70">Repository path</div>
+              <div className="text-xs uppercase tracking-wider text-text-secondary/70">Repository path</div>
               <div className="mt-1">
                 <PathPicker
                   value={workspace.repoPath}
@@ -165,7 +165,7 @@ export function WorkspaceTab() {
                 />
               </div>
             </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-secondary/80">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-secondary/80">
               <span>Created {new Date(workspace.createdAt).toLocaleDateString()}</span>
               <span>Updated {new Date(workspace.updatedAt).toLocaleDateString()}</span>
             </div>

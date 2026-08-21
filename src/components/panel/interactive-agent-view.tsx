@@ -250,7 +250,7 @@ export function InteractiveAgentView({
       />
       {error && (
         <div
-          className="border-b border-error/30 bg-error/10 px-3 py-1.5 text-[11px] text-error"
+          className="border-b border-error/30 bg-error/10 px-3 py-1.5 text-xs text-error"
           data-testid="interactive-agent-view-error"
         >
           {error}
@@ -261,7 +261,7 @@ export function InteractiveAgentView({
           data-testid="interactive-agent-done-banner"
           className="flex items-center justify-between gap-3 border-b border-running/30 bg-running/10 px-3 py-1.5"
         >
-          <span className="text-[11px] text-running">
+          <span className="text-xs text-running">
             ✓ Agent signaled it's done. The session is still live — keep chatting, or advance the column when you're satisfied.
           </span>
           <div className="flex items-center gap-2">
@@ -269,7 +269,7 @@ export function InteractiveAgentView({
               type="button"
               onClick={() => { setDoneSignaled(false) }}
               data-testid="interactive-agent-done-dismiss"
-              className="rounded px-2 py-0.5 text-[11px] text-text-secondary hover:text-text-primary"
+              className="rounded px-2 py-0.5 text-xs text-text-secondary hover:text-text-primary"
               style={{ cursor: 'pointer' }}
             >
               Dismiss
@@ -280,7 +280,7 @@ export function InteractiveAgentView({
               disabled={advancing}
               data-testid="interactive-agent-advance"
               title="Mark complete and run the column's exit/advance"
-              className="rounded border border-running/40 bg-running/15 px-2 py-0.5 text-[11px] font-medium text-running hover:bg-running/25 disabled:opacity-50"
+              className="rounded border border-running/40 bg-running/15 px-2 py-0.5 text-xs font-medium text-running hover:bg-running/25 disabled:opacity-50"
               style={{ cursor: advancing ? 'wait' : 'pointer' }}
             >
               {advancing ? 'Advancing…' : 'Advance column →'}
@@ -345,7 +345,7 @@ function ControlBar({
       <div className="flex items-center gap-2">
         <span
           data-testid="interactive-agent-status"
-          className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium ${statusColor}`}
+          className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium ${statusColor}`}
         >
           <span
             className={`h-1.5 w-1.5 rounded-full ${
@@ -366,7 +366,7 @@ function ControlBar({
                 ? 'Paused'
                 : 'Stopped'}
         </span>
-        <span className="text-[11px] text-text-secondary/70">Interactive</span>
+        <span className="text-xs text-text-secondary/70">Interactive</span>
       </div>
       <div className="flex items-center gap-2">
         <ModelDropdown
@@ -385,7 +385,7 @@ function ControlBar({
               ? 'Resume the suspended agent process'
               : 'Suspend the agent process (SIGTSTP). In-flight network requests keep going — use Interrupt for a hard stop.'
           }
-          className="rounded border border-border-default bg-surface px-2 py-0.5 text-[11px] font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+          className="rounded border border-border-default bg-surface px-2 py-0.5 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
           style={{ cursor: pauseBusy ? 'wait' : sessionAvailable ? 'pointer' : 'not-allowed' }}
         >
           {isPaused ? 'Resume' : 'Pause'}
@@ -396,7 +396,7 @@ function ControlBar({
           disabled={interrupting || !sessionAvailable}
           data-testid="interactive-agent-interrupt"
           title={sessionAvailable ? 'Send Ctrl+C — aborts current generation, agent stays at prompt' : 'Agent session is stopped'}
-          className="rounded border border-border-default bg-surface px-2 py-0.5 text-[11px] font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+          className="rounded border border-border-default bg-surface px-2 py-0.5 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
           style={{ cursor: interrupting ? 'wait' : sessionAvailable ? 'pointer' : 'not-allowed' }}
         >
           Interrupt
@@ -407,7 +407,7 @@ function ControlBar({
           disabled={restarting}
           data-testid="interactive-agent-restart"
           title="Kill the agent and respawn with the same trigger config"
-          className="rounded border border-warning/40 bg-surface px-2 py-0.5 text-[11px] font-medium text-warning hover:bg-warning/10 disabled:opacity-50"
+          className="rounded border border-warning/40 bg-surface px-2 py-0.5 text-xs font-medium text-warning hover:bg-warning/10 disabled:opacity-50"
           style={{ cursor: restarting ? 'wait' : 'pointer' }}
         >
           Restart
@@ -442,7 +442,7 @@ function ModelDropdown({
           ? 'Wait for the agent to finish responding before switching models'
           : 'Send /model <name> to the live agent'
       }
-      className="rounded border border-border-default bg-bg px-1.5 py-0.5 text-[11px] text-text-primary disabled:opacity-50"
+      className="rounded border border-border-default bg-bg px-1.5 py-0.5 text-xs text-text-primary disabled:opacity-50"
     >
       <option value="">Model: pick…</option>
       {MODEL_OPTIONS.map((m) => (

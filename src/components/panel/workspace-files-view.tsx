@@ -43,7 +43,7 @@ export function WorkspaceFilesView({ workspaceId }: { workspaceId: string }) {
                 onClick={() => { setMode(m) }}
                 aria-pressed={mode === m}
                 data-testid={`files-mode-${m}`}
-                className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                className={`rounded px-1.5 py-0.5 text-xs font-medium transition-colors ${
                   mode === m
                     ? 'bg-surface-hover text-text-primary'
                     : 'text-text-secondary hover:text-text-primary'

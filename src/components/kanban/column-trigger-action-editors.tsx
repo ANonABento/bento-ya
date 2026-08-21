@@ -69,7 +69,7 @@ export function ActionEditor({
                   <span className="text-amber-400" title="Irreversible action">⚠</span>
                 )}
               </div>
-              <div className="mt-0.5 text-[10px] opacity-60 leading-tight">{t.description}</div>
+              <div className="mt-0.5 text-xs opacity-60 leading-tight">{t.description}</div>
             </button>
           )
         })}

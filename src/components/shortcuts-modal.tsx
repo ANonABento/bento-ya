@@ -80,11 +80,11 @@ function KbdSequence({ keys }: { keys: readonly string[] }) {
     <div className="flex flex-wrap items-center justify-end gap-1">
       {keys.map((key, index) => (
         <span key={`${key}-${String(index)}`} className="flex items-center gap-1">
-          <kbd className="rounded-md border border-border-default bg-bg px-1.5 py-0.5 font-mono text-[11px] leading-5 text-text-primary shadow-sm">
+          <kbd className="rounded-md border border-border-default bg-bg px-1.5 py-0.5 font-mono text-xs leading-5 text-text-primary shadow-sm">
             {key}
           </kbd>
           {index < keys.length - 1 && (
-            <span className="text-[11px] text-text-secondary">+</span>
+            <span className="text-xs text-text-secondary">+</span>
           )}
         </span>
       ))}
@@ -153,7 +153,7 @@ export function ShortcutsModal({ onClose }: Props) {
                         <KbdSequence keys={item.keys} />
                         {item.altKeys && (
                           <>
-                            <span className="text-[10px] uppercase text-text-secondary/60">or</span>
+                            <span className="text-xs uppercase text-text-secondary/60">or</span>
                             <KbdSequence keys={item.altKeys} />
                           </>
                         )}

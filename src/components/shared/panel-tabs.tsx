@@ -60,7 +60,7 @@ export function PanelTabs<T extends string>({
             title={showIconsOnly ? tab.label : undefined}
             data-testid={tab.testId}
             onClick={() => { onChange(tab.value) }}
-            className={`relative inline-flex min-w-0 items-center gap-1.5 py-1.5 text-[11px] font-medium transition-colors ${
+            className={`relative inline-flex min-w-0 items-center gap-1.5 py-1.5 text-xs font-medium transition-colors ${
               showIconsOnly ? 'px-1.5' : 'px-2'
             } ${active ? 'text-text-primary' : 'text-text-secondary hover:text-text-primary'}`}
             style={{ cursor: 'pointer' }}

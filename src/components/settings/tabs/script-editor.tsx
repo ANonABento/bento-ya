@@ -29,7 +29,7 @@ function TemplateVarChip({ varKey, label, hint }: { varKey: string; label: strin
       type="button"
       onClick={handleCopy}
       title={`${hint} — click to copy`}
-      className="group flex items-center gap-1 rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-secondary transition-colors hover:bg-accent/10 hover:text-accent"
+      className="group flex items-center gap-1 rounded bg-surface px-1.5 py-0.5 font-mono text-xs text-text-secondary transition-colors hover:bg-accent/10 hover:text-accent"
     >
       {copied ? (
         <span className="text-green-400">✓ copied</span>
@@ -200,7 +200,7 @@ export function ScriptEditor({ script, onSave, onCancel }: ScriptEditorProps) {
               {steps.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border-default py-6 text-center">
                   <p className="text-xs text-text-secondary">No steps yet</p>
-                  <p className="mt-0.5 text-[11px] text-text-secondary/60">
+                  <p className="mt-0.5 text-xs text-text-secondary/60">
                     Add a Bash command, Agent prompt, or Check assertion below.
                   </p>
                 </div>
@@ -249,7 +249,7 @@ export function ScriptEditor({ script, onSave, onCancel }: ScriptEditorProps) {
 
             {/* Template variables */}
             <div className="rounded-lg bg-surface/50 p-3">
-              <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-text-secondary">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-text-secondary">
                 Template Variables — click to copy
               </p>
               <div className="flex flex-wrap gap-1">
@@ -311,10 +311,10 @@ function StepEditor({
       {/* Step header */}
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${STEP_TYPE_COLORS[step.type] ?? ''}`}>
+          <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${STEP_TYPE_COLORS[step.type] ?? ''}`}>
             {step.type}
           </span>
-          <span className="text-[11px] text-text-secondary">Step {index + 1}</span>
+          <span className="text-xs text-text-secondary">Step {index + 1}</span>
         </div>
         <div className="flex items-center gap-0.5">
           <button
@@ -392,7 +392,7 @@ function StepEditor({
           )}
           {step.type === 'bash' && (
             <label
-              className="flex items-center gap-1.5 text-[11px] text-text-secondary"
+              className="flex items-center gap-1.5 text-xs text-text-secondary"
               style={{ cursor: 'pointer' }}
             >
               <input

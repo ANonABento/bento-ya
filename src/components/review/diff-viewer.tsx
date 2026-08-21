@@ -246,7 +246,7 @@ function ActionButton({
       title={title}
       data-diff-action="true"
       style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
-      className="rounded border border-border-default/80 bg-surface px-1.5 py-0.5 text-[10px] font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+      className="rounded border border-border-default/80 bg-surface px-1.5 py-0.5 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
     >
       {children}
     </button>
@@ -712,7 +712,7 @@ export function DiffViewer({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {selectable && (
         <div className="mb-2 flex flex-wrap items-center gap-2 rounded border border-border-default bg-surface px-2 py-1.5">
-          <span className="mr-auto text-[11px] text-text-secondary">
+          <span className="mr-auto text-xs text-text-secondary">
             {selectedLineKeys.size > 0
               ? `${String(selectedLineKeys.size)} line${selectedLineKeys.size === 1 ? '' : 's'} selected`
               : 'Select diff lines to copy or send context'}

@@ -77,7 +77,7 @@ export function ChecklistItemRow({ item, categoryId, onFixThis }: Props) {
             {/* Auto-detect badge */}
             {item.detectType && item.detectType !== 'none' && (
               <span
-                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${
                   item.autoDetected
                     ? 'bg-success/20 text-success'
                     : 'bg-bg-secondary text-text-secondary'
@@ -91,7 +91,7 @@ export function ChecklistItemRow({ item, categoryId, onFixThis }: Props) {
             {/* Linked task badge */}
             {item.linkedTaskId && (
               <span
-                className="inline-flex items-center gap-1 rounded bg-accent/20 px-1.5 py-0.5 text-[10px] font-medium text-accent"
+                className="inline-flex items-center gap-1 rounded bg-accent/20 px-1.5 py-0.5 text-xs font-medium text-accent"
                 title="Linked to task"
               >
                 Linked Task

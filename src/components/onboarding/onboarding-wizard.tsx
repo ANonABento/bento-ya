@@ -201,7 +201,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   onClick={() => { void refreshPrerequisites() }}
                   disabled={checkingPrereqs}
                   style={{ cursor: checkingPrereqs ? 'not-allowed' : 'pointer' }}
-                  className="rounded border border-border-default px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover disabled:opacity-50"
+                  className="rounded border border-border-default px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-hover disabled:opacity-50"
                 >
                   {checkingPrereqs ? 'Checking...' : 'Recheck'}
                 </button>
@@ -307,11 +307,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                     style={{ cursor: 'pointer' }}
                   >
                     <div className="text-sm font-medium text-text-primary">{opt.name}</div>
-                    <div className="mt-0.5 text-[11px] text-text-secondary">{opt.blurb}</div>
+                    <div className="mt-0.5 text-xs text-text-secondary">{opt.blurb}</div>
                   </button>
                 ))}
               </div>
-              <p className="mt-1 text-[11px] text-text-secondary">
+              <p className="mt-1 text-xs text-text-secondary">
                 Headless is the recommended default. You can change this anytime in Settings → Agent.
               </p>
             </div>

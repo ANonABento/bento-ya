@@ -236,7 +236,7 @@ function HeadlessPanel({ task, onClose }: AgentPanelProps) {
             <button
               type="button"
               onClick={session.clearDisplayedError}
-              className="truncate text-[11px] text-error hover:text-error/80"
+              className="truncate text-xs text-error hover:text-error/80"
               title={session.error}
             >
               {session.error}
@@ -475,7 +475,7 @@ function InteractivePanel({ task, onClose }: AgentPanelProps) {
         </div>
         <div
           data-testid="interactive-input-hint"
-          className="border-t border-border-default bg-surface px-3 py-1.5 text-[11px] text-text-secondary/70"
+          className="border-t border-border-default bg-surface px-3 py-1.5 text-xs text-text-secondary/70"
         >
           Type directly in the terminal — <span className="text-text-secondary">/commands</span>,{' '}
           <span className="text-text-secondary">@files</span>, Tab-complete and paste all work like a real terminal.
@@ -624,7 +624,7 @@ function RuntimeModeToggle({
         type="button"
         disabled={disabled}
         onClick={() => { void handleSelect(choice.value) }}
-        className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[11px] transition-colors disabled:opacity-40 ${
+        className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-xs transition-colors disabled:opacity-40 ${
           current === choice.value
             ? 'text-text-primary'
             : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
@@ -634,7 +634,7 @@ function RuntimeModeToggle({
       >
         <span className="truncate">{choice.label}</span>
         {current === choice.value && <span className="ml-2 text-accent">✓</span>}
-        {disabled && <span className="ml-2 text-[10px] text-text-secondary/60">off</span>}
+        {disabled && <span className="ml-2 text-xs text-text-secondary/60">off</span>}
       </button>
     )
   })
@@ -643,7 +643,7 @@ function RuntimeModeToggle({
   if (variant === 'menu') {
     return (
       <div>
-        <div className="px-2 pb-0.5 pt-1 text-[10px] font-medium uppercase tracking-wide text-text-secondary/60">
+        <div className="px-2 pb-0.5 pt-1 text-xs font-medium uppercase tracking-wide text-text-secondary/60">
           Runtime
         </div>
         {choiceButtons}
@@ -662,7 +662,7 @@ function RuntimeModeToggle({
         aria-label="Runtime mode"
         title={`Runtime: ${label} — click to switch`}
         data-testid="agent-panel-runtime-toggle"
-        className={`inline-flex h-7 items-center gap-1 rounded-md border border-border-default bg-surface text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50 ${
+        className={`inline-flex h-7 items-center gap-1 rounded-md border border-border-default bg-surface text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50 ${
           iconOnly ? 'w-7 justify-center px-0' : 'px-2'
         }`}
         style={{ cursor: busy ? 'wait' : 'pointer' }}
@@ -721,7 +721,7 @@ function AgentHeaderControls({
       onClick={() => { close(); onKill() }}
       disabled={killBusy}
       data-testid="agent-panel-kill-button"
-      className="flex w-full items-center rounded px-2 py-1.5 text-left text-[11px] font-medium text-error hover:bg-error/10 disabled:opacity-50"
+      className="flex w-full items-center rounded px-2 py-1.5 text-left text-xs font-medium text-error hover:bg-error/10 disabled:opacity-50"
       style={{ cursor: killBusy ? 'wait' : 'pointer' }}
     >
       Kill session
@@ -785,7 +785,7 @@ function HoldButton({
         onClick={onToggle}
         disabled={busy}
         data-testid="agent-panel-hold-button"
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
         style={{ cursor: busy ? 'wait' : 'pointer' }}
       >
         <HoldIcon />
@@ -801,7 +801,7 @@ function HoldButton({
       disabled={busy}
       data-testid="agent-panel-hold-button"
       title={title}
-      className={`inline-flex h-7 items-center gap-1.5 rounded-md border text-[11px] font-medium transition-colors disabled:opacity-50 ${
+      className={`inline-flex h-7 items-center gap-1.5 rounded-md border text-xs font-medium transition-colors disabled:opacity-50 ${
         compact ? 'w-7 justify-center px-0' : 'px-2'
       } ${
         held

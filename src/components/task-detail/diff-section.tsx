@@ -117,7 +117,7 @@ export function DiffSection({
           <span className="text-xs text-success">+{changes.totalAdditions}</span>
           <span className="text-xs text-error">-{changes.totalDeletions}</span>
           {referenceLabel && (
-            <span className="min-w-0 truncate rounded border border-border-default/70 px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
+            <span className="min-w-0 truncate rounded border border-border-default/70 px-1.5 py-0.5 font-mono text-xs text-text-secondary">
               {referenceLabel}
             </span>
           )}
@@ -125,7 +125,7 @@ export function DiffSection({
         <button
           type="button"
           onClick={() => { void toggleAll() }}
-          className="text-[11px] text-text-secondary hover:text-text-primary underline-offset-2 hover:underline"
+          className="text-xs text-text-secondary hover:text-text-primary underline-offset-2 hover:underline"
           style={{ cursor: 'pointer' }}
         >
           {showAll ? 'Hide combined diff' : 'View all'}
@@ -148,7 +148,7 @@ export function DiffSection({
             >
               <StatusIcon status={file.status} />
               <span
-                className={`flex-1 truncate font-mono text-[11px] ${
+                className={`flex-1 truncate font-mono text-xs ${
                   active ? 'text-text-primary' : 'text-text-secondary'
                 }`}
                 title={file.path}
@@ -164,7 +164,7 @@ export function DiffSection({
           <button
             type="button"
             onClick={() => { setFilesExpanded((current) => !current) }}
-            className="mt-1 flex w-full items-center justify-center rounded px-2 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+            className="mt-1 flex w-full items-center justify-center rounded px-2 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
             style={{ cursor: 'pointer' }}
           >
             {filesExpanded ? 'Show less' : `Show ${String(hiddenFileCount)} more`}
@@ -216,7 +216,7 @@ function StatusIcon({ status }: { status: string }) {
   const letter = status[0]?.toUpperCase() ?? '?'
 
   return (
-    <span className={`w-3 shrink-0 text-center font-mono text-[10px] font-bold ${color}`}>
+    <span className={`w-3 shrink-0 text-center font-mono text-xs font-bold ${color}`}>
       {letter}
     </span>
   )

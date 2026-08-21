@@ -16,6 +16,7 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint src/",
     "test:ipc": "node scripts/check-ipc-registration.js",
+    "test:type-scale": "node scripts/check-type-scale.js",
     "format": "prettier --write 'src/**/*.{ts,tsx,css}'",
     "test": "vitest",
     "test:run": "vitest run",

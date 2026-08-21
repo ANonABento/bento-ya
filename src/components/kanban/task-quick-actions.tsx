@@ -19,7 +19,7 @@ export const TaskQuickActions = memo(function TaskQuickActions({
       {confirmDeletePending && (
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="h-6 rounded bg-error/20 px-2 text-[10px] font-medium text-error transition-colors hover:bg-error/30"
+          className="h-6 rounded bg-error/20 px-2 text-xs font-medium text-error transition-colors hover:bg-error/30"
           style={{ cursor: 'pointer' }}
           title="Click again to confirm"
           aria-label="Confirm delete"

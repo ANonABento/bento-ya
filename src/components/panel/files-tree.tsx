@@ -141,7 +141,7 @@ export function FilesTree({ groupedFiles, selectedFile, onSelectFile, loading }:
                           <path fillRule="evenodd" d="M4 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7.414A2 2 0 0 0 13.414 6L10 2.586A2 2 0 0 0 8.586 2H4Zm5 2a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H9Z" clipRule="evenodd" />
                         </svg>
                         <span className="truncate flex-1">{file.name}</span>
-                        <span className="text-text-secondary/40 text-[10px]">{formatDate(file.modifiedAt)}</span>
+                        <span className="text-text-secondary/40 text-xs">{formatDate(file.modifiedAt)}</span>
                       </button>
                     </li>
                   )

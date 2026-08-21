@@ -100,13 +100,13 @@ export function NotificationSection({
   return (
     <div className="rounded-lg border border-border-default bg-surface p-3">
       <div className="mb-2 flex items-center justify-between">
-        <h4 className="text-[11px] font-medium uppercase tracking-wider text-text-secondary">
+        <h4 className="text-xs font-medium uppercase tracking-wider text-text-secondary">
           Notify
         </h4>
         <button
           type="button"
           onClick={() => { setIsEditing(!isEditing); }}
-          className="text-[10px] text-accent hover:text-accent-hover"
+          className="text-xs text-accent hover:text-accent-hover"
         >
           {isEditing ? 'Done' : 'Edit'}
         </button>
@@ -167,7 +167,7 @@ export function NotificationSection({
             type="button"
             onClick={() => void handleAddStakeholder()}
             disabled={isLoading || !input.trim()}
-            className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+            className="rounded bg-accent px-2 py-1 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
           >
             Add
           </button>
@@ -179,8 +179,8 @@ export function NotificationSection({
         {notificationSentAt ? (
           <div className="flex items-center justify-between">
             <div>
-              <span className="text-[10px] text-success">Notified</span>
-              <span className="ml-1 text-[10px] text-text-secondary">
+              <span className="text-xs text-success">Notified</span>
+              <span className="ml-1 text-xs text-text-secondary">
                 {formatDateWithTime(notificationSentAt)}
               </span>
             </div>
@@ -188,7 +188,7 @@ export function NotificationSection({
               type="button"
               onClick={() => void handleClearNotified()}
               disabled={isLoading}
-              className="text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-50"
+              className="text-xs text-text-secondary hover:text-text-primary disabled:opacity-50"
             >
               Clear
             </button>

@@ -275,7 +275,7 @@ function ScriptCard({
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-text-primary">{script.name}</span>
             {script.isBuiltIn && (
-              <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+              <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs font-medium text-accent">
                 built-in
               </span>
             )}
@@ -328,7 +328,7 @@ function ScriptCard({
             {showAttach && (
               <div className="absolute right-0 top-8 z-50 w-52 rounded-lg border border-border-default bg-surface shadow-lg">
                 <div className="border-b border-border-default px-3 py-2">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-text-secondary">
+                  <span className="text-xs font-medium uppercase tracking-wider text-text-secondary">
                     Attach as on_entry trigger
                   </span>
                 </div>
@@ -353,15 +353,15 @@ function ScriptCard({
                           className="flex w-full items-center justify-between px-3 py-1.5 text-left text-xs text-text-primary hover:bg-surface-hover"
                         >
                           <span className="flex items-center gap-1.5">
-                            {col.icon && <span className="text-[11px]">{col.icon}</span>}
+                            {col.icon && <span className="text-xs">{col.icon}</span>}
                             {col.name}
                           </span>
                           {isAttachedHere ? (
-                            <span className="rounded bg-green-500/10 px-1 py-0.5 text-[9px] text-green-400">
+                            <span className="rounded bg-green-500/10 px-1 py-0.5 text-2xs text-green-400">
                               attached
                             </span>
                           ) : hasOtherEntry ? (
-                            <span className="rounded bg-amber-500/10 px-1 py-0.5 text-[9px] text-amber-400">
+                            <span className="rounded bg-amber-500/10 px-1 py-0.5 text-2xs text-amber-400">
                               has trigger
                             </span>
                           ) : null}
@@ -408,7 +408,7 @@ function ScriptCard({
 
       {/* Attach status feedback */}
       {attachStatus && (
-        <p className={`mt-1.5 text-[11px] font-medium ${attachStatus.startsWith('Failed') ? 'text-error' : 'text-green-400'}`}>
+        <p className={`mt-1.5 text-xs font-medium ${attachStatus.startsWith('Failed') ? 'text-error' : 'text-green-400'}`}>
           {attachStatus}
         </p>
       )}
@@ -420,19 +420,19 @@ function ScriptCard({
             steps.map((step, i) => (
               <span
                 key={i}
-                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${STEP_TYPE_COLORS[step.type] ?? 'bg-surface text-text-secondary'}`}
+                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${STEP_TYPE_COLORS[step.type] ?? 'bg-surface text-text-secondary'}`}
               >
                 {step.name || step.type}
               </span>
             ))
           ) : (
-            <span className="text-[10px] italic text-text-secondary/50">no steps</span>
+            <span className="text-xs italic text-text-secondary/50">no steps</span>
           )}
         </div>
 
         {/* Show which columns have this script attached */}
         {attachedColumns.length > 0 && (
-          <div className="flex shrink-0 items-center gap-1 text-[10px] text-text-secondary">
+          <div className="flex shrink-0 items-center gap-1 text-xs text-text-secondary">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="currentColor" className="h-2.5 w-2.5 text-accent/60">
               <path d="M5.457 3.525a.563.563 0 0 1 .795 0 2.813 2.813 0 0 1 0 3.978l-1.5 1.5a2.813 2.813 0 1 1-3.978-3.978L1.9 3.9A.562.562 0 0 1 2.697 4.7l-.127.125a1.688 1.688 0 1 0 2.387 2.387l1.5-1.5a1.688 1.688 0 0 0 0-2.387.563.563 0 0 1 0-.8Z" />
               <path d="M6.543 8.475a.563.563 0 0 1-.795 0 2.813 2.813 0 0 1 0-3.978l1.5-1.5a2.813 2.813 0 1 1 3.978 3.978l-.126.125a.562.562 0 0 1-.796-.796l.126-.125a1.688 1.688 0 1 0-2.387-2.387l-1.5 1.5a1.688 1.688 0 0 0 0 2.387.563.563 0 0 1 0 .796Z" />

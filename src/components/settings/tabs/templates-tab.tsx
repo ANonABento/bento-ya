@@ -104,12 +104,12 @@ export function TemplatesTab() {
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-text-primary">{template.name}</span>
                   {template.isBuiltIn && (
-                    <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] text-text-secondary">
+                    <span className="rounded bg-surface-hover px-1.5 py-0.5 text-xs text-text-secondary">
                       Built-in
                     </span>
                   )}
                   {defaultTemplateId === template.id && (
-                    <span className="rounded bg-accent/20 px-1.5 py-0.5 text-[10px] text-accent">
+                    <span className="rounded bg-accent/20 px-1.5 py-0.5 text-xs text-accent">
                       Default
                     </span>
                   )}
@@ -173,7 +173,7 @@ export function TemplatesTab() {
                           <span>{col.icon}</span>
                           <span className="text-xs text-text-primary">{col.name}</span>
                           {col.autoAdvance && (
-                            <span className="text-[10px] text-accent">→</span>
+                            <span className="text-xs text-accent">→</span>
                           )}
                         </div>
                       ))}

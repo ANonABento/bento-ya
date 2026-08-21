@@ -42,7 +42,7 @@ function DescriptionMarkdown({ description }: { description: string }) {
             )
           },
           pre: ({ children }) => (
-            <pre className="my-2 overflow-x-auto rounded border border-border-default bg-surface p-2 text-[11px]">
+            <pre className="my-2 overflow-x-auto rounded border border-border-default bg-surface p-2 text-xs">
               {children}
             </pre>
           ),
@@ -177,7 +177,7 @@ export function TaskCardExpanded({ task }: { task: Task }) {
               }}
               className="max-h-56 w-full resize-y rounded-md border border-accent bg-surface px-2 py-1.5 text-xs leading-relaxed text-text-primary outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
             />
-            <div className="px-1 text-[10px] text-text-secondary">
+            <div className="px-1 text-xs text-text-secondary">
               {saveShortcutLabel} to save, Escape to cancel
             </div>
           </div>
@@ -224,12 +224,12 @@ export function TaskCardExpanded({ task }: { task: Task }) {
                 <circle cx="8" cy="9" r="1.5" />
                 <path d="M4 4.5V7.5C4 8.5 5 9 8 9M8 7.5V3" />
               </svg>
-              <span className="truncate font-mono text-[11px] text-accent max-w-[180px]">
+              <span className="truncate font-mono text-xs text-accent max-w-[180px]">
                 {task.branch}
               </span>
               {task.worktreePath && (
                 <span
-                  className="rounded bg-purple-500/10 px-1 py-0.5 text-[10px] font-medium text-purple-400"
+                  className="rounded bg-purple-500/10 px-1 py-0.5 text-xs font-medium text-purple-400"
                   title={task.worktreePath}
                 >
                   worktree
@@ -238,7 +238,7 @@ export function TaskCardExpanded({ task }: { task: Task }) {
             </div>
           )}
           {task.model && (
-            <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+            <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs font-medium text-accent">
               {task.model}
             </span>
           )}
@@ -247,7 +247,7 @@ export function TaskCardExpanded({ task }: { task: Task }) {
         {/* Siege Loop Status (only when active) */}
         {(task.siegeActive || task.siegeIteration > 0) && (
           <div>
-            <h4 className="text-[11px] font-medium uppercase tracking-wider text-text-secondary mb-1">
+            <h4 className="text-xs font-medium uppercase tracking-wider text-text-secondary mb-1">
               Siege Loop
             </h4>
             <SiegeStatus task={task} onUpdate={updateTask} />
@@ -256,7 +256,7 @@ export function TaskCardExpanded({ task }: { task: Task }) {
 
         {/* Touched files only; full diffs live in the agent panel. */}
         <div>
-          <h4 className="text-[11px] font-medium uppercase tracking-wider text-text-secondary mb-1">
+          <h4 className="text-xs font-medium uppercase tracking-wider text-text-secondary mb-1">
             Touched Files
           </h4>
           <TouchedFilesSummary
@@ -267,7 +267,7 @@ export function TaskCardExpanded({ task }: { task: Task }) {
         </div>
 
         <div>
-          <h4 className="text-[11px] font-medium uppercase tracking-wider text-text-secondary mb-1">
+          <h4 className="text-xs font-medium uppercase tracking-wider text-text-secondary mb-1">
             Commits
           </h4>
           <div className="rounded-md border border-border-default bg-surface">
@@ -338,7 +338,7 @@ function TouchedFilesSummary({
           <button
             type="button"
             onClick={() => { setExpanded((current) => !current) }}
-            className="mt-1 flex w-full items-center justify-center rounded px-2 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+            className="mt-1 flex w-full items-center justify-center rounded px-2 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
             style={{ cursor: 'pointer' }}
           >
             {expanded ? 'Show less' : `Show ${String(hiddenCount)} more`}
@@ -353,11 +353,11 @@ function TouchedFileRow({ file }: { file: FileChange }) {
   return (
     <div className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-xs">
       <StatusBadge status={file.status} />
-      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-secondary" title={file.path}>
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-text-secondary" title={file.path}>
         {file.path}
       </span>
-      <span className="shrink-0 text-[11px] text-success">+{file.additions}</span>
-      <span className="shrink-0 text-[11px] text-error">-{file.deletions}</span>
+      <span className="shrink-0 text-xs text-success">+{file.additions}</span>
+      <span className="shrink-0 text-xs text-error">-{file.deletions}</span>
     </div>
   )
 }
@@ -374,7 +374,7 @@ function StatusBadge({ status }: { status: string }) {
   const letter = status[0]?.toUpperCase() ?? '?'
 
   return (
-    <span className={`w-3 shrink-0 text-center font-mono text-[10px] font-bold ${color}`}>
+    <span className={`w-3 shrink-0 text-center font-mono text-xs font-bold ${color}`}>
       {letter}
     </span>
   )

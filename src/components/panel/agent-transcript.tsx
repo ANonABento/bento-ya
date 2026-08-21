@@ -82,7 +82,7 @@ export function AgentTranscript({
       {isEmpty ? (
         <div className="flex h-full items-center justify-center">
           <div className="max-w-sm text-center">
-            <div className="mb-3 text-[10px] uppercase tracking-[0.18em] text-text-secondary">
+            <div className="mb-3 text-xs uppercase tracking-[0.18em] text-text-secondary">
               No semantic transcript yet
             </div>
             <p className="text-sm leading-relaxed text-text-secondary">
@@ -374,7 +374,7 @@ function RunGroup({ group, isLatest }: { group: Extract<TranscriptGroup, { kind:
           {group.header.detail ? ` · ${group.header.detail}` : ''}
         </span>
         <RunStatusBadge status={status} detail={runStatusDetail(group.items)} />
-        <time className="shrink-0 text-[10px] text-text-secondary/50">
+        <time className="shrink-0 text-xs text-text-secondary/50">
           {new Date(group.header.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </time>
       </button>
@@ -477,7 +477,7 @@ function RunStatusBadge({ status, detail }: { status: RunStatus; detail?: string
   }[status]
 
   return (
-    <span className={`shrink-0 rounded border px-2 py-0.5 text-[10px] font-semibold ${className}`}>
+    <span className={`shrink-0 rounded border px-2 py-0.5 text-xs font-semibold ${className}`}>
       {label}{detail ? ` · ${detail}` : ''}
     </span>
   )
@@ -600,7 +600,7 @@ function CollapsibleBlock({ label, content, storageKey }: { label: string; conte
       <button
         type="button"
         onClick={() => { setOpen(!open) }}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-text-secondary hover:text-text-primary"
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-text-secondary hover:text-text-primary"
         style={{ cursor: 'pointer' }}
       >
         <span className={`transition-transform ${open ? 'rotate-90' : ''}`}>›</span>
@@ -697,16 +697,16 @@ function ActionDisclosure({
         <span className={`text-xs text-running/65 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
         <span className="font-semibold text-running/70">{title}</span>
         {status && (
-          <span className="text-[10px] text-text-secondary/60">
+          <span className="text-xs text-text-secondary/60">
             {status}
           </span>
         )}
         {timestamp && (
-          <time className="text-[10px] text-text-secondary/45">
+          <time className="text-xs text-text-secondary/45">
             {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </time>
         )}
-        {hasDetail && <span className="ml-auto text-[10px] text-text-secondary">details</span>}
+        {hasDetail && <span className="ml-auto text-xs text-text-secondary">details</span>}
       </button>
       <AnimatePresence>
         {open && hasDetail && (
@@ -809,7 +809,7 @@ function PendingSemanticRunEntry({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded border border-border-default px-2 py-0.5 text-[10px] text-text-secondary hover:border-error/40 hover:text-error"
+            className="rounded border border-border-default px-2 py-0.5 text-xs text-text-secondary hover:border-error/40 hover:text-error"
             style={{ cursor: 'pointer' }}
           >
             Cancel

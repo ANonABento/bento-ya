@@ -72,7 +72,7 @@ export function ChatEntry({
       className={`border-l pl-3 ${TONE_BORDER[tone]}`}
     >
       {hasHeader && (
-        <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px]">
+        <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
           {label && <span className={`font-semibold ${TONE_LABEL[tone]}`}>{label}</span>}
           {detail && <span className="min-w-0 break-words text-text-secondary/70">{detail}</span>}
           {time && <time className="text-text-secondary/50">{time}</time>}
@@ -93,7 +93,7 @@ export function ChatDivider({ children, isLatest = false }: { children: ReactNod
       className="flex items-center gap-3 py-0.5"
     >
       <div className="h-px flex-1 bg-border-default" />
-      <span className="max-w-full truncate text-[10px] text-text-secondary">{children}</span>
+      <span className="max-w-full truncate text-xs text-text-secondary">{children}</span>
       <div className="h-px flex-1 bg-border-default" />
     </motion.div>
   )

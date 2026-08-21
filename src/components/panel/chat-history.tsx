@@ -303,7 +303,7 @@ function TypingDots() {
 function QueuedEntry({ content }: { content: string }) {
   return (
     <div className="ml-3 rounded-md border border-dashed border-border-default bg-surface/30 px-3 py-2 opacity-70">
-      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-text-secondary/70">
+      <div className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-text-secondary/70">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-3 w-3" aria-hidden="true">
           <circle cx="8" cy="8" r="6" />
           <path d="M8 5v3l2 1.5" strokeLinecap="round" strokeLinejoin="round" />

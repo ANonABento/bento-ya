@@ -55,6 +55,8 @@ jobs:
 
       - name: IPC registration check
         run: pnpm run test:ipc
+      - name: Type scale check
+        run: pnpm run test:type-scale
 
       - name: Dependency audit
         run: pnpm audit --audit-level moderate

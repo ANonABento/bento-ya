@@ -82,7 +82,7 @@ function flagValue(args: string[], flag: string): string | null {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-text-secondary/70">{label}</span>
+      <span className="text-xs font-medium uppercase tracking-wide text-text-secondary/70">{label}</span>
       {children}
     </div>
   )
@@ -90,7 +90,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function Mono({ children }: { children: React.ReactNode }) {
   return (
-    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-border-default bg-bg p-2 font-mono text-[11px] leading-relaxed text-text-primary">
+    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-border-default bg-bg p-2 font-mono text-xs leading-relaxed text-text-primary">
       {children}
     </pre>
   )
@@ -99,38 +99,38 @@ function Mono({ children }: { children: React.ReactNode }) {
 function EventRow({ ev }: { ev: ParsedEvent }) {
   switch (ev.kind) {
     case 'system':
-      return <div className="text-[11px] text-text-secondary/60">⚙ {ev.text}</div>
+      return <div className="text-xs text-text-secondary/60">⚙ {ev.text}</div>
     case 'text':
       return (
-        <div className="rounded border-l-2 border-border-default bg-surface/30 px-2 py-1 text-[12px] text-text-primary">
+        <div className="rounded border-l-2 border-border-default bg-surface/30 px-2 py-1 text-sm text-text-primary">
           <span className="text-text-secondary/60">assistant </span>
           <span className="whitespace-pre-wrap break-words">{ev.text}</span>
         </div>
       )
     case 'tool_use':
       return (
-        <div className="rounded border-l-2 border-accent/50 bg-accent/5 px-2 py-1 text-[11px]">
+        <div className="rounded border-l-2 border-accent/50 bg-accent/5 px-2 py-1 text-xs">
           <span className="font-semibold text-accent">🔧 {ev.name}</span>
           <span className="ml-1 break-words font-mono text-text-secondary">{JSON.stringify(ev.input)}</span>
         </div>
       )
     case 'tool_result':
       return (
-        <div className="rounded border-l-2 border-running/40 bg-running/5 px-2 py-1 font-mono text-[11px] text-text-secondary">
+        <div className="rounded border-l-2 border-running/40 bg-running/5 px-2 py-1 font-mono text-xs text-text-secondary">
           <span className="text-running/80">← result </span>
           <span className="break-words">{ev.text.length > 600 ? `${ev.text.slice(0, 600)}…` : ev.text}</span>
         </div>
       )
     case 'result':
       return (
-        <div className="rounded border-l-2 border-running/60 bg-running/5 px-2 py-1 text-[11px]">
+        <div className="rounded border-l-2 border-running/60 bg-running/5 px-2 py-1 text-xs">
           <span className="font-semibold text-running">✓ result</span>
           {ev.meta && <span className="ml-1 text-text-secondary/70">{ev.meta}</span>}
           {ev.text && <div className="mt-0.5 whitespace-pre-wrap break-words text-text-primary">{ev.text}</div>}
         </div>
       )
     case 'raw':
-      return <div className="break-words font-mono text-[10px] text-text-secondary/50">{ev.text}</div>
+      return <div className="break-words font-mono text-xs text-text-secondary/50">{ev.text}</div>
   }
 }
 
@@ -158,30 +158,30 @@ function TurnCard({ turn }: { turn: ChatDebugTurn }) {
       >
         <span className={`text-xs text-text-secondary transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
         <span className="font-mono text-xs font-semibold text-text-primary">{cli}</span>
-        {model && <span className="rounded bg-bg px-1.5 py-0.5 text-[10px] text-text-secondary">{model}</span>}
-        {mcpConfig && <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">mcp</span>}
-        {resume && <span className="rounded bg-bg px-1.5 py-0.5 text-[10px] text-text-secondary">resume</span>}
-        <span className="ml-auto text-[10px] text-text-secondary/60">{events.length} events · {time}</span>
+        {model && <span className="rounded bg-bg px-1.5 py-0.5 text-xs text-text-secondary">{model}</span>}
+        {mcpConfig && <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs text-accent">mcp</span>}
+        {resume && <span className="rounded bg-bg px-1.5 py-0.5 text-xs text-text-secondary">resume</span>}
+        <span className="ml-auto text-xs text-text-secondary/60">{events.length} events · {time}</span>
       </button>
 
       {open && (
         <div className="space-y-3 border-t border-border-default px-3 py-3">
           {/* SENT */}
           <div className="space-y-2">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-text-secondary">↑ Sent</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-text-secondary">↑ Sent</div>
             <Field label="command">
-              <span className="break-words font-mono text-[11px] text-text-primary">
+              <span className="break-words font-mono text-xs text-text-primary">
                 {turn.command} {turn.args.filter((a) => a !== systemPrompt).join(' ')}
               </span>
             </Field>
             {allowedTools && (
               <Field label="allowed tools">
-                <span className="break-words font-mono text-[11px] text-accent">{allowedTools}</span>
+                <span className="break-words font-mono text-xs text-accent">{allowedTools}</span>
               </Field>
             )}
             {systemPrompt && (
               <Field label={`system prompt (${String(systemPrompt.length)} chars)`}>
-                <button type="button" onClick={() => { setShowSys((v) => !v) }} className="self-start text-[11px] text-accent" style={{ cursor: 'pointer' }}>
+                <button type="button" onClick={() => { setShowSys((v) => !v) }} className="self-start text-xs text-accent" style={{ cursor: 'pointer' }}>
                   {showSys ? 'hide' : 'show'}
                 </button>
                 {showSys && <Mono>{systemPrompt}</Mono>}
@@ -195,14 +195,14 @@ function TurnCard({ turn }: { turn: ChatDebugTurn }) {
           {/* RECEIVED */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-text-secondary">↓ Received</div>
-              <button type="button" onClick={() => { setShowRaw((v) => !v) }} className="text-[10px] text-text-secondary/70 hover:text-text-primary" style={{ cursor: 'pointer' }}>
+              <div className="text-xs font-semibold uppercase tracking-wide text-text-secondary">↓ Received</div>
+              <button type="button" onClick={() => { setShowRaw((v) => !v) }} className="text-xs text-text-secondary/70 hover:text-text-primary" style={{ cursor: 'pointer' }}>
                 {showRaw ? 'parsed' : 'raw'}
               </button>
-              {turn.outputTruncated && <span className="text-[10px] text-warning">(truncated)</span>}
+              {turn.outputTruncated && <span className="text-xs text-warning">(truncated)</span>}
             </div>
             {turn.output.length === 0 ? (
-              <div className="text-[11px] text-text-secondary/60">(no output captured)</div>
+              <div className="text-xs text-text-secondary/60">(no output captured)</div>
             ) : showRaw ? (
               <Mono>{turn.output.join('\n')}</Mono>
             ) : (

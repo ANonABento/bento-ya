@@ -57,14 +57,14 @@ export function SiegeStatus({ task, onUpdate }: SiegeStatusProps) {
             style={{ width: `${String(progress)}%` }}
           />
         </div>
-        <span className="text-[11px] font-mono text-text-secondary tabular-nums">
+        <span className="text-xs font-mono text-text-secondary tabular-nums">
           {task.siegeIteration}/{task.siegeMaxIterations}
         </span>
       </div>
 
       {/* Status info */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[11px]">
+        <div className="flex items-center gap-1.5 text-xs">
           {task.siegeActive ? (
             <>
               <span className="relative flex h-1.5 w-1.5">
@@ -91,7 +91,7 @@ export function SiegeStatus({ task, onUpdate }: SiegeStatusProps) {
           type="button"
           onClick={() => { void (task.siegeActive ? handleStop() : handleStart()) }}
           disabled={isLoading || !task.prNumber}
-          className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-40 ${
+          className={`rounded px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-40 ${
             task.siegeActive
               ? 'bg-error/10 text-error hover:bg-error/20'
               : 'bg-accent/10 text-accent hover:bg-accent/20'
@@ -104,14 +104,14 @@ export function SiegeStatus({ task, onUpdate }: SiegeStatusProps) {
 
       {/* Last checked */}
       {task.siegeLastChecked && (
-        <div className="text-[10px] text-text-secondary/70">
+        <div className="text-xs text-text-secondary/70">
           Last checked: {new Date(task.siegeLastChecked).toLocaleTimeString()}
         </div>
       )}
 
       {/* No PR warning */}
       {!task.prNumber && (
-        <div className="text-[10px] text-amber-500">
+        <div className="text-xs text-amber-500">
           Create a PR first to use the siege loop.
         </div>
       )}

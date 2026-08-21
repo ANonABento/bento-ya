@@ -32,13 +32,13 @@ export function FileBrowser({ workspaceId, selectedPath, onSelectFile }: FileBro
   }, [workspaceId])
 
   if (error) {
-    return <p className="px-2 py-3 text-[11px] text-red-400">{error}</p>
+    return <p className="px-2 py-3 text-xs text-red-400">{error}</p>
   }
   if (root === null) {
-    return <p className="px-2 py-3 text-[11px] text-text-secondary/60">Loading…</p>
+    return <p className="px-2 py-3 text-xs text-text-secondary/60">Loading…</p>
   }
   if (root.length === 0) {
-    return <p className="px-2 py-3 text-[11px] text-text-secondary/60">Empty repository</p>
+    return <p className="px-2 py-3 text-xs text-text-secondary/60">Empty repository</p>
   }
 
   return (
@@ -83,7 +83,7 @@ function Row({
       type="button"
       onClick={onClick}
       style={{ paddingLeft: 8 + depth * 12, cursor: 'pointer' }}
-      className={`flex w-full items-center gap-1.5 py-0.5 pr-2 text-left text-[11px] transition-colors ${
+      className={`flex w-full items-center gap-1.5 py-0.5 pr-2 text-left text-xs transition-colors ${
         active
           ? 'bg-surface-hover text-text-primary'
           : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
@@ -146,7 +146,7 @@ function DirNode({
       {open && (
         <div>
           {loading && children === null && (
-            <p className="py-0.5 text-[11px] text-text-secondary/50" style={{ paddingLeft: 8 + (depth + 1) * 12 }}>
+            <p className="py-0.5 text-xs text-text-secondary/50" style={{ paddingLeft: 8 + (depth + 1) * 12 }}>
               …
             </p>
           )}

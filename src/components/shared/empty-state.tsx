@@ -18,7 +18,7 @@ const sizeStyles: Record<EmptyStateSize, { container: string; icon: string; titl
     container: 'py-4 px-3',
     icon: 'h-6 w-6 mb-2',
     title: 'text-xs font-medium',
-    desc: 'text-[11px]',
+    desc: 'text-xs',
   },
   md: {
     container: 'py-8 px-4',

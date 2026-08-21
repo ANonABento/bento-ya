@@ -64,12 +64,12 @@ function ModelCard({
           <span className="text-sm font-medium text-text-primary capitalize">{model.model}</span>
           <span className="text-xs text-text-secondary">{model.sizeDisplay}</span>
           {isDownloaded && (
-            <span className="rounded bg-green-500/20 px-1.5 py-0.5 text-[10px] font-medium text-green-400">
+            <span className="rounded bg-green-500/20 px-1.5 py-0.5 text-xs font-medium text-green-400">
               Downloaded
             </span>
           )}
           {isSelected && isDownloaded && (
-            <span className="rounded bg-accent/20 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+            <span className="rounded bg-accent/20 px-1.5 py-0.5 text-xs font-medium text-accent">
               Active
             </span>
           )}

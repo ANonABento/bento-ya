@@ -60,7 +60,7 @@ export function DragOverlayContent({ item }: DragOverlayContentProps) {
 
           {/* Metadata row */}
           {hasMetadata && (
-            <div className="flex items-center gap-x-3 text-[11px] text-text-secondary">
+            <div className="flex items-center gap-x-3 text-xs text-text-secondary">
               {cardSettings.showPrBadge && task.prNumber && (
                 <span className="inline-flex items-center gap-1">
                   <svg className="h-3 w-3" viewBox="0 0 16 16" fill="currentColor">
@@ -84,14 +84,14 @@ export function DragOverlayContent({ item }: DragOverlayContentProps) {
               {taskLabels.slice(0, 3).map((label) => (
                 <span
                   key={label.id}
-                  className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary"
+                  className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-xs text-text-secondary"
                 >
                   <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: label.color }} />
                   {label.name}
                 </span>
               ))}
               {taskLabels.length > 3 && (
-                <span className="text-[10px] text-text-secondary/70">+{taskLabels.length - 3}</span>
+                <span className="text-xs text-text-secondary/70">+{taskLabels.length - 3}</span>
               )}
             </div>
           )}

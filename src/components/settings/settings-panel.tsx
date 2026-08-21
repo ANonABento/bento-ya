@@ -343,7 +343,7 @@ export function SettingsPanel() {
               <nav className="hidden w-56 shrink-0 overflow-y-auto border-r border-border-default bg-surface/40 p-3 lg:block">
                 {TAB_GROUPS.map((group) => (
                   <div key={group.id} className="mb-4">
-                    <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-text-secondary/70">
+                    <div className="mb-1 px-2 text-xs font-semibold uppercase tracking-wider text-text-secondary/70">
                       {group.label}
                     </div>
                     {group.tabs.map((tab) => (

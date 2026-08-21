@@ -55,7 +55,7 @@ export function GitTab() {
 
       <SettingSection title="Automation">
         <div className="relative">
-          <span className="absolute -top-7 right-0 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent">
+          <span className="absolute -top-7 right-0 rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent">
             Coming Soon
           </span>
           <div className="opacity-50 pointer-events-none">
@@ -75,7 +75,7 @@ export function GitTab() {
 
       <SettingSection title="PR Template" description="Default template for pull request descriptions">
         <div className="relative">
-          <span className="absolute -top-7 right-0 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent">
+          <span className="absolute -top-7 right-0 rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent">
             Coming Soon
           </span>
           <div className="opacity-50 pointer-events-none">

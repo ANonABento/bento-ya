@@ -64,7 +64,7 @@ function AttachmentItem({ attachment, onRemove, disabled }: AttachmentItemProps)
           <span className="text-xs text-text-primary truncate max-w-[100px]">
             {attachment.name}
           </span>
-          <span className="text-[10px] text-text-muted">
+          <span className="text-xs text-text-muted">
             {formatFileSize(attachment.size)}
           </span>
         </div>

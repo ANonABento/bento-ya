@@ -168,7 +168,7 @@ export function ModelComparisonSection({ models }: Props) {
                           <td className="px-3 py-3">
                             <div className="font-medium">{metadata.displayName}</div>
                             <div
-                              className="mt-0.5 max-w-48 truncate font-mono text-[11px] text-text-secondary"
+                              className="mt-0.5 max-w-48 truncate font-mono text-xs text-text-secondary"
                               title={metadata.id}
                             >
                               {metadata.id}
@@ -261,7 +261,7 @@ function CapabilityBadges({ capabilities }: { capabilities: string[] }) {
       {capabilities.map((capability) => (
         <span
           key={capability}
-          className="rounded border border-border-default bg-surface px-1.5 py-0.5 text-[11px] capitalize text-text-secondary"
+          className="rounded border border-border-default bg-surface px-1.5 py-0.5 text-xs capitalize text-text-secondary"
         >
           {capability}
         </span>

@@ -35,7 +35,7 @@ export function CommitsSection({ commits }: CommitsSectionProps) {
             key={commit.hash}
             className="flex items-start gap-2 rounded px-2 py-1 text-xs hover:bg-surface-hover"
           >
-            <span className="shrink-0 font-mono text-[11px] text-accent">
+            <span className="shrink-0 font-mono text-xs text-accent">
               {commit.shortHash}
             </span>
             <span className="flex-1 truncate text-text-primary">
@@ -47,7 +47,7 @@ export function CommitsSection({ commits }: CommitsSectionProps) {
           <button
             type="button"
             onClick={() => { setExpanded((current) => !current) }}
-            className="flex w-full items-center justify-center rounded px-2 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+            className="flex w-full items-center justify-center rounded px-2 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
             style={{ cursor: 'pointer' }}
           >
             {expanded ? 'Show less' : `Show ${String(hiddenCommitCount)} more`}

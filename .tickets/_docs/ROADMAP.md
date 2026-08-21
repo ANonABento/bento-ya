@@ -35,6 +35,18 @@ replaces the terminal.
   with a 60s budget and **never** hard-kills — exhausting it injects anyway and
   leaves the pane inspectable. `CLI_HEALTH_SPECS` now probes the interactive
   codex path so the same drift can't ship silently again.
+- Settings wiring pass (Appearance): all five settings now reach the UI. Font Size
+  was worse than unwired — 247 arbitrary `text-[Npx]` values across 63 files were
+  absolute, so at "small" the root dropped to 12px while a caption pinned at 11px
+  stayed put and rendered *larger* than the `text-sm` body above it. The scale is
+  now four rem steps (`text-2xs` added to `@theme`, since Tailwind stops at `xs`),
+  all 247 converted, and `scripts/check-type-scale.js` fails CI on the next
+  absolute size. Card Density and Animation Speed were fully inert: the chain died
+  at `.card-padding`/`.card-gap`/`.transition-appearance`, three helper classes
+  zero components used. Density now drives the task card's padding and the
+  column's inter-card gap directly; Animation Speed rides Tailwind's own
+  `--default-transition-duration`, so every `transition-*` utility honours it
+  without opting in. The three dead classes are gone.
 - Interactive done-advisory persisted (migration 048, `tasks.agent_done_signaled_at`):
   the signal used to be a Tauri event only, so it existed just while the agent
   panel was mounted. Now the board shows a "Ready to advance" badge that
@@ -50,37 +62,11 @@ replaces the terminal.
 
 ## 🟡 Important (rough edges, not blockers)
 
-2. **Settings wiring pass — three of five Appearance settings don't reach the UI.**
-   Measured 2026-08-21 in a real browser, not inferred. The store→DOM plumbing is
-   fine (`lib/appearance.ts`, called from `main.tsx` and `settings-store.ts`);
-   what's missing is anything *consuming* the result.
-
-   | Setting | State |
-   |---|---|
-   | Theme | works |
-   | Accent colour | works (sets `--accent`) |
-   | **Font size** | **partial, and actively wrong at "small"** |
-   | **Card density** | **inert** |
-   | **Animation speed** | **inert** |
-
-   - **Font size.** `--base-font-size` lands on `html`, so rem-based utilities do
-     scale — `text-sm` measures 10.5 / 12.25 / 14px across small/medium/large.
-     But **247 arbitrary `text-[Npx]` values across 63 files** (144× `text-[10px]`,
-     96× `text-[11px]`) are absolute and never move. At "small" that *inverts the
-     hierarchy*: `text-sm` drops to 10.5px while a caption pinned at `text-[11px]`
-     stays larger than the body text it's meant to sit under.
-     Fix: add rem-based steps to the `@theme` block in `index.css` (the scale
-     wants a `text-micro`/`text-tiny` below `text-xs`) and convert the 247 uses.
-   - **Card density / animation speed.** The chain is
-     store → `data-card-density` / `data-animation-speed` → `--card-padding` /
-     `--card-gap` / `--transition-duration` → `.card-padding` / `.card-gap` /
-     `.transition-appearance`. That last hop is where it dies: those three helper
-     classes are used by **zero** components. Either apply them on the card/panel
-     primitives or drop the settings.
-
-   While in there, re-check the other known-inert surfaces listed under
-   "Inert / deferred" below — custom keyboard shortcuts render but do nothing,
-   and the OpenRouter / Google / Ollama provider cards are "Coming soon".
+2. **Other inert settings surfaces.** Flagged while wiring Appearance, not fixed:
+   custom keyboard shortcuts render but do nothing (`shortcuts-tab.tsx:54`), and
+   the OpenRouter / Google / Ollama provider cards are "Coming soon". Framer
+   Motion animations also ignore Animation Speed — they read no CSS variable, so
+   "none" doesn't fully mean none.
 
 3. **`effort_level` not wired into the trigger path.** It's a real DB field + has a
    `thinking-selector.tsx` and works in the interactive chat panel, but no
@@ -123,5 +109,5 @@ replaces the terminal.
 
 ## Suggested order
 
-`#1 rm stale claude` (free) → `#2 settings wiring pass` → `#3 effort wiring` →
-`#4 checklist/roadmap MCP` → `#5 MCP gaps`.
+`#1 rm stale claude` (free) → `#3 effort wiring` → `#4 checklist/roadmap MCP` →
+`#5 MCP gaps`. `#2` is cosmetic cleanup; do it opportunistically.

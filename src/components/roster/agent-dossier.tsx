@@ -40,12 +40,12 @@ function Section({
       <header className="flex items-center gap-2 border-b border-border-default px-4 py-2.5">
         <h4 className="text-xs font-semibold text-text-primary">{title}</h4>
         {count !== undefined && count > 0 && (
-          <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
+          <span className="rounded bg-surface-hover px-1.5 py-0.5 text-xs font-medium text-text-secondary">
             {count}
           </span>
         )}
         {v2 && (
-          <span className="ml-auto rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+          <span className="ml-auto rounded bg-accent/10 px-1.5 py-0.5 text-xs font-medium text-accent">
             v2
           </span>
         )}
@@ -64,7 +64,7 @@ function CodeValue({ value, copyable = false }: { value: string; copyable?: bool
 
   if (!copyable) {
     return (
-      <span className="rounded border border-border-default bg-bg px-1.5 py-0.5 font-mono text-[11px] text-text-primary">
+      <span className="rounded border border-border-default bg-bg px-1.5 py-0.5 font-mono text-xs text-text-primary">
         {value}
       </span>
     )
@@ -88,7 +88,7 @@ function CodeValue({ value, copyable = false }: { value: string; copyable?: bool
       }}
       title="Copy"
       style={{ cursor: 'pointer' }}
-      className="group inline-flex max-w-full items-center gap-1.5 rounded border border-border-default bg-bg px-1.5 py-0.5 font-mono text-[11px] text-text-primary transition-colors hover:border-text-secondary"
+      className="group inline-flex max-w-full items-center gap-1.5 rounded border border-border-default bg-bg px-1.5 py-0.5 font-mono text-xs text-text-primary transition-colors hover:border-text-secondary"
     >
       <span className="truncate">{value}</span>
       <span className="shrink-0">
@@ -128,7 +128,7 @@ function Field({
   return (
     <div className="flex items-baseline gap-3 py-1">
       <span
-        className={`${wideLabel ? 'w-40' : 'w-28'} shrink-0 truncate font-mono text-[11px] text-text-secondary`}
+        className={`${wideLabel ? 'w-40' : 'w-28'} shrink-0 truncate font-mono text-xs text-text-secondary`}
         title={label}
       >
         {label}
