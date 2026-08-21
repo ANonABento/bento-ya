@@ -199,8 +199,32 @@ Deliberately **not** `viewMode`, which means "is the chat panel open" and is
 load-bearing via `isChatOpen`. Orchestrator is not a section yet — it's still a
 dock panel inside `Board` with its own geometry.
 
-**Not wired yet (v2):** columns referencing an agent, execution, skill injection
-into the CLI, MCP/`/api/*` tools, RAG. Spec:
+**Wired into columns.** A `spawn_cli` trigger carries `agent_id`. When set, the
+agent supplies the CLI, instructions, tools and its preferred model, and the
+column may override **model only** — enforced in `pipeline::spawn::resolve()`
+and nowhere else. `roster::plan::plan_for()` turns a definition into spawn
+parameters; the `Runtime` trait still has no `execute`.
+
+**Instructions ship as `.agent.md`, not a system-prompt flag.** Written to the
+working dir next to `.task.md`, with a newline-free prompt line pointing at it.
+There is no flag that spans the three runtimes: codex has none, claude's
+`--append-system-prompt` is **last-wins** (verified against 2.1.239) and
+interactive mode already spends it on the done-sentinel, and scripts have no
+prompt concept. A file also means runtime mode can't change what the agent is
+told. Skills render into the same file.
+
+**Script agents** run through the same tmux transport, bypassing the
+claude/codex allow-list — that guard is for hand-editable trigger JSON, and an
+`agents` row is the same trust level `run_script` already grants. They are
+forced to `terminal` mode (managed/interactive assume an LLM CLI) and receive
+the prompt via `$TRIGGER_PROMPT`, never as argv.
+
+`commands::roster::get_agent_usage` lists the columns running an agent, across
+every workspace; the dossier shows them and the delete confirmation names them.
+Deleting is allowed anyway — a fired trigger then fails loudly by name.
+
+**Still v2:** MCP/`/api/*` tools for agents, RAG, typed inputs/outputs,
+Orchestrator-as-section, rebrand. Spec:
 `.tickets/_docs/specs/KAITEN_AGENTS.md`.
 
 ### Database (`src-tauri/src/db/`)

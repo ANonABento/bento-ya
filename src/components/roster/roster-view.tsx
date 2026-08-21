@@ -6,6 +6,7 @@ import * as ipc from '@/lib/ipc'
 import { AgentTile, NewAgentTile } from './agent-tile'
 import { AgentDossier } from './agent-dossier'
 import { AgentEditor } from './agent-editor'
+import { useAgentUsage } from './use-agent-usage'
 
 /**
  * The Roster section — character-select for agents.
@@ -42,6 +43,8 @@ export function RosterView() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const selectedUsage = useAgentUsage(selectedId ?? undefined)
 
   const visible = useMemo(
     () => (filter === 'all' ? agents : agents.filter((a) => a.runtime === filter)),
@@ -151,6 +154,7 @@ export function RosterView() {
               onDelete={() => {
                 setConfirmDelete(selected.id)
               }}
+              usage={selectedUsage}
             />
           ) : (
             <div className="flex h-full items-center justify-center p-6">
@@ -181,7 +185,13 @@ export function RosterView() {
       {confirmDelete !== null && (
         <ConfirmDialog
           title="Delete this agent?"
-          body="This removes the definition. Work it has already done is unaffected."
+          body={
+            selectedUsage.length > 0
+              ? `${selectedUsage
+                  .map((u) => `${u.columnName} (${u.workspaceName})`)
+                  .join(', ')} still run${selectedUsage.length === 1 ? 's' : ''} this agent. Those columns will fail until you point them somewhere else.`
+              : 'This removes the definition. Work it has already done is unaffected.'
+          }
           testId="roster-confirm-delete"
           onConfirm={() => {
             void handleDelete(confirmDelete)

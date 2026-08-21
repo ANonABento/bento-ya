@@ -13,13 +13,16 @@
 //!   care.
 //! - [`Runtime`] — the **seam**. Small on purpose.
 //!
-//! There is deliberately **no `execute`/`spawn` method here.** The decision was
-//! "design the seam, ship a few plugins behind it, no execution engine on day
-//! one". When agents are wired into columns, spawning should reuse the existing
-//! `pipeline::spawn::resolve()` rather than growing a second copy of the
-//! cli/model/cwd/prompt precedence rules.
+//! There is deliberately **no `execute`/`spawn` method here** — and there still
+//! isn't. Columns can now reference an agent, but the seam stayed shut: [`plan`]
+//! turns a definition into spawn *parameters*, and
+//! `pipeline::spawn::resolve()` applies precedence against the
+//! task/column/workspace tiers. Neither launches anything, so there is still
+//! exactly one copy of the cli/model/cwd/prompt rules.
 //!
 //! Spec: `.tickets/_docs/specs/KAITEN_AGENTS.md`
+
+pub mod plan;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

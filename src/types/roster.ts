@@ -74,6 +74,21 @@ export interface RuntimeDescriptor {
   usesScriptFields: boolean
 }
 
+/**
+ * One place an agent is currently attached, from `get_agent_usage`.
+ *
+ * Carries the workspace name as well as the column's, because agents are
+ * global — two boards can each have a column called "Review".
+ */
+export interface AgentUsage {
+  workspaceId: string
+  workspaceName: string
+  columnId: string
+  columnName: string
+  /** `'on_entry'` or `'on_exit'`. */
+  hook: string
+}
+
 export const DEFAULT_LLM_CONFIG: Omit<LlmConfig, 'runtime'> = {
   systemPrompt: '',
   model: '',

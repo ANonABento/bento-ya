@@ -357,6 +357,7 @@ pub fn run() {
             commands::roster::create_agent,
             commands::roster::update_agent,
             commands::roster::delete_agent,
+            commands::roster::get_agent_usage,
             commands::roster::list_agent_runtimes,
             commands::roster::list_skills,
             commands::roster::create_skill,

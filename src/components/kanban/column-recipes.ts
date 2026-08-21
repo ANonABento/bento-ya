@@ -69,7 +69,7 @@ export const COLUMN_RECIPES: ColumnRecipe[] = [
 
 /** Plain-language action verbs for the sentence's "do" clause. */
 export const ACTION_CLAUSES: { value: ActionType; label: string }[] = [
-  { value: 'spawn_cli', label: 'run an AI agent' },
+  { value: 'spawn_cli', label: 'run an agent' },
   { value: 'run_script', label: 'run a script' },
   { value: 'create_pr', label: 'open a PR' },
   { value: 'auto_setup', label: 'set up a branch + worktree' },

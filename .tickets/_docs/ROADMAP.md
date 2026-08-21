@@ -35,6 +35,15 @@ replaces the terminal.
   with a 60s budget and **never** hard-kills — exhausting it injects anyway and
   leaves the pane inspectable. `CLI_HEALTH_SPECS` now probes the interactive
   codex path so the same drift can't ship silently again.
+- Kaiten Agents wired into columns (2026-08-21): a `spawn_cli` trigger carries
+  `agent_id`, and the agent then supplies the CLI, instructions, tools and its
+  preferred model, with the column able to override **model only** — enforced in
+  `pipeline::spawn::resolve()` alone. All three runtimes run, script agents
+  included, through the same tmux transport. Instructions and skills ship as
+  `.agent.md` rather than a system-prompt flag: codex has no such flag, claude's
+  `--append-system-prompt` is last-wins and interactive mode already spends it on
+  the done-sentinel, and scripts have no prompt at all. `get_agent_usage` shows
+  which columns run an agent so deleting one names what it would break.
 - Settings wiring pass (Appearance): all five settings now reach the UI. Font Size
   was worse than unwired — 247 arbitrary `text-[Npx]` values across 63 files were
   absolute, so at "small" the root dropped to 12px while a caption pinned at 11px

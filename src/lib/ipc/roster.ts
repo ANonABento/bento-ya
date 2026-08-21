@@ -1,5 +1,5 @@
 import { invoke } from './invoke'
-import type { Agent, RuntimeDescriptor, Skill } from '@/types'
+import type { Agent, AgentUsage, RuntimeDescriptor, Skill } from '@/types'
 
 // ─── Roster commands (Kaiten Agents) ──────────────────────────────────────
 //
@@ -33,6 +33,9 @@ export const updateAgent = (
 export const deleteAgent = (id: string): Promise<void> => invoke('delete_agent', { id })
 
 export const listAgentRuntimes = () => invoke<RuntimeDescriptor[]>('list_agent_runtimes')
+
+/** Which columns currently run this agent, across every workspace. */
+export const getAgentUsage = (id: string) => invoke<AgentUsage[]>('get_agent_usage', { id })
 
 export const listSkills = () => invoke<Skill[]>('list_skills')
 

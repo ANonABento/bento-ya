@@ -1064,6 +1064,23 @@ const mockCommands: Record<string, CommandHandler> = {
     return undefined
   },
   list_agent_runtimes: () => mockRuntimeDescriptors,
+  // Derived from the mock columns rather than a fixture list, so browser mode
+  // shows the same "used by" count the real backend would.
+  get_agent_usage: (args) =>
+    mockColumns.flatMap((column) =>
+      (['on_entry', 'on_exit'] as const)
+        .filter((hook) => {
+          const action = column.triggers?.[hook]
+          return action?.type === 'spawn_cli' && action.agent_id === args?.id
+        })
+        .map((hook) => ({
+          workspaceId: column.workspaceId,
+          workspaceName: mockWorkspaces.find((w) => w.id === column.workspaceId)?.name ?? '',
+          columnId: column.id,
+          columnName: column.name,
+          hook,
+        })),
+    ),
 
   list_skills: () => [...mockSkills].sort((a, b) => a.name.localeCompare(b.name)),
   create_skill: (args) => {

@@ -1,7 +1,8 @@
 # Spec — Kaiten Agents (craftable agents + character-select roster)
 
-> Status: **IN PROGRESS** (started 2026-08-21). This session ships the Agent as a
-> *definition* + the Roster UI. Pipeline wiring and execution are v2, deliberately.
+> Status: **SHIPPED** (2026-08-21). The Agent as a *definition*, the Roster UI,
+> and the column wiring are all in. RAG, typed I/O, the MCP surface and
+> Orchestrator-as-section remain v2 — see "Still v2" below.
 > Design origin: artifact *"Kaiten Agents — IA & Roster Mockup"* (2026-07-02).
 
 ## Goal
@@ -142,24 +143,80 @@ as "missing skill" rather than throwing.
 **Boundary:** skills become real, persisted, editable and attachable data now.
 *Injecting* them into a spawned CLI is execution — that lands with the wiring.
 
-## What v2 (the wiring session) must do
+## Wiring — shipped 2026-08-21
 
-1. **Columns reference an agent.** A `spawn_cli` action gains `agent_id`; when
-   set, the agent supplies cli/model/prompt/tools and the column may override
-   **model only**. Enforce that in one place — `pipeline::spawn::resolve()`.
-2. **Skill injection** into the spawned CLI.
-3. **`/api/*` + MCP surface** for agents, following the `create_script` route
+Items 1 and 2 of the original v2 list are done.
+
+**1. Columns reference an agent.** `spawn_cli` carries `agent_id`.
+`roster::plan::plan_for()` turns a definition into an `AgentSpawnPlan` (command,
+model, instructions, extra argv, env); `pipeline::spawn::resolve()` applies it
+against the other tiers. The precedence is
+
+```text
+task > trigger > agent > workspace > global > default
+```
+
+and **model is the only tier a column may take from the agent**. A leftover
+`cli` token on the column is logged and ignored rather than obeyed — the roster
+tile has to tell the truth about what runs. The UI encodes the same rule: the
+CLI token disappears from the automation sentence once an agent is attached, and
+the Advanced editor replaces its CLI dropdown with "Set by <agent>".
+
+**2. Skill injection — via `.agent.md`, not a system-prompt flag.**
+
+This was the one real design decision, and the flags forced it:
+
+- **codex has no system-prompt flag at all** (codex-cli 0.145.0).
+- **claude's `--append-system-prompt` is last-wins, not cumulative** (verified
+  against 2.1.239: two flags, only the second applied). Interactive mode already
+  spends that flag on the done-sentinel and appends it *after* user args, so
+  routing instructions through it would silently drop them in exactly the
+  columns most likely to use an agent.
+- **script agents have no prompt concept.**
+
+So instructions and skills render to `.agent.md` in the working dir, and the
+prompt gains a newline-free pointer to it — the convention `.task.md` already
+established. One mechanism across 3 runtimes x 3 runtime modes, no
+flag-existence assumptions, and switching a column between headless and
+interactive cannot change what the agent was told. Runtime mode is a rendering
+and billing choice; it has no business altering behaviour. Verified end-to-end
+against a real `claude -p`.
+
+A stale `.agent.md` is removed when a column has no agent — worktrees are reused
+across columns, so leaving it would let one column's agent keep instructing the
+next.
+
+**Script agents run too.** Same tmux transport, so they get a live terminal,
+exit-code completion and an agent card. They bypass `validate_agent_cli_path`:
+that allow-list guards *hand-editable trigger JSON*, and a script agent's command
+comes from an `agents` row authored in the Roster UI — the same trust level
+`run_script` already grants user-authored scripts. They are forced to `terminal`
+mode and receive the prompt through `$TRIGGER_PROMPT` rather than argv, since the
+generic command builder would otherwise append prose as a positional argument.
+
+**Deleting an agent that columns use** is allowed, not blocked — forbidding it
+would leave no way to remove an agent attached to a workspace you no longer have
+open. `get_agent_usage` sweeps every workspace; the dossier shows the columns and
+the delete confirmation names them, and a fired trigger for a missing agent fails
+loudly by name rather than falling back to a bare CLI.
+
+## Still v2
+
+1. **`/api/*` + MCP surface** for agents, following the `create_script` route
    shape in `api.rs` (snake_case bodies) + `emit_entities_changed(app, "", "agent")`
    and a new `'agent'` arm in `EntityKind` / `useEntitySync`.
-4. **Orchestrator as a rail section.** It is currently a dock panel inside
+2. **Orchestrator as a rail section.** It is currently a dock panel inside
    `Board` owning its own dock/size/collapse state and Cmd+J. Promoting it is a
-   geometry restructure, so the rail ships Board + Roster first; the rail is
-   generic over its items, so adding a third is small once that's untangled.
-5. RAG; typed inputs/outputs.
+   geometry restructure; the rail is generic over its items, so adding a third is
+   small once that's untangled.
+3. **Per-task agent override.** Tasks already override model and runtime mode;
+   an agent override would be natural but wasn't needed to make columns work.
+4. RAG; typed inputs/outputs.
 
-## Non-goals for the first cut
+## Non-goals, and how they resolved
 
-Deploy-to-column · agent execution · MCP/API tools for agents · RAG · typed
-I/O · Orchestrator-as-section · rebrand. The precedence rule above is
-**specified** here but not implemented — there is nothing to enforce it against
-until columns reference agents.
+The first cut deliberately excluded deploy-to-column, agent execution and skill
+injection, on the grounds that the precedence rule had nothing to enforce it
+against until columns referenced agents. That is no longer true: all three
+shipped in the wiring pass above. The remaining exclusions are listed under
+"Still v2".

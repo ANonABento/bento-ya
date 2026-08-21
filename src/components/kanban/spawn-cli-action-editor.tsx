@@ -1,4 +1,6 @@
 import type { AgentRuntimeMode, CliType, SpawnCliAction } from '@/types'
+import { useEffect } from 'react'
+import { useRosterStore } from '@/stores/roster-store'
 import { CLI_TYPES, COMMON_COMMANDS } from './column-config-constants'
 
 type SpawnCliActionEditorProps = {
@@ -49,6 +51,13 @@ export function SpawnCliActionEditor({
   const runtimeMode = action.runtime_mode ?? 'terminal'
   const isManagedMode = runtimeMode === 'managed'
 
+  const agents = useRosterStore((s) => s.agents)
+  const loadRoster = useRosterStore((s) => s.load)
+  useEffect(() => { void loadRoster() }, [loadRoster])
+  const attachedAgent = action.agent_id
+    ? agents.find((a) => a.id === action.agent_id)
+    : undefined
+
   return (
     <div className="space-y-3 rounded-lg border border-border-default bg-bg/50 p-3">
       {/* CLI + Command */}
@@ -57,17 +66,30 @@ export function SpawnCliActionEditor({
           <label className="mb-1 block text-xs font-medium text-text-secondary">
             CLI
           </label>
-          <select
-            value={action.cli || 'claude'}
-            onChange={(e) => { setAction({ ...action, cli: e.target.value as CliType }) }}
-            className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
-          >
-            {CLI_TYPES.map((cli) => (
-              <option key={cli.value} value={cli.value}>
-                {cli.label}
-              </option>
-            ))}
-          </select>
+          {action.agent_id ? (
+            // An attached agent owns its runtime. A live dropdown here would
+            // be a control whose value is discarded at spawn time — say what
+            // actually runs instead.
+            <div
+              data-testid="spawn-cli-owned-by-agent"
+              className="rounded-lg border border-border-default bg-surface/40 px-3 py-2 text-sm text-text-secondary"
+            >
+              Set by{' '}
+              <span className="text-text-primary">{attachedAgent?.name ?? 'a missing agent'}</span>
+            </div>
+          ) : (
+            <select
+              value={action.cli || 'claude'}
+              onChange={(e) => { setAction({ ...action, cli: e.target.value as CliType }) }}
+              className="w-full rounded-lg border border-border-default bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
+            >
+              {CLI_TYPES.map((cli) => (
+                <option key={cli.value} value={cli.value}>
+                  {cli.label}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         <div>
