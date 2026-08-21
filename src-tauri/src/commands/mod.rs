@@ -12,6 +12,7 @@ pub mod label;
 pub mod orchestrator;
 pub mod pipeline;
 pub mod pipeline_template;
+pub mod roster;
 pub mod script;
 pub mod settings;
 pub mod siege;

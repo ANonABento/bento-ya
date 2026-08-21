@@ -5,7 +5,7 @@
 
 /* eslint-disable @typescript-eslint/no-unnecessary-condition -- Mock data uses ?? for defensive safety with unknown runtime args */
 
-import type { Workspace, Column, Task, Label, AgentMode, AgentStatus, PipelineState, Script } from '@/types'
+import type { Workspace, Column, Task, Label, AgentMode, AgentStatus, PipelineState, Script, Agent, Skill, RuntimeDescriptor } from '@/types'
 import type { AgentTranscriptEvent, AgentTranscriptEventType } from '@/types/events'
 import type { ModelsCache } from '@/lib/ipc/models'
 import { DEFAULT_TRIGGERS } from '@/types/column'
@@ -212,6 +212,49 @@ const sampleDiffByPath: Record<string, string> = {
 const sampleCombinedDiff = Object.values(sampleDiffByPath).join('\n')
 
 let mockLabels: Label[] = []
+let mockAgents: Agent[] = [
+  {
+    id: 'agent-code-smith',
+    name: 'Code Smith',
+    role: 'Writes the code',
+    runtime: 'claude',
+    config: JSON.stringify({
+      runtime: 'claude',
+      systemPrompt: 'You implement the task in the worktree.',
+      model: 'opus',
+      mcpConfigPath: '',
+      allowedTools: [],
+      skillIds: [],
+    }),
+    avatar: JSON.stringify({ initials: 'CS', gradientFrom: '#10303a', gradientTo: '#175f6e' }),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'agent-video-editor',
+    name: 'Video Editor',
+    role: 'Renders a script + assets into a finished cut',
+    runtime: 'script',
+    config: JSON.stringify({
+      runtime: 'script',
+      command: './render.sh',
+      args: ['--out', 'cut.mp4'],
+      env: { FFMPEG_PRESET: 'fast' },
+    }),
+    avatar: JSON.stringify({ initials: 'VE', gradientFrom: '#3a2a12', gradientTo: '#7a4e16' }),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+]
+
+let mockSkills: Skill[] = []
+
+const mockRuntimeDescriptors: RuntimeDescriptor[] = [
+  { kind: 'claude', label: 'Claude', usesLlmFields: true, usesScriptFields: false },
+  { kind: 'codex', label: 'Codex', usesLlmFields: true, usesScriptFields: false },
+  { kind: 'script', label: 'Script', usesLlmFields: false, usesScriptFields: true },
+]
+
 let mockScripts: Script[] = [
   {
     id: 'code-check',
@@ -982,6 +1025,75 @@ const mockCommands: Record<string, CommandHandler> = {
     recordCount: 0,
   }),
   clear_workspace_usage: () => undefined,
+
+  // Roster commands (Kaiten Agents)
+  list_agents: () => [...mockAgents].sort((a, b) => a.name.localeCompare(b.name)),
+  get_agent: (args) => {
+    const agent = mockAgents.find((a) => a.id === args?.id)
+    if (!agent) throw new Error('Agent not found')
+    return agent
+  },
+  create_agent: (args) => {
+    const now = new Date().toISOString()
+    const agent: Agent = {
+      id: generateId('agent'),
+      name: (args?.name as string) || 'New Agent',
+      role: (args?.role as string) || '',
+      runtime: (args?.runtime as Agent['runtime']) || 'claude',
+      config: (args?.config as string) || '{}',
+      avatar: (args?.avatar as string) || '{}',
+      createdAt: now,
+      updatedAt: now,
+    }
+    mockAgents.push(agent)
+    return agent
+  },
+  update_agent: (args) => {
+    const agent = mockAgents.find((a) => a.id === args?.id)
+    if (!agent) throw new Error('Agent not found')
+    if (args?.name !== undefined) agent.name = args.name as string
+    if (args?.role !== undefined) agent.role = args.role as string
+    if (args?.runtime !== undefined) agent.runtime = args.runtime as Agent['runtime']
+    if (args?.config !== undefined) agent.config = args.config as string
+    if (args?.avatar !== undefined) agent.avatar = args.avatar as string
+    agent.updatedAt = new Date().toISOString()
+    return agent
+  },
+  delete_agent: (args) => {
+    mockAgents = mockAgents.filter((a) => a.id !== args?.id)
+    return undefined
+  },
+  list_agent_runtimes: () => mockRuntimeDescriptors,
+
+  list_skills: () => [...mockSkills].sort((a, b) => a.name.localeCompare(b.name)),
+  create_skill: (args) => {
+    const now = new Date().toISOString()
+    const skill: Skill = {
+      id: generateId('skill'),
+      name: (args?.name as string) || 'New Skill',
+      description: (args?.description as string) || '',
+      trigger: (args?.trigger as string) || '',
+      script: (args?.script as string) || '',
+      createdAt: now,
+      updatedAt: now,
+    }
+    mockSkills.push(skill)
+    return skill
+  },
+  update_skill: (args) => {
+    const skill = mockSkills.find((s) => s.id === args?.id)
+    if (!skill) throw new Error('Skill not found')
+    if (args?.name !== undefined) skill.name = args.name as string
+    if (args?.description !== undefined) skill.description = args.description as string
+    if (args?.trigger !== undefined) skill.trigger = args.trigger as string
+    if (args?.script !== undefined) skill.script = args.script as string
+    skill.updatedAt = new Date().toISOString()
+    return skill
+  },
+  delete_skill: (args) => {
+    mockSkills = mockSkills.filter((s) => s.id !== args?.id)
+    return undefined
+  },
 
   // Script commands
   list_scripts: () => [...mockScripts].sort((a, b) => Number(b.isBuiltIn) - Number(a.isBuiltIn) || a.name.localeCompare(b.name)),
