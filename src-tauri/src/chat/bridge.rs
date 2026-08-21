@@ -1309,6 +1309,10 @@ fn persist_agent_session_started(
     tmux_name: &str,
     model: Option<&str>,
 ) {
+    // A new run supersedes any previous done-advisory — otherwise a task
+    // restarted after signaling done would show "ready to advance" while its
+    // fresh agent is still working.
+    let _ = db::update_task_agent_done_signaled_at(conn, task_id, None);
     let _ = db::update_agent_session_runtime(
         conn,
         session_id,
@@ -3378,6 +3382,16 @@ async fn watch_interactive_sentinel(
             let _ = db::clear_task_agent_status_for_session(&conn, &task_id, sid, "idle");
         } else {
             let _ = db::update_task_agent_status(&conn, &task_id, Some("idle"), None);
+        }
+        // Persist the advisory alongside the idle drop, while we still hold a
+        // connection. Without this the signal lives only in the Tauri event,
+        // which nothing receives unless the agent panel happens to be mounted.
+        if sentinel_seen {
+            let _ = db::update_task_agent_done_signaled_at(
+                &conn,
+                &task_id,
+                Some(crate::db::now_millis()),
+            );
         }
     }
 

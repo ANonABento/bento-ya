@@ -416,6 +416,7 @@ mod tests {
             created_by_task_id: None,
             created_by_agent_session_id: None,
             recursion_depth: 0,
+            agent_done_signaled_at: None,
             pr_last_fetched: None,
             pr_head_sha: None,
             notify_stakeholders: None,

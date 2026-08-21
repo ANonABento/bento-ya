@@ -470,6 +470,7 @@ function InteractivePanel({ task, onClose }: AgentPanelProps) {
             workingDir={workingDir}
             agentStatus={task.agentStatus}
             agentPausedAt={task.agentPausedAt}
+            agentDoneSignaledAt={task.agentDoneSignaledAt}
           />
         </div>
         <div

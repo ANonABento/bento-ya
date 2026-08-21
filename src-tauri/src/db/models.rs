@@ -129,6 +129,11 @@ pub struct Task {
     pub created_by_task_id: Option<String>,
     pub created_by_agent_session_id: Option<String>,
     pub recursion_depth: i64,
+    /// Interactive mode — epoch ms when the agent emitted the done-sentinel.
+    /// Advisory only: the session stays live and the user decides when to
+    /// advance. Persisted (migration 048) so the signal survives the agent
+    /// panel being closed; `None` = not signaled for the current run.
+    pub agent_done_signaled_at: Option<i64>,
     /// Task labels — workspace-scoped tags. Loaded via JOIN; not a column on tasks table.
     #[serde(default)]
     pub labels: Vec<Label>,

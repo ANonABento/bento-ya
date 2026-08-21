@@ -22,7 +22,7 @@ import { holdTask } from '@/lib/ipc/agent'
 import { updateTask as updateTaskApi } from '@/lib/ipc/task'
 import { parseDeps } from '@/lib/dependency-utils'
 import { PIPELINE_LABELS, PIPELINE_COLORS, formatRelativeTime } from './task-card-utils'
-import { PrStatusIndicator, SiegeBadge } from './task-card-badges'
+import { AgentDoneBadge, PrStatusIndicator, SiegeBadge } from './task-card-badges'
 import { useTaskCardActions } from './use-task-card-actions'
 import { AttentionBanner, BlockedBanner, QueuedBanner, QualityGateBanner, PipelineErrorBanner } from './task-card-status'
 import { AgentActivityPreview } from './task-card-activity'
@@ -392,6 +392,7 @@ export const TaskCard = memo(function TaskCard({
     isPipelineActive ||
     task.siegeActive ||
     task.heldByUser ||
+    task.agentDoneSignaledAt !== null ||
     titleWorkspaceName ||
     task.model ||
     task.createdByTaskId ||
@@ -612,6 +613,7 @@ export const TaskCard = memo(function TaskCard({
               </span>
             )}
             <SiegeBadge task={task} />
+            <AgentDoneBadge task={task} />
             {task.heldByUser && (
               <span className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning">
                 Held

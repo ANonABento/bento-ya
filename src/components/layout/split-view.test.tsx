@@ -110,6 +110,7 @@ const TEST_TASK_BASE: Omit<Task, 'id' | 'title'> = {
       createdByTaskId: null,
       createdByAgentSessionId: null,
       recursionDepth: 0,
+      agentDoneSignaledAt: null,
   labels: [],
   position: 0,
   createdAt: '2024-01-01T00:00:00Z',

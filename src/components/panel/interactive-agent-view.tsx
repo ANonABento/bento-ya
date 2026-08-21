@@ -28,6 +28,10 @@ type InteractiveAgentViewProps = {
   /** Phase 5 — Unix ms when the user paused this task's agent.
    *  null/undefined = not paused. */
   agentPausedAt?: number | null
+  /** Unix ms when the agent last signaled done (migration 048). Seeds the
+   *  advisory banner so it survives the panel being closed and reopened —
+   *  the `interactive_done` event only reaches a mounted listener. */
+  agentDoneSignaledAt?: number | null
 }
 
 type LiveStatus = 'running' | 'idle' | 'stopped' | 'paused'
@@ -43,6 +47,7 @@ export function InteractiveAgentView({
   workingDir,
   agentStatus,
   agentPausedAt,
+  agentDoneSignaledAt,
 }: InteractiveAgentViewProps) {
   const [liveStatus, setLiveStatus] = useState<LiveStatus>(() => agentStatus === 'running' ? 'running' : 'idle')
   const [restarting, setRestarting] = useState(false)
@@ -53,7 +58,7 @@ export function InteractiveAgentView({
   // Interactive completion is advisory: when the agent prints its done-sentinel
   // the backend keeps the session alive and emits `interactive_done`. We surface
   // an "Advance column" affordance instead of auto-advancing — the user decides.
-  const [doneSignaled, setDoneSignaled] = useState(false)
+  const [doneSignaled, setDoneSignaled] = useState(agentDoneSignaledAt != null)
   const [advancing, setAdvancing] = useState(false)
   const lastOutputAtRef = useRef<number>(Date.now())
   const resetTimeoutsRef = useRef<number[]>([])
@@ -122,6 +127,13 @@ export function InteractiveAgentView({
     })
     return () => { cancelled = true; if (unlisten) unlisten() }
   }, [taskId])
+
+  // Re-seed when the persisted stamp changes — the board refetches on
+  // `tasks:changed`, so a panel opened before the sentinel landed still picks
+  // the advisory up, and an advance elsewhere clears the banner here.
+  useEffect(() => {
+    setDoneSignaled(agentDoneSignaledAt != null)
+  }, [agentDoneSignaledAt])
 
   // If the agent starts generating again (a fresh run / the user kept chatting),
   // the stale "done" banner shouldn't linger.

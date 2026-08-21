@@ -1056,6 +1056,13 @@ pub fn mark_complete_with_error(
     let task = db::get_task(conn, task_id)?;
     let column = db::get_column(conn, &task.column_id)?;
 
+    // The interactive done-advisory belongs to the run that just ended. This
+    // is the path `agent_advance` takes, so clearing here is what stops a
+    // stale "ready to advance" badge outliving the advance itself.
+    if task.agent_done_signaled_at.is_some() {
+        let _ = db::update_task_agent_done_signaled_at(conn, task_id, None);
+    }
+
     // Record timing: task exiting this column
     if let Err(e) =
         db::complete_pipeline_timing(conn, task_id, &column.id, success, task.retry_count)
@@ -1423,6 +1430,7 @@ mod tests {
             created_by_task_id: None,
             created_by_agent_session_id: None,
             recursion_depth: 0,
+            agent_done_signaled_at: None,
             pr_last_fetched: None,
             pr_head_sha: None,
             notify_stakeholders: None,

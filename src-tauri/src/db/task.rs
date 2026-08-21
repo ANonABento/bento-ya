@@ -6,7 +6,7 @@ use super::{new_id, now, now_millis};
 
 /// Shared SELECT columns for tasks (54 fields).
 /// Order is load-bearing: `map_task_row` reads by index matching this list.
-const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked, archived_at, estimated_hours, actual_hours, last_user_input_at, held_by_user, runtime_mode_override, agent_paused_at, created_by_task_id, created_by_agent_session_id, recursion_depth";
+const TASK_COLUMNS: &str = "id, workspace_id, column_id, title, description, position, priority, agent_mode, branch_name, files_touched, checklist, pipeline_state, pipeline_triggered_at, pipeline_error, agent_session_id, last_script_exit_code, review_status, pr_number, pr_url, siege_iteration, siege_active, siege_max_iterations, siege_last_checked, pr_mergeable, pr_ci_status, pr_review_decision, pr_comment_count, pr_is_draft, pr_labels, pr_last_fetched, pr_head_sha, notify_stakeholders, notification_sent_at, trigger_overrides, trigger_prompt, last_output, dependencies, blocked, created_at, updated_at, agent_status, queued_at, retry_count, model, worktree_path, batch_id, github_issue_number, github_issue_commented, github_issue_pr_linked, archived_at, estimated_hours, actual_hours, last_user_input_at, held_by_user, runtime_mode_override, agent_paused_at, created_by_task_id, created_by_agent_session_id, recursion_depth, agent_done_signaled_at";
 
 /// Generate a sortable task batch identifier for staging PR workflows.
 pub fn generate_batch_id() -> String {
@@ -80,6 +80,7 @@ fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         created_by_task_id: row.get(56)?,
         created_by_agent_session_id: row.get(57)?,
         recursion_depth: row.get::<_, Option<i64>>(58)?.unwrap_or(0),
+        agent_done_signaled_at: row.get(59)?,
         labels: Vec::new(),
     })
 }
@@ -595,6 +596,23 @@ pub fn update_task_agent_paused_at(
     get_task(conn, id)
 }
 
+/// Set (or clear) the interactive "agent signaled done" advisory stamp.
+///
+/// Epoch ms when the sentinel was seen; `None` clears it. Cleared on advance
+/// and on a fresh agent start so a stale badge can't outlive its run.
+pub fn update_task_agent_done_signaled_at(
+    conn: &Connection,
+    id: &str,
+    done_at: Option<i64>,
+) -> SqlResult<Task> {
+    let ts = now();
+    conn.execute(
+        "UPDATE tasks SET agent_done_signaled_at = ?1, updated_at = ?2 WHERE id = ?3",
+        params![done_at, ts, id],
+    )?;
+    get_task(conn, id)
+}
+
 /// Update agent_status and optionally queued_at for a task
 pub fn update_task_agent_status(
     conn: &Connection,
@@ -954,6 +972,27 @@ mod tests {
 
         assert!(stamped.last_user_input_at.is_some());
         assert!(stamped.held_by_user);
+    }
+
+    #[test]
+    fn agent_done_signaled_at_round_trips_and_clears() {
+        let conn = crate::db::init_test().unwrap();
+        let task = seed_task(&conn);
+        // A fresh task has not signaled done.
+        assert_eq!(task.agent_done_signaled_at, None);
+
+        let signaled = update_task_agent_done_signaled_at(&conn, &task.id, Some(1_700_000_000_123))
+            .unwrap();
+        assert_eq!(signaled.agent_done_signaled_at, Some(1_700_000_000_123));
+
+        // Re-reading goes through TASK_COLUMNS + map_task_row, so this also
+        // pins the column-order/index pairing that a new column can silently
+        // shift.
+        let reread = get_task(&conn, &task.id).unwrap();
+        assert_eq!(reread.agent_done_signaled_at, Some(1_700_000_000_123));
+
+        let cleared = update_task_agent_done_signaled_at(&conn, &task.id, None).unwrap();
+        assert_eq!(cleared.agent_done_signaled_at, None);
     }
 
     #[test]

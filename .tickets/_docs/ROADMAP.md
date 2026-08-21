@@ -35,6 +35,10 @@ replaces the terminal.
   with a 60s budget and **never** hard-kills — exhausting it injects anyway and
   leaves the pane inspectable. `CLI_HEALTH_SPECS` now probes the interactive
   codex path so the same drift can't ship silently again.
+- Interactive done-advisory persisted (migration 048, `tasks.agent_done_signaled_at`):
+  the signal used to be a Tauri event only, so it existed just while the agent
+  panel was mounted. Now the board shows a "Ready to advance" badge that
+  survives panel close; cleared on advance and on a fresh agent start.
 
 ---
 
@@ -46,19 +50,16 @@ replaces the terminal.
 
 ## 🟡 Important (rough edges, not blockers)
 
-2. **Interactive completion is panel-bound.** The "agent done" advisory only fires
-   while the panel is attached — no persisted flag / card badge. Needs a migration
-   + badge so it survives panel close. → board task "Interactive: persist advisory".
-3. **`effort_level` not wired into the trigger path.** It's a real DB field + has a
+2. **`effort_level` not wired into the trigger path.** It's a real DB field + has a
    `thinking-selector.tsx` and works in the interactive chat panel, but no
    `effort_level`→CLI plumbing in `pipeline/spawn.rs` (the headless `spawn_cli`
    path). Either wire `--effort`/`-c model_reasoning_effort` into the trigger
    command or document it as interactive-only.
-4. **Checklist as per-workspace roadmap + MCP surface.** Checklist has zero
+3. **Checklist as per-workspace roadmap + MCP surface.** Checklist has zero
    `/api/*` routes and zero MCP tools. Make it agent-readable/maintainable so it
    can serve as the project roadmap. **Spec:** [specs/CHECKLIST_AS_ROADMAP.md](./specs/CHECKLIST_AS_ROADMAP.md).
    Planned, deferred 2026-06-12.
-5. **MCP UI-only gaps.** No MCP tool for `update_column`/`delete_column`/
+4. **MCP UI-only gaps.** No MCP tool for `update_column`/`delete_column`/
    `reorder_columns`, `update_script`/`delete_script`, per-task runtime-mode
    override, or agent control (inject/interrupt/pause/restart/switch-model). Each
    needs an `/api/*` route first. Add as needed (the checklist spec establishes the
@@ -90,5 +91,5 @@ replaces the terminal.
 
 ## Suggested order
 
-`#1 rm stale claude` (free) → `#2 persist advisory` → `#3 effort wiring` →
-`#4 checklist/roadmap MCP` → `#5 MCP gaps`.
+`#1 rm stale claude` (free) → `#2 effort wiring` → `#3 checklist/roadmap MCP` →
+`#4 MCP gaps`.
