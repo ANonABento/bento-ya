@@ -74,16 +74,18 @@ describe('RosterView', () => {
     render(<RosterView />)
 
     fireEvent.click(screen.getByTestId('agent-tile-a1'))
-    // LLM agent: prompt/model/skills, no command.
-    expect(screen.getByText('prompt')).toBeInTheDocument()
-    expect(screen.getByText('model')).toBeInTheDocument()
-    expect(screen.queryByText('command')).not.toBeInTheDocument()
+    // LLM agent: instructions / model / tools / skills, and no command.
+    expect(screen.getByText('Instructions')).toBeInTheDocument()
+    expect(screen.getByText('Skills')).toBeInTheDocument()
+    expect(screen.queryByText('Command')).not.toBeInTheDocument()
+    expect(screen.queryByText('Environment')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId('agent-tile-a2'))
-    // Script agent: command/args/env, no prompt.
-    expect(screen.getByText('command')).toBeInTheDocument()
-    expect(screen.getByText('env')).toBeInTheDocument()
-    expect(screen.queryByText('prompt')).not.toBeInTheDocument()
+    // Script agent: command / arguments / environment, and no prompt or skills.
+    expect(screen.getByText('Command')).toBeInTheDocument()
+    expect(screen.getByText('Environment')).toBeInTheDocument()
+    expect(screen.queryByText('Instructions')).not.toBeInTheDocument()
+    expect(screen.queryByText('Skills')).not.toBeInTheDocument()
   })
 
   it('shows an empty dossier prompt until an agent is picked', () => {

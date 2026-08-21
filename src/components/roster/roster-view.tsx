@@ -71,22 +71,12 @@ export function RosterView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="roster-view">
-      {/* One title bar across both columns — a header that stopped at the grid
-          left the dossier's content floating with nothing to align to. */}
-      <header className="shrink-0 border-b border-border-default bg-bg/80 px-6 py-3 backdrop-blur">
-        <h3 className="text-base font-semibold text-text-primary">Roster</h3>
-        <p className="mt-0.5 text-xs text-text-secondary">
-          Agents you build once and reuse. Assigning them to board columns comes later.
-        </p>
-      </header>
-
-      {/* Below lg the dossier stacks under the grid rather than disappearing —
-          hiding it outright meant selecting an agent on a narrow window did
-          nothing visible at all. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
         {/* Grid */}
-        <div className="flex min-w-0 flex-none flex-col lg:flex-1 lg:overflow-hidden">
-          <div className="flex shrink-0 flex-wrap items-center gap-2 px-6 py-3">
+        {/* Browsing rail — deliberately narrow. Scanning happens here; the
+            reading happens in the dossier. */}
+        <div className="flex min-w-0 flex-none flex-col border-border-default lg:w-[340px] lg:shrink-0 lg:overflow-hidden lg:border-r">
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border-default px-4 py-2.5">
             {FILTERS.map((f) => (
               <button
                 key={f.value}
@@ -112,16 +102,16 @@ export function RosterView() {
           </div>
 
           {error && (
-            <p className="mx-6 mb-3 rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-xs text-error">
+            <p className="mx-4 mb-3 rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-xs text-error">
               {error}
             </p>
           )}
 
-          <div className="min-h-0 px-6 pb-6 lg:flex-1 lg:overflow-y-auto">
+          <div className="min-h-0 p-4 lg:flex-1 lg:overflow-y-auto">
             {!loaded ? (
               <p className="text-sm text-text-secondary">Loading agents…</p>
             ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2.5">
                 {visible.map((agent) => (
                   <AgentTile
                     key={agent.id}
@@ -144,7 +134,7 @@ export function RosterView() {
 
         {/* Dossier */}
         <aside
-          className={`shrink-0 overflow-y-auto border-border-default lg:w-[380px] lg:border-l ${
+          className={`min-w-0 overflow-y-auto border-border-default lg:flex-1 ${
             selected ? 'border-t lg:border-t-0' : 'hidden lg:block'
           }`}
         >
@@ -164,9 +154,13 @@ export function RosterView() {
             />
           ) : (
             <div className="flex h-full items-center justify-center p-6">
-              <p className="text-center text-sm text-text-secondary">
-                Pick an agent to see how it's set up.
-              </p>
+              <div className="max-w-sm text-center">
+                <p className="text-sm text-text-primary">Pick an agent to see how it's set up.</p>
+                <p className="mt-1 text-xs text-text-secondary">
+                  Agents are shared across every workspace. Assigning them to board columns comes
+                  later.
+                </p>
+              </div>
             </div>
           )}
         </aside>

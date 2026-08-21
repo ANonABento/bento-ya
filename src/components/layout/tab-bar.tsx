@@ -24,6 +24,7 @@ import { useChecklistStore } from '@/stores/checklist-store'
 import { useTaskStore } from '@/stores/task-store'
 import { Tooltip } from '@/components/shared/tooltip'
 import { SectionSwitcher } from './section-switcher'
+import { useUIStore } from '@/stores/ui-store'
 import type { Workspace } from '@/types'
 import { CostBadge, MetricsDashboard } from '@/components/usage'
 import { AddWorkspaceDialog } from './add-workspace-dialog'
@@ -91,7 +92,9 @@ function SortableTab({
         style={{ cursor: 'pointer' }}
       >
         <span className="flex items-center">
-          <span className="max-w-[64px] truncate text-center sm:max-w-[120px]">{workspace.name}</span>
+          <span className="max-w-[64px] truncate text-center sm:max-w-[120px]">
+            {workspace.name}
+          </span>
           {activeTaskCount > 0 && (
             <span className="ml-1 hidden rounded-full bg-primary/20 px-1.5 text-xs text-primary sm:inline">
               {activeTaskCount}
@@ -199,7 +202,9 @@ function ShowArchivedButton() {
   return (
     <Tooltip content={showArchived ? 'Hide archived' : 'Show archived'} side="bottom">
       <motion.button
-        onClick={() => { setShowArchived(!showArchived) }}
+        onClick={() => {
+          setShowArchived(!showArchived)
+        }}
         aria-label={showArchived ? 'Hide archived workspaces' : 'Show archived workspaces'}
         aria-pressed={showArchived}
         whileHover={{ scale: 1.05 }}
@@ -212,7 +217,11 @@ function ShowArchivedButton() {
       >
         <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
           <path d="M2 3a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H2Z" />
-          <path fillRule="evenodd" d="M2 7.5h16l-.811 7.71a2 2 0 0 1-1.99 1.79H4.802a2 2 0 0 1-1.99-1.79L2 7.5Zm5.22 1.72a.75.75 0 0 1 1.06 0L10 10.94l1.72-1.72a.75.75 0 1 1 1.06 1.06l-2.25 2.25a.75.75 0 0 1-1.06 0l-2.25-2.25a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+          <path
+            fillRule="evenodd"
+            d="M2 7.5h16l-.811 7.71a2 2 0 0 1-1.99 1.79H4.802a2 2 0 0 1-1.99-1.79L2 7.5Zm5.22 1.72a.75.75 0 0 1 1.06 0L10 10.94l1.72-1.72a.75.75 0 1 1 1.06 1.06l-2.25 2.25a.75.75 0 0 1-1.06 0l-2.25-2.25a.75.75 0 0 1 0-1.06Z"
+            clipRule="evenodd"
+          />
         </svg>
       </motion.button>
     </Tooltip>
@@ -233,7 +242,11 @@ function ChecklistButton() {
     <Tooltip content="Checklist" side="bottom">
       <motion.button
         onClick={openChecklist}
-        aria-label={hasItems ? `Checklist (${String(total - progress)} of ${String(total)} remaining)` : 'Checklist'}
+        aria-label={
+          hasItems
+            ? `Checklist (${String(total - progress)} of ${String(total)} remaining)`
+            : 'Checklist'
+        }
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         className="relative flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
@@ -273,6 +286,7 @@ export function TabBar() {
   const setActive = useWorkspaceStore((s) => s.setActive)
   const reorder = useWorkspaceStore((s) => s.reorder)
   const remove = useWorkspaceStore((s) => s.remove)
+  const activeSection = useUIStore((s) => s.activeSection)
 
   const getUnviewedCount = useAttentionStore((s) => s.getUnviewedCount)
 
@@ -294,7 +308,9 @@ export function TabBar() {
     activeWorkspaceId,
     setActive,
     remove,
-    openAddDialog: () => { setShowAddDialog(true) },
+    openAddDialog: () => {
+      setShowAddDialog(true)
+    },
   })
 
   // ─── Drag Handlers ──────────────────────────────────────────────────────────
@@ -333,35 +349,42 @@ export function TabBar() {
             right-hand cluster so the header reads as one row of controls. */}
         <SectionSwitcher />
 
-        {/* Center: tabs - absolutely positioned for true centering */}
+        {/* Center: workspace tabs on the board, the section name everywhere
+            else. Agents are global, so a workspace selector in the Roster is
+            chrome that does nothing — showing the section name instead gives
+            the view the title its own header used to carry. */}
         <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext items={workspaceIds} strategy={horizontalListSortingStrategy}>
-              <AnimatePresence mode="popLayout">
-                {sortedWorkspaces.map((workspace) => (
-                  <SortableTab
-                    key={workspace.id}
-                    workspace={workspace}
-                    isActive={workspace.id === activeWorkspaceId}
-                    activeTaskCount={workspace.activeTaskCount}
-                    notificationCount={getUnviewedCount(workspace.id)}
-                    onSelect={() => {
-                      setActive(workspace.id)
-                    }}
-                  />
-                ))}
-              </AnimatePresence>
-            </SortableContext>
+          {activeSection !== 'board' ? (
+            <span className="text-sm font-medium text-text-primary">Roster</span>
+          ) : (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext items={workspaceIds} strategy={horizontalListSortingStrategy}>
+                <AnimatePresence mode="popLayout">
+                  {sortedWorkspaces.map((workspace) => (
+                    <SortableTab
+                      key={workspace.id}
+                      workspace={workspace}
+                      isActive={workspace.id === activeWorkspaceId}
+                      activeTaskCount={workspace.activeTaskCount}
+                      notificationCount={getUnviewedCount(workspace.id)}
+                      onSelect={() => {
+                        setActive(workspace.id)
+                      }}
+                    />
+                  ))}
+                </AnimatePresence>
+              </SortableContext>
 
-            <DragOverlay>
-              {draggingWorkspace && <TabOverlay workspace={draggingWorkspace} />}
-            </DragOverlay>
-          </DndContext>
+              <DragOverlay>
+                {draggingWorkspace && <TabOverlay workspace={draggingWorkspace} />}
+              </DragOverlay>
+            </DndContext>
+          )}
         </div>
 
         {/* Right: add workspace + checklist + cost + settings.
@@ -382,7 +405,9 @@ export function TabBar() {
           {activeWorkspaceId && (
             <CostBadge
               workspaceId={activeWorkspaceId}
-              onOpenDashboard={() => { setShowDashboard(true) }}
+              onOpenDashboard={() => {
+                setShowDashboard(true)
+              }}
             />
           )}
           <SettingsButton />
@@ -400,7 +425,9 @@ export function TabBar() {
       {showDashboard && activeWorkspaceId && (
         <MetricsDashboard
           workspaceId={activeWorkspaceId}
-          onClose={() => { setShowDashboard(false) }}
+          onClose={() => {
+            setShowDashboard(false)
+          }}
         />
       )}
     </>
