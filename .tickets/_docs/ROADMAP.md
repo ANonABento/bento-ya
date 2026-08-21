@@ -50,16 +50,48 @@ replaces the terminal.
 
 ## 🟡 Important (rough edges, not blockers)
 
-2. **`effort_level` not wired into the trigger path.** It's a real DB field + has a
+2. **Settings wiring pass — three of five Appearance settings don't reach the UI.**
+   Measured 2026-08-21 in a real browser, not inferred. The store→DOM plumbing is
+   fine (`lib/appearance.ts`, called from `main.tsx` and `settings-store.ts`);
+   what's missing is anything *consuming* the result.
+
+   | Setting | State |
+   |---|---|
+   | Theme | works |
+   | Accent colour | works (sets `--accent`) |
+   | **Font size** | **partial, and actively wrong at "small"** |
+   | **Card density** | **inert** |
+   | **Animation speed** | **inert** |
+
+   - **Font size.** `--base-font-size` lands on `html`, so rem-based utilities do
+     scale — `text-sm` measures 10.5 / 12.25 / 14px across small/medium/large.
+     But **247 arbitrary `text-[Npx]` values across 63 files** (144× `text-[10px]`,
+     96× `text-[11px]`) are absolute and never move. At "small" that *inverts the
+     hierarchy*: `text-sm` drops to 10.5px while a caption pinned at `text-[11px]`
+     stays larger than the body text it's meant to sit under.
+     Fix: add rem-based steps to the `@theme` block in `index.css` (the scale
+     wants a `text-micro`/`text-tiny` below `text-xs`) and convert the 247 uses.
+   - **Card density / animation speed.** The chain is
+     store → `data-card-density` / `data-animation-speed` → `--card-padding` /
+     `--card-gap` / `--transition-duration` → `.card-padding` / `.card-gap` /
+     `.transition-appearance`. That last hop is where it dies: those three helper
+     classes are used by **zero** components. Either apply them on the card/panel
+     primitives or drop the settings.
+
+   While in there, re-check the other known-inert surfaces listed under
+   "Inert / deferred" below — custom keyboard shortcuts render but do nothing,
+   and the OpenRouter / Google / Ollama provider cards are "Coming soon".
+
+3. **`effort_level` not wired into the trigger path.** It's a real DB field + has a
    `thinking-selector.tsx` and works in the interactive chat panel, but no
    `effort_level`→CLI plumbing in `pipeline/spawn.rs` (the headless `spawn_cli`
    path). Either wire `--effort`/`-c model_reasoning_effort` into the trigger
    command or document it as interactive-only.
-3. **Checklist as per-workspace roadmap + MCP surface.** Checklist has zero
+4. **Checklist as per-workspace roadmap + MCP surface.** Checklist has zero
    `/api/*` routes and zero MCP tools. Make it agent-readable/maintainable so it
    can serve as the project roadmap. **Spec:** [specs/CHECKLIST_AS_ROADMAP.md](./specs/CHECKLIST_AS_ROADMAP.md).
    Planned, deferred 2026-06-12.
-4. **MCP UI-only gaps.** No MCP tool for `update_column`/`delete_column`/
+5. **MCP UI-only gaps.** No MCP tool for `update_column`/`delete_column`/
    `reorder_columns`, `update_script`/`delete_script`, per-task runtime-mode
    override, or agent control (inject/interrupt/pause/restart/switch-model). Each
    needs an `/api/*` route first. Add as needed (the checklist spec establishes the
@@ -91,5 +123,5 @@ replaces the terminal.
 
 ## Suggested order
 
-`#1 rm stale claude` (free) → `#2 effort wiring` → `#3 checklist/roadmap MCP` →
-`#4 MCP gaps`.
+`#1 rm stale claude` (free) → `#2 settings wiring pass` → `#3 effort wiring` →
+`#4 checklist/roadmap MCP` → `#5 MCP gaps`.
