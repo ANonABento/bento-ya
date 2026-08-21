@@ -4,6 +4,7 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { WorkspaceTab } from './tabs/workspace-tab'
 import { AppearanceTab } from './tabs/appearance-tab'
 import { AgentTab } from './tabs/agent-tab'
+import { SkillsTab } from './tabs/skills-tab'
 import { McpTab } from './tabs/mcp-tab'
 import { BoardTab } from './tabs/board-tab'
 import { VoiceTab } from './tabs/voice-tab'
@@ -32,6 +33,11 @@ const icons: Record<string, React.ReactNode> = {
   agent: (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
       <path d="M10 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM3.465 14.493a1.23 1.23 0 0 0 .41 1.412A9.957 9.957 0 0 0 10 18c2.31 0 4.438-.784 6.131-2.1.43-.333.604-.903.408-1.41a7.002 7.002 0 0 0-13.074.003Z" />
+    </svg>
+  ),
+  skills: (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+      <path d="M10 1.5a.75.75 0 0 1 .69.46l1.63 3.85 4.16.36a.75.75 0 0 1 .43 1.31l-3.16 2.74.95 4.07a.75.75 0 0 1-1.12.81L10 12.94l-3.58 2.16a.75.75 0 0 1-1.12-.81l.95-4.07-3.16-2.74a.75.75 0 0 1 .43-1.31l4.16-.36 1.63-3.85A.75.75 0 0 1 10 1.5Z" />
     </svg>
   ),
   mcp: (
@@ -77,6 +83,7 @@ type TabId =
   | 'workspace'
   | 'appearance'
   | 'agent'
+  | 'skills'
   | 'mcp'
   | 'board'
   | 'voice'
@@ -115,6 +122,7 @@ const TAB_GROUPS: TabGroup[] = [
     label: 'Agents & Models',
     tabs: [
       { id: 'agent', label: 'Models & Limits', hint: 'Providers, concurrency, budgets, permissions' },
+      { id: 'skills', label: 'Skills', hint: 'Reusable capabilities you can attach to an agent' },
       { id: 'voice', label: 'Voice', hint: 'Speech-to-text via Whisper' },
     ],
   },
@@ -202,6 +210,8 @@ export function SettingsPanel() {
         return <AppearanceTab />
       case 'agent':
         return <AgentTab />
+      case 'skills':
+        return <SkillsTab />
       case 'mcp':
         return <McpTab />
       case 'board':

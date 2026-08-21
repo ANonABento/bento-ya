@@ -2,6 +2,19 @@ import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 
 type ViewMode = 'board' | 'chat'
+
+/**
+ * Top-level app section selected in the left nav rail.
+ *
+ * Deliberately separate from `ViewMode`, which despite its name means "is the
+ * per-task chat panel open" and is load-bearing via
+ * `isChatOpen = viewMode === 'chat'` (use-chat-panel.ts). Widening ViewMode
+ * would entangle "which section" with "is the chat open".
+ *
+ * `orchestrator` is intentionally absent: it is still a dock panel inside the
+ * board with its own geometry, not a section. See KAITEN_AGENTS.md.
+ */
+export type AppSection = 'board' | 'roster' 
 type PanelDock = 'bottom' | 'right'
 type AgentPanelDock = 'right' | 'left'
 
@@ -60,6 +73,8 @@ function getMaxPanelWidth(): number {
 
 type UIState = {
   viewMode: ViewMode
+  /** Which top-level section the nav rail has selected. */
+  activeSection: AppSection
   activeTaskId: string | null // task whose chat panel is open
   expandedTaskId: string | null // task card expanded inline
   modal: ModalState
@@ -74,6 +89,7 @@ type UIState = {
   agentPanelWidth: number
   agentPanelDock: AgentPanelDock
   setViewMode: (mode: ViewMode) => void
+  setActiveSection: (section: AppSection) => void
   expandTask: (taskId: string) => void
   focusTask: (taskId: string) => void
   collapseTask: () => void
@@ -104,6 +120,7 @@ export const useUIStore = create<UIState>()(
     persist(
       (set) => ({
         viewMode: 'board',
+        activeSection: 'board' as AppSection,
         activeTaskId: null,
         expandedTaskId: null,
         modal: null,
@@ -116,6 +133,10 @@ export const useUIStore = create<UIState>()(
 
         setViewMode: (mode) => {
           set({ viewMode: mode })
+        },
+
+        setActiveSection: (section) => {
+          set({ activeSection: section })
         },
 
         // Card expansion (inline detail)
@@ -205,6 +226,7 @@ export const useUIStore = create<UIState>()(
       {
         name: UI_STORAGE_KEY,
         partialize: (state) => ({
+          activeSection: state.activeSection,
           panelHeight: state.panelHeight,
           panelWidth: state.panelWidth,
           panelDock: state.panelDock,

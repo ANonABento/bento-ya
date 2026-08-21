@@ -158,9 +158,51 @@ Each task gets a tmux session (`kaitencode_{task_id}`) with an embedded terminal
 
 Key files: `src/components/panel/terminal-view.tsx`, `src/lib/ipc/terminal.ts`, `.tickets/_docs/INTERACTIVE_AGENT_TERMINAL.md`
 
+### Kaiten Agents / Roster (`src-tauri/src/roster/`, `src/components/roster/`)
+
+An **Agent** is a craftable, reusable *definition* — not a running process. Beware
+the naming: `agent_sessions`, `agent_messages`, `commands/agent.rs` and
+`src/types/agent.ts` all mean a **running CLI**. Convention: the DB layer names
+the thing, the feature layer names the feature.
+
+| Layer | Name |
+|---|---|
+| table / struct / db module | `agents`, `Agent`, `db/agent.rs` (+ `skills`, `db/skill.rs`) |
+| commands | `commands/roster.rs` (`commands/agent.rs` is runtime control) |
+| frontend | `types/roster.ts`, `lib/ipc/roster.ts`, `stores/roster-store.ts` |
+
+Both tables are **global** (no `workspace_id`), matching the `scripts` precedent —
+"craft once, drop into any column" is the point.
+
+**Runtime-typed config.** `agents.config` is a JSON blob because its *shape*
+varies by runtime — that's the feature, not a shortcut. In Rust it's an
+internally-tagged enum (`roster::AgentConfig` — `Claude`/`Codex` carry `LlmConfig`,
+`Script` carries `ScriptConfig`); the UI mirrors it as the runtime-typed dossier.
+`LlmConfig`'s field names are deliberately the reusable half of `SpawnCliAction`
+plus chef's `mcp_config_path`/`allowed_tools`, so wiring to the pipeline later is
+a mapping, not a redesign.
+
+**The `Runtime` trait** (`kind`/`describe`/`validate`) is a seam with **no
+`execute`** — by design. Spawning should reuse `pipeline::spawn::resolve()` when
+agents get wired to columns.
+
+Two validations nothing else catches: `agents.runtime` (TEXT) can disagree with
+the tag inside `agents.config` — `roster::parse_and_validate` is the only guard,
+and `update_agent` validates the *post-merge* state; and an `allowed_tools` list
+without an `mcp_config_path` is silently inert at spawn time, so it's rejected.
+
+**Nav rail.** `ui-store.activeSection` (`'board' | 'roster'`, persisted) drives
+`layout/nav-rail.tsx`. Deliberately **not** `viewMode`, which means "is the chat
+panel open" and is load-bearing via `isChatOpen`. Orchestrator is not a section
+yet — it's still a dock panel inside `Board` with its own geometry.
+
+**Not wired yet (v2):** columns referencing an agent, execution, skill injection
+into the CLI, MCP/`/api/*` tools, RAG. Spec:
+`.tickets/_docs/specs/KAITEN_AGENTS.md`.
+
 ### Database (`src-tauri/src/db/`)
 
-SQLite with WAL mode. 29 versioned migrations (001-028 + scripts). Both `kaitencode` and `kaitencode-mcp` share the same `rusqlite` build via Cargo workspace, ensuring WAL format compatibility for concurrent access.
+SQLite with WAL mode. 49 versioned migrations (001-049). Both `kaitencode` and `kaitencode-mcp` share the same `rusqlite` build via Cargo workspace, ensuring WAL format compatibility for concurrent access.
 - `models.rs` — All 18 model structs (Workspace, Column, Task, AgentSession, ChatSession, etc.)
 - `mod.rs` — Init, migrations, re-exports from domain modules, tests
 - Domain modules: `workspace.rs`, `column.rs`, `task.rs`, `agent_session.rs`, `agent_message.rs`, `chat_session.rs`, `chat_message.rs`, `orchestrator_session.rs`, `checklist.rs`, `usage.rs`, `history.rs`, `script.rs`
