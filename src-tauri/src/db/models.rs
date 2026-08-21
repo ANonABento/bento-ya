@@ -307,6 +307,45 @@ pub struct ChecklistItem {
     pub updated_at: String,
 }
 
+// ─── Roster Entities (Kaiten Agents) ──────────────────────────────────────
+//
+// An `Agent` is a DEFINITION you craft once and reuse — not a running process.
+// The running-process concepts are `AgentSession` / `AgentMessage` below.
+// Spec: .tickets/_docs/specs/KAITEN_AGENTS.md
+
+/// A craftable, reusable agent definition. Global (not workspace-scoped).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Agent {
+    pub id: String,
+    pub name: String,
+    /// One-line "what it does", shown under the name in the dossier.
+    pub role: String,
+    /// `claude` | `codex` | `script`. Kept as a plain string on the row so a
+    /// new runtime is a code change, not a migration; parsed into
+    /// [`AgentConfig`] for anything that needs exhaustiveness.
+    pub runtime: String,
+    /// Runtime-typed config JSON — see [`AgentConfig`].
+    pub config: String,
+    /// `{initials, gradientFrom, gradientTo}` for the character-select portrait.
+    pub avatar: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// A reusable skill an LLM agent can be given.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Skill {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub trigger: String,
+    pub script: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 // ─── Script Entities ──────────────────────────────────────────────────────
 
 /// A reusable automation recipe for column triggers.

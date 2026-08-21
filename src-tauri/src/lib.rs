@@ -16,6 +16,7 @@ pub mod github_sync;
 pub mod llm;
 pub mod models;
 pub mod pipeline;
+pub mod roster;
 #[cfg(feature = "voice")]
 pub mod whisper;
 
@@ -350,6 +351,17 @@ pub fn run() {
             commands::files::open_in_editor,
             commands::files::create_note_file,
             commands::files::pick_attachment_files,
+            // Roster commands (Kaiten Agents — craftable agent + skill definitions)
+            commands::roster::list_agents,
+            commands::roster::get_agent,
+            commands::roster::create_agent,
+            commands::roster::update_agent,
+            commands::roster::delete_agent,
+            commands::roster::list_agent_runtimes,
+            commands::roster::list_skills,
+            commands::roster::create_skill,
+            commands::roster::update_skill,
+            commands::roster::delete_skill,
             // Script commands
             commands::script::list_scripts,
             commands::script::get_script,

@@ -24,6 +24,14 @@ export type {
 export type { Task, TaskChecklistItem, PipelineState, ReviewStatus, PrCiStatus, PrReviewDecision, PrMergeable, BatchSummary } from './task'
 export type { TaskTemplate } from './task-template'
 export type { AgentSession, AgentStatus, AgentMode, AgentMessage } from './agent'
+export type {
+  Agent, AgentRuntime, AgentConfig, LlmConfig, ScriptRuntimeConfig,
+  AgentAvatar, Skill, RuntimeDescriptor,
+} from './roster'
+export {
+  parseAgentConfig, parseAgentAvatar, deriveInitials, defaultConfigFor,
+  DEFAULT_LLM_CONFIG, DEFAULT_SCRIPT_CONFIG,
+} from './roster'
 export type { Script, ScriptStep, BashStep, AgentStep, CheckStep, StepType } from './script'
 export { parseSteps } from './script'
 export type { Attachment, AttachmentType, AttachmentError } from './attachment'

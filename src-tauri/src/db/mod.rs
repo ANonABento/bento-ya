@@ -8,6 +8,7 @@ pub mod models;
 pub mod schema;
 
 // Domain modules
+pub mod agent;
 pub mod agent_message;
 pub mod agent_runtime_input_queue;
 pub mod agent_session;
@@ -25,6 +26,7 @@ pub mod orchestrator_session;
 pub mod pipeline_template;
 pub mod pipeline_timing;
 pub mod script;
+pub mod skill;
 pub mod task;
 pub mod task_template;
 pub mod usage;
@@ -34,6 +36,7 @@ pub mod workspace;
 pub use models::*;
 
 // Re-export all domain functions so callers can use db::insert_task(), db::get_workspace(), etc.
+pub use agent::*;
 pub use agent_message::*;
 pub use agent_runtime_input_queue::*;
 pub use agent_session::*;
@@ -50,6 +53,7 @@ pub use orchestrator_session::*;
 pub use pipeline_template::*;
 pub use pipeline_timing::*;
 pub use script::*;
+pub use skill::*;
 pub use task::*;
 pub use task_template::*;
 pub use usage::*;
@@ -404,6 +408,10 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
             "048_interactive_done_advisory",
             include_str!("migrations/048_interactive_done_advisory.sql"),
         ),
+        (
+            "049_agents_and_skills",
+            include_str!("migrations/049_agents_and_skills.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {
@@ -534,8 +542,9 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
         // Includes split 019, 030 + Phase 4 (044, 045) + 046 attribution
-        // + 047 discord_task_threads + 048 interactive_done_advisory.
-        assert_eq!(count, 50);
+        // + 047 discord_task_threads + 048 interactive_done_advisory
+        // + 049 agents_and_skills.
+        assert_eq!(count, 51);
     }
 
     #[test]
