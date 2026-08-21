@@ -14,7 +14,7 @@ type StatusBadgeProps = {
 
 const sizeStyles = {
   sm: {
-    container: 'px-1.5 py-0.5 text-[10px]',
+    container: 'px-1.5 py-0.5 text-xs',
     dot: 'h-1.5 w-1.5',
   },
   md: {

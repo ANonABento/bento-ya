@@ -42,7 +42,7 @@ export function QueuedBanner({
 
   return (
     <Tooltip content={tooltipText} side="top" wrap delay={200}>
-      <div role="status" style={{ cursor: 'default' }} className="flex items-center gap-1.5 rounded bg-warning/10 px-2 py-1 text-[11px] text-warning">
+      <div role="status" style={{ cursor: 'default' }} className="flex items-center gap-1.5 rounded bg-warning/10 px-2 py-1 text-xs text-warning">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0" aria-hidden="true">
           <path fillRule="evenodd" d="M1 8a7 7 0 1 1 14 0A7 7 0 0 1 1 8Zm7.75-4.25a.75.75 0 0 0-1.5 0V8c0 .414.336.75.75.75h3.25a.75.75 0 0 0 0-1.5h-2.5V3.75Z" clipRule="evenodd" />
         </svg>
@@ -57,7 +57,7 @@ export function QueuedBanner({
 /** Blocked by dependencies banner */
 export function BlockedBanner({ blockerInfo }: { blockerInfo: string | null }) {
   return (
-    <div role="status" className="flex items-center gap-1.5 rounded bg-amber-500/10 px-2 py-1 text-[11px] text-amber-400">
+    <div role="status" className="flex items-center gap-1.5 rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-400">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0" aria-hidden="true">
         <path fillRule="evenodd" d="M8 1a3.5 3.5 0 0 0-3.5 3.5V7A1.5 1.5 0 0 0 3 8.5v5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 11.5 7V4.5A3.5 3.5 0 0 0 8 1Zm2 6V4.5a2 2 0 1 0-4 0V7h4Z" clipRule="evenodd" />
       </svg>
@@ -134,7 +134,7 @@ export function PipelineErrorBanner({
           }}
           aria-expanded={expanded}
           aria-label={expanded ? 'Hide error details' : 'Show error details'}
-          className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium text-error/70 hover:text-error hover:bg-error/20 transition-colors"
+          className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-error/70 hover:text-error hover:bg-error/20 transition-colors"
         >
           Why?
         </button>
@@ -144,7 +144,7 @@ export function PipelineErrorBanner({
             onRetry()
           }}
           aria-label="Retry pipeline"
-          className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-error/20 hover:bg-error/30 transition-colors"
+          className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium bg-error/20 hover:bg-error/30 transition-colors"
         >
           Retry
         </button>
@@ -170,7 +170,7 @@ export function PipelineErrorBanner({
               >
                 Raw error
               </summary>
-              <p className="mt-1 break-all text-error/50 font-mono text-[10px] leading-relaxed">
+              <p className="mt-1 break-all text-error/50 font-mono text-xs leading-relaxed">
                 {rawError}
               </p>
             </details>

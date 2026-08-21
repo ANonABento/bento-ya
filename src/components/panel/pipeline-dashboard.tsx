@@ -131,11 +131,11 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
                 >
                   <div className="flex items-center justify-between gap-1">
                     <span className="truncate text-xs font-medium text-text-primary">{task.title}</span>
-                    <span className="shrink-0 text-[10px] text-text-tertiary">{elapsed}</span>
+                    <span className="shrink-0 text-xs text-text-tertiary">{elapsed}</span>
                   </div>
                   <div className="mt-1 flex items-center gap-1.5">
-                    <span className="text-[10px] text-text-tertiary">{col?.name ?? 'Unknown'}</span>
-                    {label && <span className="text-[10px] text-accent">{label}</span>}
+                    <span className="text-xs text-text-tertiary">{col?.name ?? 'Unknown'}</span>
+                    {label && <span className="text-xs text-accent">{label}</span>}
                   </div>
                   {/* Progress bar */}
                   <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-hover">
@@ -166,11 +166,11 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
               >
                 <div className="flex items-center justify-between gap-1">
                   <span className="truncate text-xs font-medium text-text-primary">{task.title}</span>
-                  <span className="text-[10px] text-text-tertiary">{formatRelativeTime(task.updatedAt)}</span>
+                  <span className="text-xs text-text-tertiary">{formatRelativeTime(task.updatedAt)}</span>
                 </div>
-                <div className="mt-0.5 text-[10px] text-text-tertiary">{col?.name ?? 'Unknown'}</div>
+                <div className="mt-0.5 text-xs text-text-tertiary">{col?.name ?? 'Unknown'}</div>
                 {task.pipelineError && (
-                  <div className="mt-1 line-clamp-2 text-[10px] text-error">{task.pipelineError}</div>
+                  <div className="mt-1 line-clamp-2 text-xs text-error">{task.pipelineError}</div>
                 )}
               </button>
             )
@@ -191,13 +191,13 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
               >
                 <div className="flex items-center justify-between gap-1">
                   <span className="truncate text-xs font-medium text-text-primary">{task.title}</span>
-                  <span className="text-[10px] text-text-tertiary">{formatRelativeTime(task.updatedAt)}</span>
+                  <span className="text-xs text-text-tertiary">{formatRelativeTime(task.updatedAt)}</span>
                 </div>
                 {prUrl && (
                   <button
                     type="button"
                     onClick={() => { window.open(prUrl, '_blank') }}
-                    className="mt-0.5 text-[10px] text-accent hover:underline"
+                    className="mt-0.5 text-xs text-accent hover:underline"
                     style={{ cursor: 'pointer' }}
                   >
                     {task.prNumber ? `PR #${String(task.prNumber)}` : 'View PR'}
@@ -222,7 +222,7 @@ export function PipelineDashboard({ workspaceId }: PipelineDashboardProps) {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-3">
-      <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{title}</h3>
+      <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-text-tertiary">{title}</h3>
       <div className="flex flex-col gap-1.5">{children}</div>
     </div>
   )

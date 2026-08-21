@@ -70,7 +70,7 @@ export function PrStatusIndicator({ task, settings }: { task: Task; settings: ty
       <svg className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="currentColor">
         <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" />
       </svg>
-      <span className="text-[11px]">#{task.prNumber}</span>
+      <span className="text-xs">#{task.prNumber}</span>
       {statusIcon}
     </span>
   )
@@ -90,7 +90,7 @@ export function AgentDoneBadge({ task }: { task: Task }) {
   if (task.agentDoneSignaledAt === null) return null
   return (
     <span
-      className="inline-flex items-center gap-1 rounded bg-running/10 px-1.5 py-0.5 text-[10px] font-medium text-running"
+      className="inline-flex items-center gap-1 rounded bg-running/10 px-1.5 py-0.5 text-xs font-medium text-running"
       title="The agent signaled it finished. Its session is still live — open the task to review, then advance the column."
     >
       <svg className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -116,7 +116,7 @@ export function SiegeBadge({ task }: { task: Task }) {
         <path d="M2.8 10A4.7 4.7 0 0 0 11.6 11.2L13 9.2" />
         <path d="M13 12V9.2h-2.8" />
       </svg>
-      <span className="text-[11px] font-medium">
+      <span className="text-xs font-medium">
         {task.siegeIteration}/{task.siegeMaxIterations}
       </span>
     </span>

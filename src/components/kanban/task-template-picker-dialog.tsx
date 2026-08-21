@@ -266,7 +266,7 @@ export function TaskTemplatePickerDialog({
                       {template.description && (
                         <p className="text-xs text-text-secondary">{template.description}</p>
                       )}
-                      <p className="mt-1 text-[11px] text-text-secondary/80">
+                      <p className="mt-1 text-xs text-text-secondary/80">
                         labels: {template.labels}
                       </p>
                     </div>

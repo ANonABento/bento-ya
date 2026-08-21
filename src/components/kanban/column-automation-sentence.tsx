@@ -116,7 +116,7 @@ export function AutomationSentence({ onEntry, setOnEntry, exitCriteria, setExitC
         <span>.</span>
       </div>
 
-      <p className="text-[11px] text-text-secondary/60">
+      <p className="text-xs text-text-secondary/60">
         The prompt, runtime, retries and more live under Advanced. Most columns never need them.
       </p>
     </div>

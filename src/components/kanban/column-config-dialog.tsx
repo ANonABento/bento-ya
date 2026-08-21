@@ -406,7 +406,7 @@ function CapacityFields({
                   aria-pressed={selected}
                 >
                   <span className="block text-sm font-medium leading-4">{option.label}</span>
-                  <span className="mt-1 block text-[11px] leading-3 text-text-secondary/70">{option.hint}</span>
+                  <span className="mt-1 block text-xs leading-3 text-text-secondary/70">{option.hint}</span>
                 </button>
               )
             })}

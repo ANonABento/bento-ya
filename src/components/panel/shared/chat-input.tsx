@@ -72,7 +72,7 @@ export function ChatInput({
                 />
               )}
               {config.showModelSelector && (
-                <span className="h-6 rounded border border-border-default/70 px-1.5 py-1 text-[10px] leading-none text-text-secondary/70">
+                <span className="h-6 rounded border border-border-default/70 px-1.5 py-1 text-xs leading-none text-text-secondary/70">
                   {state.currentContextWindow}
                 </span>
               )}
@@ -92,7 +92,7 @@ export function ChatInput({
                   <button
                     type="button"
                     onClick={state.handleContextToggle}
-                    className={`h-6 rounded border px-2 text-[11px] transition-colors ${
+                    className={`h-6 rounded border px-2 text-xs transition-colors ${
                       state.extendedContext
                         ? 'border-accent/30 bg-accent/10 text-accent'
                         : 'border-border-default/70 text-text-secondary hover:bg-surface-hover hover:text-text-primary'
@@ -110,13 +110,13 @@ export function ChatInput({
                 />
               )}
               {deliveryHint && (
-                <span className="min-w-0 truncate text-[11px] text-text-secondary">
+                <span className="min-w-0 truncate text-xs text-text-secondary">
                   {deliveryHint}
                 </span>
               )}
             </div>
             {queueCount > 0 && (
-              <span className="shrink-0 rounded border border-accent/20 px-1.5 py-0.5 text-[10px] text-accent/75">
+              <span className="shrink-0 rounded border border-accent/20 px-1.5 py-0.5 text-xs text-accent/75">
                 {queueCount} queued
               </span>
             )}

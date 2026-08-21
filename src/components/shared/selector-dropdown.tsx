@@ -48,7 +48,7 @@ export function SelectorDropdown({
       className={`absolute bottom-full left-0 z-50 mb-1 ${width} overflow-hidden rounded-md border border-border-default bg-surface shadow-lg`}
     >
       {header && (
-        <div className="border-b border-border-default bg-bg/50 px-3 py-1.5 text-[10px] text-text-muted">
+        <div className="border-b border-border-default bg-bg/50 px-3 py-1.5 text-xs text-text-muted">
           {header}
         </div>
       )}
@@ -91,7 +91,7 @@ export function SelectorOption({
       <div className="flex-1 min-w-0">
         <div className="font-medium">{label}</div>
         {description && (
-          <div className="text-text-muted text-[10px]">{description}</div>
+          <div className="text-text-muted text-xs">{description}</div>
         )}
       </div>
       {selected && (
@@ -124,7 +124,7 @@ export function SelectorButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex h-6 items-center gap-1 rounded border border-transparent px-2 text-[11px] text-text-secondary transition-colors hover:border-border-default/70 hover:bg-surface-hover hover:text-text-primary ${className}`}
+      className={`flex h-6 items-center gap-1 rounded border border-transparent px-2 text-xs text-text-secondary transition-colors hover:border-border-default/70 hover:bg-surface-hover hover:text-text-primary ${className}`}
       style={{ cursor: 'pointer' }}
     >
       {children}

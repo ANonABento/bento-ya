@@ -63,7 +63,7 @@ export function FilePreview({ workspaceId, file, onClose }: FilePreviewProps) {
           <button
             type="button"
             onClick={() => { void openInEditor(workspaceId, file.path).catch(() => {}) }}
-            className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+            className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
             title="Open in editor (VS Code)"
             aria-label="Open in editor"
             style={{ cursor: 'pointer' }}

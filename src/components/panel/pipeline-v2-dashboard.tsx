@@ -103,7 +103,7 @@ export function PipelineV2Dashboard({ workspaceId }: PipelineV2DashboardProps) {
     <div className="flex h-full w-72 flex-col overflow-y-auto border-r border-border-default bg-surface-secondary p-3 text-sm">
       {/* Summary stats */}
       <div className="mb-4">
-        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Pipeline Status</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-text-tertiary">Pipeline Status</h2>
         <div className="mt-2 flex gap-4">
           <Stat label="In flight" value={String(activeTasks.length)} />
           {colCounts.size > 0 && (
@@ -135,15 +135,15 @@ export function PipelineV2Dashboard({ workspaceId }: PipelineV2DashboardProps) {
             const eta = computeTaskEta(task, sortedColumns, avgCompletionMs)
             return (
               <div key={task.id} className="flex items-center justify-between gap-1">
-                <span className="truncate text-[10px] text-text-secondary">{task.title}</span>
-                <span className="shrink-0 text-[10px] text-text-tertiary">
+                <span className="truncate text-xs text-text-secondary">{task.title}</span>
+                <span className="shrink-0 text-xs text-text-tertiary">
                   {eta > 0 ? `~${formatMs(eta)}` : 'soon'}
                 </span>
               </div>
             )
           })}
           {activeTasks.length > 6 && (
-            <span className="text-[10px] text-text-tertiary">+{activeTasks.length - 6} more</span>
+            <span className="text-xs text-text-tertiary">+{activeTasks.length - 6} more</span>
           )}
         </Section>
       )}
@@ -153,10 +153,10 @@ export function PipelineV2Dashboard({ workspaceId }: PipelineV2DashboardProps) {
         <Section title="Batches">
           {Array.from(batchGroups.entries()).map(([batchId, batchTasks]) => (
             <div key={batchId} className="flex items-center justify-between gap-1">
-              <span className="truncate text-[10px] text-text-secondary">
+              <span className="truncate text-xs text-text-secondary">
                 {batchId === 'ungrouped' ? 'No batch' : batchId.slice(0, 12)}
               </span>
-              <span className="shrink-0 text-[10px] text-text-tertiary">
+              <span className="shrink-0 text-xs text-text-tertiary">
                 {batchTasks.length} {batchTasks.length === 1 ? 'task' : 'tasks'}
               </span>
             </div>
@@ -168,16 +168,16 @@ export function PipelineV2Dashboard({ workspaceId }: PipelineV2DashboardProps) {
       {usageSummary && usageSummary.recordCount > 0 && (
         <Section title="Usage">
           <div className="flex items-center justify-between gap-1">
-            <span className="text-[10px] text-text-secondary">Input tokens</span>
-            <span className="text-[10px] text-text-tertiary">{formatTokens(usageSummary.totalInputTokens)}</span>
+            <span className="text-xs text-text-secondary">Input tokens</span>
+            <span className="text-xs text-text-tertiary">{formatTokens(usageSummary.totalInputTokens)}</span>
           </div>
           <div className="flex items-center justify-between gap-1">
-            <span className="text-[10px] text-text-secondary">Output tokens</span>
-            <span className="text-[10px] text-text-tertiary">{formatTokens(usageSummary.totalOutputTokens)}</span>
+            <span className="text-xs text-text-secondary">Output tokens</span>
+            <span className="text-xs text-text-tertiary">{formatTokens(usageSummary.totalOutputTokens)}</span>
           </div>
           <div className="flex items-center justify-between gap-1">
-            <span className="text-[10px] text-text-secondary">Sessions</span>
-            <span className="text-[10px] text-text-tertiary">{usageSummary.recordCount}</span>
+            <span className="text-xs text-text-secondary">Sessions</span>
+            <span className="text-xs text-text-tertiary">{usageSummary.recordCount}</span>
           </div>
         </Section>
       )}
@@ -233,7 +233,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col">
       <span className="text-xs font-medium text-text-primary">{value}</span>
-      <span className="text-[10px] text-text-tertiary">{label}</span>
+      <span className="text-xs text-text-tertiary">{label}</span>
     </div>
   )
 }
@@ -241,14 +241,14 @@ function Stat({ label, value }: { label: string; value: string }) {
 function ColumnBar({ column, count, pct }: { column: Column; count: number; pct: number }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="w-20 shrink-0 truncate text-[10px] text-text-secondary">{column.name}</span>
+      <span className="w-20 shrink-0 truncate text-xs text-text-secondary">{column.name}</span>
       <div className="flex-1 overflow-hidden rounded-full bg-surface-hover" style={{ height: 5 }}>
         <div
           className="h-full rounded-full bg-accent transition-all duration-500"
           style={{ width: `${String(pct)}%` }}
         />
       </div>
-      <span className="w-4 shrink-0 text-right text-[10px] text-text-tertiary">{count}</span>
+      <span className="w-4 shrink-0 text-right text-xs text-text-tertiary">{count}</span>
     </div>
   )
 }
@@ -256,7 +256,7 @@ function ColumnBar({ column, count, pct }: { column: Column; count: number; pct:
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-3">
-      <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{title}</h3>
+      <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-text-tertiary">{title}</h3>
       <div className="flex flex-col gap-1">{children}</div>
     </div>
   )

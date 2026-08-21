@@ -65,7 +65,7 @@ export function TaskLabelPicker({ task }: TaskLabelPickerProps) {
 
       {open && (
         <div className="absolute left-0 top-6 z-40 w-52 rounded border border-border-default bg-surface p-2 shadow-xl">
-          <div className="mb-1 px-1 text-[10px] font-medium uppercase text-text-secondary/70">Labels</div>
+          <div className="mb-1 px-1 text-xs font-medium uppercase text-text-secondary/70">Labels</div>
           {labels.length === 0 ? (
             <div className="px-1 py-2 text-xs text-text-secondary">Create labels in the board header.</div>
           ) : (

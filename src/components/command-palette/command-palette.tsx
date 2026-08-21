@@ -294,7 +294,7 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
             autoFocus
             className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-secondary focus:outline-none"
           />
-          <kbd className="rounded bg-bg px-1.5 py-0.5 font-mono text-[10px] text-text-secondary" aria-label="Escape to close">
+          <kbd className="rounded bg-bg px-1.5 py-0.5 font-mono text-xs text-text-secondary" aria-label="Escape to close">
             Esc
           </kbd>
         </div>
@@ -345,11 +345,11 @@ export function CommandPalette({ onClose, onShowShortcuts }: Props) {
                         <div className="flex items-center gap-0.5" aria-hidden="true">
                           {cmd.shortcut.map((key, j) => (
                             <span key={j}>
-                              <kbd className="rounded bg-bg px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
+                              <kbd className="rounded bg-bg px-1.5 py-0.5 font-mono text-xs text-text-secondary">
                                 {key}
                               </kbd>
                               {j < (cmd.shortcut?.length ?? 0) - 1 && (
-                                <span className="mx-0.5 text-[10px] text-text-secondary">+</span>
+                                <span className="mx-0.5 text-xs text-text-secondary">+</span>
                               )}
                             </span>
                           ))}

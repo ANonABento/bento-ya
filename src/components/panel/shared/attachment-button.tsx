@@ -46,7 +46,7 @@ export function AttachmentButton({
           </svg>
         )}
         {count > 0 && (
-          <span className="absolute -right-1 -top-1 min-w-3 rounded-full bg-accent px-0.5 text-[8px] leading-3 text-bg">
+          <span className="absolute -right-1 -top-1 min-w-3 rounded-full bg-accent px-0.5 text-2xs leading-3 text-bg">
             {count}
           </span>
         )}

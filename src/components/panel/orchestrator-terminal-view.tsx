@@ -46,7 +46,7 @@ export function OrchestratorTerminalView({
             return (
               <div
                 key={shell}
-                className={`group flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${
+                className={`group flex items-center gap-1 rounded px-2 py-0.5 text-xs ${
                   isActive
                     ? 'bg-surface-hover text-text-primary'
                     : 'text-text-secondary hover:bg-surface-hover/60'

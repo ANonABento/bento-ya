@@ -169,7 +169,7 @@ export function TaskChecklist({ task, onUpdate, repoPath }: TaskChecklistProps) 
               style={{ width: `${String(progressPercent)}%` }}
             />
           </div>
-          <span className="text-[11px] text-text-secondary tabular-nums">
+          <span className="text-xs text-text-secondary tabular-nums">
             {checkedCount}/{totalCount}
           </span>
         </div>
@@ -255,7 +255,7 @@ export function TaskChecklist({ task, onUpdate, repoPath }: TaskChecklistProps) 
           <button
             type="button"
             onClick={handleAddItem}
-            className="text-[11px] text-accent hover:text-accent/80"
+            className="text-xs text-accent hover:text-accent/80"
           >
             Add
           </button>
@@ -269,7 +269,7 @@ export function TaskChecklist({ task, onUpdate, repoPath }: TaskChecklistProps) 
             type="button"
             onClick={() => { void handleGenerateFromPr() }}
             disabled={isGenerating}
-            className="flex w-full items-center justify-center gap-1.5 rounded px-2 py-1.5 text-[11px] text-accent hover:bg-accent/10 transition-colors disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-1.5 rounded px-2 py-1.5 text-xs text-accent hover:bg-accent/10 transition-colors disabled:opacity-50"
           >
             {isGenerating ? (
               <>
@@ -289,14 +289,14 @@ export function TaskChecklist({ task, onUpdate, repoPath }: TaskChecklistProps) 
             )}
           </button>
           {generateError && (
-            <p className="mt-1 text-[10px] text-error text-center">{generateError}</p>
+            <p className="mt-1 text-xs text-error text-center">{generateError}</p>
           )}
         </div>
       )}
 
       {/* Empty state */}
       {items.length === 0 && !newItemText && !canGenerateFromPr && (
-        <p className="text-[11px] text-text-secondary/60 px-1">
+        <p className="text-xs text-text-secondary/60 px-1">
           Add test items to verify before advancing this task.
         </p>
       )}

@@ -116,7 +116,7 @@ export function TaskSettingsModal({ task, onClose, initialTab }: TaskSettingsMod
             >
               {t === 'triggers' ? 'Triggers' : 'Dependencies'}
               {t === 'dependencies' && deps.length > 0 && (
-                <span className="ml-1.5 rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">
+                <span className="ml-1.5 rounded bg-accent/10 px-1.5 py-0.5 text-xs text-accent">
                   {deps.length}
                 </span>
               )}
@@ -257,7 +257,7 @@ function TriggersTab({
         runtimeFooter={
           <p
             data-testid="task-runtime-effective"
-            className="mt-1.5 text-[11px] text-text-secondary"
+            className="mt-1.5 text-xs text-text-secondary"
           >
             Effective: <span className="font-medium text-text-primary">{effectiveLabel}</span>
             {resolved.interactiveDevFlagRequired && (

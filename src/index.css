@@ -20,6 +20,18 @@
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
+  /* Type scale. Tailwind stops at `xs`; this app is dense enough to need one
+     step below it for badges and count bubbles. Defining it here — in rem —
+     is what lets Settings → Appearance → Font Size move it, which an
+     arbitrary pixel size never could. */
+  --text-2xs: 0.625rem;
+  --text-2xs--line-height: calc(0.875 / 0.625);
+
+  /* Animation Speed reaches every `transition-*` utility through Tailwind's
+     own default, rather than through a `.transition-appearance` class each
+     component would have to remember to opt into. */
+  --default-transition-duration: var(--transition-duration);
+
   /* Theme colors mapped to Tailwind utilities */
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -219,20 +231,6 @@ optgroup {
 
 ::-webkit-scrollbar-corner {
   background: var(--scrollbar-track);
-}
-
-/* Card styles using appearance variables */
-.card-padding {
-  padding: var(--card-padding);
-}
-
-.card-gap {
-  gap: var(--card-gap);
-}
-
-/* Transitions using appearance variables */
-.transition-appearance {
-  transition-duration: var(--transition-duration);
 }
 
 /* xterm needs explicit box ownership inside the animated Tauri panel. */

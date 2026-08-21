@@ -274,7 +274,7 @@ export const Column = memo(function Column({
         <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
           <div
             ref={setDroppableRef}
-            className={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pt-1 pb-2 transition-colors ${
+            className={`flex min-h-0 flex-1 flex-col gap-[var(--card-gap)] overflow-y-auto px-2 pt-1 pb-2 transition-colors ${
               isOver ? 'bg-accent/5' : ''
             }`}
           >

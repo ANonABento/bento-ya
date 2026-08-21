@@ -66,7 +66,7 @@ export function ThinkingSelector({ value, maxLevel, onChange }: ThinkingSelector
             >
               <div className="flex-1 min-w-0">
                 <div className="font-medium">{level.label}</div>
-                <div className="text-text-muted text-[10px]">{level.description}</div>
+                <div className="text-text-muted text-xs">{level.description}</div>
               </div>
               {level.id === value && !disabled && (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5 shrink-0">

@@ -345,7 +345,7 @@ export function AgentTab() {
                       <span className={`text-sm font-medium ${provider.enabled ? 'text-text-primary' : 'text-text-secondary'}`}>
                         {info.name}
                         {providerModelCount > 0 && (
-                          <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/20 px-1 text-[10px] font-medium text-accent">
+                          <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/20 px-1 text-xs font-medium text-accent">
                             {providerModelCount}
                           </span>
                         )}
@@ -416,7 +416,7 @@ export function AgentTab() {
                           {supportsApi ? 'API' : 'API unavailable'}
                         </button>
                       </div>
-                      <p className="mt-1.5 text-[11px] text-text-secondary/80">
+                      <p className="mt-1.5 text-xs text-text-secondary/80">
                         {connectionMode === 'cli'
                           ? 'Uses the installed CLI (auth and billing handled by the CLI).'
                           : supportsApi
@@ -460,7 +460,7 @@ export function AgentTab() {
                           const isChecking = checkingUpdate[provider.id]
                           const updateCommand = update?.updateCommand
                           return (
-                            <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
+                            <div className="mt-1.5 flex items-center gap-1.5 text-xs">
                               {isChecking ? (
                                 <span className="flex items-center gap-1 text-text-secondary">
                                   <svg className="h-2.5 w-2.5 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -483,7 +483,7 @@ export function AgentTab() {
                                             setCopiedCmd(provider.id)
                                             setTimeout(() => { setCopiedCmd(null) }, 2000)
                                           }}
-                                          className="ml-0.5 rounded border border-yellow-500/30 px-1 py-0.5 text-[10px] text-yellow-400 transition-colors hover:bg-yellow-500/10"
+                                          className="ml-0.5 rounded border border-yellow-500/30 px-1 py-0.5 text-xs text-yellow-400 transition-colors hover:bg-yellow-500/10"
                                           title={updateCommand}
                                         >
                                           {copiedCmd === provider.id ? '✓ copied' : 'copy upgrade cmd'}
@@ -547,7 +547,7 @@ export function AgentTab() {
                             </label>
                             <button
                               onClick={() => { toggleAll(!allEnabled) }}
-                              className="text-[10px] text-text-secondary transition-colors hover:text-text-primary"
+                              className="text-xs text-text-secondary transition-colors hover:text-text-primary"
                             >
                               {allEnabled ? 'Deselect all' : 'Select all'}
                             </button>
@@ -582,17 +582,17 @@ export function AgentTab() {
                                       {m.displayName}
                                     </span>
                                     {m.alias && (
-                                      <span className="rounded bg-surface-hover px-1 py-0.5 text-[10px] font-mono text-text-secondary">
+                                      <span className="rounded bg-surface-hover px-1 py-0.5 text-xs font-mono text-text-secondary">
                                         {m.alias}
                                       </span>
                                     )}
                                     {m.isNew && (
-                                      <span className="rounded bg-accent/20 px-1 py-0.5 text-[10px] font-medium text-accent">
+                                      <span className="rounded bg-accent/20 px-1 py-0.5 text-xs font-medium text-accent">
                                         New
                                       </span>
                                     )}
                                   </div>
-                                  <span className="text-[10px] text-text-secondary">
+                                  <span className="text-xs text-text-secondary">
                                     {String(Math.round(m.contextWindow / 1000))}k
                                   </span>
                                 </div>
@@ -631,7 +631,7 @@ export function AgentTab() {
                 <div key={item.name} className="rounded-lg border border-border-default bg-surface/40 p-3">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-text-primary">{item.name}</span>
-                    <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-text-secondary">
+                    <span className="rounded bg-surface-hover px-1.5 py-0.5 text-xs uppercase tracking-wide text-text-secondary">
                       Coming soon
                     </span>
                   </div>
@@ -818,7 +818,7 @@ export function AgentTab() {
                       className="w-24 rounded-lg border border-border-default bg-surface px-2 py-1.5 text-right text-sm tabular-nums text-text-primary placeholder:text-text-secondary/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
                       aria-label={`${entry.displayName} daily budget`}
                     />
-                    <span className="text-[10px] text-text-secondary/60">/day</span>
+                    <span className="text-xs text-text-secondary/60">/day</span>
                   </label>
                 </div>
               )
@@ -843,7 +843,7 @@ function StatusTile({ label, value, tone }: { label: string; value: string; tone
         : 'border-border-default bg-surface/50 text-text-primary'
   return (
     <div className={`rounded-lg border px-3 py-2 ${accent}`}>
-      <div className="text-[10px] uppercase tracking-wider text-text-secondary/80">{label}</div>
+      <div className="text-xs uppercase tracking-wider text-text-secondary/80">{label}</div>
       <div className="mt-0.5 text-sm font-semibold tabular-nums">{value}</div>
     </div>
   )
@@ -881,7 +881,7 @@ function PermissionCard({
       <div className="flex w-full items-center justify-between">
         <span className="text-sm font-semibold text-text-primary">{label}</span>
         {tag && (
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${tagStyle}`}>
+          <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${tagStyle}`}>
             {tag}
           </span>
         )}

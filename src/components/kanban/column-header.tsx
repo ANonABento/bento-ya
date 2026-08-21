@@ -207,7 +207,7 @@ export const ColumnHeader = memo(function ColumnHeader({
         >
           {getIcon(icon)}
         </span>
-        <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary tabular-nums">
+        <span className="rounded bg-surface-hover px-1.5 py-0.5 text-xs font-medium text-text-secondary tabular-nums">
           {taskCount}
         </span>
         {isRenaming ? (
@@ -240,7 +240,7 @@ export const ColumnHeader = memo(function ColumnHeader({
               <button
                 type="button"
                 onClick={() => { setMetricsExpanded(false) }}
-                className="flex items-center gap-1 rounded text-[10px] text-text-secondary/60 tabular-nums whitespace-nowrap hover:text-text-secondary"
+                className="flex items-center gap-1 rounded text-xs text-text-secondary/60 tabular-nums whitespace-nowrap hover:text-text-secondary"
               >
                 <span>⏱{formatDuration(metrics.avgDurationSeconds)}</span>
                 <span className="text-text-secondary/30">·</span>
@@ -267,7 +267,7 @@ export const ColumnHeader = memo(function ColumnHeader({
 
         {scriptTrigger && (
           <span
-            className="truncate rounded bg-purple-500/10 px-1.5 py-0.5 text-[10px] font-medium text-purple-400"
+            className="truncate rounded bg-purple-500/10 px-1.5 py-0.5 text-xs font-medium text-purple-400"
             title={`Script: ${scriptTrigger.scriptName} (${scriptTrigger.event === 'both' ? 'entry + exit' : `on ${scriptTrigger.event}`})`}
           >
             {scriptTrigger.scriptName}
@@ -276,7 +276,7 @@ export const ColumnHeader = memo(function ColumnHeader({
 
         {/* Batch queue progress badge */}
         {batchQueue && (
-          <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+          <span className="rounded bg-accent/15 px-1.5 py-0.5 text-xs font-medium text-accent">
             Queued: {batchQueue.completed}/{batchQueue.total}
           </span>
         )}
@@ -292,7 +292,7 @@ export const ColumnHeader = memo(function ColumnHeader({
             wrap
           >
             <span
-              className={`rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${
+              className={`rounded px-1.5 py-0.5 text-xs font-medium tabular-nums ${
                 agentConcurrency.running >= agentConcurrency.max
                   ? 'bg-warning/10 text-warning'
                   : agentConcurrency.running > 0

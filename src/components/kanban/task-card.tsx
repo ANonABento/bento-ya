@@ -520,7 +520,7 @@ export const TaskCard = memo(function TaskCard({
       <div
         {...attributes}
         {...listeners}
-        className="space-y-2.5 p-3"
+        className="space-y-2.5 p-[var(--card-padding)]"
         style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
       >
         {/* Title — click-to-edit when card is expanded */}
@@ -562,7 +562,7 @@ export const TaskCard = memo(function TaskCard({
                   setEditingTitle(true)
                 }
               }}
-              className={`min-w-0 flex-1 pr-7 text-[13px] font-medium leading-snug text-text-primary line-clamp-2 ${isExpanded ? 'hover:text-accent' : ''}`}
+              className={`min-w-0 flex-1 pr-7 text-sm font-medium leading-snug text-text-primary line-clamp-2 ${isExpanded ? 'hover:text-accent' : ''}`}
               style={isExpanded ? { cursor: 'text' } : undefined}
               title={isExpanded ? 'Click to edit title' : undefined}
             >
@@ -574,7 +574,7 @@ export const TaskCard = memo(function TaskCard({
               type="button"
               onClick={(e) => { e.stopPropagation(); actions.handleUnarchiveTask(); }}
               title="Restore — move back to the active board"
-              className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-surface-hover text-text-secondary/80 border border-border-default hover:border-accent hover:text-accent transition-colors"
+              className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-hover text-text-secondary/80 border border-border-default hover:border-accent hover:text-accent transition-colors"
             >
               <svg viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
                 <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H4.598a.75.75 0 0 0-.75.75v3.634a.75.75 0 0 0 1.5 0v-2.033l.312.311a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39l-.611.21ZM4.688 8.576a5.5 5.5 0 0 1 9.201-2.466l.312.311h-2.433a.75.75 0 0 0 0 1.5h3.634a.75.75 0 0 0 .75-.75V3.537a.75.75 0 0 0-1.5 0v2.033l-.312-.311A7 7 0 0 0 3.628 8.397a.75.75 0 0 0 1.449.39l-.389-.211Z" clipRule="evenodd" />
@@ -602,7 +602,7 @@ export const TaskCard = memo(function TaskCard({
 
         {/* Compact metadata row — hidden when expanded (expanded view has its own) */}
         {!isExpanded && hasMetadata && (
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-text-secondary">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-text-secondary">
             {isPipelineActive && !hasPipelineError && task.pipelineState !== 'running' && (
               <span className="inline-flex items-center gap-1 text-running">
                 <span className="relative flex h-1.5 w-1.5">
@@ -615,13 +615,13 @@ export const TaskCard = memo(function TaskCard({
             <SiegeBadge task={task} />
             <AgentDoneBadge task={task} />
             {task.heldByUser && (
-              <span className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning">
+              <span className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-xs font-medium text-warning">
                 Held
               </span>
             )}
             {spawnedByLabel && (
               <span
-                className="inline-flex max-w-[160px] items-center gap-1 truncate rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent"
+                className="inline-flex max-w-[160px] items-center gap-1 truncate rounded bg-accent/10 px-1.5 py-0.5 text-xs font-medium text-accent"
                 title={`Spawned by an agent on "${spawnedByLabel}" (chain depth ${String(task.recursionDepth)})`}
               >
                 <svg className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -632,7 +632,7 @@ export const TaskCard = memo(function TaskCard({
               </span>
             )}
             {titleWorkspaceName && (
-              <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
+              <span className="rounded bg-surface-hover px-1.5 py-0.5 text-xs font-medium text-text-secondary">
                 {titleWorkspaceName}
               </span>
             )}
@@ -653,12 +653,12 @@ export const TaskCard = memo(function TaskCard({
               <span className="text-text-secondary/70">{task.agentType}</span>
             )}
             {task.model && (
-              <span className="rounded bg-accent/10 px-1 py-0.5 text-[10px] font-medium text-accent">
+              <span className="rounded bg-accent/10 px-1 py-0.5 text-xs font-medium text-accent">
                 {task.model}
               </span>
             )}
             {cardSettings.showBranch && task.branch && (
-              <span className="flex max-w-[130px] items-center gap-1 truncate font-mono text-[11px]" title={task.worktreePath ? `Worktree: ${task.worktreePath}` : task.branch}>
+              <span className="flex max-w-[130px] items-center gap-1 truncate font-mono text-xs" title={task.worktreePath ? `Worktree: ${task.worktreePath}` : task.branch}>
                 {task.worktreePath && (
                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0" />
                 )}
@@ -670,12 +670,12 @@ export const TaskCard = memo(function TaskCard({
                 <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <path d="M6 3L10 3M10 3L10 7M10 3L3 10" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
-                <span className="text-[10px]">{depCount}</span>
+                <span className="text-xs">{depCount}</span>
               </span>
             )}
             <span className="flex-1" />
             {cardSettings.showTimestamp && !isPipelineActive && (
-              <span className="text-[10px] text-text-secondary/40 tabular-nums">
+              <span className="text-xs text-text-secondary/40 tabular-nums">
                 {formatRelativeTime(task.updatedAt)}
               </span>
             )}
@@ -688,14 +688,14 @@ export const TaskCard = memo(function TaskCard({
             {taskLabels.slice(0, 3).map((label) => (
               <span
                 key={label.id}
-                className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary"
+                className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-xs text-text-secondary"
               >
                 <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: label.color }} />
                 {label.name}
               </span>
             ))}
             {taskLabels.length > 3 && (
-              <span className="text-[10px] text-text-secondary/70">+{taskLabels.length - 3}</span>
+              <span className="text-xs text-text-secondary/70">+{taskLabels.length - 3}</span>
             )}
           </div>
         )}

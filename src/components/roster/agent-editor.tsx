@@ -67,7 +67,7 @@ function Field({
 function FormSection({ title }: { title: string }) {
   return (
     <div className="sm:col-span-2">
-      <h4 className="border-b border-border-default pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-text-secondary/70">
+      <h4 className="border-b border-border-default pb-1.5 text-xs font-semibold uppercase tracking-wider text-text-secondary/70">
         {title}
       </h4>
     </div>

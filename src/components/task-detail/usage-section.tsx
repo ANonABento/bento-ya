@@ -46,7 +46,7 @@ export function UsageSection({ agentType, agentStatus, startedAt }: UsageSection
 
   return (
     <div className="rounded-lg border border-border-default bg-surface p-3">
-      <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-text-secondary">
+      <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-text-secondary">
         Usage
       </h4>
       <div className="space-y-1.5">

@@ -226,13 +226,13 @@ export function MetricsDashboard({ workspaceId, onClose }: Props) {
                           style={{ height: `${String((day.costUsd / maxDailyCost) * 100)}%`, minHeight: day.costUsd > 0 ? '4px' : '0' }}
                         />
                         {dailyCosts.length <= 14 && (
-                          <div className="mt-1 text-[10px] text-text-secondary">{formatUsageDate(day.date)}</div>
+                          <div className="mt-1 text-xs text-text-secondary">{formatUsageDate(day.date)}</div>
                         )}
                       </div>
                     ))}
                   </div>
                   {dailyCosts.length > 14 && (
-                    <div className="mt-2 flex justify-between text-[10px] text-text-secondary">
+                    <div className="mt-2 flex justify-between text-xs text-text-secondary">
                       <span>{formatUsageDate(dailyCosts[0]?.date ?? '')}</span>
                       <span>{formatUsageDate(dailyCosts[dailyCosts.length - 1]?.date ?? '')}</span>
                     </div>

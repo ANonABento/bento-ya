@@ -104,7 +104,7 @@ function SortableTab({
 
         {/* Notification badge */}
         {notificationCount > 0 && (
-          <span className="ml-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-attention px-1 text-[10px] font-bold text-bg">
+          <span className="ml-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-attention px-1 text-xs font-bold text-bg">
             {notificationCount > 9 ? '9+' : notificationCount}
           </span>
         )}
@@ -264,12 +264,12 @@ function ChecklistButton() {
           />
         </svg>
         {hasItems && !allComplete && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[8px] font-bold text-bg">
+          <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-accent text-2xs font-bold text-bg">
             {total - progress}
           </span>
         )}
         {allComplete && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-success text-[8px] text-white">
+          <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-success text-2xs text-white">
             ✓
           </span>
         )}

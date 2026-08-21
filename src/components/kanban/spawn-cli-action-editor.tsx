@@ -118,7 +118,7 @@ export function SpawnCliActionEditor({
                   }`}
                 >
                   <span className="block text-xs font-medium">{opt.label}</span>
-                  <span className="block text-[10px] opacity-60">{opt.description}</span>
+                  <span className="block text-xs opacity-60">{opt.description}</span>
                 </button>
               )
             })}
@@ -147,13 +147,13 @@ export function SpawnCliActionEditor({
                   }`}
                 >
                   <span className="block text-xs font-medium">{mode.label}</span>
-                  <span className="block text-[10px] opacity-60">{mode.caption}</span>
+                  <span className="block text-xs opacity-60">{mode.caption}</span>
                 </button>
               )
             })}
           </div>
           {isManagedMode && (
-            <p className="mt-1 text-[10px] text-amber-400">
+            <p className="mt-1 text-xs text-amber-400">
               Managed mode streams structured events; Terminal is more reliable for long-running agents.
             </p>
           )}
@@ -182,8 +182,8 @@ export function SpawnCliActionEditor({
           <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 rounded-lg border border-border-default bg-bg/60 p-2">
             {TEMPLATE_VARIABLES.map((v) => (
               <div key={v.name} className="flex items-baseline gap-1.5">
-                <code className="shrink-0 text-[10px] font-mono text-accent">{v.name}</code>
-                <span className="truncate text-[10px] text-text-secondary">{v.desc}</span>
+                <code className="shrink-0 text-xs font-mono text-accent">{v.name}</code>
+                <span className="truncate text-xs text-text-secondary">{v.desc}</span>
               </div>
             ))}
           </div>
@@ -199,7 +199,7 @@ export function SpawnCliActionEditor({
           className="h-4 w-4 rounded border-border-default accent-accent"
         />
         Use agent queue
-        <span className="ml-0.5 rounded bg-bg-elevated px-1.5 py-0.5 text-[10px] text-text-secondary">
+        <span className="ml-0.5 rounded bg-bg-elevated px-1.5 py-0.5 text-xs text-text-secondary">
           max 3 concurrent
         </span>
       </label>

@@ -136,7 +136,7 @@ function MenuItemComponent({ item, onClose }: { item: MenuItem; onClose: () => v
       {item.icon && <span className="text-text-secondary">{item.icon}</span>}
       <span className="flex-1">{item.label}</span>
       {item.shortcut && (
-        <span className="text-[11px] text-text-secondary/70">{item.shortcut}</span>
+        <span className="text-xs text-text-secondary/70">{item.shortcut}</span>
       )}
     </button>
   )
