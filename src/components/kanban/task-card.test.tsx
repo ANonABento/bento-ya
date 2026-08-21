@@ -252,7 +252,7 @@ describe('TaskCard interactive done advisory', () => {
     // `interactive_done` event alone only reaches a mounted listener.
     const task = mockKanbanTask({ agentDoneSignaledAt: 1_700_000_000_123 })
     resetStores(task)
-    await setupInvokeMock()
+    await setupInvokeMock({})
 
     render(<TaskCard task={task} />)
 
@@ -262,7 +262,7 @@ describe('TaskCard interactive done advisory', () => {
   it('stays quiet when the agent has not signaled done', async () => {
     const task = mockKanbanTask({ agentDoneSignaledAt: null })
     resetStores(task)
-    await setupInvokeMock()
+    await setupInvokeMock({})
 
     render(<TaskCard task={task} />)
 
