@@ -224,6 +224,15 @@ pub async fn agent_restart(
     let _ = tmux_transport::kill_session(&task_id);
 
     let env_vars: HashMap<String, String> = HashMap::new();
+    // Restart should keep the agent's context where the CLI can give it to us.
+    // Codex exposes `resume --last`, which is cwd-filtered and so resolves to
+    // this task's own worktree session. Claude needs an explicit session id we
+    // do not capture from the TUI, so it still restarts fresh — asking for
+    // `Last` there would only log a warning on every claude restart.
+    let resume = match bridge::InteractiveCli::from_cli_name(&cli_command) {
+        Some(bridge::InteractiveCli::Codex) => bridge::InteractiveResume::Last,
+        _ => bridge::InteractiveResume::None,
+    };
     bridge::spawn_interactive_trigger_task(
         app,
         task_id,
@@ -233,6 +242,7 @@ pub async fn agent_restart(
         initial_prompt,
         Some(env_vars),
         include_sentinel,
+        resume,
     );
     Ok(())
 }

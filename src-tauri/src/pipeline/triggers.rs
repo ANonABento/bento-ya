@@ -1805,6 +1805,7 @@ fn execute_spawn_cli(
             initial_prompt,
             Some(env_vars),
             include_sentinel,
+            bridge::InteractiveResume::None,
         );
     } else {
         // Force a fresh tmux pane for terminal columns: the persistent

@@ -293,7 +293,7 @@ Codex has the same CLI shape: `codex exec '<prompt>'` (headless) vs `codex` (int
 | Headless spawn | `claude -p '<prompt>'` | `codex exec --json '<prompt>'` |
 | Interactive spawn | `claude` then `tmux send-keys` | `codex` then `tmux send-keys` |
 | Slash commands | `/model`, `/clear`, `/exit` | `/model`, `/clear`, `/quit` |
-| System prompt append | `--append-system-prompt` | `--append-system-prompt` (verify in current codex release) |
+| System prompt append | `--append-system-prompt` | **none — codex has no such flag** (verified against codex-cli 0.145.0). Sentinel is folded into the injected prompt instead (`append_sentinel_to_prompt`). |
 | Sentinel pattern | `<<<KAITENCODE_DONE:{id}>>>` | same |
 | Resume | `--resume <session_id>` | `--resume <session_id>` |
 | Billing model | Subscription plans, [Agent SDK credit](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) for headless | OpenAI API (no equivalent split — interactive vs headless billing is identical for Codex) |
@@ -347,8 +347,10 @@ What landed:
     indicator is cheap if it drifts.
   - `spawn_interactive_claude()` — runs `tmux new-session -d -s
     kaitencode_<id> -c <worktree> -- claude --dangerously-skip-permissions
-    [args] [--append-system-prompt …]`, polls the pane for the prompt
-    box (5s timeout @ 100ms cadence), then injects the initial prompt
+    [args] [--append-system-prompt …]`, waits for the pane to be usable
+    (prompt-box glyph as a fast path, else quiescence; 60s budget @ 100ms
+    cadence; exhausting it injects anyway rather than killing), then
+    injects the initial prompt
     via `tmux send-keys -t … -l <prompt>` + `Enter`. `tmux send-keys
     -l` (literal) is non-negotiable per the cross-cutting watch-out.
   - `spawn_interactive_trigger_task()` — public dispatcher analogue to
@@ -363,10 +365,11 @@ What landed:
     and best-effort sends `/exit` to the TUI so it shuts down cleanly.
     On column-move, marks the agent_session `cancelled` and yields the
     task to whatever the new column's trigger decides.
-  - `exit_criteria_needs_sentinel()` — gates the `--append-system-prompt`
-    inclusion. Only `agent_complete` and `manual_approval` get the
-    sentinel injected; other criteria skip it to keep the system prompt
-    minimal.
+  - `exit_criteria_needs_sentinel()` — gates sentinel inclusion. Only
+    `agent_complete` and `manual_approval` get the sentinel; other
+    criteria skip it to keep the system prompt minimal. The *mechanism*
+    is per-CLI: claude uses `--append-system-prompt`, codex has no such
+    flag and gets it folded into the prompt (`append_sentinel_to_prompt`).
 - `src-tauri/src/pipeline/triggers.rs`:
   - `normalize_agent_runtime_mode` now takes the CLI name. Returns
     `"interactive"` only when the env flag is set AND CLI is `claude`.
@@ -610,15 +613,15 @@ Notes for Phase 3 (Codex parity):
   with cli-shape switches) or add a `spawn_interactive_codex` peer.
   The ready-prompt detector `pane_has_claude_prompt` will need a
   codex variant — codex's REPL has a different prompt glyph.
-- `interactive_sentinel_system_prompt` is generic and should work
-  on codex unchanged, but `--append-system-prompt` support on the
-  current codex release is the open question. Verify before Phase 3
-  starts coding.
+- `interactive_sentinel_system_prompt` is generic and works on codex
+  unchanged. **Resolved:** codex has no `--append-system-prompt` at all
+  (codex-cli 0.145.0), so the *carrier* differs — codex folds the same
+  text into the injected prompt via `append_sentinel_to_prompt`.
 
 ### Phase 3: Codex parity (1 day)
 
 - Same `build_interactive_spawn` path, codex-specific arg shape.
-- Validate `--append-system-prompt` works on current codex release; fall back to inline prompt prefix if not.
+- ~~Validate `--append-system-prompt` works on current codex release~~ **DONE — it does not exist on codex.** The inline-prompt fallback is what ships.
 
 #### Phase 3 status — 2026-05-13
 
@@ -630,8 +633,10 @@ What landed:
     + `exit_command` methods.
   - `build_interactive_codex_argv` — parallel to the claude builder.
     No `exec`, no `--json`, no headless sandbox flags (those mutate
-    the non-interactive `codex exec` pipeline). Sentinel injected via
-    `--append-system-prompt <text>` when `include_sentinel=true`.
+    the non-interactive `codex exec` pipeline). **No `--append-system-prompt`
+    either — codex has no such flag**; the sentinel is folded into the
+    injected prompt instead. Handles resume via the `resume` *subcommand*
+    (`resume --last` / `resume <id>`), which must precede any user args.
   - `pane_has_codex_prompt` — readiness detector. Matches lowercase
     `codex` substring AND requires >32 bytes of pane scrollback to
     avoid tripping on transient captures. Documented as the most
@@ -679,7 +684,7 @@ Verification of codex CLI behavior (the spec's required checks):
 
 | Question | Assumption | Failure mode if wrong |
 |---|---|---|
-| Does `codex --append-system-prompt` work? | Yes (matches claude's flag name and recent codex releases support it for `exec`; assumed for REPL). | Spawn fails with the codex error in-pane; `spawn_interactive_cli` reports the failure through `handle_interactive_spawn_failure`. User sees a clear error and can revert to headless. |
+| Does `codex --append-system-prompt` work? | **NO — resolved, the assumption was wrong.** codex-cli 0.145.0 has no such flag, so every sentinel-carrying column died at startup. The mitigation column below never helped either: the readiness miss *killed* the session, destroying the in-pane error. Both are fixed — sentinel rides the prompt, readiness never hard-kills. | n/a (resolved) |
 | Does `/model <name>` work mid-conversation? | Unverified — sent unchanged. | Codex prints its own error in-pane; user can use Restart with the model preselected (Phase 2 control bar already exposes Restart). The dropdown does NOT show a CLI-specific label difference (spec optionally suggested "Switch & Restart" for codex). |
 | Codex prompt indicator? | Banner contains `codex` (case-insensitive) plus >32 bytes. | If banner format changes, `spawn_interactive_cli` times out at 5s and returns "did not reach a ready prompt". Visible failure, not silent. |
 | Exit command? | `/quit` (per spec table). | If codex doesn't accept `/quit` on a release, the post-success exit-send is best-effort — the next trigger spawn kills the session anyway. No correctness impact. |
@@ -1120,9 +1125,10 @@ verification the README explicitly required.
 **Open follow-up tickets to file:**
 1. Run 10–20 interactive tasks; query telemetry; decide on the
    idle-prompt-detector fallback.
-2. Verify codex `--append-system-prompt` and `/model` behavior on
-   the user's release. If `/model` requires restart, swap the
-   dropdown to "Restart with model".
+2. ~~Verify codex `--append-system-prompt`~~ **DONE — no such flag exists;
+   sentinel moved into the prompt.** Still open: `/model` behavior on the
+   user's release. If `/model` requires restart, swap the dropdown to
+   "Restart with model".
 3. Build the column-config picker for `default_runtime_mode`.
 4. Build the settings-panel pickers (workspace + global defaults).
 5. Build the telemetry view (table + sentinel-hit-rate header).
