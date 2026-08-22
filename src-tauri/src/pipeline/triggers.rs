@@ -1057,6 +1057,71 @@ pub(crate) fn resolve_model_override(
         .map(ToString::to_string)
 }
 
+/// Add patterns to the repo's git exclude file, so trigger scratch files
+/// (`.task.md`, `.agent.md`) don't end up in the agent's commit.
+///
+/// The path has to come from git, not from string-joining `.git/info/exclude`
+/// onto the working dir. In a **linked worktree `.git` is a file**, not a
+/// directory, so that join names something that never exists — the old code
+/// checked `.exists()`, found nothing, and silently skipped the whole
+/// exclusion. Every worktree-based agent run has been committing `.task.md`
+/// as a result. `rev-parse --git-path` resolves to the real common-dir file.
+fn exclude_from_git(working_dir: &str, patterns: &[&str]) {
+    if working_dir.is_empty() {
+        return;
+    }
+    let Ok(output) = std::process::Command::new("git")
+        .args(["-C", working_dir, "rev-parse", "--git-path", "info/exclude"])
+        .output()
+    else {
+        return;
+    };
+    if !output.status.success() {
+        return;
+    }
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if raw.is_empty() {
+        return;
+    }
+    // `--git-path` answers relative to the -C directory when the path is inside
+    // the repo it was asked from.
+    let path = {
+        let p = PathBuf::from(&raw);
+        if p.is_absolute() {
+            p
+        } else {
+            Path::new(working_dir).join(p)
+        }
+    };
+
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let missing: Vec<&str> = patterns
+        .iter()
+        .copied()
+        .filter(|pat| !existing.lines().any(|line| line.trim() == *pat))
+        .collect();
+    if missing.is_empty() {
+        return;
+    }
+
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut next = existing.trim_end().to_string();
+    if !next.is_empty() {
+        next.push('\n');
+    }
+    next.push_str(&missing.join("\n"));
+    next.push('\n');
+    if let Err(e) = std::fs::write(&path, next) {
+        log::warn!(
+            "[triggers] Could not update git exclude at {}: {}",
+            path.display(),
+            e
+        );
+    }
+}
+
 /// Look up the skills an agent references, dropping ids that no longer exist.
 ///
 /// Deliberately lenient: a deleted skill shows in the dossier as "missing
@@ -1841,36 +1906,15 @@ fn execute_spawn_cli(
             }
         }
 
-        // Exclude .task.md from git (avoid agent committing it)
-        let exclude_path = std::path::Path::new(&working_dir)
-            .join(".git")
-            .join("info")
-            .join("exclude");
-        if exclude_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&exclude_path) {
-                if !content.contains(".task.md") {
-                    let _ = std::fs::write(
-                        &exclude_path,
-                        format!(
-                            "{}\n.task.md\n.task-handoff.md\n{}\n",
-                            content.trim_end(),
-                            roster::plan::AGENT_INSTRUCTIONS_FILE
-                        ),
-                    );
-                } else if !content.contains(roster::plan::AGENT_INSTRUCTIONS_FILE) {
-                    // Worktrees created before agents existed already list
-                    // .task.md, so the branch above never fires for them.
-                    let _ = std::fs::write(
-                        &exclude_path,
-                        format!(
-                            "{}\n{}\n",
-                            content.trim_end(),
-                            roster::plan::AGENT_INSTRUCTIONS_FILE
-                        ),
-                    );
-                }
-            }
-        }
+        // Keep the scratch files out of git.
+        exclude_from_git(
+            &working_dir,
+            &[
+                ".task.md",
+                ".task-handoff.md",
+                roster::plan::AGENT_INSTRUCTIONS_FILE,
+            ],
+        );
     }
 
     // `runtime_mode` (resolved above) is already normalized:
@@ -3523,6 +3567,55 @@ mod tests {
         })
         .unwrap();
         db::update_column(conn, column_id, None, None, None, None, None, Some(&json)).unwrap();
+    }
+
+    #[test]
+    fn exclude_from_git_writes_to_the_path_git_reports() {
+        // The bug this replaced: joining `.git/info/exclude` onto the working
+        // dir. In a linked worktree `.git` is a FILE, so that path never
+        // exists and the exclusion was silently skipped — every worktree run
+        // committed `.task.md`.
+        let dir = std::env::temp_dir().join(format!("kc-excl-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ok = std::process::Command::new("git")
+            .args(["-C", dir.to_str().unwrap(), "init", "-q"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok {
+            return; // no git on this machine; nothing to assert
+        }
+
+        let repo = dir.to_string_lossy().to_string();
+        exclude_from_git(&repo, &[".task.md", ".agent.md"]);
+
+        let exclude = dir.join(".git").join("info").join("exclude");
+        let body = std::fs::read_to_string(&exclude).unwrap();
+        assert!(body.lines().any(|l| l.trim() == ".task.md"), "{}", body);
+        assert!(body.lines().any(|l| l.trim() == ".agent.md"), "{}", body);
+
+        // Idempotent: running again must not duplicate entries.
+        exclude_from_git(&repo, &[".task.md", ".agent.md"]);
+        let again = std::fs::read_to_string(&exclude).unwrap();
+        assert_eq!(again.matches(".task.md").count(), 1, "{}", again);
+
+        // A pattern not yet present is appended without disturbing the rest.
+        exclude_from_git(&repo, &[".task.md", "brand-new.md"]);
+        let third = std::fs::read_to_string(&exclude).unwrap();
+        assert!(third.lines().any(|l| l.trim() == "brand-new.md"));
+        assert_eq!(third.matches(".agent.md").count(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn exclude_from_git_is_a_no_op_outside_a_repo() {
+        let dir = std::env::temp_dir().join(format!("kc-norepo-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        exclude_from_git(&dir.to_string_lossy(), &[".task.md"]);
+        assert!(!dir.join(".git").exists());
+        exclude_from_git("", &[".task.md"]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
