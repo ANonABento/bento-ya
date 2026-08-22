@@ -109,6 +109,17 @@ Empty. The last item — the stale `/usr/local/bin/claude` — was removed
 
 ## 🟡 Important (rough edges, not blockers)
 
+2b. **Trigger failures surface as "Execution failed" on the card.** The real
+   reason exists — `[create_pr] Failed …: git push --force failed: fatal:
+   'origin' does not appear to be a git repository` — but only in the log.
+   `handle_trigger_failure` propagates a specific message and does show it
+   (e.g. "Cannot create PR: task has no branch_name"), while the paths going
+   through `mark_complete_with_error` with `error_detail: None` fall back to the
+   generic string. Thread the detail through so the card says what actually
+   happened. Found 2026-08-22 while testing `auto_setup` / `create_pr`, both of
+   which are otherwise **correct** — the first paths this sweep found that
+   behave properly.
+
 2. **Other inert settings surfaces.** Flagged while wiring Appearance, not fixed:
    custom keyboard shortcuts render but do nothing (`shortcuts-tab.tsx:54`), and
    the OpenRouter / Google / Ollama provider cards are "Coming soon". Framer
