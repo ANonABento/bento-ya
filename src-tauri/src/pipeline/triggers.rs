@@ -888,15 +888,22 @@ fn execute_merge_to_main(
         );
     }
 
-    // The codex `on_entry` for this column was responsible for merging
-    // origin/<base> into the task branch and committing — so HEAD should
-    // already be a fast-forwardable descendant of origin/<base>.
-    let push = run_command(
-        &repo_path,
-        "git",
-        &["push", "origin", &format!("HEAD:refs/heads/{}", base)],
-    )
-    .map_err(AppError::CommandError)?;
+    // Push the task's branch by name, never `HEAD`.
+    //
+    // `repo_path` is the task's worktree *if it has one* and the shared
+    // workspace checkout otherwise — and a task can reach this column without a
+    // worktree (terminal-column cleanup removes it while `branch_name`
+    // survives). `HEAD` there is whatever the user happens to have checked out.
+    // In the best case that is `main`, so `HEAD:refs/heads/main` is a no-op
+    // push that *succeeds*, and the trigger logs "Pushed …" having merged
+    // nothing. In the worst case it publishes the user's unrelated working
+    // branch to main.
+    //
+    // The branch name is already validated above, and it is what the success
+    // log claims to have pushed — so push exactly that.
+    let refspec = merge_to_main_refspec(&branch_name, &base);
+    let push = run_command(&repo_path, "git", &["push", "origin", &refspec])
+        .map_err(AppError::CommandError)?;
 
     if !push.status.success() {
         let stderr = command_stderr(&push);
@@ -1120,6 +1127,15 @@ fn exclude_from_git(working_dir: &str, patterns: &[&str]) {
             e
         );
     }
+}
+
+/// The refspec `merge_to_main` pushes: the task's branch onto the base branch.
+///
+/// Extracted so the one thing that must never regress — that this names the
+/// task's branch rather than `HEAD` — is pinned by a test. See the call site
+/// for why `HEAD` was actively dangerous.
+fn merge_to_main_refspec(branch_name: &str, base: &str) -> String {
+    format!("{}:refs/heads/{}", branch_name, base)
 }
 
 /// Look up the skills an agent references, dropping ids that no longer exist.
@@ -3838,6 +3854,24 @@ mod tests {
         assert!(!dir.join(".git").exists());
         exclude_from_git("", &[".task.md"]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn merge_to_main_pushes_the_task_branch_not_head() {
+        // This used to push `HEAD:refs/heads/main`. `repo_path` is the shared
+        // workspace checkout whenever the task has no worktree — which happens
+        // once terminal-column cleanup removes it — so HEAD was whatever the
+        // user had checked out. On `main` that is a no-op push that *succeeds*,
+        // and the trigger logged "Pushed …" having merged nothing; on any other
+        // branch it would publish unrelated work to main.
+        let spec = merge_to_main_refspec("kaitencode/feature-x", "main");
+        assert_eq!(spec, "kaitencode/feature-x:refs/heads/main");
+        assert!(!spec.starts_with("HEAD"), "must never push HEAD: {}", spec);
+        // A non-default base is honoured.
+        assert_eq!(
+            merge_to_main_refspec("feat/x", "develop"),
+            "feat/x:refs/heads/develop"
+        );
     }
 
     #[test]

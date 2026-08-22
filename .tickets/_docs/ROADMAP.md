@@ -35,6 +35,18 @@ replaces the terminal.
   with a 60s budget and **never** hard-kills — exhausting it injects anyway and
   leaves the pane inspectable. `CLI_HEALTH_SPECS` now probes the interactive
   codex path so the same drift can't ship silently again.
+- `merge_to_main` pushed the wrong thing (2026-08-22). It ran
+  `git push origin HEAD:refs/heads/main` from `resolve_working_dir`, which is the
+  **shared workspace checkout** whenever the task has no worktree — and terminal
+  -column cleanup removes worktrees while `branch_name` survives. With the repo
+  on `main` that is a no-op push that *succeeds*, so the trigger logged
+  "Pushed <branch> to origin/main" having merged nothing; on any other checked-out
+  branch it would have published unrelated work to main. Now pushes the task's
+  branch by name. Verified against a real bare origin: before the fix origin/main
+  never moved, after it advanced and carried the branch's file.
+  `auto_merge` was checked and does not share the bug (it passes the branch
+  explicitly). **Note:** `merge_to_main` is backend-only — it is absent from the
+  frontend `ActionType` union, so no UI can configure it.
 - Script agents verified end to end + tmux session env fixed (2026-08-22). argv,
   cwd and exit-code advancement were already correct (no prose in argv — strict
   `ARGC` check passed), but **every environment variable arrived `<unset>`**:
