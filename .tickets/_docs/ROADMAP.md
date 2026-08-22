@@ -35,6 +35,18 @@ replaces the terminal.
   with a 60s budget and **never** hard-kills — exhausting it injects anyway and
   leaves the pane inspectable. `CLI_HEALTH_SPECS` now probes the interactive
   codex path so the same drift can't ship silently again.
+- `merge_to_main` pushed the wrong thing (2026-08-22). It ran
+  `git push origin HEAD:refs/heads/main` from `resolve_working_dir`, which is the
+  **shared workspace checkout** whenever the task has no worktree — and terminal
+  -column cleanup removes worktrees while `branch_name` survives. With the repo
+  on `main` that is a no-op push that *succeeds*, so the trigger logged
+  "Pushed <branch> to origin/main" having merged nothing; on any other checked-out
+  branch it would have published unrelated work to main. Now pushes the task's
+  branch by name. Verified against a real bare origin: before the fix origin/main
+  never moved, after it advanced and carried the branch's file.
+  `auto_merge` was checked and does not share the bug (it passes the branch
+  explicitly). **Note:** `merge_to_main` is backend-only — it is absent from the
+  frontend `ActionType` union, so no UI can configure it.
 - Script agents verified end to end + tmux session env fixed (2026-08-22). argv,
   cwd and exit-code advancement were already correct (no prose in argv — strict
   `ARGC` check passed), but **every environment variable arrived `<unset>`**:
@@ -96,6 +108,17 @@ Empty. The last item — the stale `/usr/local/bin/claude` — was removed
 2026-08-21; `which -a claude` now returns exactly one path (2.1.239).
 
 ## 🟡 Important (rough edges, not blockers)
+
+2b. **Trigger failures surface as "Execution failed" on the card.** The real
+   reason exists — `[create_pr] Failed …: git push --force failed: fatal:
+   'origin' does not appear to be a git repository` — but only in the log.
+   `handle_trigger_failure` propagates a specific message and does show it
+   (e.g. "Cannot create PR: task has no branch_name"), while the paths going
+   through `mark_complete_with_error` with `error_detail: None` fall back to the
+   generic string. Thread the detail through so the card says what actually
+   happened. Found 2026-08-22 while testing `auto_setup` / `create_pr`, both of
+   which are otherwise **correct** — the first paths this sweep found that
+   behave properly.
 
 2. **Other inert settings surfaces.** Flagged while wiring Appearance, not fixed:
    custom keyboard shortcuts render but do nothing (`shortcuts-tab.tsx:54`), and
