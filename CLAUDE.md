@@ -102,6 +102,31 @@ Pipeline triggers and the interactive Terminal panel share a single transport: a
 |---|---|---|---|---|
 | `headless` (`terminal`) | `claude -p` / `codex exec` piped through jq | xterm.js raw pane | `tmux wait-for` + exit code | Agent SDK credit → API rates |
 | `headless` (`managed`/`bubbles`) | same `-p` shape, semantic event stream | chat bubbles in `agent-panel` | same | same |
+
+**Managed (bubbles) mode in triggers — three things it needs that the shared
+adapter doesn't provide.** `pipeline::triggers::managed_trigger_turn_args` is
+the trigger-only argv builder; `chat::runtime::ClaudeCliAdapter` is shared with
+chef sessions and deliberately stays interactive-safe.
+
+1. **`--dangerously-skip-permissions`.** Without it every Edit/Write returns
+   "Claude requested permissions to write to …, but you haven't granted it yet"
+   and the agent exits 0 having changed nothing — which reads as success.
+   Terminal mode has always passed it at command-build time.
+2. **Completion handling.** Managed used to stop at `agent_status = completed`
+   and never call `pipeline::mark_complete`, so a column with `agent_complete` +
+   `auto_advance` worked in terminal mode and silently stalled in managed mode.
+   It now marks complete behind the same moved-columns guard the terminal path
+   uses, and only after the queued-input replay chain ends.
+3. **The auto-commit rescue.** Advancing into a terminal column deletes the
+   worktree, so uncommitted agent work would be lost.
+   `commands::agent::auto_commit_completed_worktree` now runs *before*
+   completion on this path too.
+
+**Argv ordering matters here.** `--allowedTools` is declared `<tools...>` —
+variadic — so it swallows following bare words until the next flag. Managed mode
+passes the prompt *positionally*, so an agent's flags are spliced in right after
+`--print`, where a base flag closes the list. Terminal mode is unaffected: there
+the prompt sits behind an explicit `-p`.
 | `interactive` | `claude` / `codex` (no `-p`/`exec`); prompt via `tmux send-keys -l` | xterm.js TUI + control bar | `<<<KAITENCODE_DONE:{task_id}>>>` sentinel scraped from pane | Subscription interactive limits |
 
 The legacy DB tokens `'terminal'` and `'managed'` are both headless variants (terminal-render vs bubbles-render). `'interactive'` is the new third value. Resolution hierarchy (narrowest wins): `trigger > task > column > workspace > global > default(headless·bubbles)` — implemented in `pipeline::triggers::resolve_runtime_mode_for_task`.

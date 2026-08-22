@@ -1995,6 +1995,7 @@ fn execute_spawn_cli(
             &working_dir,
             &initial_prompt,
             resolved_model,
+            &cli_args,
         )?;
     } else if runtime_mode == "interactive" {
         // Phase 1: gated dispatch. The normalize helper above has already
@@ -2089,6 +2090,7 @@ pub(crate) fn normalize_agent_runtime_mode(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_managed_trigger_task(
     conn: &Connection,
     app: &AppHandle,
@@ -2097,6 +2099,10 @@ fn spawn_managed_trigger_task(
     working_dir: &str,
     initial_prompt: &str,
     resolved_model: Option<String>,
+    // Extra argv from an attached agent (its MCP flags). Managed mode used to
+    // drop these on the floor, so an agent whose dossier advertised tools ran
+    // without any.
+    extra_args: &[String],
 ) -> Result<(), AppError> {
     let agent_type = if cli_type.contains("codex") {
         "codex"
@@ -2176,6 +2182,7 @@ fn spawn_managed_trigger_task(
         model.to_string(),
         initial_prompt.to_string(),
         None,
+        extra_args.to_vec(),
     );
     Ok(())
 }
@@ -2192,7 +2199,16 @@ fn start_managed_trigger_turn(
     model: String,
     prompt: String,
     resume_id: Option<String>,
+    extra_args: Vec<String>,
 ) {
+    // Which column this turn belongs to, captured before it runs. If the task
+    // is dragged elsewhere mid-turn, completing it here would advance the wrong
+    // column — the same guard the terminal path applies in `chat::bridge`.
+    let trigger_column_id: Option<String> = rusqlite::Connection::open(db::db_path())
+        .ok()
+        .and_then(|c| db::get_task(&c, &task_id).ok())
+        .map(|t| t.column_id);
+
     if let Ok(conn) = rusqlite::Connection::open(db::db_path()) {
         let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
         let _ = db::update_agent_session(
@@ -2209,7 +2225,8 @@ fn start_managed_trigger_turn(
     }
     super::emit_tasks_changed(app, &workspace_id, "managed_trigger_running");
 
-    let args = managed_trigger_turn_args(adapter, &model, resume_id.as_deref(), &prompt);
+    let args =
+        managed_trigger_turn_args(adapter, &model, resume_id.as_deref(), &prompt, &extra_args);
     let command_id = format!("managed-trigger-{}", Uuid::new_v4());
     let _ = crate::events::persist_and_emit_agent_runtime_event(
         app,
@@ -2236,7 +2253,8 @@ fn start_managed_trigger_turn(
             config,
         )
         .await;
-        let should_replay_queue = matches!(result, Ok(ref turn) if turn.exit_code == Some(0));
+        let turn_succeeded = matches!(result, Ok(ref turn) if turn.exit_code == Some(0));
+        let should_replay_queue = turn_succeeded;
         if let Ok(conn) = rusqlite::Connection::open(db::db_path()) {
             let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
             let (session_status, task_status, exit_code) = match result {
@@ -2256,9 +2274,16 @@ fn start_managed_trigger_turn(
             );
             let _ = db::update_task_agent_status(&conn, &task_id, Some(task_status), None);
         }
-        if should_replay_queue {
-            if let Some((next_prompt, next_resume_id)) =
-                drain_queued_managed_trigger_input(&task_id, &session_id)
+        // A queued message means the agent isn't finished — completion waits
+        // for the last turn in the chain.
+        let queued = if should_replay_queue {
+            drain_queued_managed_trigger_input(&task_id, &session_id)
+        } else {
+            None
+        };
+        let replayed = queued.is_some();
+
+        if let Some((next_prompt, next_resume_id)) = queued {
             {
                 start_managed_trigger_turn(
                     &app_for_turn,
@@ -2271,24 +2296,132 @@ fn start_managed_trigger_turn(
                     model.clone(),
                     next_prompt,
                     next_resume_id,
+                    // The follow-up turn is the same agent — carry its tools
+                    // forward or a queued message would run toolless.
+                    extra_args.clone(),
                 );
             }
         }
+
+        // Run the pipeline's completion handling. Managed mode used to stop at
+        // `agent_status = completed` and never call this, so a column with
+        // `agent_complete` + auto-advance worked in terminal mode and silently
+        // stalled in managed mode — the task sat in place with a finished agent.
+        if !replayed {
+            // Rescue uncommitted work *before* completion. Auto-advancing into
+            // a terminal column deletes the worktree, so anything the agent
+            // left unstaged would be destroyed — and a managed agent that
+            // edits files without committing is the normal case, not an edge
+            // one. The terminal path has had this safety net all along; the
+            // trigger-driven managed path never called it, which only became
+            // reachable once managed mode started advancing at all.
+            if turn_succeeded {
+                if let Ok(conn) = rusqlite::Connection::open(db::db_path()) {
+                    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                    if let Some(worktree) = db::get_task(&conn, &task_id)
+                        .ok()
+                        .and_then(|t| t.worktree_path)
+                        .filter(|p| !p.is_empty())
+                    {
+                        if let Err(e) = crate::commands::agent::auto_commit_completed_worktree(
+                            &app_for_turn,
+                            &task_id,
+                            Some(&session_id),
+                            &worktree,
+                        ) {
+                            log::warn!(
+                                "[triggers] auto-commit rescue failed for managed task {}: {}",
+                                task_id,
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+
+            if let Ok(conn) = rusqlite::Connection::open(db::db_path()) {
+                let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+                let still_here = db::get_task(&conn, &task_id)
+                    .ok()
+                    .map(|t| trigger_column_id.as_deref() == Some(t.column_id.as_str()))
+                    .unwrap_or(false);
+                if still_here {
+                    if let Err(e) =
+                        super::mark_complete(&conn, &app_for_turn, &task_id, turn_succeeded)
+                    {
+                        log::warn!(
+                            "[triggers] managed turn completion failed for task {}: {}",
+                            task_id,
+                            e
+                        );
+                    }
+                } else {
+                    log::info!(
+                        "[triggers] Task {} moved columns during a managed turn — skipping mark_complete",
+                        task_id
+                    );
+                }
+            }
+        }
+
         super::emit_tasks_changed(&app_for_turn, &workspace_id, "managed_trigger_complete");
     });
 }
 
+/// Build the argv for one managed-mode turn.
+///
+/// `extra_args` carries an attached agent's MCP flags, and **where** they go
+/// matters: `--allowedTools` is declared `<tools...>` — variadic — so it eats
+/// every following bare word until the next flag. Managed mode delivers the
+/// prompt *positionally*, so appending the agent's flags just before it makes
+/// claude swallow the prompt as another tool name and die with "Input must be
+/// provided either through stdin or as a prompt argument". Verified against
+/// 2.1.239.
+///
+/// So they are spliced in right after the leading `--print`, where the base
+/// builder's own next flag terminates the list. Terminal mode is unaffected —
+/// there the prompt arrives behind an explicit `-p`, which terminates it too.
+///
+/// Only the claude adapter gets them: the flags are claude's spelling and
+/// `codex exec` has no equivalent, so handing them to codex would break the
+/// launch instead of merely running without tools. `roster::plan` already
+/// withholds them for codex agents; this is the second line of defence.
 fn managed_trigger_turn_args(
     adapter: crate::chat::AgentAdapterKind,
     model: &str,
     resume_id: Option<&str>,
     prompt: &str,
+    extra_args: &[String],
 ) -> Vec<String> {
     match adapter {
         crate::chat::AgentAdapterKind::CodexCli => {
             crate::chat::CodexCliAdapter::managed_turn_args(model, resume_id, prompt)
         }
-        _ => crate::chat::ClaudeCliAdapter::managed_turn_args(model, "", None, resume_id, prompt),
+        _ => {
+            let base =
+                crate::chat::ClaudeCliAdapter::managed_turn_args_stdin(model, "", None, resume_id);
+            let mut args = Vec::with_capacity(base.len() + extra_args.len() + 2);
+            let mut rest = base.into_iter();
+            // `--print` first, then our additions, then the remaining base
+            // flags — so a variadic list always has a flag closing it.
+            if let Some(first) = rest.next() {
+                args.push(first);
+            }
+            // Unattended automation has nobody to answer a permission prompt.
+            // Without this, every Edit/Write comes back "Claude requested
+            // permissions to write to …, but you haven't granted it yet" and
+            // the agent completes with exit 0 having changed nothing — which
+            // reads as success. Terminal mode has always passed this; the
+            // shared adapter deliberately does not, because chef sessions use
+            // it too and are interactive. So it belongs here, on the
+            // trigger-only builder, where the run is headless and sandboxed in
+            // its own worktree.
+            args.push("--dangerously-skip-permissions".to_string());
+            args.extend(extra_args.iter().cloned());
+            args.extend(rest);
+            args.push(prompt.to_string());
+            args
+        }
     }
 }
 
@@ -3567,6 +3700,95 @@ mod tests {
         })
         .unwrap();
         db::update_column(conn, column_id, None, None, None, None, None, Some(&json)).unwrap();
+    }
+
+    #[test]
+    fn managed_argv_carries_the_agents_mcp_flags_before_the_prompt() {
+        // Managed mode used to build argv with no extra args at all, so an
+        // agent whose dossier advertised MCP tools ran with none of them.
+        // Order matters: claude takes the prompt positionally and last.
+        let extra = vec![
+            "--strict-mcp-config".to_string(),
+            "--mcp-config".to_string(),
+            "/tmp/mcp.json".to_string(),
+        ];
+        let args = managed_trigger_turn_args(
+            crate::chat::AgentAdapterKind::ClaudeCli,
+            "sonnet",
+            None,
+            "do the thing",
+            &extra,
+        );
+        let mcp = args.iter().position(|a| a == "--mcp-config").expect("mcp flag");
+        let prompt = args.iter().position(|a| a == "do the thing").expect("prompt");
+        assert!(mcp < prompt, "flags must precede the positional prompt: {:?}", args);
+        assert_eq!(args.last().map(String::as_str), Some("do the thing"));
+        assert!(args.contains(&"--strict-mcp-config".to_string()));
+
+        // The real invariant: a flag must close the injected block. Without
+        // one, claude's variadic `--allowedTools <tools...>` swallows whatever
+        // follows — and in managed mode what follows is the prompt itself.
+        let last_extra = args
+            .iter()
+            .rposition(|a| extra.contains(a))
+            .expect("extras present");
+        assert!(
+            args[last_extra + 1].starts_with('-'),
+            "a flag must terminate the injected args, got {:?} in {:?}",
+            args[last_extra + 1],
+            args
+        );
+    }
+
+    #[test]
+    fn managed_trigger_argv_skips_permission_prompts() {
+        // A headless trigger has nobody to approve a tool. Without this the
+        // agent exits 0 having written nothing, which looks like success.
+        let args = managed_trigger_turn_args(
+            crate::chat::AgentAdapterKind::ClaudeCli,
+            "sonnet",
+            None,
+            "hello",
+            &[],
+        );
+        assert!(
+            args.contains(&"--dangerously-skip-permissions".to_string()),
+            "{:?}",
+            args
+        );
+    }
+
+    #[test]
+    fn managed_argv_without_an_agent_adds_nothing_but_the_permission_flag() {
+        let args = managed_trigger_turn_args(
+            crate::chat::AgentAdapterKind::ClaudeCli,
+            "sonnet",
+            None,
+            "hello",
+            &[],
+        );
+        let baseline =
+            crate::chat::ClaudeCliAdapter::managed_turn_args("sonnet", "", None, None, "hello");
+        let stripped: Vec<String> = args
+            .into_iter()
+            .filter(|a| a != "--dangerously-skip-permissions")
+            .collect();
+        assert_eq!(stripped, baseline);
+    }
+
+    #[test]
+    fn managed_argv_never_hands_claude_flags_to_codex() {
+        // `codex exec` has no --mcp-config; passing it would break the launch
+        // rather than merely dropping tools.
+        let extra = vec!["--mcp-config".to_string(), "/tmp/mcp.json".to_string()];
+        let args = managed_trigger_turn_args(
+            crate::chat::AgentAdapterKind::CodexCli,
+            "gpt-5",
+            None,
+            "hello",
+            &extra,
+        );
+        assert!(!args.contains(&"--mcp-config".to_string()), "{:?}", args);
     }
 
     #[test]

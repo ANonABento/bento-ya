@@ -967,7 +967,7 @@ fn managed_turn_completed_successfully(
     matches!(result, Ok(turn) if turn.exit_code == Some(0))
 }
 
-fn auto_commit_completed_worktree(
+pub(crate) fn auto_commit_completed_worktree(
     app: &AppHandle,
     task_id: &str,
     session_id: Option<&str>,
