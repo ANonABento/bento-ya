@@ -1202,11 +1202,17 @@ fn create_trigger_session(
         args.push(working_dir);
     }
 
+    // Session environment must go through `-e`, not `Command::env` — see
+    // `tmux_env_args`. Built after the positional flags so `-c` stays adjacent
+    // to its value.
+    let env_args = tmux_env_args(env_vars);
+    let mut args: Vec<&str> = args;
+    for a in &env_args {
+        args.push(a.as_str());
+    }
+
     let mut cmd = Command::new("tmux");
     cmd.args(&args);
-    for (k, v) in env_vars {
-        cmd.env(k, v);
-    }
     let output = cmd
         .output()
         .map_err(|e| format!("Failed to spawn tmux new-session: {}", e))?;
@@ -2610,6 +2616,31 @@ pub(crate) fn interactive_sentinel_system_prompt(task_id: &str) -> String {
     )
 }
 
+/// Render an env map as `tmux new-session -e KEY=VAL` arguments.
+///
+/// Setting the variables on the `tmux` *client* process (`Command::env`) does
+/// not reach the pane: the tmux server is a pre-existing daemon, so
+/// `new-session` only asks it to create a session and the new shell inherits
+/// the **server's** environment, not the client's. Everything set that way was
+/// silently dropped — which is why the attribution variables are additionally
+/// inlined on the command line as `KEY=val <cmd>`.
+///
+/// `-e` (tmux 3.2+, and 3.4 is what ships here) sets it on the session itself,
+/// server-side, and the pane created by `new-session` inherits it — including
+/// values containing spaces. Verified against tmux 3.4.
+///
+/// Keys are sorted so the argv is deterministic.
+fn tmux_env_args(env_vars: &HashMap<String, String>) -> Vec<String> {
+    let mut entries: Vec<(&String, &String)> = env_vars.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    let mut args = Vec::with_capacity(entries.len() * 2);
+    for (k, v) in entries {
+        args.push("-e".to_string());
+        args.push(format!("{}={}", k, v));
+    }
+    args
+}
+
 /// Collapse a prompt to a single line before injecting it into a TUI.
 ///
 /// The initial prompt goes in as one `tmux send-keys -l` payload. Embedded
@@ -2974,15 +3005,15 @@ pub(crate) fn spawn_interactive_cli(
         tmux_args.push("-c".to_string());
         tmux_args.push(working_dir.to_string());
     }
+    // `-e` flags must come before the positional command argv, or tmux reads
+    // them as part of the command to run.
+    tmux_args.extend(tmux_env_args(env_vars));
     for a in &argv {
         tmux_args.push(a.clone());
     }
 
     let mut cmd = Command::new("tmux");
     cmd.args(&tmux_args);
-    for (k, v) in env_vars {
-        cmd.env(k, v);
-    }
     let output = cmd
         .output()
         .map_err(|e| format!("Failed to spawn interactive tmux session: {}", e))?;
@@ -4225,6 +4256,38 @@ mod tests {
         // rather than handing codex an empty positional.
         let argv = build_interactive_codex_argv("codex", &[], &InteractiveResume::Id("  ".into()));
         assert_eq!(argv, vec!["codex"]);
+    }
+
+    #[test]
+    fn tmux_env_args_emits_sorted_e_flags() {
+        // `Command::env` never reached the pane — the tmux server is a
+        // pre-existing daemon, so the new shell inherits its environment, not
+        // the client's. A script agent's configured `env` was silently inert
+        // as a result, and so was TRIGGER_PROMPT.
+        let mut env = HashMap::new();
+        env.insert("RENDER_THREADS".to_string(), "8".to_string());
+        env.insert("FFMPEG_PRESET".to_string(), "fast".to_string());
+        assert_eq!(
+            tmux_env_args(&env),
+            vec![
+                "-e".to_string(),
+                "FFMPEG_PRESET=fast".to_string(),
+                "-e".to_string(),
+                "RENDER_THREADS=8".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn tmux_env_args_keeps_values_with_spaces_and_equals_intact() {
+        // TRIGGER_PROMPT is prose and can contain both.
+        let mut env = HashMap::new();
+        env.insert("TRIGGER_PROMPT".to_string(), "fix add() a = b".to_string());
+        assert_eq!(
+            tmux_env_args(&env),
+            vec!["-e".to_string(), "TRIGGER_PROMPT=fix add() a = b".to_string()]
+        );
+        assert!(tmux_env_args(&HashMap::new()).is_empty());
     }
 
     #[test]
