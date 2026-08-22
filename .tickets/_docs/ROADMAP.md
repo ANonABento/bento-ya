@@ -35,6 +35,16 @@ replaces the terminal.
   with a 60s budget and **never** hard-kills — exhausting it injects anyway and
   leaves the pane inspectable. `CLI_HEALTH_SPECS` now probes the interactive
   codex path so the same drift can't ship silently again.
+- Interactive trigger mode: the prompt now actually gets submitted (2026-08-22).
+  It was injected as a multiline `send-keys -l` payload, which leaves the TUI in
+  multi-line input so the following Enter adds a line rather than sending; and
+  the Enter was fired with no settle, so even a flattened payload had it dropped
+  mid-ingest. Since the default prompt is multiline, interactive triggers had
+  never submitted their own prompt — the pane sat with the text visible and
+  unsent until the 2-hour timeout. Verified end to end: agent read `.agent.md`,
+  fixed the bug, wrote its proof file, and emitted the done sentinel, which was
+  detected and persisted as the advisory (interactive is deliberately advisory,
+  not auto-advancing — the session stays alive for the human).
 - Managed (bubbles) trigger mode made actually usable (2026-08-21), all found by
   running claude through a real column: it never passed
   `--dangerously-skip-permissions`, so every file edit was denied and the agent
