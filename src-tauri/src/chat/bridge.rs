@@ -2610,14 +2610,49 @@ pub(crate) fn interactive_sentinel_system_prompt(task_id: &str) -> String {
     )
 }
 
+/// Collapse a prompt to a single line before injecting it into a TUI.
+///
+/// The initial prompt goes in as one `tmux send-keys -l` payload. Embedded
+/// newlines do **not** submit each line as you might expect — they put the TUI
+/// into multi-line input, and the single `Enter` that follows adds another
+/// line instead of sending. The result is the whole prompt sitting in the
+/// composer, unsubmitted, while the trigger waits for a completion that can
+/// never arrive.
+///
+/// This was not hypothetical: the default trigger prompt is
+/// `"<title>\n\nSee .task.md for full spec."`, so interactive trigger mode had
+/// never actually submitted its own prompt. Observed directly in the pane.
+///
+/// Nothing is lost by flattening — the detail lives in `.task.md` and
+/// `.agent.md`, and the prompt is only a pointer to them.
+/// Pause between injecting the prompt text and pressing Enter.
+///
+/// Generous on purpose: the cost of waiting is a fraction of a second on a run
+/// that lasts minutes, while the cost of being too quick is a trigger that
+/// hangs until its 2-hour timeout with the prompt sitting unsent in the
+/// composer.
+const INTERACTIVE_SUBMIT_SETTLE: Duration = Duration::from_millis(600);
+
+pub(crate) fn flatten_for_injection(prompt: &str) -> String {
+    prompt
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Fold the sentinel instruction into the initial prompt, for CLIs that have
 /// no system-prompt flag to carry it (codex — verified against 0.145.0, which
 /// has no `--append-system-prompt`).
 ///
 /// MUST stay newline-free. The initial prompt is delivered as a single
-/// `tmux send-keys -l` payload, and a literal newline inside it submits the
-/// line early in a TUI — so the instruction is appended on the same line
-/// rather than as the `"<task>\n\nWhen done…"` block shape you might expect.
+/// `tmux send-keys -l` payload, and a literal newline inside it leaves the TUI
+/// in multi-line input — the following `Enter` then adds a line instead of
+/// submitting, and the prompt sits in the composer forever. So the instruction
+/// is appended on the same line rather than as the `"<task>\n\nWhen done…"`
+/// block shape you might expect. See [`flatten_for_injection`], which enforces
+/// the same rule for the prompt this is appended to.
 pub(crate) fn append_sentinel_to_prompt(prompt: &str, task_id: &str) -> String {
     let instruction = interactive_sentinel_system_prompt(task_id);
     let base = prompt.trim_end();
@@ -2894,7 +2929,7 @@ pub(crate) fn spawn_interactive_cli(
     let cli_exec = resolve_cli_exec(cli_command);
     // Claude carries the sentinel as a system prompt (isolated from the user's
     // text). Codex has no such flag, so its sentinel rides the prompt instead.
-    let mut prompt_to_inject = initial_prompt.to_string();
+    let mut prompt_to_inject = flatten_for_injection(initial_prompt);
     let argv = match cli {
         InteractiveCli::Claude => {
             let resume_id = match resume {
@@ -3006,6 +3041,15 @@ pub(crate) fn spawn_interactive_cli(
     if !prompt_to_inject.is_empty() {
         run_tmux(&["send-keys", "-t", &session, "-l", &prompt_to_inject])
             .map_err(|e| format!("send-keys (literal) for interactive prompt failed: {}", e))?;
+
+        // Let the composer ingest the payload before submitting. These TUIs
+        // process pasted text asynchronously, and an `Enter` that lands while
+        // the buffer is still being filled is simply dropped: the prompt then
+        // sits in the composer, visible and unsent, while the trigger waits
+        // for a completion that can never come. Observed directly — the same
+        // pane submitted instantly when Enter was sent by hand a moment later.
+        std::thread::sleep(INTERACTIVE_SUBMIT_SETTLE);
+
         run_tmux(&["send-keys", "-t", &session, "Enter"])
             .map_err(|e| format!("send-keys Enter for interactive prompt failed: {}", e))?;
     }
@@ -4181,6 +4225,38 @@ mod tests {
         // rather than handing codex an empty positional.
         let argv = build_interactive_codex_argv("codex", &[], &InteractiveResume::Id("  ".into()));
         assert_eq!(argv, vec!["codex"]);
+    }
+
+    #[test]
+    fn flatten_for_injection_collapses_the_default_trigger_prompt() {
+        // The default prompt is multiline, and a multiline `send-keys -l`
+        // payload leaves the TUI in multi-line input: the following Enter adds
+        // a line instead of submitting, so the prompt never gets sent. This is
+        // the exact shape that had been silently stalling interactive triggers.
+        let out = flatten_for_injection("My Task\n\nSee .task.md for full spec.");
+        assert_eq!(out, "My Task See .task.md for full spec.");
+        assert!(!out.contains('\n'));
+    }
+
+    #[test]
+    fn flatten_for_injection_handles_agent_and_edge_shapes() {
+        // With an agent attached the prompt gains a third line.
+        let withagent = flatten_for_injection(
+            "My Task\n\nSee .task.md for full spec.\n\nFollow the instructions in .agent.md.",
+        );
+        assert_eq!(
+            withagent,
+            "My Task See .task.md for full spec. Follow the instructions in .agent.md."
+        );
+
+        // Already single-line prompts pass through untouched.
+        assert_eq!(flatten_for_injection("just one line"), "just one line");
+        // Blank and whitespace-only inputs collapse to empty, not to spaces —
+        // the caller skips injection entirely when the payload is empty.
+        assert_eq!(flatten_for_injection(""), "");
+        assert_eq!(flatten_for_injection("\n\n   \n"), "");
+        // Indentation from a templated prompt doesn't leak in as double spaces.
+        assert_eq!(flatten_for_injection("a\n    b\n\n  c  "), "a b c");
     }
 
     #[test]

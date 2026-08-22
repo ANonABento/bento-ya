@@ -143,6 +143,15 @@ The legacy DB tokens `'terminal'` and `'managed'` are both headless variants (te
 **Interactive mode** (gated by `KAITENCODE_INTERACTIVE_MODE_ENABLED=1` until the dev flag is promoted):
 - Spawns the real CLI TUI (no `-p`/`exec`) inside the tmux session via `chat::bridge::spawn_interactive_cli` — argv-based dispatch on `InteractiveCli::Claude` vs `InteractiveCli::Codex`
 - Waits for the pane to be usable before injecting the initial prompt: a CLI-specific ready glyph as a fast path (Claude: `╭`/`╰` box-drawing chars; Codex: `codex` banner substring), falling back to **pane quiescence** (content unchanged for ~750ms). The budget is 60s and exhausting it is **not** fatal — `ReadinessTracker`/`ReadinessVerdict` return `GiveUp`, and the caller injects anyway and leaves the session alive so the pane stays inspectable. (It used to be a fixed 5s budget that killed the session on miss, which destroyed the evidence for every slow cold start.)
+- **The injected prompt is flattened to one line** (`bridge::flatten_for_injection`)
+  and Enter is sent after a short settle (`INTERACTIVE_SUBMIT_SETTLE`). Both are
+  load-bearing: a multiline `send-keys -l` payload leaves the TUI in multi-line
+  input so the following Enter adds a line instead of submitting, and an Enter
+  sent immediately after the text is dropped while the composer is still
+  ingesting. Either way the prompt sits visible-but-unsent and the trigger waits
+  out its 2-hour timeout. Since the default prompt is
+  `"<title>\n\nSee .task.md for full spec."`, interactive triggers had never
+  actually submitted their own prompt.
 - Carries the done-sentinel when the column's exit criteria is `agent_complete` or `manual_approval` — but the mechanism differs per CLI. **Claude:** `--append-system-prompt`. **Codex has no such flag** (verified against codex-cli 0.145.0), so its sentinel is folded into the injected prompt by `append_sentinel_to_prompt`, which must stay newline-free because the prompt goes in as one `send-keys -l` payload.
 - Resume is modelled by `InteractiveResume` (`None` / `Id` / `Last`). Codex's `resume` is a **subcommand**, not a flag, and is cwd-filtered — so `resume --last` in a task worktree continues that task's session, and `agent_restart` uses it. Claude needs an explicit session id we don't capture from the TUI, so claude restarts fresh.
 - A 2s-cadence watcher (`watch_interactive_sentinel`) scans `tmux capture-pane` for `<<<KAITENCODE_DONE:{task_id}>>>` (after ANSI strip, line-anchored) and runs `mark_complete` on hit
