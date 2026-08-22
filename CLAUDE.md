@@ -178,6 +178,15 @@ Each task gets a tmux session (`kaitencode_{task_id}`) with an embedded terminal
 - Sessions persist across app restarts — tmux keeps running, app rediscovers on startup
 - `ManagedBridge` forwards broadcast events to frontend (one bridge per task, auto-cancelled on remove)
 
+**Session env must go through `tmux new-session -e KEY=VAL`**, never
+`Command::env` on the tmux client. The tmux server is a pre-existing daemon, so
+a new pane inherits the *server's* environment, not the client's — everything
+set the client way was silently dropped. That is why the `KAITENCODE_PARENT_*`
+attribution vars are *also* inlined on the command line as `KEY=val <cmd>`; that
+workaround covered only those. A script agent's configured `env`,
+`TRIGGER_PROMPT` and `WORKING_DIR` all reached the pane as `<unset>` until this
+was fixed (`bridge::tmux_env_args`, verified against tmux 3.4).
+
 **Trigger integration:** `spawn_cli_trigger_task` uses `tmux send-keys -l` for command injection + `tmux wait-for` for completion detection. Exit code read from temp file in app data dir. No sentinel patterns, no shell ready detection — tmux handles session readiness. `.task.md` written to worktree before trigger fires (token optimization — agent reads file instead of getting full spec in prompt).
 
 **Completion detection:** `tmux wait-for {channel}` blocks until the injected command signals completion. 2-hour timeout prevents stuck tasks. Column guard prevents stale triggers from corrupting pipeline state if task moved during execution.

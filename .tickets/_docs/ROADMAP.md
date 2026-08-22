@@ -35,6 +35,14 @@ replaces the terminal.
   with a 60s budget and **never** hard-kills — exhausting it injects anyway and
   leaves the pane inspectable. `CLI_HEALTH_SPECS` now probes the interactive
   codex path so the same drift can't ship silently again.
+- Script agents verified end to end + tmux session env fixed (2026-08-22). argv,
+  cwd and exit-code advancement were already correct (no prose in argv — strict
+  `ARGC` check passed), but **every environment variable arrived `<unset>`**:
+  session env was being set with `Command::env` on the tmux *client*, and the
+  server is a pre-existing daemon so the pane inherits the server's environment.
+  A script agent's configured `env` was silently inert and `TRIGGER_PROMPT`
+  never arrived, so script agents ran context-free. Now passed via
+  `tmux new-session -e`.
 - Interactive trigger mode: the prompt now actually gets submitted (2026-08-22).
   It was injected as a multiline `send-keys -l` payload, which leaves the TUI in
   multi-line input so the following Enter adds a line rather than sending; and
