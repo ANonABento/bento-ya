@@ -63,11 +63,10 @@ replaces the terminal.
 
 ---
 
-## 🔴 Critical now (blocks comfortable daily-driving)
+## 🔴 Critical now
 
-1. **Two-claude footgun (env hygiene).** Stale `/usr/local/bin/claude` (2.1.138 npm
-   copy) can win in some PATHs. App now resolves absolute paths correctly, but
-   `rm /usr/local/bin/claude` removes the ambiguity. One-liner, do it.
+Empty. The last item — the stale `/usr/local/bin/claude` — was removed
+2026-08-21; `which -a claude` now returns exactly one path (2.1.239).
 
 ## 🟡 Important (rough edges, not blockers)
 
@@ -91,6 +90,22 @@ replaces the terminal.
    override, or agent control (inject/interrupt/pause/restart/switch-model). Each
    needs an `/api/*` route first. Add as needed (the checklist spec establishes the
    route+tool pattern).
+
+## 🟢 Env hygiene (latent, not breaking)
+
+- **Two `codex` copies**, the same shape as the claude footgun that was just
+  closed: `/usr/local/bin/codex` is **0.130.0** (root-owned, stale) while fnm's
+  shim is **0.145.0** — the version every codex behaviour in this repo was
+  verified against. The app resolves via `which`, so it picks whichever the
+  launching shell's PATH puts first. Today the running instance gets 0.145.0
+  through an fnm shim under `/run/user/1000/…`, but that path is tmpfs, is
+  per-shell-session, and vanishes on reboot or when launched from a desktop
+  launcher — at which point `/usr/local/bin/codex` wins.
+  **Checked 2026-08-21: not currently breaking anything.** Both versions carry
+  `--skip-git-repo-check` and `--dangerously-bypass-approvals-and-sandbox`, and
+  both have the `resume` subcommand with `--last`. So this is version ambiguity
+  waiting to bite, not a live bug. `sudo rm /usr/local/bin/codex` closes it the
+  same way the claude one was closed (root-owned, needs your own shell).
 
 ## ⚪ Inert / deferred (known, intentional)
 
@@ -118,5 +133,6 @@ replaces the terminal.
 
 ## Suggested order
 
-`#1 rm stale claude` (free) → `#3 effort wiring` → `#4 checklist/roadmap MCP` →
-`#5 MCP gaps`. `#2` is cosmetic cleanup; do it opportunistically.
+Nothing is critical. Next by value: **dogfood agents-in-columns** on a real
+board → `#3 effort wiring` → `#4 checklist/roadmap MCP` → `#5 MCP gaps`. `#2`
+(inert settings surfaces) and the codex env-hygiene note are opportunistic.

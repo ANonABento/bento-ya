@@ -32,6 +32,17 @@ use whisper::AudioRecorder;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Install a logger so the app's `log::` diagnostics are actually emitted.
+    // The `log` crate is a silent no-op until something registers a logger, so
+    // until now every warn!/info! in the pipeline, chat and trigger layers went
+    // nowhere — which made a failing trigger indistinguishable from one that
+    // never fired. Quiet by default; `RUST_LOG=kaitencode=debug` turns it on.
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("kaitencode=warn"),
+    )
+    .format_timestamp_millis()
+    .init();
+
     let conn = db::init().expect("Failed to initialize database");
 
     // Clear stale cli_session_id references (previous app sessions are dead)
