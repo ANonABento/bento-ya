@@ -78,17 +78,31 @@ pub fn plan_for(agent: &Agent, skills: &[Skill]) -> Result<AgentSpawnPlan, Strin
 fn llm_plan(agent: &Agent, cli: &str, llm: &LlmConfig, skills: &[Skill]) -> AgentSpawnPlan {
     let mut args = Vec::new();
 
+    // MCP wiring is **claude-only**. These flags are claude's spelling and
+    // `codex exec` has no equivalent — verified against codex-cli 0.145.0,
+    // which accepts neither `--mcp-config` nor `--allowedTools`. Passing them
+    // anyway would make a codex agent fail to launch rather than merely run
+    // without tools, so the flags are withheld and the gap is stated out loud.
+    //
     // `--allowedTools` only means anything alongside an MCP config — the pair
     // is validated together in `roster::validate_llm`, so by here either both
     // are set or the allow-list is empty. `--strict-mcp-config` keeps the
     // user's own ~/.claude servers out, matching how chef sessions load theirs.
     if !llm.mcp_config_path.trim().is_empty() {
-        args.push("--strict-mcp-config".to_string());
-        args.push("--mcp-config".to_string());
-        args.push(llm.mcp_config_path.trim().to_string());
-        if !llm.allowed_tools.is_empty() {
-            args.push("--allowedTools".to_string());
-            args.push(llm.allowed_tools.join(","));
+        if cli == "claude" {
+            args.push("--strict-mcp-config".to_string());
+            args.push("--mcp-config".to_string());
+            args.push(llm.mcp_config_path.trim().to_string());
+            if !llm.allowed_tools.is_empty() {
+                args.push("--allowedTools".to_string());
+                args.push(llm.allowed_tools.join(","));
+            }
+        } else {
+            log::warn!(
+                "[roster] Agent '{}' has an MCP config but runs on {}, which has no flag for it — running without MCP tools",
+                agent.name,
+                cli
+            );
         }
     }
 
@@ -255,6 +269,20 @@ mod tests {
                 "get_board,get_task".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn codex_gets_no_mcp_flags_because_it_has_no_such_option() {
+        // `codex exec` accepts neither --mcp-config nor --allowedTools
+        // (verified against codex-cli 0.145.0). Passing claude's spelling would
+        // make the agent fail to launch instead of merely running toolless.
+        let cfg = AgentConfig::Codex(LlmConfig {
+            mcp_config_path: "/tmp/mcp.json".into(),
+            allowed_tools: vec!["get_board".into()],
+            ..Default::default()
+        });
+        let plan = plan_for(&agent("codex", &cfg), &[]).unwrap();
+        assert!(plan.args.is_empty(), "{:?}", plan.args);
     }
 
     #[test]

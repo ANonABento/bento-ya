@@ -35,6 +35,15 @@ replaces the terminal.
   with a 60s budget and **never** hard-kills — exhausting it injects anyway and
   leaves the pane inspectable. `CLI_HEALTH_SPECS` now probes the interactive
   codex path so the same drift can't ship silently again.
+- Managed (bubbles) trigger mode made actually usable (2026-08-21), all found by
+  running claude through a real column: it never passed
+  `--dangerously-skip-permissions`, so every file edit was denied and the agent
+  exited 0 having changed nothing; it never called `mark_complete`, so
+  `agent_complete` + auto-advance silently stalled; and it never ran the
+  auto-commit rescue, so once it *did* advance the worktree deletion would have
+  taken the work with it. Agent MCP flags were also dropped on this path
+  entirely. Verified end to end: 0 permission denials, tool called, column
+  advanced, fix preserved on the branch.
 - Kaiten Agents wired into columns (2026-08-21): a `spawn_cli` trigger carries
   `agent_id`, and the agent then supplies the CLI, instructions, tools and its
   preferred model, with the column able to override **model only** — enforced in
