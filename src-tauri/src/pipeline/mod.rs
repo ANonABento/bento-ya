@@ -319,6 +319,23 @@ pub enum CompletionAction {
     Failed,
 }
 
+/// The message stored on the task when a trigger fails.
+///
+/// Callers that know *why* should say so. "Execution failed" tells the user
+/// nothing they can act on, and until the detail was threaded through it was
+/// what every failing card showed while the real reason — `git push --force
+/// failed: 'origin' does not appear to be a git repository`, say — sat only in
+/// a log nobody knew to open.
+///
+/// Blank and whitespace-only details fall back too, so a card can never end up
+/// with an empty error that renders as no error at all.
+pub(crate) fn failure_message(error_detail: Option<&str>) -> &str {
+    match error_detail {
+        Some(detail) if !detail.trim().is_empty() => detail,
+        _ => "Execution failed",
+    }
+}
+
 /// Pure decision: given task state and column triggers, what should happen on completion?
 pub fn decide_completion(
     task: &Task,
@@ -1168,7 +1185,7 @@ pub fn mark_complete_with_error(
             // Rebase-fail → ConflictResolver.
             if let Some(target_col_id) = get_on_failure_move_target(column.triggers.as_deref()) {
                 if let Ok(target_col) = db::get_column(conn, &target_col_id) {
-                    let error_msg = error_detail.unwrap_or("Execution failed");
+                    let error_msg = failure_message(error_detail);
                     log::info!(
                         "[pipeline] task {} failed in column '{}' — routing to '{}' via on_failure",
                         task_id,
@@ -1229,7 +1246,7 @@ pub fn mark_complete_with_error(
                 }
             }
 
-            let error_msg = error_detail.unwrap_or("Execution failed");
+            let error_msg = failure_message(error_detail);
             let updated_task = db::update_task_pipeline_state(
                 conn,
                 task_id,
@@ -1385,6 +1402,22 @@ pub(crate) fn promote_queued_tasks(app: &AppHandle, workspace_id: &str) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn failure_message_prefers_the_real_reason() {
+        // Every failing card used to read "Execution failed" while the actual
+        // reason sat in a log. Callers now pass the detail; this only fills in
+        // when there genuinely isn't one.
+        assert_eq!(
+            failure_message(Some("git push --force failed: no such remote")),
+            "git push --force failed: no such remote"
+        );
+        assert_eq!(failure_message(None), "Execution failed");
+        // Never store a blank error — it renders as no error at all.
+        assert_eq!(failure_message(Some("")), "Execution failed");
+        assert_eq!(failure_message(Some("   ")), "Execution failed");
+    }
+
     use super::*;
 
     /// Create a minimal task for testing decision logic.

@@ -68,6 +68,8 @@ jobs:
         run: pnpm run test:ipc
       - name: Type scale check
         run: pnpm run test:type-scale
+      - name: Rust module check
+        run: pnpm run test:rust-modules
 
       - name: Frontend tests
         run: pnpm exec vitest run
@@ -100,7 +102,7 @@ jobs:
               '',
               'Checks run:',
               '- Rust: `cargo check --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`',
-              '- Frontend: `pnpm run type-check`, `pnpm run lint`, `pnpm run test:ipc`, `pnpm run test:type-scale`, `pnpm audit --audit-level moderate`, `pnpm exec vitest run`',
+              '- Frontend: `pnpm run type-check`, `pnpm run lint`, `pnpm run test:ipc`, `pnpm run test:type-scale`, `pnpm run test:rust-modules`, `pnpm audit --audit-level moderate`, `pnpm exec vitest run`',
               '',
               'Please inspect the failed workflow run and fix main.'
             ].join('\n');
