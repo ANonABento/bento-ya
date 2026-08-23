@@ -35,6 +35,13 @@ replaces the terminal.
   with a 60s budget and **never** hard-kills — exhausting it injects anyway and
   leaves the pane inspectable. `CLI_HEALTH_SPECS` now probes the interactive
   codex path so the same drift can't ship silently again.
+- Trigger failures now say what went wrong (2026-08-22). Every failing card read
+  "Execution failed" while the real reason — `git push --force failed: 'origin'
+  does not appear to be a git repository` — existed only in a log. `create_pr`,
+  `run_script` and the managed-turn completion all called `mark_complete` with
+  no detail; they now pass one, and `failure_message()` falls back to the generic
+  string only when there genuinely isn't a reason (blank details included, so a
+  card can't end up with an empty error that renders as none).
 - `merge_to_main` pushed the wrong thing (2026-08-22). It ran
   `git push origin HEAD:refs/heads/main` from `resolve_working_dir`, which is the
   **shared workspace checkout** whenever the task has no worktree — and terminal
@@ -109,17 +116,18 @@ Empty. The last item — the stale `/usr/local/bin/claude` — was removed
 
 ## 🟡 Important (rough edges, not blockers)
 
-2b. **Trigger failures surface as "Execution failed" on the card.** The real
-   reason exists — `[create_pr] Failed …: git push --force failed: fatal:
-   'origin' does not appear to be a git repository` — but only in the log.
-   `handle_trigger_failure` propagates a specific message and does show it
-   (e.g. "Cannot create PR: task has no branch_name"), while the paths going
-   through `mark_complete_with_error` with `error_detail: None` fall back to the
-   generic string. Thread the detail through so the card says what actually
-   happened. Found 2026-08-22 while testing `auto_setup` / `create_pr`, both of
-   which are otherwise **correct** — the first paths this sweep found that
-   behave properly.
-
+2b. **~1,165 lines of Rust in `pipeline/` are never compiled.** Commit 234a992
+   "Split pipeline/mod.rs" created `completion.rs`, `engine.rs`, `events.rs`,
+   `exit.rs` and `test_utils.rs` but never added the `mod` declarations — so the
+   split silently never took effect. `mod.rs` kept the live implementation and
+   duplicate copies of `decide_completion` / `mark_complete_with_error` have sat
+   beside it since, compiling never and tested never. The trap is that it all
+   *reads* like production code: `cargo build` and `clippy` pass, and editing it
+   changes nothing at runtime (someone did exactly that, 2026-08-22).
+   `scripts/check-rust-modules.js` now guards every **new** file and carries
+   these five in a documented `KNOWN_DEAD` allowlist.
+   **Decision needed:** delete them, or finish the split. Declaring them as-is
+   will not build — duplicate symbols.
 2. **Other inert settings surfaces.** Flagged while wiring Appearance, not fixed:
    custom keyboard shortcuts render but do nothing (`shortcuts-tab.tsx:54`), and
    the OpenRouter / Google / Ollama provider cards are "Coming soon". Framer

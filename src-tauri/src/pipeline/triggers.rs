@@ -2271,6 +2271,16 @@ fn start_managed_trigger_turn(
         .await;
         let turn_succeeded = matches!(result, Ok(ref turn) if turn.exit_code == Some(0));
         let should_replay_queue = turn_succeeded;
+        // Why it failed, for the card. Without this the user sees only
+        // "Execution failed" for a run that has a perfectly specific reason.
+        let turn_failure_detail: Option<String> = match &result {
+            Ok(turn) if turn.exit_code == Some(0) => None,
+            Ok(turn) => Some(match turn.exit_code {
+                Some(code) => format!("{} exited {}", cli_type, code),
+                None => format!("{} was terminated before it exited", cli_type),
+            }),
+            Err(e) => Some(format!("{} failed to run: {:?}", cli_type, e)),
+        };
         if let Ok(conn) = rusqlite::Connection::open(db::db_path()) {
             let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
             let (session_status, task_status, exit_code) = match result {
@@ -2362,9 +2372,13 @@ fn start_managed_trigger_turn(
                     .map(|t| trigger_column_id.as_deref() == Some(t.column_id.as_str()))
                     .unwrap_or(false);
                 if still_here {
-                    if let Err(e) =
-                        super::mark_complete(&conn, &app_for_turn, &task_id, turn_succeeded)
-                    {
+                    if let Err(e) = super::mark_complete_with_error(
+                        &conn,
+                        &app_for_turn,
+                        &task_id,
+                        turn_succeeded,
+                        turn_failure_detail.as_deref(),
+                    ) {
                         log::warn!(
                             "[triggers] managed turn completion failed for task {}: {}",
                             task_id,
@@ -3273,6 +3287,9 @@ fn execute_create_pr(
             }
         };
 
+        // Carries the reason from whichever branch failed, so the card can say
+        // what happened instead of a bare "Execution failed".
+        let mut failure_detail: Option<String> = None;
         let success = match result {
             Ok(Ok((pr_number, pr_url))) => {
                 log::info!(
@@ -3288,6 +3305,10 @@ fn execute_create_pr(
             }
             Ok(Err(e)) => {
                 log::error!("[create_pr] Failed for task {}: {}", task_id, e);
+                // Kept so it can reach the card. Emitting it as a Tauri event
+                // (below) only helps if a panel happens to be mounted, and the
+                // log only helps someone who knows to go looking.
+                failure_detail = Some(e.clone());
 
                 // If the rebase reported conflicts, flag the task for manual
                 // review instead of letting the trigger silently retry — we
@@ -3328,13 +3349,20 @@ fn execute_create_pr(
             }
             Err(e) => {
                 log::error!("[create_pr] Join error for task {}: {}", task_id, e);
+                failure_detail = Some(format!("create_pr task did not finish: {}", e));
                 false
             }
         };
 
         // Mark complete so pipeline can advance (also emits tasks:changed)
         if let Some(conn) = conn {
-            if let Err(e) = super::mark_complete(&conn, &app_handle, &task_id, success) {
+            if let Err(e) = super::mark_complete_with_error(
+                &conn,
+                &app_handle,
+                &task_id,
+                success,
+                failure_detail.as_deref(),
+            ) {
                 log::error!("[create_pr] mark_complete failed: {}", e);
             }
         }
@@ -3483,6 +3511,10 @@ fn execute_run_script(
     // Execute steps in a background task (all data is owned)
     tokio::spawn(async move {
         let mut success = true;
+        // Why it failed, so the card can say more than "Execution failed".
+        // Deliberately names the step — "Check failed" alone doesn't tell you
+        // which of six steps it was.
+        let mut failure_detail: Option<String> = None;
         let total = resolved_steps.len();
 
         for (i, step) in resolved_steps.iter().enumerate() {
@@ -3540,11 +3572,21 @@ fn execute_run_script(
                                 );
                             }
                             if !out.status.success() {
-                                if *is_check {
+                                let msg = if *is_check {
                                     let msg = fail_message.as_deref().unwrap_or("Check failed");
                                     log::warn!("[script:{}] Check failed: {}", task_id, msg);
-                                }
+                                    msg.to_string()
+                                } else {
+                                    let code = out
+                                        .status
+                                        .code()
+                                        .map(|c| c.to_string())
+                                        .unwrap_or_else(|| "signal".to_string());
+                                    format!("exited {}", code)
+                                };
                                 if !continue_on_error {
+                                    failure_detail =
+                                        Some(format!("Step '{}' failed: {}", name, msg));
                                     success = false;
                                     break;
                                 }
@@ -3558,6 +3600,8 @@ fn execute_run_script(
                                 e
                             );
                             if !continue_on_error {
+                                failure_detail =
+                                    Some(format!("Step '{}' could not run: {}", name, e));
                                 success = false;
                                 break;
                             }
@@ -3621,7 +3665,13 @@ fn execute_run_script(
                         e
                     );
                 }
-                if let Err(e) = super::mark_complete(&conn, &app_handle, &task_id, success) {
+                if let Err(e) = super::mark_complete_with_error(
+                    &conn,
+                    &app_handle,
+                    &task_id,
+                    success,
+                    failure_detail.as_deref(),
+                ) {
                     log::error!("[script:{}] mark_complete failed: {}", task_id, e);
                 }
             }
